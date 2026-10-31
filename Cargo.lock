@@ -398,6 +398,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "fluut-io-step"
+version = "0.1.0"
+dependencies = [
+ "memchr",
+ "thiserror",
+]
+
+[[package]]
 name = "fluut-model"
 version = "0.1.0"
 dependencies = [
