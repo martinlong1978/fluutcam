@@ -83,8 +83,9 @@ All M0 and M1 Global Constraints apply. In addition:
 **Files:** Create `src/format.rs`, `src/template.rs`
 - `fn format_number(v: f64, f: &NumFmt) -> String` per D10 §4.3 (`decimals`, `scale`, `sign`, `trailing_zeros`, `leading_zero`, `pad_width`, `decimal_char`); `fn round_dec(v, decimals) -> f64` used by the emitter for rounded positions.
 - Template tokens `Lit | Word | Placeholder` (D10 §3.1); `compile_line(&str, &Post) -> Result<Line, PostError>` resolves `[NAME]` to a word, else a built-in placeholder (spec 05 §5.4.2), else an error naming block and line. Conditional lines compile their `when` expression.
-- [ ] **Step 1:** Tests: rounding cases in Review Focus 1; `-0` never printed; leading-zero and trailing-zero options; decimal comma; padding; unknown placeholder error; template tokenisation of `"G1 [X][Y] F[F]"`.
-- [ ] **Step 2:** Fail, implement, pass.
+- [x] **Step 1:** Tests: rounding cases in Review Focus 1; `-0` never printed; leading-zero and trailing-zero options; decimal comma; padding; unknown placeholder error; template tokenisation of `"G1 [X][Y] F[F]"`.
+- [x] **Step 2:** Fail, implement, pass.
+- **Done.** `pad_width` is the minimum count of integer digits (zero-padded, e.g. `T01`); `sign = "always"` puts `+` on zero and positive values; with `trailing_zeros = false` a whole number has no decimal point. `[NAME]` is a token only when `NAME` is ASCII letters, digits and `_`; other brackets are literal. `CompiledPost::compile(LoadedPost)` compiles every block and reports all template errors together; it also adds `[COMMENT]` and `[DWELL]` placeholders for `manual_nc`.
 
 ### Task 6: Emitter core
 

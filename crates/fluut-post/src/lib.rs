@@ -7,8 +7,11 @@
 //! formatting and the G-code emitter.
 
 pub mod expr;
+pub mod format;
 pub mod merge;
 pub mod post;
+pub mod template;
 
 pub use merge::{POST_FORMAT, PostMerger, flatten, resolve_post};
 pub use post::{LoadedPost, Post, PostError};
+pub use template::{CompiledPost, TemplateError};
