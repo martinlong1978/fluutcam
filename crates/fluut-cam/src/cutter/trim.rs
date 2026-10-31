@@ -339,12 +339,10 @@ impl Trim {
         }
         if let Some(pa) = period_a {
             let ref_a = ab[0][0][0];
-            for (l, d) in ab.iter_mut().zip(&drifts) {
-                if d[ka] == 0.0 {
-                    let shift = pa * ((ref_a - l[0][0]) / pa).round();
-                    for p in l.iter_mut() {
-                        p[0] += shift;
-                    }
+            for l in &mut ab {
+                let shift = pa * ((ref_a - l[0][0]) / pa).round();
+                for p in l.iter_mut() {
+                    p[0] += shift;
                 }
             }
         }

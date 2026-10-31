@@ -6,9 +6,9 @@
 //! with `τ = p.z − h(d(p))`. So a solver can miss the contact (and the
 //! caller gouges) but never place the tool too high.
 
-use super::geom::{QueryFace, QueryGeometry};
+use super::geom::{QueryFace, QueryGeometry, curve_box};
 use super::profile::Cutter;
-use fluut_geom::{Curve3, Interval, Point3, SurfDerivs, Surface, Tol, UvBox, Vec3};
+use fluut_geom::{Aabb3, Curve3, Interval, Point3, SurfDerivs, Surface, Tol, UvBox, Vec3};
 use std::f64::consts::{FRAC_PI_2, TAU};
 
 /// Where the tool touches.
@@ -217,22 +217,33 @@ fn footprint_runs(curve: &Curve3, range: Interval, ax: Axis, c: &Cutter) -> Vec<
     let breaks = curve.breaks(range);
     let mut ts: Vec<f64> = Vec::new();
     for w in breaks.windows(2) {
-        let probe: Vec<Point3> = (0..=8)
-            .map(|i| curve.eval(w[0] + (w[1] - w[0]) * i as f64 / 8.0))
-            .collect();
-        let len: f64 = probe.windows(2).map(|p| p[0].distance(p[1])).sum();
+        // Pieces whose box is out of reach get one sample (it is outside).
+        let b = curve_box(curve, Interval { lo: w[0], hi: w[1] });
+        let dx = (b.min.x() - ax.x).max(ax.x - b.max.x()).max(0.0);
+        let dy = (b.min.y() - ax.y).max(ax.y - b.max.y()).max(0.0);
+        if libm::hypot(dx, dy) > rad {
+            ts.push(w[0]);
+            continue;
+        }
+        // The box diagonal bounds the chord; arcs add at most π/2 of it.
+        let len = 1.6 * (b.max - b.min).length();
         let n = ((len / (0.25 * rad)).ceil() as usize).clamp(4, 4000);
         for i in 0..n {
             ts.push(w[0] + (w[1] - w[0]) * i as f64 / n as f64);
         }
     }
     ts.push(range.hi);
-    // Near misses: a local minimum of d between samples may dip inside.
+    // Near misses: a local minimum of d between samples may dip inside if
+    // it is within a sample spacing of the rim.
     let ds: Vec<f64> = ts.iter().map(|&t| d(t)).collect();
     let mut extra = Vec::new();
     for i in 1..ts.len() - 1 {
-        if ds[i] > rad && ds[i] <= ds[i - 1] && ds[i] <= ds[i + 1] {
-            let (t, neg) = maximize(|t| Some(-d(t)), ts[i - 1], ts[i + 1], 1e-12);
+        if ds[i] > rad
+            && ds[i] <= ds[i - 1]
+            && ds[i] <= ds[i + 1]
+            && ds[i] < rad + curve.eval(ts[i - 1]).distance(curve.eval(ts[i + 1]))
+        {
+            let (t, neg) = maximize(|t| Some(-d(t)), ts[i - 1], ts[i + 1], 1e-10);
             if -neg <= rad {
                 extra.push(t);
             }
@@ -242,17 +253,43 @@ fn footprint_runs(curve: &Curve3, range: Interval, ax: Axis, c: &Cutter) -> Vec<
         ts.extend(extra);
         ts.sort_by(f64::total_cmp);
     }
+    // The rim crossing between an inside point a and an outside point b:
+    // Illinois false position on d − R, keeping the inside end.
     let bisect = |mut a: f64, mut b: f64| {
-        // a inside, b outside.
-        for _ in 0..80 {
-            let m = 0.5 * (a + b);
-            if m == a || m == b {
+        let (mut fa, mut fb) = (d(a) - rad, d(b) - rad);
+        let mut side = 0;
+        for _ in 0..60 {
+            let m = if fb != fa {
+                (a * fb - b * fa) / (fb - fa)
+            } else {
+                0.5 * (a + b)
+            };
+            let m = if m.is_finite() && (m - a) * (m - b) < 0.0 {
+                m
+            } else {
+                0.5 * (a + b)
+            };
+            if m == a || m == b || (a - b).abs() <= 1e-15 * (1.0 + a.abs()) {
                 break;
             }
-            if inside(m) {
+            let fm = d(m) - rad;
+            if fm <= 0.0 {
                 a = m;
+                fa = fm;
+                if side == -1 {
+                    fb *= 0.5;
+                }
+                side = -1;
             } else {
                 b = m;
+                fb = fm;
+                if side == 1 {
+                    fa *= 0.5;
+                }
+                side = 1;
+            }
+            if fa.abs() < 1e-13 * rad {
+                break;
             }
         }
         a
@@ -300,7 +337,7 @@ pub fn edge(g: &QueryGeometry, i: u32, ax: Axis, c: &Cutter) -> Option<Contact> 
             let is_max = (k == 0 || up(k - 1)) && (k + 1 == run.len() || up(k + 1));
             if is_max && run.len() > 1 {
                 let (a, b) = (run[k.saturating_sub(1)], run[(k + 1).min(run.len() - 1)]);
-                let (t, v) = maximize(f, a, b, 1e-12);
+                let (t, v) = maximize(f, a, b, 1e-9);
                 if v.is_finite() {
                     take(t, v);
                 }
@@ -323,6 +360,7 @@ fn analytic_uv(s: &Surface, p: Point3) -> (f64, f64) {
     let b = match s {
         Surface::Sphere { .. } => UvBox::new(turn, iv(-FRAC_PI_2, FRAC_PI_2)),
         Surface::Plane { .. } => UvBox::new(big, big),
+        Surface::Torus { .. } => UvBox::new(turn, turn),
         _ => UvBox::new(turn, big),
     };
     let c = s.closest(p, b, &Tol::for_machining(1e-7, 1e-4));
@@ -500,7 +538,7 @@ fn newton_contact(
     let resid =
         |u: f64, v: f64| contact_map(s, c, u, v).map(|(g, j)| ([g[0] - ax.x, g[1] - ax.y], j));
     let (mut r, mut j) = resid(u, v)?;
-    for _ in 0..40 {
+    for _ in 0..20 {
         let rn = libm::hypot(r[0], r[1]);
         if rn < tol {
             return Some((u, v));
@@ -581,19 +619,24 @@ fn vertical_project(
     bounds: UvBox,
 ) -> Option<(f64, f64)> {
     let (mut u, mut v) = start;
-    for _ in 0..20 {
+    for _ in 0..12 {
         let d = s.derivs(u, v);
         let r = [x - d.p.x(), y - d.p.y()];
+        if libm::hypot(r[0], r[1]) < 1e-6 {
+            return Some((u, v));
+        }
         let j = [[d.su.x(), d.sv.x()], [d.su.y(), d.sv.y()]];
         let step = solve2(j, r)?;
         let scale = d.su.length().max(d.sv.length()).max(1e-300);
         // Keep steps within about a radian of the surface parametrisation.
         let len = (d.su * step[0] + d.sv * step[1]).length();
         let k = (scale * 2.0 / len.max(1e-300)).min(1.0);
-        (u, v) = bounds.clamp(u + k * step[0], v + k * step[1]);
-        if libm::hypot(r[0], r[1]) < 1e-9 {
+        let (nu, nv) = bounds.clamp(u + k * step[0], v + k * step[1]);
+        if (d.su * (nu - u) + d.sv * (nv - v)).length() < 1e-9 {
+            // Stuck on the parameter box: the target is off the face.
             return Some((u, v));
         }
+        (u, v) = (nu, nv);
     }
     Some((u, v))
 }
@@ -604,6 +647,7 @@ fn numeric(
     face: u32,
     s: &Surface,
     uv: UvBox,
+    bx: &Aabb3,
     ax: Axis,
     c: &Cutter,
     seeding: &Seeding,
@@ -621,6 +665,15 @@ fn numeric(
         }
     }
     let rad = c.radius();
+    let analytic = matches!(
+        s,
+        Surface::Plane { .. }
+            | Surface::Cylinder { .. }
+            | Surface::Cone { .. }
+            | Surface::Sphere { .. }
+            | Surface::Torus { .. }
+    );
+    let zmid = 0.5 * (bx.min.z() + bx.max.z());
     let mut targets = vec![(ax.x, ax.y)];
     for ring in 1..=seeding.rings {
         let rr = rad * ring as f64 / seeding.rings as f64 * (1.0 - 1e-3);
@@ -636,14 +689,30 @@ fn numeric(
     };
     let mut seeds: Vec<(f64, f64, f64)> = grid.iter().map(|g| (estimate(g.0), g.1, g.2)).collect();
     for (tx, ty) in targets {
-        let start = grid
-            .iter()
-            .min_by(|a, b| {
-                let da = (a.0.x() - tx).powi(2) + (a.0.y() - ty).powi(2);
-                let db = (b.0.x() - tx).powi(2) + (b.0.y() - ty).powi(2);
-                da.total_cmp(&db)
-            })
-            .map(|g| (g.1, g.2))?;
+        if tx < bx.min.x() || tx > bx.max.x() || ty < bx.min.y() || ty > bx.max.y() {
+            continue;
+        }
+        let start = if analytic {
+            // Closed-form closest point to the target at mid height, moved
+            // into the face's parameter box by whole periods.
+            let (mut u, mut v) = analytic_uv(s, Point3::new(tx, ty, zmid));
+            let (pu, pv) = s.periodicity();
+            if let Some(p) = pu {
+                u += p * ((q.uv.u.at(0.5) - u) / p).round();
+            }
+            if let Some(p) = pv {
+                v += p * ((q.uv.v.at(0.5) - v) / p).round();
+            }
+            (u, v)
+        } else {
+            grid.iter()
+                .min_by(|a, b| {
+                    let da = (a.0.x() - tx).powi(2) + (a.0.y() - ty).powi(2);
+                    let db = (b.0.x() - tx).powi(2) + (b.0.y() - ty).powi(2);
+                    da.total_cmp(&db)
+                })
+                .map(|g| (g.1, g.2))?
+        };
         if let Some((u, v)) = vertical_project(s, tx, ty, start, q.uv) {
             seeds.push((estimate(s.eval(u, v)), u, v));
         }
@@ -686,10 +755,12 @@ fn numeric(
 }
 
 /// Highest contact on face primitive `(face, uv)`.
+#[allow(clippy::too_many_arguments)]
 pub fn face(
     g: &QueryGeometry,
     face: u32,
     uv: UvBox,
+    bx: &Aabb3,
     ax: Axis,
     c: &Cutter,
     seeding: &Seeding,
@@ -709,7 +780,7 @@ pub fn face(
         }
         _ => {
             stats.faces_numeric += 1;
-            numeric(q, face, s, uv, ax, c, seeding, stats)
+            numeric(q, face, s, uv, bx, ax, c, seeding, stats)
         }
     }
 }

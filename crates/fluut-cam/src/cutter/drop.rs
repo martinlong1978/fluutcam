@@ -58,7 +58,7 @@ pub fn solve_prim(
             stats.edges += 1;
             solve::edge(g, e, ax, c)
         }
-        Prim::Face { face, uv } => solve::face(g, face, uv, ax, c, seeding, stats),
+        Prim::Face { face, uv } => solve::face(g, face, uv, g.prim_box(i), ax, c, seeding, stats),
     }
 }
 

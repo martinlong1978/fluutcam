@@ -5,7 +5,7 @@
 //! compass search (faces) and Brent's method (edges). Independent of the
 //! solvers' contact conditions; slow.
 
-use super::geom::QueryGeometry;
+use super::geom::{Prim, QueryGeometry};
 use super::profile::Cutter;
 use super::solve::{Axis, maximize};
 use fluut_geom::Aabb3;
@@ -29,12 +29,33 @@ fn near(b: &Aabb3, ax: Axis, r: f64) -> bool {
 pub fn reference(g: &QueryGeometry, c: &Cutter, ax: Axis, n: Density) -> Option<f64> {
     let mut best = f64::NEG_INFINITY;
     let rad = c.radius();
+    // Primitives whose boxes reach the footprint (a box query, no bounds).
+    let reach = Aabb3::from_points(&[
+        fluut_geom::Point3::new(ax.x - rad, ax.y - rad, -1e300),
+        fluut_geom::Point3::new(ax.x + rad, ax.y + rad, 1e300),
+    ]);
+    let mut faces = std::collections::BTreeMap::new();
+    let mut edges = std::collections::BTreeSet::new();
+    for i in g.bvh.query(&reach) {
+        match g.prims[i as usize] {
+            Prim::Face { face, .. } if near(g.prim_box(i), ax, rad) => {
+                let b = g.prim_box(i);
+                let size: &mut f64 = faces.entry(face).or_insert(0.0);
+                *size = size.max((b.max - b.min).length());
+            }
+            Prim::Edge(e) => {
+                edges.insert(e);
+            }
+            _ => {}
+        }
+    }
     for v in &g.body.vertices {
         if let Some(t) = ax.tau(c, v.p) {
             best = best.max(t);
         }
     }
-    for e in &g.body.edges {
+    for &ei in &edges {
+        let e = &g.body.edges[ei as usize];
         let Some(ci) = e.curve else { continue };
         let curve = &g.body.curves[ci as usize];
         let f = |t: f64| ax.tau(c, curve.eval(t));
@@ -52,24 +73,17 @@ pub fn reference(g: &QueryGeometry, c: &Cutter, ax: Axis, n: Density) -> Option<
             }
         }
     }
-    for (fi, f) in g.body.faces.iter().enumerate() {
-        let Some(q) = &g.faces[fi] else { continue };
-        let s = &g.body.surfaces[f.surface as usize];
-        let uv = q.uv;
-        // Skip faces whose primitives are all away from the axis.
-        let close = g.prims.iter().enumerate().any(|(i, p)| {
-            matches!(p, super::geom::Prim::Face { face, .. } if *face as usize == fi)
-                && near(g.prim_box(i as u32), ax, rad)
-        });
-        if !close {
+    for (&fi, size) in &faces {
+        let Some(q) = &g.faces[fi as usize] else {
             continue;
-        }
-        let m = n.face.max(2);
+        };
+        let s = &g.body.surfaces[g.body.faces[fi as usize].surface as usize];
+        let uv = q.uv;
+        // At least one sample per tenth of the tool radius on large faces.
+        let m = ((size / (0.1 * rad)).ceil() as usize).clamp(n.face.max(2), 300);
         let val = |u: f64, v: f64| {
-            if !q.trim.contains(u, v) {
-                return None;
-            }
-            ax.tau(c, s.eval(u, v))
+            let t = ax.tau(c, s.eval(u, v))?;
+            q.trim.contains(u, v).then_some(t)
         };
         let mut samples: Vec<(f64, f64, f64)> = Vec::new();
         for i in 0..=m {
