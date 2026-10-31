@@ -1,0 +1,398 @@
+# Design Challenges
+
+Problems found during detailed design. Each has a status:
+
+- **deferred** — the design works around it for now; revisit at the end of the design pass.
+- **blocking** — design cannot continue on that topic without a decision; raised with the
+  product owner.
+- **resolved** — decided; the resolution is recorded here and in the affected documents.
+
+| Id | Title | Raised in | Status |
+|---|---|---|---|
+| CH-01 | Cross-platform floating-point determinism | D01 §6 | resolved |
+| CH-02 | Document data structure and undo memory | D01 §3.1 | deferred |
+| CH-03 | Tangential and degenerate plane sections | D02 §5, D03 §5.1 | deferred |
+| CH-04 | Self-intersecting offsets of free-form surfaces | D02 §4.3 | deferred |
+| CH-05 | Silhouette outline robustness for free-form faces | D03 §5.3 | deferred |
+| CH-06 | Mesh region grouping for selection | D03 §1.2 | deferred |
+| CH-07 | Reference results for the STEP test corpus | D04 §10 | resolved |
+| CH-08 | P-curves on B-spline faces near seams and singularities | D04 §5.2 | deferred |
+| CH-09 | DXF reader coverage | D05 §3 | deferred |
+| CH-10 | EPS import dropped from v1 (design assumption) | D05 §4 | resolved |
+| CH-11 | Definition version scheme | D06 §4.2 | resolved |
+| CH-12 | Free-form face contact convergence and seeding | D07 §4.3 | deferred |
+| CH-13 | B-spline boundaries through a lines-and-arcs offset library | D08 §3.1 | deferred |
+| CH-14 | 3-D finishing toolpaths do not update in-process stock | D08 §7 | deferred |
+| CH-15 | Reframing layered stock between indexed Setups | D08 §7 | deferred |
+| CH-16 | Adaptive clearing: robustness and speed | D09 §2.3 | deferred |
+| CH-17 | Exact medial axis for lines and arcs | D09 §2.6 | deferred |
+| CH-18 | Scallop variable-distance offsetting | D09 §4.7 | deferred |
+| CH-19 | Offsets in unrolled rotary coordinates | D09 §5.1 | deferred |
+| CH-20 | Cutter-compensation events missing from the spec | D10 §4.6 | resolved |
+| CH-21 | Vectric value-format field semantics | D10 §6.1 | resolved |
+| CH-22 | Simulation memory and speed at fine resolution | D11 §2 | deferred |
+| CH-23 | Live pass preview cost while dragging | D13 §5.3 | deferred |
+| CH-24 | Mirror transforms: face sense and p-curves | D02 §1, D03 §2 | resolved |
+
+## End-of-pass review (2026-10-31)
+
+No challenge blocked the design. Six needed product-owner decisions and are resolved; the rest are deferred. Grouped by what resolves them:
+
+**Product-owner decisions** — all resolved 2026-10-31 (CH-01, CH-07, CH-10, CH-11, CH-20,
+CH-21); see each challenge's resolution below.
+
+**Resolved by early prototypes or spikes** (implementation phase, time-boxed)
+
+| Spike | Challenges |
+|---|---|
+| Kernel / STEP spike (OQ-01) | CH-03, CH-04, CH-08, CH-12 |
+| 2-D geometry spike (offsets, medial axis, adaptive) | CH-13, CH-16, CH-17, CH-18, CH-19 |
+| Importer spike | CH-09 |
+| UI prototype (OQ-09) | CH-02, CH-23 |
+| Simulation prototype | CH-22 |
+
+**Deferred to later features** (acceptable in v1 as designed)
+
+| Id | Note |
+|---|---|
+| CH-05 | Fallback outline with warning |
+| CH-06 | Adjustable grouping, brush/lasso selection |
+| CH-14 | Conservative rest stock after finishing |
+| CH-15 | Conservative stock between indexed Setups |
+
+## Details
+
+### CH-01 Cross-platform floating-point determinism
+
+**Problem.** D01 §6 requires bit-identical results on all platforms. IEEE-754 basic operations
+(+ − × ÷ sqrt) are deterministic, but `sin`, `cos`, `acos`, `atan2`, `exp` call the platform libm,
+which can differ in the last bit between Windows (MSVC CRT), macOS and Linux (glibc/musl). FMA
+contraction by the compiler can also change results.
+
+**Impact.** Golden-file post tests and cache keys could differ by platform. Toolpath geometry
+differences would be ~1e-16 relative, far below tolerance, but bitwise comparison fails.
+
+**Workaround for now.** Use a pure-Rust libm (`libm` crate) for all transcendental functions in
+`fluut-geom` and `fluut-cam`, and disable FMA contraction (Rust does not contract by default).
+Golden tests compare G-code text, where rounding to output decimals hides last-bit differences
+in most cases.
+
+**Revisit.** Measure the speed cost of `libm` vs platform functions; decide whether
+cross-platform bit-identity is required or only same-platform determinism.
+
+**Resolution (2026-10-31).** Bit-identical results on all platforms are required. All transcendental maths in `fluut-geom`, `fluut-cam`, `fluut-sim` and `fluut-post` uses the pure-Rust `libm` crate; platform `f64` methods for sin/cos/etc. are banned there by a clippy `disallowed_methods` lint. The CI determinism job compares hashes across platforms (D14 §3).
+
+### CH-02 Document data structure and undo memory
+
+**Problem.** D01 §3.1 needs cheap snapshots of the project for background jobs, and D06 needs
+undo. Options: persistent collections (`im`, `rpds`), `Arc` copy-on-write per Setup/Toolpath, or
+command-based undo with mutable state plus explicit snapshots.
+
+**Impact.** Affects every edit path, script API and UI binding.
+
+**Workaround for now.** D06 designs the document as a tree of `Arc` nodes with copy-on-write at
+Setup and Toolpath granularity (project documents are small: geometry is shared separately).
+Undo stores previous root `Arc`s.
+
+**Revisit.** Validate memory and speed with a 200-toolpath project during the UI prototype.
+
+### CH-03 Tangential and degenerate plane sections
+
+**Problem.** Roughing and waterline levels are placed exactly at the heights of flat faces
+[S 04 §4.4–4.5]. A section plane at exactly such a height is tangent to that face, and often
+tangent to fillets and cylinder tops that meet it. Marching and chaining are ill-conditioned
+there: curves degenerate to areas or points.
+
+**Workaround for now.** `section_plane` returns coincident planar faces separately (`flats`) and
+sections at `z ± δ` (δ = 10·ε_s) on the side the strategy needs (just above for "floor" levels).
+Loops from the offset plane are then snapped to the exact flat-face boundary edges where they
+coincide within tol_model.
+
+**Revisit.** Verify on a corpus of parts with flats, fillets and bosses; consider a symbolic
+treatment of tangency for analytic faces (they are the common case).
+
+**Implementation note (M1, 2026-10-31).** Analytic sections flag tangent curves and touch
+points. The free-form marcher seeds on an 8×8 cell grid per patch, so a small closed loop
+lying entirely inside one cell (a bump top just cut by the plane) is missed. Fix candidates for
+S1: seed also from critical points of `n·S` (interior extrema), found by Newton from each cell.
+
+### CH-04 Self-intersecting offsets of free-form surfaces
+
+**Problem.** The offset of a concave free-form region by a tool radius larger than its radius of
+curvature folds over itself. Treating the offset surface as the CL surface then gives gouges or
+spurious loops.
+
+**Workaround for now.** Cutter queries never build explicit offset surfaces for free-form faces.
+They solve the contact condition directly and take the maximum over all contacts (D07), which is
+fold-free by construction. Explicit offsets are used only for analytic faces, where validity is
+checked (D02 §4.3).
+
+**Revisit.** Sections of CL surfaces for waterline on free-form faces (D09) may need explicit
+offsets; check whether contact-based sampling + fitting is fast enough there.
+
+### CH-05 Silhouette outline robustness for free-form faces
+
+**Problem.** The drive-face outline needs silhouette curves (n·z = 0) of free-form faces and a
+2-D union of many projected regions. Silhouettes can have cusps and tiny loops; unions of
+near-coincident boundaries are fragile.
+
+**Workaround for now.** Outline = union of projected face boundaries plus silhouettes computed by
+marching on n·z = 0, simplified by biarc fitting at `machining/2`. Where the union fails, fall
+back to the outline of the projected face bounds offset by the tool radius and report a warning.
+
+**Revisit.** Test on organic models (relief, mould cavities).
+
+### CH-06 Mesh region grouping for selection
+
+**Problem.** STL meshes have no faces, so selectable regions are made by a dihedral-angle flood
+fill. A fixed 20° threshold over-merges smooth organic meshes (one region) and over-splits coarse
+cylinders (many regions).
+
+**Workaround for now.** 20° default, user-adjustable per body; selection also supports brush and
+lasso on triangles.
+
+**Revisit.** Combine with mesh-to-analytic recognition when OQ-02 is implemented.
+
+### CH-07 Reference results for the STEP test corpus
+
+**Problem.** STEP import tests need reference face counts, areas and topology checks from an
+independent kernel. Rust-only (DC-03) means no OCCT in the product, but the tests could still use
+one.
+
+**Workaround for now.** Generate reference fixtures once with an external tool (e.g. a FreeCAD
+or OCCT script run by a developer, outside the product build), and commit the fixtures. CI only
+compares against the stored fixtures, so no C++ enters the build.
+
+**Revisit.** Confirm this is acceptable under the FFI policy (OQ-08): it is a test-data tool,
+not a dependency.
+
+**Resolution (2026-10-31).** Allowed. Developers may generate STEP reference fixtures with an external tool (e.g. a FreeCAD/OCCT script) outside the product build. Fixtures are committed; no C++ enters the build or CI.
+
+### CH-08 P-curves on B-spline faces near seams and singularities
+
+**Problem.** Files that omit p-curves force projection of 3-D edges onto surfaces. Near seams of
+periodic B-splines and near singular points (poles of revolved surfaces, collapsed edges),
+projection is ambiguous and Newton can jump across the seam.
+
+**Workaround for now.** Project with continuity: seed each sample from the previous sample's
+(u,v), unwrap across the period, and check against neighbouring coedges' p-curves. Faces where
+this fails are excluded and reported.
+
+**Revisit.** Measure the failure rate on the corpus during the OQ-01 spike.
+
+### CH-09 DXF reader coverage
+
+**Problem.** The `dxf` crate may not handle all real-world files (binary DXF, newer versions,
+malformed exports).
+
+**Workaround for now.** Use it in the spike; fall back to an own group-code reader if coverage is
+poor.
+
+**Revisit.** After running the DXF corpus.
+
+### CH-10 EPS import dropped from v1 (design assumption)
+
+**Problem.** The spec left EPS open. Parsing PostScript properly needs an interpreter; only simple
+"flattened" EPS is practical.
+
+**Workaround for now.** Design assumes no EPS in v1; SVG and DXF cover 2-D input.
+
+**Revisit.** Product owner to confirm at the end of the design pass.
+
+**Resolution (2026-10-31).** Confirmed: no EPS import in v1. Spec updated [S 02 §2.6].
+
+### CH-11 Definition version scheme
+
+**Problem.** The spec gives definitions an integer `version` that increases on every saved
+change [S 03 §3.7], but its examples use ranges like `@^1` [S 02 §2.2], which only make sense
+with a major/minor split. With integers, any edit to a base post is indistinguishable from a
+breaking change, so `extends` must either pin exactly (no fixes flow through) or accept anything
+(silent output changes).
+
+**Workaround for now.** Design uses `major.minor` versions: minor = additive or fix, major = may
+change output. `@3` = latest 3.x. Saved user edits bump the minor automatically; the user chooses
+"breaking change" to bump the major.
+
+**Revisit.** Product owner to confirm; then update [S 02 §2.2–2.3], [S 03 §3.7], [S 05 §5.2].
+
+**Resolution (2026-10-31).** Confirmed: definition versions are `major.minor`. Spec updated [S 02 §2.2–2.3, S 03 §3.7].
+
+### CH-12 Free-form face contact convergence and seeding
+
+**Problem.** The general face-interior contact is a 2-D Newton solve on a non-convex function.
+Poor seeds converge to a non-maximal stationary point (missing the true contact → gouge) or fail.
+Bull-nose tools on saddle-shaped faces are the hardest case.
+
+**Workaround for now.** Seeds from closest point and from every Bézier patch in the footprint;
+branch-and-bound ensures every candidate whose upper bound exceeds the current best is solved;
+non-convergence is reported, never ignored. The brute-force reference test (D07 §9) guards
+correctness.
+
+**Revisit.** Measure miss and failure rates on free-form corpus parts; consider interval
+arithmetic on patches for guaranteed bounds if misses occur.
+
+### CH-13 B-spline boundaries through a lines-and-arcs offset library
+
+**Problem.** `cavalier_contours` (OQ-06) handles lines and arcs only. B-spline boundaries are
+biarc-fitted, so offsets and clips are computed on an approximation. Endpoint refinement onto
+the exact curve (D08 §3.1) fixes endpoints, but region topology (e.g. whether two boundaries
+touch) is decided on the approximation.
+
+**Workaround for now.** Fit at `machining/4`; refine every clip point on the exact source curve;
+report when refinement moves a point by more than the fit tolerance (indicates a topology
+mismatch).
+
+**Revisit.** If problems appear, extend the offsetter to native B-spline offsets locally, or
+fit at a tighter tolerance near near-touching features.
+
+### CH-14 3-D finishing toolpaths do not update in-process stock
+
+**Problem.** Layered 2-D stock (OQ-11) represents material per Z level. A 3-D finishing pass
+removes material in a shape that is not level-based; converting its swept volume into level
+regions is expensive.
+
+**Workaround for now.** In v1 only roughing and 2-D toolpaths update stock. Rest machining after
+finishing toolpaths uses the stock after the last roughing toolpath, which is conservative (more
+air cutting, never missed material).
+
+**Revisit.** Needed for `rest_finishing` (later): a per-face reach comparison method, not stock
+layers.
+
+### CH-15 Reframing layered stock between indexed Setups
+
+**Problem.** A child indexed Setup at a different angle needs the parent's remaining stock in its
+own frame (OQ-15). Layered stock is defined per level in the parent frame; rotating it is not a
+layered structure any more.
+
+**Workaround for now.** Convert to prisms between levels, rotate, re-slice at the child's levels.
+Conservative where the prism approximation keeps material between levels (stepped walls).
+
+**Revisit.** Check air-cutting overhead on typical rotary-then-indexed jobs; consider finer
+re-slicing near the parent's walls.
+
+### CH-16 Adaptive clearing: robustness and speed
+
+**Problem.** Constant-engagement clearing is the hardest v1 strategy. Published and open-source
+implementations (e.g. FreeCAD's Adaptive) track the cleared area on an integer polygon grid,
+which DC-02 rules out. Exact arc-based engagement computation must stay fast with thousands of
+steps per level, and the marching must not stall in narrow necks or leave uncut slivers.
+
+**Workaround for now.** Design as in D09 §2.3 with exact arc regions; a sliver-cleanup pass
+(contour of `C \ K` at the end of each level); time-boxed prototype early in implementation.
+
+**Revisit.** After a prototype: measure speed and sliver rate; if needed, simplify (e.g.
+trochoidal slotting in necks, offset-pattern fallback with feed reduction).
+
+### CH-17 Exact medial axis for lines and arcs
+
+**Problem.** V-carving needs the medial axis of regions bounded by lines and arcs. Available Rust
+Voronoi crates (e.g. `boostvoronoi`) work on integer points and segments only, which loses arcs
+and quantizes (DC-02).
+
+**Workaround for now.** Own implementation: incremental Voronoi of line and arc sites in
+floating point with robust predicates (adaptive precision where needed), restricted to the
+interior. Bisector types: line–line (line), line–arc (parabola), arc–arc (conic).
+
+**Revisit.** Estimate effort after CH-16's prototype; consider deferring `engrave` to after v1 if
+the medial axis is too costly.
+
+### CH-18 Scallop variable-distance offsetting
+
+**Problem.** Constant 3-D stepover needs a 2-D offset whose distance varies with slope. The
+chosen offset library does uniform offsets only.
+
+**Workaround for now.** Uniform offset by the minimum distance per pass plus gap-filling passes
+(conservative, more passes than ideal).
+
+**Revisit.** Compare pass counts with Fusion on test parts; consider own variable offsetter.
+
+### CH-19 Offsets in unrolled rotary coordinates
+
+**Problem.** Rotary roughing works on the unrolled cylinder (x, r·θ). A disc of radius R on the
+real cylinder is not a disc in unrolled coordinates: its angular extent depends on the radius
+and the tool is not tangent to the unrolled plane. Uniform 2-D offsets by R are only accurate
+when R ≪ r.
+
+**Workaround for now.** Offset by the exact angular half-width at the layer radius
+(Δθ = asin(R/r)) in the θ direction and R in x, using an anisotropic offset (scale θ, offset,
+unscale); conservative rounding toward leaving material.
+
+**Revisit.** Validate on small-diameter stock where R/r is large.
+
+### CH-20 Cutter-compensation events missing from the spec
+
+**Problem.** `contour_2d` offers compensation "in control" and "wear" [S 04 §4.13.7], which need
+G41/G42/G40 output, but the post event list [S 05 §5.4.1] has no cutter-compensation blocks.
+
+**Workaround for now.** Design adds `cutter_comp_left`, `cutter_comp_right`, `cutter_comp_off`
+events (matching Vectric's blocks) and a `cutter-comp` mixin.
+
+**Revisit.** Update [S 05 §5.4.1] at the end of the design pass.
+
+**Resolution (2026-10-31).** Confirmed: `cutter_comp_left`, `cutter_comp_right`, `cutter_comp_off` events added to [S 05 §5.4.1].
+
+### CH-21 Vectric value-format field semantics
+
+**Problem.** Vectric's `VF` field (`FORMAT_FLAGS FIELD_WIDTH DECIMAL_SEPARATOR DECIMAL_PLACES`)
+is documented briefly; real posts use forms like `1.4`, `1.0`, `+.3`, `0.1`. The exact meaning of
+field width and flag combinations must be confirmed to convert posts byte-faithfully.
+
+**Workaround for now.** Implement the documented interpretation; validate against a corpus of
+public `.pp` files and, if possible, output samples produced by Vectric itself.
+
+**Revisit.** Needs sample outputs from Vectric software (product owner may be able to supply).
+
+**Resolution (2026-10-31).** Product owner will supply Vectric `.pp` files with matching G-code output; the importer is verified against them (D10 §9).
+
+### CH-22 Simulation memory and speed at fine resolution
+
+**Problem.** Tri-dexel memory grows with the square of resolution per family. Large stock at
+fine resolution (e.g. 1 m sheet at 0.05 mm) exceeds memory budgets; full simulation of millions
+of moves may be slow.
+
+**Workaround for now.** Automatic resolution from a memory budget; region-of-interest
+refinement; tile-based copy-on-write checkpoints.
+
+**Revisit.** Benchmark on large router jobs; consider GPU removal or adaptive (octree) dexels.
+
+### CH-23 Live pass preview cost while dragging
+
+**Problem.** [S 08 §8.4] asks for a live ghost of the pass pattern while editing stepover, angle
+or direction. A full calculation (drops, fitting, linking) is too slow to run per drag frame on
+complex parts.
+
+**Workaround for now.** The preview shows the 2-D drive pattern clipped to the region (D08 §3,
+§6; cheap), draped onto the display mesh on the GPU, not the true CL path. The real calculation
+runs when the drag ends (if auto-calculate is on).
+
+**Revisit.** UI prototype: check that the draped preview is convincing and fast enough.
+
+### CH-24 Mirror transforms: face sense and p-curves
+
+**Problem.** Found in implementation (M1). D02 §1 and D03 §2 said a mirroring transform flips
+the sense of every face. That holds only if the surface keeps its parametrisation, so that its
+normal maps to the opposite of the mirrored normal. Analytic surfaces cannot keep it: their
+frames must stay right-handed, so one parameter reverses and the normal stays outward. Scaling
+also rescales the length-like parameters of planes, cylinders, cones and extrusions, which moves
+p-curves.
+
+**Resolution (2026-10-31).** `fluut-geom` exposes, per surface kind,
+`Surface::transformed_param(a, u, v)` (parameter map) and `Surface::transform_flips_normal(a)`
+(whether face sense must toggle). D03 §2 uses both; a property test checks them against point
+and normal mapping for every kind.
+
+### CH-25 Geometry kernel misses some D02 §8 benchmark targets
+
+**Problem.** Found in M1 Task 7. Analytic eval, bicubic derivatives and analytic closest point
+run at about 1.7–1.8× their targets. Bicubic B-spline closest point runs at 99 µs against a 5 µs
+target. Drop-cutter (D05) calls closest point or its equivalent in its inner loop, so the
+B-spline figure sets the cost of 3-D finishing on freeform parts.
+
+**Workaround for now.** Branch-and-bound over Bézier patches by pole bounds, then damped
+Newton. Correct and 11× faster than the first grid seed. The targets were estimates, not
+measured requirements.
+
+**Revisit.** Spike S2 (drop-cutter cost model). Candidates: subdivide patches until their
+bounds are tight before seeding; seed from the previous query point (drop-cutter queries are
+spatially coherent); cache Bézier-form patches to skip knot-span work. Set the target from the
+S2 cost model rather than D02 §8's estimate.

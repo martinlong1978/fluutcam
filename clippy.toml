@@ -1,0 +1,19 @@
+# Transcendental functions differ between platform libms. FluutCAM requires
+# bit-identical results on every platform (design D01 §6, CH-01), so use the
+# pure-Rust `libm` crate instead. `sqrt` is IEEE correctly rounded and allowed.
+disallowed-methods = [
+    { path = "f64::sin", reason = "use libm::sin (D01 §6)" },
+    { path = "f64::cos", reason = "use libm::cos (D01 §6)" },
+    { path = "f64::tan", reason = "use libm::tan (D01 §6)" },
+    { path = "f64::sin_cos", reason = "use libm::sincos (D01 §6)" },
+    { path = "f64::asin", reason = "use libm::asin (D01 §6)" },
+    { path = "f64::acos", reason = "use libm::acos (D01 §6)" },
+    { path = "f64::atan", reason = "use libm::atan (D01 §6)" },
+    { path = "f64::atan2", reason = "use libm::atan2 (D01 §6)" },
+    { path = "f64::exp", reason = "use libm::exp (D01 §6)" },
+    { path = "f64::ln", reason = "use libm::log (D01 §6)" },
+    { path = "f64::log10", reason = "use libm::log10 (D01 §6)" },
+    { path = "f64::powf", reason = "use libm::pow (D01 §6)" },
+    { path = "f64::hypot", reason = "use libm::hypot (D01 §6)" },
+    { path = "f64::cbrt", reason = "use libm::cbrt (D01 §6)" },
+]

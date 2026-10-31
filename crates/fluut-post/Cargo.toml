@@ -1,0 +1,15 @@
+[package]
+name = "fluut-post"
+description = "FluutCAM post-processor engine: layered posts, templates, G-code emitter (design D10)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+fluut-model.workspace = true
+thiserror.workspace = true
+toml.workspace = true
+
+[lints]
+workspace = true

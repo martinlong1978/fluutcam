@@ -1,0 +1,18 @@
+# Crate layers from design D01 §1. A crate may depend only on crates with a
+# lower layer number. Every workspace crate except xtask must be listed.
+fluut-geom = 0
+fluut-topo = 1
+fluut-path = 1
+fluut-i18n = 1
+fluut-io-step = 2
+fluut-io-mesh = 2
+fluut-io-2d = 2
+fluut-model = 3
+fluut-cam = 4
+fluut-sim = 4
+fluut-post = 4
+fluut-post-import = 5
+fluut-core = 6
+fluut-script = 7
+fluut-cli = 8
+fluut-app = 8
