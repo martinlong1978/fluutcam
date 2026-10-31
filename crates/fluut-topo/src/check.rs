@@ -44,7 +44,8 @@ fn search_box(s: &Surface) -> Option<UvBox> {
 /// that should coincide.
 pub fn check(b: &BrepBody, tol: f64) -> Vec<Issue> {
     let mut out = Vec::new();
-    let gtol = Tol::for_machining(tol, 0.01);
+    // Solve closest points far below the gap being tested.
+    let gtol = Tol::for_machining(1e-7, 1e-4);
     for (ei, e) in b.edges.iter().enumerate() {
         let Some(c) = e.curve else { continue };
         let curve = &b.curves[c as usize];

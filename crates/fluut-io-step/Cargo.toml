@@ -7,6 +7,8 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+fluut-geom.workspace = true
+fluut-topo.workspace = true
 memchr.workspace = true
 thiserror.workspace = true
 

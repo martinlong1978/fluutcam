@@ -35,6 +35,13 @@ fn main() {
     let mut supported = std::collections::BTreeMap::<String, usize>::new();
     let mut unsupported = std::collections::BTreeMap::<String, (usize, usize)>::new();
     let mut schemas = std::collections::BTreeMap::<String, usize>::new();
+    let mut issues = std::collections::BTreeMap::<String, usize>::new();
+    let mut skips = std::collections::BTreeMap::<String, usize>::new();
+    let (mut n_bodies, mut n_failed, mut n_faces, mut n_skipped) = (0, 0, 0, 0);
+    let mut shells_ok_declared = 0;
+    let (mut shells, mut shells_ok, mut shells_ok_loose, mut closed, mut closed_ok) =
+        (0, 0, 0, 0, 0);
+    let (mut files_ok, mut map_secs) = (0, 0.0);
     for f in &files {
         let src = std::fs::read(f).expect("read");
         let t = Instant::now();
@@ -50,6 +57,60 @@ fn main() {
                 *schemas
                     .entry(format!("{:?}", fluut_io_step::schema(&m)))
                     .or_default() += 1;
+                let t = Instant::now();
+                let bodies = fluut_io_step::map_bodies(&m);
+                map_secs += t.elapsed().as_secs_f64();
+                let mut file_ok = true;
+                for r in bodies {
+                    n_bodies += 1;
+                    let Ok(mb) = r else {
+                        n_failed += 1;
+                        file_ok = false;
+                        continue;
+                    };
+                    n_faces += mb.body.faces.len();
+                    n_skipped += mb.skipped.len();
+                    for e in &mb.skipped {
+                        *skips.entry(e.msg.clone()).or_default() += 1;
+                        file_ok = false;
+                    }
+                    let strict = fluut_topo::check(&mb.body, mb.body.tol_model);
+                    let loose = fluut_topo::check(&mb.body, 1e-3);
+                    let declared = fluut_topo::check(
+                        &mb.body,
+                        mb.units.uncertainty_mm.unwrap_or(mb.body.tol_model),
+                    );
+                    for i in &strict {
+                        let k = format!("{i:?}");
+                        let k = k.split([' ', '{']).next().unwrap_or("").to_owned();
+                        *issues.entry(k).or_default() += 1;
+                    }
+                    for (si, sh) in mb.body.shells.iter().enumerate() {
+                        let mine = |is: &[fluut_topo::Issue]| {
+                            is.iter().any(|i| match i {
+                                fluut_topo::Issue::NotManifold { shell, .. } => {
+                                    *shell as usize == si
+                                }
+                                fluut_topo::Issue::OuterLoops { face, .. }
+                                | fluut_topo::Issue::LoopGap { face, .. }
+                                | fluut_topo::Issue::EdgeOffSurface { face, .. } => {
+                                    sh.faces.contains(face)
+                                }
+                                fluut_topo::Issue::VertexOffCurve { .. } => true,
+                            })
+                        };
+                        shells += 1;
+                        let ok = !mine(&strict);
+                        shells_ok += ok as usize;
+                        shells_ok_loose += !mine(&loose) as usize;
+                        shells_ok_declared += !mine(&declared) as usize;
+                        if sh.closed {
+                            closed += 1;
+                            closed_ok += ok as usize;
+                        }
+                    }
+                }
+                files_ok += file_ok as usize;
                 let c = fluut_io_step::census(&m);
                 for (k, n) in c.supported {
                     *supported.entry(k).or_default() += n;
@@ -76,6 +137,16 @@ fn main() {
         secs,
         bytes as f64 / 1e6 / secs
     );
+    println!(
+        "mapping: {n_bodies} bodies ({n_failed} failed), {n_faces} faces mapped, {n_skipped} skipped, {files_ok}/{} files fully mapped, {:.3} s",
+        files.len(),
+        map_secs
+    );
+    println!(
+        "validity: {shells_ok}/{shells} shells clean at tol_model (uncertainty clamped to [1e-7, 1e-2] mm), {shells_ok_declared} at the declared uncertainty, {shells_ok_loose} at 1e-3 mm; closed shells {closed_ok}/{closed}"
+    );
+    println!("issues at tol_model: {issues:?}");
+    println!("skipped faces: {skips:?}");
     println!("schemas: {schemas:?}");
     println!("supported entity kinds in bodies:");
     for (k, n) in &supported {
