@@ -245,3 +245,34 @@ mod props {
         }
     }
 }
+
+#[test]
+fn clip_line_through_plate() {
+    let iv = plate().clip_line(Point2::new(-5.0, 30.0), Vec2::new(1.0, 0.0));
+    assert_eq!(iv.len(), 2, "{iv:?}");
+    let want = [(5.0, 45.0), (65.0, 105.0)];
+    for (got, want) in iv.iter().zip(want) {
+        assert!(
+            close(got.0, want.0, 1e-12) && close(got.1, want.1, 1e-12),
+            "{iv:?}"
+        );
+    }
+    // Through the hole off-centre: chord ends at x = 50 ± √(100 − 36).
+    let iv = plate().clip_line(Point2::new(0.0, 36.0), Vec2::new(2.0, 0.0));
+    assert!(close(iv[0].1, (50.0 - 8.0) / 2.0, 1e-12), "{iv:?}");
+    assert!(close(iv[1].0, (50.0 + 8.0) / 2.0, 1e-12), "{iv:?}");
+}
+
+#[test]
+fn clip_line_tangent_and_edge() {
+    let c = Region2::circle(0.0, 0.0, 5.0);
+    assert!(
+        c.clip_line(Point2::new(-10.0, 5.0), Vec2::new(1.0, 0.0))
+            .is_empty()
+    );
+    let r = Region2::rect(0.0, 0.0, 10.0, 6.0);
+    let iv = r.clip_line(Point2::new(-1.0, 0.0), Vec2::new(1.0, 0.0));
+    assert_eq!(iv, vec![(1.0, 11.0)]);
+    let iv = r.clip_line(Point2::new(0.0, 0.0), Vec2::new(1.0, 1.0));
+    assert_eq!(iv, vec![(0.0, 6.0)]);
+}

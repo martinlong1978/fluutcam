@@ -355,11 +355,77 @@ impl Region2 {
         boolean::boolean(self, o, boolean::Op::Subtract)
     }
 
+    /// Parameter intervals `(t0, t1)` where the line `p + t · dir` lies in
+    /// the closed region, sorted and merged. Ends come from exact line–line
+    /// and line–circle intersections; single touching points are dropped.
+    pub fn clip_line(&self, p: Point2, dir: Vec2) -> Vec<(f64, f64)> {
+        let mut ts: Vec<f64> = self.segs().flat_map(|s| line_hits(&s, p, dir)).collect();
+        ts.sort_by(f64::total_cmp);
+        ts.dedup_by(|x, y| (*x - *y).abs() * dir.length() <= EPS);
+        let mut out: Vec<(f64, f64)> = Vec::new();
+        for w in ts.windows(2) {
+            let (t0, t1) = (w[0], w[1]);
+            if self.contains(p + dir * (0.5 * (t0 + t1))) == Inside::Out {
+                continue;
+            }
+            match out.last_mut() {
+                Some(last) if last.1 == t0 => last.1 = t1,
+                _ => out.push((t0, t1)),
+            }
+        }
+        out
+    }
+
     /// `(min, max)` corners of the bounding box.
     pub fn bbox(&self) -> (Point2, Point2) {
         let (x0, x1) = self.support(Vec2::new(1.0, 0.0));
         let (y0, y1) = self.support(Vec2::new(0.0, 1.0));
         (Point2::new(x0, y0), Point2::new(x1, y1))
+    }
+}
+
+/// Parameters `t` where the line `p + t · dir` meets a segment; both ends
+/// of a collinear overlap.
+fn line_hits(s: &Seg2, p: Point2, dir: Vec2) -> Vec<f64> {
+    let dd = dir.dot(dir);
+    match s.arc() {
+        None => {
+            let e = s.b - s.a;
+            let den = dir.perp_dot(e);
+            let w = s.a - p;
+            if den.abs() <= EPS * dir.length() * e.length() {
+                // Parallel: hits only when collinear, at both ends.
+                if w.perp_dot(dir).abs() <= EPS * dir.length() {
+                    return vec![w.dot(dir) / dd, (s.b - p).dot(dir) / dd];
+                }
+                return vec![];
+            }
+            let t = w.perp_dot(e) / den;
+            let u = w.perp_dot(dir) / den;
+            if (-EPS..=1.0 + EPS).contains(&u) {
+                vec![t]
+            } else {
+                vec![]
+            }
+        }
+        Some(g) => {
+            // |p + t·dir − c|² = r²
+            let w = p - g.centre;
+            let b = w.dot(dir);
+            let c = w.dot(w) - g.radius * g.radius;
+            let disc = b * b - dd * c;
+            if disc < 0.0 {
+                return vec![];
+            }
+            let r = disc.sqrt();
+            [(-b - r) / dd, (-b + r) / dd]
+                .into_iter()
+                .filter(|&t| {
+                    let q = p + dir * t;
+                    g.contains_angle(libm::atan2(q.y() - g.centre.y(), q.x() - g.centre.x()))
+                })
+                .collect()
+        }
     }
 }
 
