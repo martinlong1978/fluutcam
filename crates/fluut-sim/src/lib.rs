@@ -8,11 +8,15 @@
 
 pub mod dexel;
 pub mod gjk;
+pub mod motion;
+pub mod sim;
 pub mod stock;
 pub mod sweep;
 pub mod tool;
 
 pub use dexel::{DexelGrid, Span, TriDexel};
+pub use motion::Chorder;
+pub use sim::{Stats, cut};
 pub use stock::Stock;
 pub use sweep::Sweep;
 pub use tool::{Pose, Tool};
