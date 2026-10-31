@@ -44,11 +44,24 @@ lines = ["G1 [X] [Y] [Z] F[F]"]
 "#;
 
 fn compiled(extra: &str) -> CompiledPost {
+    compiled_stack(&[extra])
+}
+
+/// `extras` as a chain of child layers over the base post, each extending
+/// the one before, so they may set the same tables.
+fn compiled_stack(extras: &[&str]) -> CompiledPost {
     let mut s = MemStore::new();
     s.insert_toml(POST).unwrap();
-    s.insert_toml(&format!("id='c'\nversion='1.0'\nextends='t'\n{extra}"))
+    let mut parent = "t".to_owned();
+    for (i, x) in extras.iter().enumerate() {
+        let id = format!("c{i}");
+        s.insert_toml(&format!(
+            "id='{id}'\nversion='1.0'\nextends='{parent}'\n{x}"
+        ))
         .unwrap();
-    let r = resolve_post(&s, &DefRef::parse("c").unwrap(), None).unwrap();
+        parent = id;
+    }
+    let r = resolve_post(&s, &DefRef::parse(&parent).unwrap(), None).unwrap();
     CompiledPost::compile(Post::load(&r).unwrap()).unwrap()
 }
 
@@ -259,4 +272,282 @@ fn unsupported_segments_error() {
         post(&job(vec![toolpath("A", 1, r)]), &compiled("")),
         Err(EmitError::Unsupported { .. })
     ));
+}
+
+// --- arcs and helices (Task 7) ----------------------------------------------
+
+const ARCS: &str = r#"
+[arcs]
+enabled = true
+[words.I]
+prefix = "I"
+[words.J]
+prefix = "J"
+[words.K]
+prefix = "K"
+[blocks.arc_cw]
+lines = ["G2 [X] [Y] [Z] [I] [J] [K] F[F]"]
+[blocks.arc_ccw]
+lines = ["G3 [X] [Y] [Z] [I] [J] [K] F[F]"]
+"#;
+
+fn p3(c: [f64; 3]) -> AxisPos {
+    AxisPos::xyz(Point3::new(c[0], c[1], c[2]))
+}
+
+fn unit(v: [f64; 3]) -> fluut_geom::UnitVec3 {
+    fluut_geom::UnitVec3::new(fluut_geom::Vec3::new(v[0], v[1], v[2])).unwrap()
+}
+
+/// One arc (or helix) segment as the whole toolpath.
+fn arc_result(
+    a: [f64; 3],
+    b: [f64; 3],
+    c: [f64; 3],
+    n: [f64; 3],
+    sweep: f64,
+    helix: bool,
+) -> Arc<ToolpathResult> {
+    let m = MotionInfo::new(Motion::Cut, FeedRef::Cut, 0.01);
+    let (a, b, centre, normal) = (p3(a), p3(b), Point3::new(c[0], c[1], c[2]), unit(n));
+    let seg = if helix {
+        Segment::Helix {
+            a,
+            b,
+            centre,
+            normal,
+            sweep,
+            m,
+        }
+    } else {
+        Segment::Arc {
+            a,
+            b,
+            centre,
+            normal,
+            sweep,
+            m,
+        }
+    };
+    Arc::new(ToolpathResult::new(vec![Pass::new(PassKind::Cut, vec![seg])]).unwrap())
+}
+
+fn motion_lines(extra: &str, r: Arc<ToolpathResult>) -> Vec<String> {
+    let out = post(
+        &job(vec![toolpath("A", 1, r)]),
+        &compiled_stack(&[ARCS, extra]),
+    )
+    .unwrap();
+    out.line_map
+        .iter()
+        .map(|e| lines(&out)[e.line].to_owned())
+        .collect()
+}
+
+const Q: f64 = std::f64::consts::FRAC_PI_2;
+
+#[test]
+fn quarter_arcs_in_each_plane() {
+    let o = [0.0; 3];
+    let cases = [
+        // (start, end, normal, sweep, expected)
+        (
+            [10.0, 0.0, 0.0],
+            [0.0, 10.0, 0.0],
+            [0.0, 0.0, 1.0],
+            Q,
+            "G3 X0 Y10 Z0 I-10 J0 F1000",
+        ),
+        (
+            [10.0, 0.0, 0.0],
+            [0.0, -10.0, 0.0],
+            [0.0, 0.0, -1.0],
+            Q,
+            "G2 X0 Y-10 Z0 I-10 J0 F1000",
+        ),
+        (
+            [10.0, 0.0, 0.0],
+            [0.0, 10.0, 0.0],
+            [0.0, 0.0, -1.0],
+            -Q,
+            "G3 X0 Y10 Z0 I-10 J0 F1000",
+        ),
+        (
+            [10.0, 0.0, 0.0],
+            [0.0, 0.0, -10.0],
+            [0.0, 1.0, 0.0],
+            Q,
+            "G3 X0 Y0 Z-10 I-10 K0 F1000",
+        ),
+        (
+            [0.0, 10.0, 0.0],
+            [0.0, 0.0, 10.0],
+            [1.0, 0.0, 0.0],
+            Q,
+            "G3 X0 Y0 Z10 J-10 K0 F1000",
+        ),
+        (
+            [0.0, 10.0, 0.0],
+            [0.0, 0.0, -10.0],
+            [-1.0, 0.0, 0.0],
+            Q,
+            "G2 X0 Y0 Z-10 J-10 K0 F1000",
+        ),
+    ];
+    for (a, b, n, sw, want) in cases {
+        assert_eq!(motion_lines("", arc_result(a, b, o, n, sw, false)), [want]);
+    }
+}
+
+#[test]
+fn full_circle_by_max_sweep() {
+    let a = [10.0, 0.0, 0.0];
+    let r = || arc_result(a, a, [0.0; 3], [0.0, 0.0, 1.0], 4.0 * Q, false);
+    assert_eq!(motion_lines("", r()), ["G3 X10 Y0 Z0 I-10 J0 F1000"]);
+    assert_eq!(
+        motion_lines("[arcs]\nmax_sweep_deg = 180", r()),
+        ["G3 X-10 Y0 Z0 I-10 J0 F1000", "G3 X10 I10 J0"]
+    );
+}
+
+#[test]
+fn r_mode() {
+    let cfg = "[arcs]
+centre_mode = 'r'
+max_sweep_deg = 180
+[blocks.arc_ccw]
+lines = ['G3 [X] [Y] R[R] F[F]']";
+    let half = arc_result(
+        [10.0, 0.0, 0.0],
+        [-10.0, 0.0, 0.0],
+        [0.0; 3],
+        [0.0, 0.0, 1.0],
+        2.0 * Q,
+        false,
+    );
+    assert_eq!(motion_lines(cfg, half), ["G3 X-10 Y0 R10 F1000"]);
+    // 270° is split into two 135° arcs.
+    let three_q = arc_result(
+        [10.0, 0.0, 0.0],
+        [0.0, -10.0, 0.0],
+        [0.0; 3],
+        [0.0, 0.0, 1.0],
+        3.0 * Q,
+        false,
+    );
+    let l = motion_lines(cfg, three_q);
+    assert_eq!(l.len(), 2);
+    assert!(l.iter().all(|x| x.contains(" R10")), "{l:?}");
+    assert!(l[1].starts_with("G3 X0 Y-10"), "{l:?}");
+}
+
+#[test]
+fn rejected_arcs_linearized() {
+    let r = || {
+        arc_result(
+            [10.0, 0.0, 0.0],
+            [0.0, 10.0, 0.0],
+            [0.0; 3],
+            [0.0, 0.0, 1.0],
+            Q,
+            false,
+        )
+    };
+    let l = motion_lines("[arcs]\nmin_radius = 20.0", r());
+    assert!(
+        l.len() > 5 && l.iter().all(|x| x.starts_with("G1")),
+        "{l:?}"
+    );
+    let l = motion_lines("[arcs]\nplanes = ['XZ']", r());
+    assert!(l.iter().all(|x| x.starts_with("G1")), "{l:?}");
+    // A plane that is not principal is always linearized.
+    let s = std::f64::consts::FRAC_1_SQRT_2;
+    let l = motion_lines(
+        "",
+        arc_result(
+            [s * 10.0, -s * 10.0, 0.0],
+            [0.0, 0.0, 10.0],
+            [0.0; 3],
+            [s, s, 0.0],
+            Q,
+            false,
+        ),
+    );
+    assert!(l.iter().all(|x| x.starts_with("G1")), "{l:?}");
+}
+
+#[test]
+fn helix_as_arc_with_axial_word() {
+    let r = || {
+        arc_result(
+            [10.0, 0.0, 0.0],
+            [0.0, 10.0, -1.0],
+            [0.0; 3],
+            [0.0, 0.0, 1.0],
+            Q,
+            true,
+        )
+    };
+    let on = "[helix]\nenabled = true\n[blocks.helix_cw]\nlines=['G2 [X] [Y] [Z] [I] [J] F[F]']\n[blocks.helix_ccw]\nlines=['G3 [X] [Y] [Z] [I] [J] F[F]']";
+    assert_eq!(motion_lines(on, r()), ["G3 X0 Y10 Z-1 I-10 J0 F1000"]);
+    assert!(motion_lines("", r()).iter().all(|x| x.starts_with("G1")));
+}
+
+/// Parses `G2`/`G3` lines and checks the controller radius check against the
+/// position the controller holds (spec 05 §5.8 rule 3).
+fn check_arcs(text: &str, tol: f64) -> usize {
+    let mut pos = [0.0f64; 2];
+    let mut arcs = 0;
+    for line in text.lines() {
+        let mut w: BTreeMap<char, f64> = BTreeMap::new();
+        for t in line.split_whitespace() {
+            let mut cs = t.chars();
+            if let (Some(c), Ok(v)) = (cs.next(), cs.as_str().parse::<f64>()) {
+                w.insert(c, v);
+            }
+        }
+        let g = w.get(&'G').copied();
+        if matches!(g, Some(2.0) | Some(3.0)) {
+            let e = [
+                w.get(&'X').copied().unwrap_or(pos[0]),
+                w.get(&'Y').copied().unwrap_or(pos[1]),
+            ];
+            let c = [
+                pos[0] + w.get(&'I').copied().unwrap_or(0.0),
+                pos[1] + w.get(&'J').copied().unwrap_or(0.0),
+            ];
+            let err = (libm::hypot(c[0] - pos[0], c[1] - pos[1])
+                - libm::hypot(c[0] - e[0], c[1] - e[1]))
+            .abs();
+            assert!(err <= tol + 1e-9, "{line}: radius error {err}");
+            arcs += 1;
+        }
+        if matches!(g, Some(0.0) | Some(1.0) | Some(2.0) | Some(3.0)) {
+            pos = [
+                w.get(&'X').copied().unwrap_or(pos[0]),
+                w.get(&'Y').copied().unwrap_or(pos[1]),
+            ];
+        }
+    }
+    arcs
+}
+
+proptest::proptest! {
+    #![proptest_config(proptest::prelude::ProptestConfig::with_cases(64))]
+    #[test]
+    fn rounded_arcs_pass_radius_check_or_are_linearized(
+        cx in -50.0f64..50.0, cy in -50.0f64..50.0, r in 0.05f64..200.0,
+        t0 in 0.0f64..6.3, sweep in -6.25f64..6.25, d in 0u32..4,
+    ) {
+        proptest::prop_assume!(sweep.abs() > 0.01);
+        let a = [cx + r * libm::cos(t0), cy + r * libm::sin(t0), 0.0];
+        let b = [cx + r * libm::cos(t0 + sweep), cy + r * libm::sin(t0 + sweep), 0.0];
+        let res = arc_result(a, b, [cx, cy, 0.0], [0.0, 0.0, 1.0], sweep, false);
+        let extra = format!("[words.X]\ndecimals={d}\n[words.Y]\ndecimals={d}\n[words.I]\ndecimals={d}\n[words.J]\ndecimals={d}");
+        let c = compiled_stack(&[ARCS, &extra]);
+        // Rapid to the start first so the controller position is known.
+        let lead = result([a[0], a[1], 5.0], &[(Motion::Rapid, FeedRef::Rapid, a)]);
+        let out = post(&job(vec![toolpath("L", 1, lead), toolpath("A", 1, res)]), &c).unwrap();
+        check_arcs(&out.files[0], 0.002);
+    }
 }

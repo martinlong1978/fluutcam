@@ -12,10 +12,11 @@
 //! Such blocks may move the machine (e.g. `G53 G0 Z0`), so the next move
 //! writes every axis in full.
 
+use crate::arcs::{self, Plane, corrected_centre, principal_plane, radius_error, split};
 use crate::expr::{Context, Value};
-use crate::format::format_number;
+use crate::format::{format_number, round_dec};
 use crate::job::{Coolant, PostJob, SetupJob, ToolpathJob};
-use crate::post::{Units, When, WordFmt};
+use crate::post::{ArcPlane, CentreMode, Units, When, WordFmt};
 use crate::template::{CompiledPost, Tok};
 use fluut_geom::Aabb3;
 use fluut_path::{AxisPos, Motion, Segment, linearize};
@@ -96,6 +97,11 @@ struct Emitter<'a> {
     cx: BTreeMap<String, Value>,
     /// (setup, toolpath, pass, segment) of the segment being written.
     at: Option<(usize, usize, usize, usize)>,
+    /// Rounded value last written per position word, in output units: the
+    /// controller's idea of where the tool is (spec 05 §5.8).
+    emitted: BTreeMap<String, f64>,
+    /// Decimals raised for this event's words (arc centre correction).
+    dec_override: BTreeMap<&'static str, u32>,
 }
 
 impl<'a> Emitter<'a> {
@@ -125,6 +131,8 @@ impl<'a> Emitter<'a> {
             event: BTreeMap::new(),
             cx: BTreeMap::new(),
             at: None,
+            emitted: BTreeMap::new(),
+            dec_override: BTreeMap::new(),
         };
         e.init_program_values();
         e
@@ -339,19 +347,189 @@ impl<'a> Emitter<'a> {
         match seg {
             Segment::Line { a, b, m } => {
                 let event = self.classify_line(a, b, m.motion, m.feed);
-                self.motion(tp, event, b, tp.feeds.get(m.feed));
+                self.motion(event, b, tp.feeds.get(m.feed), Vec::new());
                 Ok(())
             }
-            Segment::Arc { m, .. } | Segment::Helix { m, .. } | Segment::Spline { m, .. } => {
-                for piece in linearize(seg, f64::from(m.tol)) {
-                    self.segment(tp, &piece)?;
-                }
-                Ok(())
-            }
+            Segment::Arc { .. } | Segment::Helix { .. } => self.arc(tp, seg),
+            Segment::Spline { .. } => self.linear(tp, seg),
             Segment::Rotary { .. } => Err("a rotary move"),
             Segment::Cycle { .. } => Err("a drilling cycle"),
             Segment::Marker { .. } => Err("a manual NC marker"),
         }
+    }
+
+    /// Writes `seg` as line moves within its own tolerance.
+    fn linear(&mut self, tp: &ToolpathJob, seg: &Segment) -> Result<(), &'static str> {
+        let tol = seg.motion().map_or(0.01, |m| f64::from(m.tol));
+        for piece in linearize(seg, tol) {
+            self.segment(tp, &piece)?;
+        }
+        Ok(())
+    }
+
+    /// An arc or helix: accepted, split and written as arc events, or
+    /// linearized (spec 05 §5.5, D10 §4.2).
+    fn arc(&mut self, tp: &ToolpathJob, seg: &Segment) -> Result<(), &'static str> {
+        let (a, b, centre, normal, sweep, m, helix) = match seg {
+            Segment::Arc {
+                a,
+                b,
+                centre,
+                normal,
+                sweep,
+                m,
+            } => (a, b, *centre, *normal, *sweep, m, false),
+            Segment::Helix {
+                a,
+                b,
+                centre,
+                normal,
+                sweep,
+                m,
+            } => (a, b, *centre, *normal, *sweep, m, true),
+            _ => unreachable!("arc() takes arcs and helices"),
+        };
+        let post = &self.cp.post;
+        let cfg = &post.arcs;
+        let feed = tp.feeds.get(m.feed);
+        let Some((plane, axis_positive)) = principal_plane(normal) else {
+            return self.linear(tp, seg);
+        };
+        let allowed = |planes: &[ArcPlane]| {
+            planes.iter().any(|p| {
+                *p == ArcPlane::Any
+                    || matches!(
+                        (p, plane),
+                        (ArcPlane::XY, Plane::XY)
+                            | (ArcPlane::XZ, Plane::XZ)
+                            | (ArcPlane::YZ, Plane::YZ)
+                    )
+            })
+        };
+        let kind_ok = if helix {
+            post.helix.enabled && allowed(&post.helix.planes)
+        } else {
+            cfg.enabled && allowed(&cfg.planes)
+        };
+        let r = arcs::radius(a, centre, normal);
+        if !kind_ok || feed.is_none() || r < cfg.min_radius || r > cfg.max_radius {
+            return self.linear(tp, seg);
+        }
+        let max = cfg.max_sweep_deg * std::f64::consts::PI / 180.0;
+        let n = ((sweep.abs() / max) - 1e-9).ceil().max(1.0) as usize;
+        let ccw = (sweep > 0.0) == axis_positive;
+        for (pa, pb, sw) in split(a, b, centre, normal, sweep, n) {
+            if !self.arc_piece(plane, ccw, helix, &pa, &pb, centre, sw, r, feed) {
+                let piece = if helix {
+                    Segment::Helix {
+                        a: pa,
+                        b: pb,
+                        centre,
+                        normal,
+                        sweep: sw,
+                        m: *m,
+                    }
+                } else {
+                    Segment::Arc {
+                        a: pa,
+                        b: pb,
+                        centre,
+                        normal,
+                        sweep: sw,
+                        m: *m,
+                    }
+                };
+                self.linear(tp, &piece)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn decimals(&self, key: &str) -> u32 {
+        self.cp.post.words.get(key).map_or(3, |w| w.decimals)
+    }
+
+    /// Writes one arc piece with centre correction (D10 §4.4). Returns false
+    /// if the rounded arc fails the radius check even with 6 decimals, or
+    /// its rounded chord vanishes; the caller then linearizes it.
+    #[allow(clippy::too_many_arguments)]
+    fn arc_piece(
+        &mut self,
+        plane: Plane,
+        ccw: bool,
+        helix: bool,
+        a: &AxisPos,
+        b: &AxisPos,
+        centre: fluut_geom::Point3,
+        sweep: f64,
+        radius: f64,
+        feed: Option<f64>,
+    ) -> bool {
+        const AXES: [&str; 3] = ["X", "Y", "Z"];
+        const INC: [&str; 3] = ["I", "J", "K"];
+        const ABS: [&str; 3] = ["IA", "JA", "KA"];
+        let u = self.unit;
+        let (iu, iv, _) = plane.axes();
+        let out = |p: fluut_geom::Point3| arcs::coords(p).map(|v| v * u);
+        let (s, e, c) = (out(a.xyz), out(b.xyz), out(centre));
+        let d0 = self.decimals(AXES[iu]).max(self.decimals(AXES[iv]));
+        let start = |k: usize| {
+            self.emitted
+                .get(AXES[k])
+                .copied()
+                .unwrap_or_else(|| round_dec(s[k], d0))
+        };
+        let s2 = [start(iu), start(iv)];
+        let full = sweep.abs() >= 2.0 * std::f64::consts::PI - 1e-9;
+        let tol = self.cp.post.arcs.radius_tolerance * u;
+        let mut chosen = None;
+        for d in d0..=d0.max(6) {
+            let e2 = [round_dec(e[iu], d), round_dec(e[iv], d)];
+            if !full && e2 == s2 {
+                return false;
+            }
+            let c2 = corrected_centre(s2, e2, [c[iu], c[iv]], d);
+            if radius_error(s2, e2, c2) <= tol {
+                chosen = Some((d, e2, c2));
+                break;
+            }
+        }
+        let Some((d, e2, c2)) = chosen else {
+            return false;
+        };
+        let mut extra = Vec::new();
+        for (k, idx) in [(0, iu), (1, iv)] {
+            extra.push((INC[idx], Val::Num(c2[k] - s2[k])));
+            extra.push((ABS[idx], Val::Num(c2[k])));
+        }
+        let c1 = corrected_centre(s2, e2, [c[iu], c[iv]], 9);
+        let r_out = libm::hypot(c1[0] - s2[0], c1[1] - s2[1]);
+        let sign = if sweep.abs() > std::f64::consts::PI {
+            -1.0
+        } else {
+            1.0
+        };
+        if self.cp.post.arcs.centre_mode == CentreMode::R {
+            extra.push(("R", Val::Num(sign * r_out)));
+        }
+        extra.push(("Radius", Val::Num(radius * u)));
+        extra.push(("PLANE", Val::Text(plane.code().into())));
+        if d > d0 {
+            for k in [iu, iv] {
+                self.dec_override.insert(AXES[k], d);
+                self.dec_override.insert(INC[k], d);
+                self.dec_override.insert(ABS[k], d);
+            }
+        }
+        let event = match (helix, ccw) {
+            (false, true) => "arc_ccw",
+            (false, false) => "arc_cw",
+            (true, true) => "helix_ccw",
+            (true, false) => "helix_cw",
+        };
+        self.motion(event, b, feed, extra);
+        self.dec_override.clear();
+        true
     }
 
     fn has(&self, block: &str) -> bool {
@@ -377,9 +555,16 @@ impl<'a> Emitter<'a> {
         }
     }
 
-    fn motion(&mut self, _tp: &ToolpathJob, event: &'static str, b: &AxisPos, feed: Option<f64>) {
+    fn motion(
+        &mut self,
+        event: &'static str,
+        b: &AxisPos,
+        feed: Option<f64>,
+        extra: Vec<(&'static str, Val)>,
+    ) {
         let u = self.unit;
         self.event.clear();
+        self.event.extend(extra);
         self.event.insert("X", Val::Num(b.xyz.x() * u));
         self.event.insert("Y", Val::Num(b.xyz.y() * u));
         self.event.insert("Z", Val::Num(b.xyz.z() * u));
@@ -415,6 +600,7 @@ impl<'a> Emitter<'a> {
         if self.render(name, false) > 0 {
             for w in POSITION_WORDS {
                 self.last_word.remove(w);
+                self.emitted.remove(w);
             }
             self.motion_code = None;
             self.prev_event = None;
@@ -444,7 +630,7 @@ impl<'a> Emitter<'a> {
             let mut lit = String::new();
             let mut words = 0;
             let mut shown = 0;
-            let mut changed: Vec<(String, String)> = Vec::new();
+            let mut changed: Vec<(String, String, Option<f64>)> = Vec::new();
             for t in &l.toks {
                 match t {
                     Tok::Lit(s) => {
@@ -453,7 +639,11 @@ impl<'a> Emitter<'a> {
                     }
                     Tok::Word(key) => {
                         words += 1;
-                        let f = &post.words[key];
+                        let over = self.dec_override.get(key.as_str()).map(|&d| WordFmt {
+                            decimals: d,
+                            ..post.words[key].clone()
+                        });
+                        let f = over.as_ref().unwrap_or(&post.words[key]);
                         let Some(v) = self.value(key) else {
                             strip_attached(&mut text);
                             strip_attached(&mut lit);
@@ -469,7 +659,11 @@ impl<'a> Emitter<'a> {
                             continue;
                         }
                         shown += 1;
-                        changed.push((key.clone(), s.clone()));
+                        let rounded = match v {
+                            Val::Num(n) => Some(round_dec(n * f.scale, f.decimals) / f.scale),
+                            Val::Text(_) => None,
+                        };
+                        changed.push((key.clone(), s.clone(), rounded));
                         text.push_str(&s);
                     }
                     Tok::Placeholder(p) => match self.value(p) {
@@ -502,7 +696,12 @@ impl<'a> Emitter<'a> {
             if text.is_empty() {
                 continue;
             }
-            for (k, s) in changed {
+            for (k, s, rounded) in changed {
+                if let Some(r) = rounded
+                    && POSITION_WORDS.contains(&k.as_str())
+                {
+                    self.emitted.insert(k.clone(), r);
+                }
                 self.last_word.insert(k, s);
             }
             if lit_code.is_some() {

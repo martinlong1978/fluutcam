@@ -107,8 +107,9 @@ All M0 and M1 Global Constraints apply. In addition:
 
 **Files:** Create `src/arcs.rs`; modify `src/emit.rs`
 - Plane detection (normal ±Z, ±Y, ±X within 1e-9) and CW/CCW from sweep sign seen from the plane normal (G17 +Z, G18 +Y, G19 +X); acceptance (`arcs.enabled`, `planes`, radius limits); splitting above `max_sweep_deg` into equal parts; centre correction (D10 §4.4) with one-more-decimal retry up to 6, else linearize; `[I] [J] [K]`, `[IA] [JA] [KA]`, `[R]` (negative for > 180°), `[PLANE]`. Helices as arcs plus the axial word, when `helix.enabled` and plane allowed.
-- [ ] **Step 1:** Tests: quarter arcs in each plane and both directions; full circle per `max_sweep_deg` (360 and 180); R mode sign; arc rejected by radius limits is linearized within its tolerance; property test (Review Focus 2).
-- [ ] **Step 2:** Fail, implement, pass.
+- [x] **Step 1:** Tests: quarter arcs in each plane and both directions; full circle per `max_sweep_deg` (360 and 180); R mode sign; arc rejected by radius limits is linearized within its tolerance; property test (Review Focus 2).
+- [x] **Step 2:** Fail, implement, pass.
+- **Done.** The rounded start S′ is the position the controller holds: the value last written for that axis word, or the start rounded at the word's decimals after the safety rule. Raising decimals (up to 6) applies to that arc's in-plane axis and centre words only. An arc whose rounded chord vanishes (not a full circle) is linearized. Arcs with a rapid feed and arcs in non-principal planes are linearized. `[R]` is negative above 180°, which validation only allows outside `r` mode, so in practice R is positive. `[Radius]` is the exact radius, `[PLANE]` is `G17`/`G18`/`G19`.
 
 ### Task 8: Rotary, cycles, markers, cutter compensation, limits, file split
 
