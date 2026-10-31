@@ -120,6 +120,12 @@ slowest axis. Arcs: centripetal limit `v ≤ sqrt(a_max · r)`.
 | Scrub within one toolpath | < 150 ms |
 | Time estimate, 1 M segments | < 1 s |
 
+S5 measured (4 cores, synthetic stand-ins, [report](../plan/spikes/s5-simulation.md)):
+- **Relief finish at 0.2 mm:** 33–47 µs per move, about 35–50 s per million moves. That is near the target on 8 cores.
+- **Rotary wrap at 0.2 mm:** 221 µs per move, about 6× over the target. Rotary Setups should use a cylindrical dexel layout (radial rays along the tool axis); this is to be measured in M7.
+
+Error between rays depends on the sharpness of the machined detail. The relief needs 0.1 mm for 0.05 mm error; the smooth rotary wrap needs 0.4 mm.
+
 ## 8. Tests
 
 - Single-move cases vs analytic swept volumes (ball along a line: capsule).
@@ -129,4 +135,4 @@ slowest axis. Arcs: centripetal limit `v ≤ sqrt(a_max · r)`.
 
 ## 9. Challenges
 
-- CH-22 Simulation memory and speed for large stock at fine resolution (deferred).
+- CH-22 Simulation memory and speed for large stock at fine resolution (deferred; S5 measured it, rotary speed is open).

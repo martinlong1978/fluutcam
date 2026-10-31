@@ -375,6 +375,12 @@ refinement; tile-based copy-on-write checkpoints.
 
 **Revisit.** Benchmark on large router jobs; consider GPU removal or adaptive (octree) dexels.
 
+**S5 finding (2026-10-31).** Prototyped in `fluut-sim` on synthetic relief (200 × 150 mm) and rotary (Ø60 × 150 mm) stand-ins ([S5 report](../plan/spikes/s5-simulation.md)). Memory is 24 B per ray plus 6–20 % for spilled spans. At 0.1 mm the relief takes 106 MB and the rotary 52 MB; at 0.05 mm about 425 MB and 210 MB, within the 512 MB budget. Time grows as 1/res².
+- **Relief at 0.1 mm:** rough and finish (208 k moves) take 29 s on 4 cores.
+- **Rotary at 0.2 mm:** 221 µs per move, about 6× over the D11 §7 target. No ray family follows the tool axis there.
+
+The error between rays is set by sharp machined detail. The relief needs 0.1 mm for 0.05 mm error and 0.025–0.05 mm for 0.01 mm. The rotary wrap needs 0.4 mm for 0.05 mm and 0.1 mm for 0.01 mm. The tri-dexel stays for three-axis work; rotary Setups should try cylindrical dexels (radial rays) in M7.
+
 ### CH-23 Live pass preview cost while dragging
 
 **Problem.** [S 08 §8.4] asks for a live ghost of the pass pattern while editing stepover, angle

@@ -40,8 +40,8 @@ All M0 to S3 Global Constraints apply. In addition:
 - `DexelGrid` (one family) and `TriDexel { res, origin, grids: [DexelGrid; 3] }`; each ray a `SmallVec<[Span; 2]>` of `f32` spans.
 - `TriDexel::new(&Stock, res)`: box rays are filled end to end; cylinder rays get the exact chord of the cylinder.
 - `Span` subtraction, `volume()`, `memory()` (bytes, inline and heap), `hash()` (FNV-1a of the bits, in ray order).
-- [ ] **Step 1:** Tests: box ray counts and volume; cylinder volume within resolution of πR²L; subtracting a middle, an end, a covering and a disjoint interval.
-- [ ] **Step 2:** Fail, implement, pass.
+- [x] **Step 1:** Tests: box ray counts and volume; cylinder volume within resolution of πR²L; subtracting a middle, an end, a covering and a disjoint interval.
+- [x] **Step 2:** Fail, implement, pass.
 
 ### Task 2: Tools and swept volumes
 
@@ -53,8 +53,8 @@ All M0 to S3 Global Constraints apply. In addition:
   - ball: exact, as the hull of up to four sphere centres ⊕ ball (edge capsules and thickened faces);
   - flat and bull with the ray along the tool axis: exact 1-D minimum over the chord;
   - otherwise: GJK ray cast on the support function (D11 §3), to 1e-4 mm.
-- [ ] **Step 1:** Tests: ball along a line is a capsule; flat plunge is a cylinder; bull vertical ray depth equals the profile; GJK agrees with the closed forms on random rays; all ray results agree with brute-force sampled poses within sampling error.
-- [ ] **Step 2:** Fail, implement, pass.
+- [x] **Step 1:** Tests: ball along a line is a capsule; flat plunge is a cylinder; bull vertical ray depth equals the profile; GJK agrees with the closed forms on random rays; all ray results agree with brute-force sampled poses within sampling error.
+- [x] **Step 2:** Fail, implement, pass.
 
 ### Task 3: Moves and material removal
 
@@ -62,8 +62,8 @@ All M0 to S3 Global Constraints apply. In addition:
 
 - Segments to chords: lines as they are; arcs and helices split so the sagitta is at most `res/4`; rotary moves (and lines with a changing A) split so the sagitta at the stock's largest radius is at most `res/4`, each chord the hull of its end poses; splines through `fluut_path::linearize`; cycles as a plunge; markers ignored.
 - `Simulator::run(&mut TriDexel, &Tool, segments)`: chords in batches; rays are cut in parallel by tiles, each tile applying the batch in program order.
-- [ ] **Step 1:** Tests: ball slot along X leaves the analytic profile; arc groove; full rotary turn cuts a ring of the cylinder to the tip radius; same hash on 1 and 4 threads; cut volume of a pocket equals the analytic volume within resolution.
-- [ ] **Step 2:** Fail, implement, pass.
+- [x] **Step 1:** Tests: ball slot along X leaves the analytic profile; arc groove; full rotary turn cuts a ring of the cylinder to the tip radius; same hash on 1 and 4 threads; cut volume of a pocket equals the analytic volume within resolution.
+- [x] **Step 2:** Fail, implement, pass.
 
 ### Task 4: Reference stand-ins and measurements
 
@@ -73,12 +73,17 @@ All M0 to S3 Global Constraints apply. In addition:
 - **Rotary:** Ø60 × 150 mm cylinder; a wrapped relief r(x, θ) between 24 and 29 mm; Ø6 ball spiral wrap at 0.5 mm per turn, Rotary segments of 2°.
 - Per project and resolution (0.4, 0.2, 0.1 mm): rays, memory, time per move and per million chords, on 1 thread and all threads.
 - **Error vs resolution:** on a 20 × 20 mm window, the largest and RMS error of a bilinear surface through the dexel ends against an exact single-ray probe at random points (Z family, slopes under 45°), for resolutions 0.4 to 0.025 mm.
-- [ ] **Step 1:** Stand-in generators with tests (continuous paths, inside the stock); the probe agrees with the full grid at grid points.
-- [ ] **Step 2:** Run and record.
+- [x] **Step 1:** Stand-in generators with tests (continuous paths, inside the stock); the probe agrees with the full grid at grid points.
+- [x] **Step 2:** Run and record.
 
 ### Task 5: Report and design updates
 
 **Files:** Create `docs/plan/spikes/s5-simulation.md`; modify `docs/design/challenges.md` (CH-22), `docs/design/D11-simulation.md`, `docs/plan/README.md`.
 
-- [ ] **Step 1:** Write the report; S5 note on CH-22; D11 changes where the findings require them; roadmap row.
-- [ ] **Step 2:** Workspace checks; commit; push the branch.
+- [x] **Step 1:** Write the report; S5 note on CH-22; D11 changes where the findings require them; roadmap row.
+- [x] **Step 2:** Workspace checks; commit; push the branch.
+
+**Done.** Findings and numbers are in [`spikes/s5-simulation.md`](spikes/s5-simulation.md). Deviations from this plan:
+- GJK is the fallback only. Closed forms cover ball sweeps, lines along the tool axis, and lines across a level chord (S5 report §1), because GJK costs 2.5 µs per ray.
+- The relief stand-in has a Z-level roughing pass (flat Ø6) before the finish, as a real project would; finishing from full stock is measured as the worst case.
+- The arc groove test checks the profile shifted by the chord sagitta, not a height tolerance, because heights change fast on the groove's walls.
