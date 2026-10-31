@@ -20,6 +20,7 @@ pub const GJK_EPS: f64 = 1e-4;
 pub enum Method {
     Ball,
     Axial,
+    Side,
     Gjk,
 }
 
@@ -79,10 +80,15 @@ impl Sweep {
 
     /// The method [`Sweep::ray`] uses for direction `e`.
     pub fn method(&self, e: DVec3) -> Method {
-        if self.tool.is_ball() {
-            Method::Ball
-        } else if self.fixed_axis && e.dot(self.p0.axis).abs() >= 1.0 - 1e-12 {
+        if self.fixed_axis && e.dot(self.p0.axis).abs() >= 1.0 - 1e-12 {
             Method::Axial
+        } else if self.tool.is_ball() {
+            Method::Ball
+        } else if self.fixed_axis
+            && e.dot(self.p0.axis).abs() <= 1e-12
+            && (self.p1.tip - self.p0.tip).dot(self.p0.axis).abs() <= 1e-12
+        {
+            Method::Side
         } else {
             Method::Gjk
         }
@@ -93,8 +99,10 @@ impl Sweep {
     pub fn ray(&self, o: DVec3, e: DVec3) -> Option<(f64, f64)> {
         let (ta, tb) = self.slab(o, e)?;
         match self.method(e) {
-            Method::Ball => self.ball_ray(o, e),
+            Method::Axial if self.tool.is_ball() => self.ball_axial_ray(o, e),
             Method::Axial => self.axial_ray(o, e),
+            Method::Ball => self.ball_ray(o, e),
+            Method::Side => self.side_ray(o, e),
             Method::Gjk => {
                 let sup = |n: DVec3| self.support(n);
                 let len = tb - ta;
@@ -106,26 +114,83 @@ impl Sweep {
         }
     }
 
-    /// Ball end mill: the hull of the four sphere centres (bottom and top of
-    /// each pose's axis) grown by the ball radius. The line meets it in the
-    /// hull of its intervals with the six edge capsules and the four
-    /// triangles thickened by the radius.
-    fn ball_ray(&self, o: DVec3, e: DVec3) -> Option<(f64, f64)> {
+    /// Centres of the ball at the bottom and top of each pose's axis.
+    fn ball_centres(&self) -> [DVec3; 4] {
         let r = self.tool.corner;
-        let c = [
+        [
             self.p0.tip + self.p0.axis * r,
             self.p0.tip + self.p0.axis * self.p0.length,
             self.p1.tip + self.p1.axis * r,
             self.p1.tip + self.p1.axis * self.p1.length,
-        ];
+        ]
+    }
+
+    /// Ball end mill: the hull of the four sphere centres grown by the ball
+    /// radius. The line meets it in the hull of its intervals with the
+    /// spheres, the edge cylinders and the triangles thickened by the radius.
+    /// With a fixed axis the centres form a parallelogram, and its four sides
+    /// and two triangles suffice.
+    fn ball_ray(&self, o: DVec3, e: DVec3) -> Option<(f64, f64)> {
+        const QUAD_EDGES: [(usize, usize); 4] = [(0, 1), (2, 3), (0, 2), (1, 3)];
+        const QUAD_TRIS: [(usize, usize, usize); 2] = [(0, 1, 3), (0, 3, 2)];
+        const EDGES: [(usize, usize); 6] = [(0, 1), (2, 3), (0, 2), (1, 3), (0, 3), (1, 2)];
+        const TRIS: [(usize, usize, usize); 4] = [(0, 1, 3), (0, 3, 2), (0, 1, 2), (1, 2, 3)];
+        let r = self.tool.corner;
+        let c = self.ball_centres();
+        let (edges, tris): (&[_], &[_]) = if self.fixed_axis {
+            (&QUAD_EDGES, &QUAD_TRIS)
+        } else {
+            (&EDGES, &TRIS)
+        };
         let mut acc = Acc::default();
-        for (i, j) in [(0, 1), (2, 3), (0, 2), (1, 3), (0, 3), (1, 2)] {
-            acc.add(line_capsule(o, e, c[i], c[j], r));
+        for p in c {
+            acc.add(line_sphere(o, e, p, r));
         }
-        for (i, j, k) in [(0, 1, 3), (0, 3, 2), (0, 1, 2), (1, 2, 3)] {
+        for &(i, j) in edges {
+            acc.add(line_cylinder(o, e, c[i], c[j], r));
+        }
+        for &(i, j, k) in tris {
             acc.add(line_slab_triangle(o, e, c[i], c[j], c[k], r));
         }
         acc.get()
+    }
+
+    /// Ball end mill, axis fixed, line along the axis. The swept volume is the
+    /// capsule swept by the bottom ball, translated along the axis by up to
+    /// the shank length; translating along the line shifts its interval.
+    fn ball_axial_ray(&self, o: DVec3, e: DVec3) -> Option<(f64, f64)> {
+        let r = self.tool.corner;
+        let c = self.ball_centres();
+        let (a, b) = line_capsule(o, e, c[0], c[2], r)?;
+        let up = self.p0.length - r;
+        if e.dot(self.p0.axis) > 0.0 {
+            Some((a, b + up))
+        } else {
+            Some((a - up, b))
+        }
+    }
+
+    /// Axis fixed, chord and line perpendicular to it: the line stays at one
+    /// height `h` above the tip, where the swept volume's slice is the disk of
+    /// the tool's radius at `h` swept along the chord, a 2-D capsule.
+    fn side_ray(&self, o: DVec3, e: DVec3) -> Option<(f64, f64)> {
+        let tool = &self.tool;
+        let w = self.p0.axis;
+        let h = (o - self.p0.tip).dot(w);
+        let (r, len) = (tool.corner, self.p0.length);
+        // Radius of the tool at height h: bottom rim, shank, rounded top.
+        let x = if h < r {
+            r - h
+        } else if h > len {
+            h - len
+        } else {
+            0.0
+        };
+        if h < 0.0 || x > r {
+            return None;
+        }
+        let rho = tool.core() + (r * r - x * x).max(0.0).sqrt();
+        line_capsule(o, e, self.p0.tip + w * h, self.p1.tip + w * h, rho)
     }
 
     /// Flat or bull nose, axis fixed, line along the axis: the lowest bottom
@@ -242,10 +307,17 @@ fn line_capsule(o: DVec3, e: DVec3, p: DVec3, q: DVec3, r: f64) -> Option<(f64, 
     let mut acc = Acc::default();
     acc.add(line_sphere(o, e, p, r));
     acc.add(line_sphere(o, e, q, r));
+    acc.add(line_cylinder(o, e, p, q, r));
+    acc.get()
+}
+
+/// The line inside the cylinder of radius `r` around segment `pq`, without
+/// end caps.
+fn line_cylinder(o: DVec3, e: DVec3, p: DVec3, q: DVec3, r: f64) -> Option<(f64, f64)> {
     let d = q - p;
     let dd = d.length_squared();
     if dd == 0.0 {
-        return acc.get();
+        return None;
     }
     // Infinite cylinder: |m⊥ + t·e⊥|² ≤ r², with ⊥ relative to d.
     let m = o - p;
@@ -254,32 +326,31 @@ fn line_capsule(o: DVec3, e: DVec3, p: DVec3, q: DVec3, r: f64) -> Option<(f64, 
     let a = dd - nd * nd;
     let b = dd * m.dot(e) - nd * md;
     let c = dd * (m.length_squared() - r * r) - md * md;
-    let cyl = if a <= 1e-15 * dd {
-        (c <= 0.0).then_some((f64::NEG_INFINITY, f64::INFINITY))
+    let (mut t0, mut t1) = if a <= 1e-15 * dd {
+        if c > 0.0 {
+            return None;
+        }
+        (f64::NEG_INFINITY, f64::INFINITY)
     } else {
         let disc = b * b - a * c;
-        (disc >= 0.0).then(|| {
-            let h = disc.sqrt();
-            ((-b - h) / a, (-b + h) / a)
-        })
+        if disc < 0.0 {
+            return None;
+        }
+        let h = disc.sqrt();
+        ((-b - h) / a, (-b + h) / a)
     };
     // Clip to the segment: 0 ≤ (md + t·nd) / dd ≤ 1.
-    if let Some((mut t0, mut t1)) = cyl {
-        if nd == 0.0 {
-            if md < 0.0 || md > dd {
-                return acc.get();
-            }
-        } else {
-            let sa = -md / nd;
-            let sb = (dd - md) / nd;
-            t0 = t0.max(sa.min(sb));
-            t1 = t1.min(sa.max(sb));
+    if nd == 0.0 {
+        if md < 0.0 || md > dd {
+            return None;
         }
-        if t0 <= t1 {
-            acc.add(Some((t0, t1)));
-        }
+    } else {
+        let sa = -md / nd;
+        let sb = (dd - md) / nd;
+        t0 = t0.max(sa.min(sb));
+        t1 = t1.min(sa.max(sb));
     }
-    acc.get()
+    (t0 <= t1).then_some((t0, t1))
 }
 
 /// The line inside triangle `abc` thickened by `r` along its normal.

@@ -10,6 +10,7 @@ pub mod dexel;
 pub mod gjk;
 pub mod motion;
 pub mod sim;
+pub mod spike;
 pub mod stock;
 pub mod sweep;
 pub mod tool;

@@ -12,18 +12,20 @@ use glam::DVec3;
 use rayon::prelude::*;
 
 /// Chords per batch.
-const BATCH: usize = 4096;
+const BATCH: usize = 32768;
 /// Grid rows per tile.
-const ROWS: usize = 4;
+const ROWS: usize = 2;
 
-/// Work counters.
-#[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
+/// Work counters, per family where indexed.
+#[derive(Copy, Clone, PartialEq, Debug, Default)]
 pub struct Stats {
     pub chords: u64,
     /// Rays inside a chord's box that still had material there.
     pub tests: [u64; 3],
     /// Rays the chord cut.
     pub cuts: [u64; 3],
+    /// Wall-clock time per family, in seconds.
+    pub secs: [f64; 3],
 }
 
 impl Stats {
@@ -45,7 +47,9 @@ pub fn cut(d: &mut TriDexel, sweeps: &[Sweep]) -> Stats {
     let (res, origin) = (d.res, d.origin);
     for batch in sweeps.chunks(BATCH) {
         for g in &mut d.grids {
+            let t = std::time::Instant::now();
             stats.add(&cut_family(g, res, origin, batch));
+            stats.secs[g.axis] += t.elapsed().as_secs_f64();
         }
     }
     stats

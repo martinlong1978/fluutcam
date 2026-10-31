@@ -224,3 +224,65 @@ fn axial_matches_gjk_for_bull() {
         assert!(close(axial, gjk, 1e-3), "d={d} o={o}: {axial:?} vs {gjk:?}");
     }
 }
+
+#[test]
+fn ball_axial_matches_general_ball() {
+    let mut rng = Lcg(5);
+    for _ in 0..300 {
+        let d = DVec3::new(
+            rng.range(-3.0, 3.0),
+            rng.range(-3.0, 3.0),
+            rng.range(-2.0, 2.0),
+        );
+        let s = axial_sweep(Tool::ball(1.2), d);
+        let up = rng.next() < 0.5;
+        let e = if up { DVec3::Z } else { -DVec3::Z };
+        let o = DVec3::new(
+            rng.range(-3.0, 4.0),
+            rng.range(-3.0, 4.0),
+            if up { -20.0 } else { 20.0 },
+        );
+        assert_eq!(s.method(e), Method::Axial);
+        let a = s.ball_axial_ray(o, e);
+        let b = s.ball_ray(o, e);
+        assert!(close(a, b, 1e-9), "d={d} o={o}: {a:?} vs {b:?}");
+    }
+}
+
+#[test]
+fn side_matches_gjk() {
+    let mut rng = Lcg(9);
+    for tool in [Tool::flat(2.0), Tool::bull(2.0, 0.6)] {
+        for _ in 0..300 {
+            let d = DVec3::new(rng.range(-3.0, 3.0), rng.range(-3.0, 3.0), 0.0);
+            let s = axial_sweep(tool, d);
+            let e = if rng.next() < 0.5 {
+                DVec3::X
+            } else {
+                -DVec3::Y
+            };
+            let mut o = DVec3::new(
+                rng.range(-3.0, 4.0),
+                rng.range(-3.0, 4.0),
+                rng.range(-0.2, 7.5),
+            );
+            if e.x != 0.0 {
+                o.x = -20.0;
+            } else {
+                o.y = 20.0;
+            }
+            assert_eq!(s.method(e), Method::Side);
+            let side = s.ray(o, e);
+            let sup = |n: DVec3| s.support(n);
+            let gjk = s.slab(o, e).and_then(|(ta, tb)| {
+                let t0 = ray_cast(sup, o + e * ta, e, tb - ta, 1e-7)?;
+                let t1 = ray_cast(sup, o + e * tb, -e, tb - ta, 1e-7)?;
+                Some((ta + t0, tb - t1))
+            });
+            assert!(
+                close(side, gjk, 1e-3),
+                "{tool:?} d={d} o={o}: {side:?} vs {gjk:?}"
+            );
+        }
+    }
+}
