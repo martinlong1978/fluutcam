@@ -7,5 +7,7 @@
 //! formatting and the G-code emitter.
 
 pub mod merge;
+pub mod post;
 
-pub use merge::{PostMerger, flatten, resolve_post};
+pub use merge::{POST_FORMAT, PostMerger, flatten, resolve_post};
+pub use post::{LoadedPost, Post, PostError};

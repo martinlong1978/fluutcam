@@ -63,11 +63,12 @@ All M0 and M1 Global Constraints apply. In addition:
 ### Task 3: Typed post and validation
 
 **Files:** Create `src/post.rs`, `src/validate.rs`
-- `Post` deserialised from the resolved table with serde: `name`, `output { extension, units, line_ending, decimal_char, substitute, max_file_size, max_segment_length, comment_start, comment_end }`, `line_numbering { enabled, start, increment, maximum, prefix }`, `words: BTreeMap<String, WordFmt>` (spec 05 §5.3 keys plus `modal`), `blocks: BTreeMap<String, Block>`, `arcs`, `helix`, `rotary`, `spline`, `cycles`, `feed { rotary_method }`, `modal_codes`. Defaults per spec 05 §5.5.
+- `Post` deserialised from the resolved table with serde: `name`, `output { extension, units, line_ending, decimal_char, substitute, max_file_size, max_segment_length, comment_start, comment_end }`, `line_numbering { enabled, start, increment, maximum, prefix }`, `words: BTreeMap<String, WordFmt>` (spec 05 §5.3 keys plus `modal`), `blocks: BTreeMap<String, Block>`, `arcs`, `helix`, `rotary`, `spline`, `cycles`, `feed { rotary_method }`. Defaults per spec 05 §5.5.
 - Unknown keys collected with `serde_ignored` as warnings (spec 02 §2).
 - Validation (spec 05 §5.2.5): unknown block names; `arc_cw`/`arc_ccw` required when `arcs.enabled`; `centre_mode = "r"` with `max_sweep_deg > 180`; `min_radius > max_radius`; cycle kinds unknown. Placeholder checks happen in Task 5 when templates compile.
-- [ ] **Step 1:** Tests: defaults applied; unknown key warning names its path; each validation error.
-- [ ] **Step 2:** Fail, implement, pass.
+- [x] **Step 1:** Tests: defaults applied; unknown key warning names its path; each validation error.
+- [x] **Step 2:** Fail, implement, pass.
+- **Done.** `Post::load(&Resolved) -> Result<LoadedPost { post, warnings }, PostError>`. No `modal_codes` table: modal behaviour is per word (`modal`). Also required: `rapid` and `feed` blocks in every post; a `comment` block and `first_*` variants of motion events are known block names. Unknown keys are warnings (spec 02 §2.0), not errors.
 
 ### Task 4: Expression language
 
