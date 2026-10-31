@@ -82,6 +82,8 @@ cross-platform bit-identity is required or only same-platform determinism.
 
 **Resolution (2026-10-31).** Bit-identical results on all platforms are required. All transcendental maths in `fluut-geom`, `fluut-cam`, `fluut-sim` and `fluut-post` uses the pure-Rust `libm` crate; platform `f64` methods for sin/cos/etc. are banned there by a clippy `disallowed_methods` lint. The CI determinism job compares hashes across platforms (D14 §3).
 
+**S3 finding (2026-10-31).** `cavalier_contours` calls platform trigonometry (36 sites, offsets and intersections included). It is used through a copy patched to call `libm` ([S3 report](../plan/spikes/s3-region-2d.md) §3).
+
 ### CH-02 Document data structure and undo memory
 
 **Problem.** D01 §3.1 needs cheap snapshots of the project for background jobs, and D06 needs
@@ -245,6 +247,8 @@ mismatch).
 **Revisit.** If problems appear, extend the offsetter to native B-spline offsets locally, or
 fit at a tighter tolerance near near-touching features.
 
+**S3 (2026-10-31).** Nothing found changes the workaround. `Region2` gets per-segment source references in M3.
+
 ### CH-14 3-D finishing toolpaths do not update in-process stock
 
 **Problem.** Layered 2-D stock (OQ-11) represents material per Z level. A 3-D finishing pass
@@ -283,6 +287,8 @@ steps per level, and the marching must not stall in narrow necks or leave uncut 
 **Revisit.** After a prototype: measure speed and sliver rate; if needed, simplify (e.g.
 trochoidal slotting in necks, offset-pattern fallback with feed reduction).
 
+**S3 (2026-10-31).** Prototype on exact arc regions works on 3 test shapes: path length near ideal, ≈0.2 % sliver area before the final contour pass, no grid. Engagement must also exclude the current pass's own earlier tool positions. Speed is 12–30 s per level against a target under 1 s; fixes are listed in the [S3 report](../plan/spikes/s3-region-2d.md) §5.
+
 ### CH-17 Exact medial axis for lines and arcs
 
 **Problem.** V-carving needs the medial axis of regions bounded by lines and arcs. Available Rust
@@ -296,6 +302,8 @@ interior. Bisector types: line–line (line), line–arc (parabola), arc–arc (
 **Revisit.** Estimate effort after CH-16's prototype; consider deferring `engrave` to after v1 if
 the medial axis is too costly.
 
+**S3 (2026-10-31).** `cavalier_contours` offers nothing here; own implementation stands, estimated 3–5 weeks.
+
 ### CH-18 Scallop variable-distance offsetting
 
 **Problem.** Constant 3-D stepover needs a 2-D offset whose distance varies with slope. The
@@ -305,6 +313,8 @@ chosen offset library does uniform offsets only.
 (conservative, more passes than ideal).
 
 **Revisit.** Compare pass counts with Fusion on test parts; consider own variable offsetter.
+
+**S3 (2026-10-31).** Confirmed: uniform offsets only. Workaround stands.
 
 ### CH-19 Offsets in unrolled rotary coordinates
 
@@ -318,6 +328,8 @@ when R ≪ r.
 unscale); conservative rounding toward leaving material.
 
 **Revisit.** Validate on small-diameter stock where R/r is large.
+
+**S3 (2026-10-31).** Scaling θ turns arcs into ellipses, which a line-and-arc region cannot hold: linearize at `tol.machining / 4` before scaling and refit biarcs (D02 §7) after unscaling.
 
 ### CH-20 Cutter-compensation events missing from the spec
 

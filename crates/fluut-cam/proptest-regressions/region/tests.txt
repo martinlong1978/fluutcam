@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 3b8738c9e8614fba1278664cd6799d9f1185bb7bfbf2ccec5ae8a1b1c04204a5 # shrinks to a = Region2 { loops: [Loop2 { verts: [Vertex { p: Point2(DVec2(13.51863855559046, 9.827223243983402)), bulge: 1.0 }, Vertex { p: Point2(DVec2(8.308255454689633, 9.827223243983402)), bulge: 1.0 }] }] }, b = Region2 { loops: [Loop2 { verts: [Vertex { p: Point2(DVec2(0.0, 0.0)), bulge: 0.0 }, Vertex { p: Point2(DVec2(1.0, 0.0)), bulge: 0.0 }, Vertex { p: Point2(DVec2(1.0, 1.0)), bulge: 0.0 }, Vertex { p: Point2(DVec2(0.0, 1.0)), bulge: 0.0 }] }] }, c = Region2 { loops: [Loop2 { verts: [Vertex { p: Point2(DVec2(11.474291262050262, 6.615507376652377)), bulge: 0.0 }, Vertex { p: Point2(DVec2(12.474291262050262, 6.615507376652377)), bulge: 0.0 }, Vertex { p: Point2(DVec2(12.474291262050262, 17.404211530859918)), bulge: 0.0 }, Vertex { p: Point2(DVec2(11.474291262050262, 17.404211530859918)), bulge: 0.0 }] }] }

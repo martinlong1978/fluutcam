@@ -297,16 +297,54 @@ impl Region2 {
     }
 
     pub fn contains(&self, p: Point2) -> Inside {
-        if self.boundary_distance(p) <= EPS {
-            return Inside::On;
+        for s in self.segs() {
+            let near = match s.arc() {
+                None => true,
+                Some(g) => (p.distance(g.centre) - g.radius).abs() <= EPS,
+            };
+            if near && seg_distance(&s, p) <= EPS {
+                return Inside::On;
+            }
         }
-        let v = cavalier_contours::core::math::Vector2::new(p.x(), p.y());
-        let w: i32 = self
-            .loops
-            .iter()
-            .map(|l| l.to_pline().winding_number(v))
-            .sum();
+        // The point is more than EPS from the boundary, so a nudge far
+        // below EPS cannot change the answer; it resolves points that lie
+        // on a chord or on the ray through a vertex.
+        let w = self.winding(p).unwrap_or_else(|| {
+            self.winding(p + Vec2::new(EPS * 0.031, EPS * 0.017))
+                .unwrap_or(0)
+        });
         if w > 0 { Inside::In } else { Inside::Out }
+    }
+
+    /// Winding number of the polygon of chords, plus ±1 for each arc whose
+    /// circular segment (between chord and arc) holds the point; `None`
+    /// when the point lies on a chord's line within an arc's circle.
+    fn winding(&self, p: Point2) -> Option<i32> {
+        let mut w = 0i32;
+        for s in self.segs() {
+            let (a, b) = (s.a, s.b);
+            let cross = (b - a).perp_dot(p - a);
+            if a.y() <= p.y() {
+                if b.y() > p.y() && cross > 0.0 {
+                    w += 1;
+                }
+            } else if b.y() <= p.y() && cross < 0.0 {
+                w -= 1;
+            }
+            if let Some(g) = s.arc()
+                && p.distance(g.centre) < g.radius
+            {
+                if cross == 0.0 {
+                    return None;
+                }
+                if g.sweep > 0.0 && cross < 0.0 {
+                    w += 1;
+                } else if g.sweep < 0.0 && cross > 0.0 {
+                    w -= 1;
+                }
+            }
+        }
+        Some(w)
     }
 
     /// Exact minimum and maximum of `p · dir` over the region.

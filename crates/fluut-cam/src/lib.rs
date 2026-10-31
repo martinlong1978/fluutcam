@@ -4,5 +4,6 @@
 //! D07–D09).
 
 pub mod region;
+pub mod spike;
 
 pub use region::{Inside, Loop2, Region2, Seg2, Vertex};
