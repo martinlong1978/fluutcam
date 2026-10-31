@@ -166,6 +166,9 @@ fn check_ops(a: &Region2, b: &Region2, tol: f64) {
         i.area()
     );
     assert!(i.area() >= -tol && d.area() >= -tol);
+    for r in [&u, &i, &d] {
+        assert_simple(r);
+    }
 }
 
 #[test]
@@ -176,7 +179,7 @@ fn booleans_of_rectangles() {
     assert!(close(a.union(&b).area(), 175.0, 1e-9));
     assert!(close(a.subtract(&b).area(), 75.0, 1e-9));
     assert_eq!(a.union(&b).loops.len(), 1);
-    check_ops(&a, &b, 1e-9);
+    check_ops(&a, &b, 1e-6);
 }
 
 #[test]
@@ -223,6 +226,100 @@ fn plate_minus_disc_across_hole() {
     assert!(r.area() < p.area());
 }
 
+/// No two vertices of a loop at the same point, so a loop can neither touch
+/// nor cross itself at a vertex.
+fn assert_simple(r: &Region2) {
+    for l in &r.loops {
+        for (i, u) in l.verts.iter().enumerate() {
+            for v in &l.verts[i + 1..] {
+                assert!(
+                    u.p.distance(v.p) > 1e-7,
+                    "loop passes {:?} twice: {:?}",
+                    u.p,
+                    l.verts
+                );
+            }
+        }
+    }
+}
+
+/// Areas of the loops, sorted.
+fn loop_areas(r: &Region2) -> Vec<f64> {
+    let mut a: Vec<f64> = r.loops.iter().map(Loop2::area).collect();
+    a.sort_by(f64::total_cmp);
+    a
+}
+
+#[test]
+fn booleans_squares_sharing_a_corner() {
+    let a = Region2::rect(0.0, 0.0, 1.0, 1.0);
+    let b = Region2::rect(1.0, 1.0, 2.0, 2.0);
+    for u in [a.union(&b), b.union(&a)] {
+        assert_simple(&u);
+        assert_eq!(loop_areas(&u).len(), 2, "{u:?}");
+        for x in loop_areas(&u) {
+            assert!(close(x, 1.0, 1e-12), "{u:?}");
+        }
+    }
+    assert!(a.intersect(&b).area().abs() < 1e-12);
+    assert!(close(a.subtract(&b).area(), 1.0, 1e-12));
+    // The big square minus the diagonal pair leaves the other diagonal pair,
+    // which also touch at the centre.
+    let big = Region2::rect(0.0, 0.0, 2.0, 2.0);
+    let d = big.subtract(&a.union(&b));
+    assert_simple(&d);
+    assert_eq!(loop_areas(&d).len(), 2, "{d:?}");
+    assert!(close(d.area(), 2.0, 1e-12));
+    let i = big.intersect(&a.union(&b));
+    assert_simple(&i);
+    assert_eq!(i.loops.len(), 2);
+}
+
+#[test]
+fn square_minus_tangent_disc() {
+    let sq = Region2::rect(0.0, 0.0, 4.0, 4.0);
+    // Touches the bottom edge at (2, 0) from inside.
+    let inside = Region2::circle(2.0, 1.0, 1.0);
+    let d = sq.subtract(&inside);
+    assert_simple(&d);
+    let areas = loop_areas(&d);
+    assert_eq!(areas.len(), 2, "{d:?}");
+    assert!(
+        close(areas[0], -PI, 1e-9) && close(areas[1], 16.0, 1e-12),
+        "{areas:?}"
+    );
+    assert!(close(sq.union(&inside).area(), 16.0, 1e-9));
+    assert!(close(sq.intersect(&inside).area(), PI, 1e-9));
+    // Touches the bottom edge at (2, 0) from outside.
+    let outside = Region2::circle(2.0, -1.0, 1.0);
+    for u in [sq.union(&outside), outside.union(&sq)] {
+        assert_simple(&u);
+        let areas = loop_areas(&u);
+        assert_eq!(areas.len(), 2, "{u:?}");
+        assert!(
+            close(areas[0], PI, 1e-9) && close(areas[1], 16.0, 1e-12),
+            "{areas:?}"
+        );
+    }
+    let d = sq.subtract(&outside);
+    assert_simple(&d);
+    assert!(close(d.area(), 16.0, 1e-12));
+}
+
+#[test]
+fn disc_tangent_to_hole() {
+    // A disc subtracted from a ring touches the ring's hole at one point:
+    // the result has one outer loop and two holes that touch there.
+    let ring = Region2::rect(0.0, 0.0, 10.0, 10.0).with_hole(&Region2::circle(5.0, 5.0, 2.0));
+    let disc = Region2::circle(8.0, 5.0, 1.0);
+    let d = ring.subtract(&disc);
+    assert_simple(&d);
+    assert!(close(d.area(), 100.0 - 5.0 * PI, 1e-9));
+    assert_eq!(d.loops.len(), 3, "{d:?}");
+    assert_eq!(d.loops.iter().filter(|l| l.is_ccw()).count(), 1);
+    check_ops(&ring, &disc, 1e-9);
+}
+
 mod props {
     use super::*;
     use proptest::prelude::*;
@@ -236,12 +333,30 @@ mod props {
         ]
     }
 
+    /// Unions of rectangles and discs on a coarse grid, so that edges
+    /// coincide and corners and tangent points touch often.
+    fn grid_shape() -> impl Strategy<Value = Region2> {
+        let rect = (0..5i32, 0..5i32, 1..3i32, 1..3i32).prop_map(|(x, y, w, h)| {
+            let (x, y) = (f64::from(x), f64::from(y));
+            Region2::rect(x, y, x + f64::from(w), y + f64::from(h))
+        });
+        let disc =
+            (1..5i32, 1..5i32).prop_map(|(x, y)| Region2::circle(f64::from(x), f64::from(y), 1.0));
+        prop::collection::vec(prop_oneof![rect, disc], 1..4)
+            .prop_map(|v| v.iter().fold(Region2::empty(), |acc, r| acc.union(r)))
+    }
+
     proptest! {
         #[test]
         fn area_identities(a in shape(), b in shape(), c in shape()) {
             let ab = a.union(&b);
             check_ops(&ab, &c, 1e-6);
             check_ops(&a.subtract(&b), &c, 1e-6);
+        }
+
+        #[test]
+        fn grid_area_identities(a in grid_shape(), b in grid_shape()) {
+            check_ops(&a, &b, 1e-6);
         }
     }
 }

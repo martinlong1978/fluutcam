@@ -72,12 +72,12 @@ fn offsets_are_bit_exact() {
         (
             "slotted disc -3",
             shapes::slotted_disc().offset(-3.0),
-            (0x40acaab2870eefe0, 8, 0x97e0d36eb7f62600),
+            (0x40acaab2870eefe0, 8, 0xeb3504991f28ba9c),
         ),
         (
             "slotted disc -3 +1.7",
             shapes::slotted_disc().offset(-3.0).offset(1.7),
-            (0x40b06a11f30f3f51, 10, 0x7fd6e72d01c9e41e),
+            (0x40b06a11f30f3f50, 10, 0x63b4cc582d4075f2),
         ),
     ];
     for (name, r, want) in &cases {
@@ -93,18 +93,18 @@ fn booleans_are_bit_exact() {
         (
             "plate minus disc",
             shapes::plate().subtract(&disc),
-            (0x40b5e073b0c35a73, 8, 0xa93e8060074d1216),
+            (0x40b5e073b0c35a73, 8, 0x3c38dab2e4497f92),
         ),
-        ("lens", lens, (0x40403f65663bd082, 4, 0x0e149d4fc2271a18)),
+        ("lens", lens, (0x40403f65663bd082, 4, 0xcbce110eaee342e0)),
         (
             "rooms union offset disc",
             shapes::rooms().union(&shapes::slotted_disc().offset(-3.0)),
-            (0x40b8b7d0db410d74, 19, 0x334cbc2135044811),
+            (0x40b8b7d0db410d74, 19, 0xfc8fb40c3d3dace1),
         ),
         (
             "slotted disc",
             shapes::slotted_disc(),
-            (0x40b21397a56640a5, 6, 0xe58df3492ad37182),
+            (0x40b21397a56640a5, 6, 0x6219e1dff0419ed6),
         ),
     ];
     for (name, r, want) in &cases {

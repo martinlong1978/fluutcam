@@ -30,6 +30,32 @@ fn main() {
             uncut.loops.len()
         );
     }
+    println!("Booleans of two n-gon stars with 4 n segments in all");
+    for n in [500, 2000, 8000] {
+        let star = |cx: f64, phase: f64| {
+            let pts: Vec<(f64, f64)> = (0..n)
+                .map(|i| {
+                    let t = std::f64::consts::TAU * (f64::from(i) + phase) / f64::from(n);
+                    let r = if i % 2 == 0 { 40.0 } else { 36.0 };
+                    let (s, c) = libm::sincos(t);
+                    (cx + r * c, r * s)
+                })
+                .collect();
+            Region2::polygon(&pts)
+        };
+        let (a, b) = (star(0.0, 0.0), star(5.0, 0.3));
+        let t = Instant::now();
+        let u = a.union(&b);
+        let i = a.intersect(&b);
+        let d = a.subtract(&b);
+        let ms = t.elapsed().as_secs_f64() * 1e3;
+        println!(
+            "  n = {n}: union, intersect, subtract {ms:.1} ms; areas {:.3} {:.3} {:.3}",
+            u.area(),
+            i.area(),
+            d.area()
+        );
+    }
     let p = adaptive::Params {
         r,
         phi: 60f64.to_radians(),

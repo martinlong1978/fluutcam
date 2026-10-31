@@ -162,7 +162,7 @@ pub struct Loop2 {
 }
 
 impl Loop2 {
-    pub fn segs(&self) -> impl Iterator<Item = Seg2> + '_ {
+    pub fn segs(&self) -> impl Iterator<Item = Seg2> + Clone + '_ {
         let n = self.verts.len();
         (0..n).map(move |i| Seg2 {
             a: self.verts[i].p,
@@ -285,7 +285,7 @@ impl Region2 {
         self.loops.iter().map(Loop2::length).sum()
     }
 
-    pub fn segs(&self) -> impl Iterator<Item = Seg2> + '_ {
+    pub fn segs(&self) -> impl Iterator<Item = Seg2> + Clone + '_ {
         self.loops.iter().flat_map(Loop2::segs)
     }
 
@@ -297,54 +297,7 @@ impl Region2 {
     }
 
     pub fn contains(&self, p: Point2) -> Inside {
-        for s in self.segs() {
-            let near = match s.arc() {
-                None => true,
-                Some(g) => (p.distance(g.centre) - g.radius).abs() <= EPS,
-            };
-            if near && seg_distance(&s, p) <= EPS {
-                return Inside::On;
-            }
-        }
-        // The point is more than EPS from the boundary, so a nudge far
-        // below EPS cannot change the answer; it resolves points that lie
-        // on a chord or on the ray through a vertex.
-        let w = self.winding(p).unwrap_or_else(|| {
-            self.winding(p + Vec2::new(EPS * 0.031, EPS * 0.017))
-                .unwrap_or(0)
-        });
-        if w > 0 { Inside::In } else { Inside::Out }
-    }
-
-    /// Winding number of the polygon of chords, plus ±1 for each arc whose
-    /// circular segment (between chord and arc) holds the point; `None`
-    /// when the point lies on a chord's line within an arc's circle.
-    fn winding(&self, p: Point2) -> Option<i32> {
-        let mut w = 0i32;
-        for s in self.segs() {
-            let (a, b) = (s.a, s.b);
-            let cross = (b - a).perp_dot(p - a);
-            if a.y() <= p.y() {
-                if b.y() > p.y() && cross > 0.0 {
-                    w += 1;
-                }
-            } else if b.y() <= p.y() && cross < 0.0 {
-                w -= 1;
-            }
-            if let Some(g) = s.arc()
-                && p.distance(g.centre) < g.radius
-            {
-                if cross == 0.0 {
-                    return None;
-                }
-                if g.sweep > 0.0 && cross < 0.0 {
-                    w += 1;
-                } else if g.sweep < 0.0 && cross > 0.0 {
-                    w -= 1;
-                }
-            }
-        }
-        Some(w)
+        contains_in(self.segs(), p)
     }
 
     /// Exact minimum and maximum of `p · dir` over the region.
@@ -420,6 +373,61 @@ impl Region2 {
         let (y0, y1) = self.support(Vec2::new(0.0, 1.0));
         (Point2::new(x0, y0), Point2::new(x1, y1))
     }
+}
+
+/// [`Region2::contains`] over the given boundary segments. Segments that
+/// neither come within [`EPS`] of `p` nor meet the ray from `p` in the +x
+/// direction may be left out without changing the answer.
+pub(crate) fn contains_in<I>(segs: I, p: Point2) -> Inside
+where
+    I: Iterator<Item = Seg2> + Clone,
+{
+    for s in segs.clone() {
+        let near = match s.arc() {
+            None => true,
+            Some(g) => (p.distance(g.centre) - g.radius).abs() <= EPS,
+        };
+        if near && seg_distance(&s, p) <= EPS {
+            return Inside::On;
+        }
+    }
+    // The point is more than EPS from the boundary, so a nudge far
+    // below EPS cannot change the answer; it resolves points that lie
+    // on a chord or on the ray through a vertex.
+    let w = winding(segs.clone(), p)
+        .unwrap_or_else(|| winding(segs, p + Vec2::new(EPS * 0.031, EPS * 0.017)).unwrap_or(0));
+    if w > 0 { Inside::In } else { Inside::Out }
+}
+
+/// Winding number of the polygon of chords, plus ±1 for each arc whose
+/// circular segment (between chord and arc) holds the point; `None`
+/// when the point lies on a chord's line within an arc's circle.
+fn winding(segs: impl Iterator<Item = Seg2>, p: Point2) -> Option<i32> {
+    let mut w = 0i32;
+    for s in segs {
+        let (a, b) = (s.a, s.b);
+        let cross = (b - a).perp_dot(p - a);
+        if a.y() <= p.y() {
+            if b.y() > p.y() && cross > 0.0 {
+                w += 1;
+            }
+        } else if b.y() <= p.y() && cross < 0.0 {
+            w -= 1;
+        }
+        if let Some(g) = s.arc()
+            && p.distance(g.centre) < g.radius
+        {
+            if cross == 0.0 {
+                return None;
+            }
+            if g.sweep > 0.0 && cross < 0.0 {
+                w += 1;
+            } else if g.sweep < 0.0 && cross > 0.0 {
+                w -= 1;
+            }
+        }
+    }
+    Some(w)
 }
 
 /// Parameters `t` where the line `p + t · dir` meets a segment; both ends

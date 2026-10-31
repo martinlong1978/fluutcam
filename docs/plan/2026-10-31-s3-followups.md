@@ -20,7 +20,7 @@ All S3 Global Constraints apply. In addition:
 ## Review Focus
 
 1. **Patch completeness**: no call in the vendored library code (outside its own tests) reaches `num_traits` or `std` trigonometry.
-2. **Junctions**: where several kept pieces start at one point, stitching takes the one that turns most to the right of the incoming direction, so loops never cross themselves at a touching point.
+2. **Junctions**: where several kept pieces start at one point, stitching takes the sharpest left turn, so each loop bounds one piece of interior and loops never cross at a touching point.
 3. **Pinned bits**: the determinism test fails on any last-bit change of offset or boolean results.
 
 ---
@@ -45,9 +45,9 @@ All S3 Global Constraints apply. In addition:
 
 - Segment pairs: build a `StaticAABB2DIndex` over the other region's segment boxes and query it per segment. Classifying a piece queries the same index: only segments whose box meets the point or the ray to its right can change the boundary distance test or the winding number.
 - Piece lookup while stitching: piece starts sorted by x and searched by bisection instead of a linear scan.
-- Stitching: collect the pieces that start at the current end point; take the one with the smallest left turn (most clockwise) relative to the incoming tangent, measured with exact end tangents of lines and arcs; equal tangents are ordered by curvature. A loop that still passes through one point twice (a hole touching its outer loop) is split there, so every output loop is simple.
-- [ ] **Step 1:** Tests: two squares sharing one corner (union is two loops, or one loop that does not cross itself, and each loop is simple); a square minus a disc tangent to it inside; the existing proptest.
-- [ ] **Step 2:** Fail, implement, pass.
+- Stitching: collect the pieces that start at the current end point; take the sharpest left turn, i.e. the first piece clockwise from the way back along the incoming piece, measured with exact end tangents of lines and arcs; equal tangents are ordered by curvature. A loop that still passes through one point twice (a hole touching its outer loop) is split there, so every output loop is simple.
+- [x] **Step 1:** Tests: two squares sharing one corner (union is two simple loops); a square minus a disc tangent to it inside, and a square and a disc tangent outside; a disc tangent to a hole; the existing proptest, now also checking that every loop is simple; a new proptest on grid-aligned rectangles and discs, where edges coincide and corners touch often.
+- [x] **Step 2:** Fail, implement, pass.
 
 ### Task 4: Measurements and report
 
