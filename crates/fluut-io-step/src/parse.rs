@@ -549,7 +549,7 @@ fn decode(raw: &[u8]) -> Option<String> {
             let w = if rest[2] == b'2' { 4 } else { 8 };
             let end = rest.windows(4).position(|x| x == b"\\X0\\")?;
             let body = &rest[4..end];
-            if body.len() % w != 0 {
+            if !body.len().is_multiple_of(w) {
                 return None;
             }
             let units: Option<Vec<u32>> = body.chunks(w).map(hex).collect();
