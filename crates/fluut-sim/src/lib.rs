@@ -7,7 +7,12 @@
 //! volume of the tool. Results are deterministic on any thread count.
 
 pub mod dexel;
+pub mod gjk;
 pub mod stock;
+pub mod sweep;
+pub mod tool;
 
 pub use dexel::{DexelGrid, Span, TriDexel};
 pub use stock::Stock;
+pub use sweep::Sweep;
+pub use tool::{Pose, Tool};
