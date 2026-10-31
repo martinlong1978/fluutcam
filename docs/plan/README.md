@@ -62,5 +62,6 @@ These must be written before the milestone that needs them:
 | [2026-10-31-m1-geometry-path.md](2026-10-31-m1-geometry-path.md) | M1 | Done (B-spline closest point 20× over its benchmark target: CH-25) |
 | [2026-10-31-m2-post-engine.md](2026-10-31-m2-post-engine.md) | M2 | Done |
 | [2026-10-31-s3-region-2d.md](2026-10-31-s3-region-2d.md) | S3 | Done: [report](spikes/s3-region-2d.md); `cavalier_contours` kept with a `libm` patch, adaptive viable but needs speed work |
+| [2026-10-31-s3-followups.md](2026-10-31-s3-followups.md) | S3 | Done: `cavalier_contours` vendored with `libm` trigonometry and pinned bit by bit; booleans indexed, simple loops at touching points, consistent on all adaptive unions ([report](spikes/s3-region-2d.md#follow-ups-2026-10-31)) |
 | [2026-10-31-s1-kernel-step.md](2026-10-31-s1-kernel-step.md) | S1 | Done: [report](spikes/s1-kernel-step.md); own reader 33/33 files, 61/63 shells clean; no `truck` crates |
 | [2026-10-31-s5-simulation.md](2026-10-31-s5-simulation.md) | S5 | Done: [report](spikes/s5-simulation.md); tri-dexel kept, relief 106 MB and 29 s at 0.1 mm on 4 cores; rotary 6× too slow, try cylindrical dexels |
