@@ -6,6 +6,7 @@
 //! adds the block merger, the typed post, templates, expressions, number
 //! formatting and the G-code emitter.
 
+pub mod expr;
 pub mod merge;
 pub mod post;
 

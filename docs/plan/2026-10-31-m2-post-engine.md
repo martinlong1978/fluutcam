@@ -74,8 +74,9 @@ All M0 and M1 Global Constraints apply. In addition:
 
 **Files:** Create `src/expr.rs`, `src/expr/tests.rs`
 - Lexer and recursive-descent parser for the EBNF in spec 05 §5.4.3; `enum Ty { Num, Str, Bool }`; `Schema` (path → type, D10 §3.2 roots `tool`, `machine`, `setup`, `toolpath`, `state`); `fn compile(src, &Schema) -> Result<Expr, ExprError>` (type-checked; error carries the column); `fn eval(&Expr, &dyn Context) -> Value` (total: division by zero gives 0, `round` half away from zero).
-- [ ] **Step 1:** Tests: precedence; string and number comparison; `!`, `&&`, `||`; functions and arity errors; unknown path; type mismatch (`tool.number == 'x'`); division by zero is 0; proptest: random token strings never panic in `compile`.
-- [ ] **Step 2:** Fail, implement, pass.
+- [x] **Step 1:** Tests: precedence; string and number comparison; `!`, `&&`, `||`; functions and arity errors; unknown path; type mismatch (`tool.number == 'x'`); division by zero is 0; proptest: random token strings never panic in `compile`.
+- [x] **Step 2:** Fail, implement, pass.
+- **Done.** Types are checked while parsing. `<`/`>` compare numbers only; `+` is numeric only (no string concatenation). `round(x, n)` takes an optional decimal count. A context value that is missing or of the wrong type evaluates as its type's default (0, '', false). `compile_condition` requires a boolean.
 
 ### Task 5: Number formatting and templates
 

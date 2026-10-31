@@ -350,6 +350,8 @@ name = "fluut-post"
 version = "0.1.0"
 dependencies = [
  "fluut-model",
+ "libm",
+ "proptest",
  "serde",
  "serde_ignored",
  "thiserror",
