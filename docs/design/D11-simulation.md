@@ -17,14 +17,22 @@ orientation, so one stock carries through rotary and indexed Setups in the model
 
 ```rust
 pub struct TriDexel {
-    pub frame: Frame,                 // model frame, axis-aligned to the stock box
     pub res: f64,                     // ray spacing (mm), from SimulationResolution
-    pub rays: [DexelGrid; 3],         // X, Y, Z families
+    pub origin: DVec3,                // stock box minimum, in the stock frame
+    pub grids: [DexelGrid; 3],        // X, Y, Z families
 }
-pub struct DexelGrid { nx: u32, ny: u32, cells: Vec<SmallVec<[Interval; 2]>> }
+pub struct DexelGrid { axis: usize, nu: usize, nv: usize, rays: Vec<SmallVec<[Span; 2]>> }
+pub struct Span { lo: f32, hi: f32 }  // offsets from origin along the ray
 ```
 
-Memory: 200 × 200 × 50 mm at 0.1 mm ≈ 6 M rays ≈ 150 MB worst case. Resolution is chosen
+The stock frame is the work frame for three-axis Setups. For rotary Setups it is the frame
+before the A rotation: the rotary axis is its X axis, and `p_W = R_x(A)·p_S` (spec 03 §3.9.3).
+Spans are `f32` offsets (resolution 1.5e-5 mm at 200 mm), so a ray header is 24 bytes and a
+ray with up to two spans needs no heap.
+
+Memory: 24 bytes per ray plus 8 bytes per span beyond the second. 200 × 200 × 50 mm at
+0.1 mm is 6 M rays ≈ 144 MB before cutting; machining spills 5–10 % of the rays to the heap
+(S5: +20 % memory). Memory grows as 1/res². Resolution is chosen
 automatically from the stock size and an memory budget (default 512 MB), and the user can
 refine a region of interest.
 
@@ -33,24 +41,36 @@ compares against **exact** faces (§5), so verdicts do not depend on the grid al
 
 ## 3. Material removal
 
-All supported tools are convex solids of revolution. For a straight move, the swept volume is
-the Minkowski sum of the tool and the move segment, which is convex.
+All supported tools are convex solids of revolution: `disk(R − r) ⊕ axis segment ⊕ ball(r)`
+(flat r = 0, ball r = R, bull between). The shank is straight and is cut off just past the
+stock (`Stock::extent_along`), which changes no result and keeps candidate rays few. For a
+straight move with a fixed axis, the swept volume is `tool ⊕ chord`, which is convex.
 
 ```
-for each segment (in program order, model frame):
-    if Arc / Helix / Rotary: split into chords with sagitta ≤ res/4
-    for each chord: V = tool ⊕ chord (convex)
-        candidate rays = rays whose line meets V's AABB (per family)
-        per ray: [t_in, t_out] = ray ∩ V by convex ray cast (GJK ray cast on support functions)
-                 subtract [t_in, t_out] from the ray's intervals
+for each segment (in program order, stock frame):
+    Arc / Helix / Spline: split into chords with sagitta ≤ res/4 at the tool tip
+    moves with a changing A (Rotary, 4-axis lines): split so the sagitta at the stock's
+        largest radius is ≤ res/4; each chord is the hull of its two end poses
+    for each chord V:
+        candidate rays = rays whose line meets V's AABB and that still have material there
+        per ray: [t_in, t_out] = ray ∩ V; subtract from the ray's spans
 ```
 
-- Support function of the tool: exact for flat, ball, bull, V and tapered profiles.
-- Parallel over rays within a chord batch (`rayon`), chords applied in order per ray: chords are
-  batched by spatial tiles so that each tile's rays are processed by one thread in program
-  order (deterministic).
-- Rotary Setups: moves are transformed to the model frame using the A angle at each chord end
-  (the part rotates, so the tool moves around it).
+Ray ∩ V uses the cheapest exact method (S5 measured the cost per ray):
+
+| Case | Method | ns per ray |
+|---|---|---|
+| line along a fixed tool axis, ball | one capsule (V is the bottom capsule translated along the line) | 25 |
+| line along a fixed tool axis, flat/bull | 1-D convex minimum of the bottom profile over the chord | 55 / 300 |
+| line across a fixed axis on a level chord, flat/bull | 2-D capsule of the tool's radius at the line's height | 60 |
+| ball, any other line (including rotary chords) | hull of four sphere centres ⊕ ball: spheres, edge cylinders, thickened triangles | 90–300 |
+| flat/bull, any other line | GJK ray cast on the support function, to 1e-4 mm | 2 500–3 300 |
+
+- Parallel over rays (`rayon`), deterministic: chords are taken in batches of 32 768; for each
+  family, rows of rays are split into tiles of two rows, and each tile applies the batch's
+  chords in program order. The stock is bit-identical on any thread count.
+- Rotary Setups: the tool tip at machine `xyz, A` is at `R_x(−A)·xyz` in the stock frame and
+  its axis is `R_x(−A)·Z`.
 
 ## 4. Playback and scrubbing
 
