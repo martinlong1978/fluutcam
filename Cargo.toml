@@ -2,7 +2,9 @@
 resolver = "3"
 members = ["crates/*", "xtask"]
 # Spike crates with their own dependencies; never part of the product.
-exclude = ["spikes"]
+# Vendored crates are used through [patch.crates-io] below; excluding them
+# keeps them out of workspace lints and lets their own tests run in place.
+exclude = ["spikes", "third_party"]
 
 [workspace.package]
 version = "0.1.0"
@@ -32,6 +34,10 @@ sha2 = "0.11"
 proptest = "1"
 approx = "0.5"
 criterion = "0.8"
+
+# Vendored copies with local changes; see each crate's README-FLUUTCAM.md.
+[patch.crates-io]
+cavalier_contours = { path = "third_party/cavalier_contours" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

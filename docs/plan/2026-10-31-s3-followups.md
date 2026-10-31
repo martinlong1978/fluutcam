@@ -36,8 +36,8 @@ All S3 Global Constraints apply. In addition:
 **Files:** Create `third_party/cavalier_contours/` (copy of 0.9.0 plus `README-FLUUTCAM.md`), `crates/fluut-cam/tests/determinism.rs`; modify `Cargo.toml`, `deny.toml` or `xtask` only if they need it.
 
 - `Real` gets `libm_*` methods (`sin_cos`, `tan`, `atan`, `atan2`, `acos`) implemented with `libm` for `f32` and `f64`; library code calls those instead of the `num_traits::Real` methods.
-- [ ] **Step 1:** Test: offsets and booleans of fixed shapes, with `f64::to_bits` of areas and of a few vertices pinned. Run it against the crates.io copy, record the values.
-- [ ] **Step 2:** Vendor, patch, point the workspace at it; the test still passes on Linux (glibc and `libm` agree on these inputs or the pins are updated once, with the reason in the commit). `cargo deny check` and `cargo xtask check-layers` pass.
+- [x] **Step 1:** Test: offsets and booleans of fixed shapes, with `f64::to_bits` of areas and of a few vertices pinned. Run it against the crates.io copy, record the values.
+- [x] **Step 2:** Vendor, patch, point the workspace at it; the test still passes on Linux (glibc and `libm` agree on these inputs or the pins are updated once, with the reason in the commit). `cargo deny check` and `cargo xtask check-layers` pass.
 
 ### Task 3: Booleans robustness
 
