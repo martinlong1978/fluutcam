@@ -118,6 +118,8 @@ points. The free-form marcher seeds on an 8×8 cell grid per patch, so a small c
 lying entirely inside one cell (a bump top just cut by the plane) is missed. Fix candidates for
 S1: seed also from critical points of `n·S` (interior extrema), found by Newton from each cell.
 
+**S1 (2026-10-31).** Not exercised: no plane sections were run on corpus bodies. S2 and M3 use the S1 bodies for this.
+
 ### CH-04 Self-intersecting offsets of free-form surfaces
 
 **Problem.** The offset of a concave free-form region by a tool radius larger than its radius of
@@ -131,6 +133,8 @@ checked (D02 §4.3).
 
 **Revisit.** Sections of CL surfaces for waterline on free-form faces (D09) may need explicit
 offsets; check whether contact-based sampling + fitting is fast enough there.
+
+**S1 (2026-10-31).** Belongs to S2 (cutter queries); S1 provides the bodies and face BVH it needs.
 
 ### CH-05 Silhouette outline robustness for free-form faces
 
@@ -182,6 +186,8 @@ this fails are excluded and reported.
 
 **Revisit.** Measure the failure rate on the corpus during the OQ-01 spike.
 
+**S1 (2026-10-31).** All 33 NIST corpus files omit p-curves, so projection runs on every face, not on a minority. The failure rate is still unmeasured; it is the first task of the M4 importer ([S1 report](../plan/spikes/s1-kernel-step.md) §5).
+
 ### CH-09 DXF reader coverage
 
 **Problem.** The `dxf` crate may not handle all real-world files (binary DXF, newer versions,
@@ -232,6 +238,8 @@ correctness.
 
 **Revisit.** Measure miss and failure rates on free-form corpus parts; consider interval
 arithmetic on patches for guaranteed bounds if misses occur.
+
+**S1 (2026-10-31).** Belongs to S2; S1 provides the bodies (176 B-spline faces in the corpus).
 
 ### CH-13 B-spline boundaries through a lines-and-arcs offset library
 

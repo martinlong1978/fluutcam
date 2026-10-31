@@ -184,6 +184,12 @@ Before full implementation, a two-week spike:
 Corpus: NIST CAx-IF public test files (AP203/214/242), STEP exports from FreeCAD, Onshape,
 SolidWorks, Fusion, Inventor, Creo and CATIA where licensing allows, and fuzzed variants.
 
+**Result (S1, 2026-10-31).** Own reader: 33/33 corpus files and 7 902/7 902 faces mapped,
+61/63 shells clean at the declared uncertainty. `truck-stepio`: 17/33 files, 4 closed shells.
+`truck-geometry` NURBS evaluation is 2.3× slower than `fluut-geom`. Decision: own reader and
+kernel, no `truck` crates ([S1 report](../plan/spikes/s1-kernel-step.md)). Open: the §5.2 tolerance clamp hides real
+gaps in files that declare more than 0.01 mm (report §6).
+
 ## 10. Tests
 
 - Round-trip: for each corpus file, face count, edge count and total area match a reference

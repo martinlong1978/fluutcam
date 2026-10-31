@@ -120,6 +120,11 @@ least four CAD systems) and measures entity coverage, evaluation accuracy and sp
 is recorded here before kernel work starts. Cutter queries stay behind an internal trait so
 kernel internals can change.
 
+**Spike result (S1, 2026-10-31):** no `truck` crate passed. `truck-stepio` read 17 of 33 corpus
+files and gave 4 usable closed shells; `truck-geometry` evaluates NURBS correctly but 2.3× slower
+than FluutCAM's own `fluut-geom`. FluutCAM therefore uses its own Part 21 reader, topology and
+NURBS evaluation (option A in effect). Details: `docs/plan/spikes/s1-kernel-step.md`.
+
 ## 1.5 Tolerance model
 
 Three distinct tolerances MUST exist and MUST NOT be conflated:

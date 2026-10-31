@@ -34,15 +34,15 @@ All M0 to S3 Global Constraints apply. In addition:
 
 - Tokens and `RawModel` as D04 §2–§3. Entities in a `Vec`, `#id → slot` in a `BTreeMap` (determinism rule); keywords interned to `KwId`.
 - Single-threaded in the spike; parallel parsing is measured as a later option.
-- [ ] **Step 1:** Tests: every token kind; `''` and `\X2\…\X0\` in strings; complex entities `(A()B())`; typed parameters `LENGTH_MEASURE(1.)`; errors with positions for the Review Focus 1 cases.
-- [ ] **Step 2:** Fail, implement, pass. Corpus: every file parses; MB/s.
+- [x] **Step 1:** Tests: every token kind; `''` and `\X2\…\X0\` in strings; complex entities `(A()B())`; typed parameters `LENGTH_MEASURE(1.)`; errors with positions for the Review Focus 1 cases.
+- [x] **Step 2:** Fail, implement, pass. Corpus: every file parses; MB/s.
 
 ### Task 2: Schema, units and entity census
 
 - Schema from `FILE_SCHEMA`; length and angle units from the geometric context (`SI_UNIT` with prefix, `CONVERSION_BASED_UNIT` for inch and degree); uncertainty.
 - Census: for each file, counts of entity kinds inside shape representations, split into supported (D04 §5.1) and unsupported.
-- [ ] **Step 1:** Tests on snippets: mm, inch, metre; AP203 and AP242 schema names.
-- [ ] **Step 2:** Corpus census table for the report.
+- [x] **Step 1:** Tests on snippets: mm, inch, metre; AP203 and AP242 schema names.
+- [x] **Step 2:** Corpus census table for the report.
 
 ### Task 3: `fluut-topo` arena and checks
 
@@ -51,8 +51,8 @@ All M0 to S3 Global Constraints apply. In addition:
 - Arena of vertices, edges (curve, parameter range, end vertices), coedges (edge, forward), loops, faces (surface, sense, loops), shells, bodies, as D03 §1 without p-curves and trim caches.
 - Checks: loop closure (consecutive coedge ends within `tol_model`), manifold edge use in closed shells, face with no outer loop.
 - BVH over face bounding boxes (from edge samples and surface corner samples), median split; query by box.
-- [ ] **Step 1:** Tests on a hand-built cube and a cube with one flipped coedge and one gap.
-- [ ] **Step 2:** Fail, implement, pass.
+- [x] **Step 1:** Tests on a hand-built cube and a cube with one flipped coedge and one gap.
+- [x] **Step 2:** Fail, implement, pass.
 
 ### Task 4: Geometry and topology mapping
 
@@ -60,8 +60,8 @@ All M0 to S3 Global Constraints apply. In addition:
 
 - Product and representation walk (D04 §4, without assemblies: every `MANIFOLD_SOLID_BREP`, `BREP_WITH_VOIDS` and `SHELL_BASED_SURFACE_MODEL` becomes a body with the unit and uncertainty of its context).
 - Curves and surfaces of D04 §5.1 that `fluut-geom` has; others counted as unsupported and their faces skipped.
-- [ ] **Step 1:** Tests on a hand-written STEP cube (planes, lines) and a cylinder with a seam.
-- [ ] **Step 2:** Corpus: per file, bodies, faces mapped and skipped, shells passing the checks, time.
+- [x] **Step 1:** Tests on a hand-written STEP cube (planes, lines) and a cylinder with a seam.
+- [x] **Step 2:** Corpus: per file, bodies, faces mapped and skipped, shells passing the checks, time.
 
 ### Task 5: `truck` comparison
 
@@ -69,11 +69,16 @@ All M0 to S3 Global Constraints apply. In addition:
 
 - Load every corpus file with `truck-stepio`: success, shells, faces, time.
 - NURBS surface evaluation: the same random bicubic surfaces evaluated (point and first derivatives) by `truck-geometry` and `fluut-geom`; speed and agreement.
-- [ ] **Step 1:** Run; record numbers. Licences of the `truck` crates checked.
+- [x] **Step 1:** Run; record numbers. Licences of the `truck` crates checked.
 
 ### Task 6: Report and decisions
 
 **Files:** Create `docs/plan/spikes/s1-kernel-step.md`; modify `docs/design/challenges.md` (CH-03, CH-04, CH-08, CH-12), D04 §9, `docs/spec/01-architecture.md` §1.4 (OQ-01 decision), `docs/plan/README.md`.
 
-- [ ] **Step 1:** Report: load and validity percentages for both, speed, gaps, decision. CH-04 and CH-12 are about cutter queries; record what S1 found for them and leave the rest to S2.
-- [ ] **Step 2:** Workspace checks; commit.
+- [x] **Step 1:** Report: load and validity percentages for both, speed, gaps, decision. CH-04 and CH-12 are about cutter queries; record what S1 found for them and leave the rest to S2.
+- [x] **Step 2:** Workspace checks; commit.
+
+**Done.** Findings in [`spikes/s1-kernel-step.md`](spikes/s1-kernel-step.md). Deviations from this plan:
+- `fluut-topo` stores bodies in plain vectors, not slot maps (bodies are immutable).
+- Corpus numbers come from the `s1` example, not `#[ignore]`d tests.
+- Two exporter quirks found on the corpus were fixed in the mapper: non-unit directions, and faces bounded only by `FACE_BOUND` (widest loop taken as outer).
