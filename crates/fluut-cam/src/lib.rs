@@ -3,6 +3,7 @@
 //! Toolpath framework: 2-D regions, cutter queries and strategies (design
 //! D07–D09).
 
+pub mod cutter;
 pub mod region;
 pub mod spike;
 
