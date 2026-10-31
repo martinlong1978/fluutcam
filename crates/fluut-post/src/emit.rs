@@ -1,0 +1,561 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
+//! The G-code emitter (spec 05 §5.6, D10 §4).
+//!
+//! Walks Setups, Toolpaths, passes and segments in order, fires the block for
+//! each event, and renders block lines: words are formatted per their
+//! `[words.*]` entry and suppressed when `when = "changed"` and unchanged;
+//! built-in placeholders use the default format.
+//!
+//! Safety rule: after any non-motion block writes a line (tool change, setup
+//! start, …), the emitter forgets the last emitted axis words and motion code.
+//! Such blocks may move the machine (e.g. `G53 G0 Z0`), so the next move
+//! writes every axis in full.
+
+use crate::expr::{Context, Value};
+use crate::format::format_number;
+use crate::job::{Coolant, PostJob, SetupJob, ToolpathJob};
+use crate::post::{Units, When, WordFmt};
+use crate::template::{CompiledPost, Tok};
+use fluut_geom::Aabb3;
+use fluut_path::{AxisPos, Motion, Segment, linearize};
+use std::collections::BTreeMap;
+
+#[cfg(test)]
+mod tests;
+
+/// Words forgotten after a non-motion block (see module docs).
+const POSITION_WORDS: [&str; 8] = ["X", "Y", "Z", "A", "B", "I", "J", "K"];
+
+/// One output line that came from a segment (D10 §4.7), for the Post-tab
+/// preview.
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub struct LineMapEntry {
+    pub file: usize,
+    /// 0-based line index in the file.
+    pub line: usize,
+    pub setup: usize,
+    pub toolpath: usize,
+    pub pass: usize,
+    pub segment: usize,
+}
+
+#[derive(Clone, PartialEq, Debug, Default)]
+pub struct PostOutput {
+    pub files: Vec<String>,
+    pub line_map: Vec<LineMapEntry>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Clone, PartialEq, Debug, thiserror::Error)]
+pub enum EmitError {
+    #[error("setup {setup}, toolpath {toolpath}: {what} cannot be posted yet")]
+    Unsupported {
+        setup: usize,
+        toolpath: usize,
+        what: &'static str,
+    },
+}
+
+#[derive(Clone, PartialEq, Debug)]
+enum Val {
+    Num(f64),
+    Text(String),
+}
+
+/// Posts `job` with `post`.
+pub fn post(job: &PostJob, post: &CompiledPost) -> Result<PostOutput, EmitError> {
+    let mut e = Emitter::new(job, post);
+    e.run()?;
+    Ok(e.finish())
+}
+
+struct Emitter<'a> {
+    cp: &'a CompiledPost,
+    job: &'a PostJob,
+    eol: &'static str,
+    /// Factor from mm to output units.
+    unit: f64,
+    lines: Vec<String>,
+    line_map: Vec<LineMapEntry>,
+    warnings: Vec<String>,
+    line_no: u64,
+    /// Last emitted text per word key, for `when = "changed"`.
+    last_word: BTreeMap<String, String>,
+    /// Motion code (`G0`…`G3`) last written.
+    motion_code: Option<String>,
+    prev_event: Option<String>,
+    tool: Option<u32>,
+    spindle: Option<f64>,
+    coolant: Coolant,
+    feed: Option<f64>,
+    /// Values valid for the current Setup and Toolpath.
+    base: BTreeMap<&'static str, Val>,
+    /// Values for the current event only.
+    event: BTreeMap<&'static str, Val>,
+    cx: BTreeMap<String, Value>,
+    /// (setup, toolpath, pass, segment) of the segment being written.
+    at: Option<(usize, usize, usize, usize)>,
+}
+
+impl<'a> Emitter<'a> {
+    fn new(job: &'a PostJob, cp: &'a CompiledPost) -> Emitter<'a> {
+        let out = &cp.post.output;
+        let mut e = Emitter {
+            cp,
+            job,
+            eol: out.line_ending.as_str(),
+            unit: if out.units == Units::Inch {
+                1.0 / 25.4
+            } else {
+                1.0
+            },
+            lines: Vec::new(),
+            line_map: Vec::new(),
+            warnings: cp.warnings.clone(),
+            line_no: cp.post.line_numbering.start,
+            last_word: BTreeMap::new(),
+            motion_code: None,
+            prev_event: None,
+            tool: None,
+            spindle: None,
+            coolant: Coolant::Off,
+            feed: None,
+            base: BTreeMap::new(),
+            event: BTreeMap::new(),
+            cx: BTreeMap::new(),
+            at: None,
+        };
+        e.init_program_values();
+        e
+    }
+
+    fn init_program_values(&mut self) {
+        let j = self.job;
+        let text = |s: &str| Val::Text(s.to_owned());
+        self.base.insert("DATE", text(&j.date));
+        self.base.insert("TIME", text(&j.time));
+        self.base.insert("FILE_NOTES", text(&j.notes));
+        self.base.insert("MACHINE_NAME", text(&j.machine.name));
+        self.base.insert("POST_ID", text(&j.provenance.post_id));
+        self.base
+            .insert("FLUUT_VERSION", text(env!("CARGO_PKG_VERSION")));
+        let bounds = j
+            .setups
+            .iter()
+            .flat_map(|s| &s.toolpaths)
+            .fold(Aabb3::empty(), |b, t| b.union(&t.result.stats().bounds));
+        if !bounds.is_empty() {
+            for (k, v) in [
+                ("XMIN", bounds.min.x()),
+                ("YMIN", bounds.min.y()),
+                ("ZMIN", bounds.min.z()),
+                ("XMAX", bounds.max.x()),
+                ("YMAX", bounds.max.y()),
+                ("ZMAX", bounds.max.z()),
+            ] {
+                self.base.insert(k, Val::Num(v * self.unit));
+            }
+        }
+        for (k, v) in [("XH", 0.0), ("YH", 0.0), ("ZH", 0.0)] {
+            self.base.insert(k, Val::Num(v));
+        }
+        let cx = &mut self.cx;
+        cx.insert("machine.name".into(), Value::Str(j.machine.name.clone()));
+        cx.insert(
+            "machine.tool_changer".into(),
+            Value::Str(j.machine.tool_changer.clone()),
+        );
+        cx.insert(
+            "machine.has_rotary".into(),
+            Value::Bool(j.machine.has_rotary),
+        );
+        self.update_state_cx();
+    }
+
+    fn update_state_cx(&mut self) {
+        let cx = &mut self.cx;
+        cx.insert(
+            "state.coolant".into(),
+            Value::Str(self.coolant.as_str().into()),
+        );
+        cx.insert(
+            "state.spindle_on".into(),
+            Value::Bool(self.spindle.is_some()),
+        );
+        cx.insert(
+            "state.spindle_rpm".into(),
+            Value::Num(self.spindle.unwrap_or(0.0)),
+        );
+        cx.insert("state.feed".into(), Value::Num(self.feed.unwrap_or(0.0)));
+    }
+
+    fn run(&mut self) -> Result<(), EmitError> {
+        self.provenance();
+        self.block("header");
+        for (si, setup) in self.job.setups.iter().enumerate() {
+            self.setup_values(si, setup);
+            self.block("setup_start");
+            for (ti, tp) in setup.toolpaths.iter().enumerate() {
+                self.toolpath(si, ti, tp)?;
+            }
+            self.block("setup_end");
+        }
+        self.stop_spindle_and_coolant();
+        self.block("footer");
+        Ok(())
+    }
+
+    fn finish(self) -> PostOutput {
+        let mut text = self.lines.join(self.eol);
+        if !text.is_empty() {
+            text.push_str(self.eol);
+        }
+        PostOutput {
+            files: vec![text],
+            line_map: self.line_map,
+            warnings: self.warnings,
+        }
+    }
+
+    fn provenance(&mut self) {
+        let o = &self.cp.post.output;
+        let p = &self.job.provenance;
+        let mut body = vec![format!("FluutCAM {}", env!("CARGO_PKG_VERSION"))];
+        if !self.job.project_name.is_empty() {
+            body.push(format!("Project: {}", self.job.project_name));
+        }
+        body.push(format!("Post: {}", p.post_id));
+        if !p.layers.is_empty() {
+            body.push(format!("Layers: {}", p.layers.join(", ")));
+        }
+        if !p.hash.is_empty() {
+            body.push(format!("Post hash: {}", p.hash));
+        }
+        for b in body {
+            let line = format!("{}{}{}", o.comment_start, b, o.comment_end);
+            self.lines.push(line);
+        }
+    }
+
+    fn setup_values(&mut self, si: usize, s: &SetupJob) {
+        let text = |v: &str| Val::Text(v.to_owned());
+        self.base.insert("SETUP_NAME", text(&s.name));
+        self.base.insert("WORK_OFFSET", text(&s.work_offset));
+        for (k, v) in [("INDEX_A", s.index_a), ("INDEX_B", s.index_b)] {
+            match v {
+                Some(a) => self.base.insert(k, Val::Num(a)),
+                None => self.base.remove(k),
+            };
+        }
+        let cx = &mut self.cx;
+        cx.insert("setup.name".into(), Value::Str(s.name.clone()));
+        cx.insert("setup.kind".into(), Value::Str(s.kind.as_str().into()));
+        cx.insert("setup.index".into(), Value::Num(si as f64 + 1.0));
+        cx.insert("setup.index_a".into(), Value::Num(s.index_a.unwrap_or(0.0)));
+        cx.insert("setup.index_b".into(), Value::Num(s.index_b.unwrap_or(0.0)));
+        cx.insert(
+            "setup.work_offset".into(),
+            Value::Str(s.work_offset.clone()),
+        );
+    }
+
+    fn toolpath_values(&mut self, ti: usize, tp: &ToolpathJob) {
+        let u = self.unit;
+        let t = &tp.tool;
+        self.base.insert("T", Val::Num(t.number as f64));
+        self.base.insert("TOOLNAME", Val::Text(t.name.clone()));
+        self.base.insert("TDIA", Val::Num(t.diameter * u));
+        self.base.insert("S", Val::Num(tp.spindle_rpm));
+        self.base.insert("SAFEZ", Val::Num(tp.safe_z * u));
+        self.base
+            .insert("TOOLPATH_NAME", Val::Text(tp.name.clone()));
+        self.base.insert("FP", Val::Num(tp.feeds.plunge * u));
+        self.base.insert("FC", Val::Num(tp.feeds.cut * u));
+        let cx = &mut self.cx;
+        cx.insert("tool.number".into(), Value::Num(t.number as f64));
+        cx.insert("tool.name".into(), Value::Str(t.name.clone()));
+        cx.insert("tool.diameter".into(), Value::Num(t.diameter));
+        cx.insert("tool.corner_radius".into(), Value::Num(t.corner_radius));
+        cx.insert("toolpath.name".into(), Value::Str(tp.name.clone()));
+        cx.insert("toolpath.type".into(), Value::Str(tp.kind.clone()));
+        cx.insert("toolpath.index".into(), Value::Num(ti as f64 + 1.0));
+        cx.insert("state.first_tool".into(), Value::Bool(self.tool.is_none()));
+    }
+
+    fn stop_spindle_and_coolant(&mut self) {
+        if self.coolant != Coolant::Off {
+            self.block("coolant_off");
+            self.coolant = Coolant::Off;
+        }
+        if self.spindle.is_some() {
+            self.block("spindle_off");
+            self.spindle = None;
+        }
+        self.update_state_cx();
+    }
+
+    fn toolpath(&mut self, si: usize, ti: usize, tp: &ToolpathJob) -> Result<(), EmitError> {
+        self.toolpath_values(ti, tp);
+        if self.tool != Some(tp.tool.number) {
+            self.stop_spindle_and_coolant();
+            self.block("tool_change");
+            self.tool = Some(tp.tool.number);
+        }
+        if self.spindle != Some(tp.spindle_rpm) {
+            self.spindle = Some(tp.spindle_rpm);
+            self.update_state_cx();
+            self.block("spindle_on");
+        }
+        if self.coolant != tp.coolant {
+            let off = tp.coolant == Coolant::Off;
+            if off {
+                self.block("coolant_off");
+            }
+            self.coolant = tp.coolant;
+            self.update_state_cx();
+            if !off {
+                self.block("coolant_on");
+            }
+        }
+        self.block("toolpath_start");
+        for (pi, pass) in tp.result.passes().iter().enumerate() {
+            for (gi, seg) in pass.segments.iter().enumerate() {
+                self.at = Some((si, ti, pi, gi));
+                self.segment(tp, seg)
+                    .map_err(|what| EmitError::Unsupported {
+                        setup: si,
+                        toolpath: ti,
+                        what,
+                    })?;
+            }
+        }
+        self.at = None;
+        self.block("toolpath_end");
+        Ok(())
+    }
+
+    fn segment(&mut self, tp: &ToolpathJob, seg: &Segment) -> Result<(), &'static str> {
+        match seg {
+            Segment::Line { a, b, m } => {
+                let event = self.classify_line(a, b, m.motion, m.feed);
+                self.motion(tp, event, b, tp.feeds.get(m.feed));
+                Ok(())
+            }
+            Segment::Arc { m, .. } | Segment::Helix { m, .. } | Segment::Spline { m, .. } => {
+                for piece in linearize(seg, f64::from(m.tol)) {
+                    self.segment(tp, &piece)?;
+                }
+                Ok(())
+            }
+            Segment::Rotary { .. } => Err("a rotary move"),
+            Segment::Cycle { .. } => Err("a drilling cycle"),
+            Segment::Marker { .. } => Err("a manual NC marker"),
+        }
+    }
+
+    fn has(&self, block: &str) -> bool {
+        self.cp.blocks.contains_key(block)
+    }
+
+    /// Event for a line move (D10 §4.2).
+    fn classify_line(
+        &self,
+        a: &AxisPos,
+        b: &AxisPos,
+        motion: Motion,
+        feed: fluut_path::FeedRef,
+    ) -> &'static str {
+        if motion == Motion::Rapid || feed == fluut_path::FeedRef::Rapid {
+            return "rapid";
+        }
+        let down = b.xyz.z() < a.xyz.z();
+        match motion {
+            Motion::Retract if self.has("retract") => "retract",
+            Motion::Plunge | Motion::Ramp if down && self.has("plunge") => "plunge",
+            _ => "feed",
+        }
+    }
+
+    fn motion(&mut self, _tp: &ToolpathJob, event: &'static str, b: &AxisPos, feed: Option<f64>) {
+        let u = self.unit;
+        self.event.clear();
+        self.event.insert("X", Val::Num(b.xyz.x() * u));
+        self.event.insert("Y", Val::Num(b.xyz.y() * u));
+        self.event.insert("Z", Val::Num(b.xyz.z() * u));
+        if let Some(a) = b.a {
+            self.event.insert("A", Val::Num(a));
+        }
+        if let Some(bb) = b.b {
+            self.event.insert("B", Val::Num(bb));
+        }
+        if let Some(f) = feed {
+            self.event.insert("F", Val::Num(f * u));
+            if self.feed != Some(f) {
+                self.feed = Some(f);
+                self.update_state_cx();
+                if self.has("feed_change") {
+                    self.render("feed_change", true);
+                }
+            }
+        }
+        let first = format!("first_{event}");
+        let name = if self.prev_event.as_deref() != Some(event) && self.has(&first) {
+            first
+        } else {
+            event.to_owned()
+        };
+        self.render(&name, true);
+        self.prev_event = Some(event.to_owned());
+        self.event.clear();
+    }
+
+    /// Fires a non-motion block, then applies the safety rule.
+    fn block(&mut self, name: &str) {
+        if self.render(name, false) > 0 {
+            for w in POSITION_WORDS {
+                self.last_word.remove(w);
+            }
+            self.motion_code = None;
+            self.prev_event = None;
+        }
+    }
+
+    fn value(&self, key: &str) -> Option<&Val> {
+        self.event.get(key).or_else(|| self.base.get(key))
+    }
+
+    /// Renders block `name`; returns the number of lines written.
+    fn render(&mut self, name: &str, is_motion: bool) -> usize {
+        let Some(lines) = self.cp.blocks.get(name) else {
+            return 0;
+        };
+        let post = &self.cp.post;
+        let dc = post.output.decimal_char.as_str();
+        let default_fmt = WordFmt::default();
+        let mut written = 0;
+        for l in lines {
+            if let Some(w) = &l.when
+                && w.eval(&self.cx as &dyn Context) != Value::Bool(true)
+            {
+                continue;
+            }
+            let mut text = String::new();
+            let mut lit = String::new();
+            let mut words = 0;
+            let mut shown = 0;
+            let mut changed: Vec<(String, String)> = Vec::new();
+            for t in &l.toks {
+                match t {
+                    Tok::Lit(s) => {
+                        text.push_str(s);
+                        lit.push_str(s);
+                    }
+                    Tok::Word(key) => {
+                        words += 1;
+                        let f = &post.words[key];
+                        let Some(v) = self.value(key) else {
+                            strip_attached(&mut text);
+                            strip_attached(&mut lit);
+                            continue;
+                        };
+                        let s = match v {
+                            Val::Num(n) => format!("{}{}", f.prefix, format_number(*n, f, dc)),
+                            Val::Text(s) => format!("{}{}", f.prefix, s),
+                        };
+                        if f.when == When::Changed && self.last_word.get(key) == Some(&s) {
+                            strip_attached(&mut text);
+                            strip_attached(&mut lit);
+                            continue;
+                        }
+                        shown += 1;
+                        changed.push((key.clone(), s.clone()));
+                        text.push_str(&s);
+                    }
+                    Tok::Placeholder(p) => match self.value(p) {
+                        Some(Val::Num(n)) => {
+                            shown += 1;
+                            text.push_str(&format_number(*n, &default_fmt, dc));
+                        }
+                        Some(Val::Text(s)) => {
+                            shown += 1;
+                            text.push_str(s);
+                        }
+                        None => {}
+                    },
+                }
+            }
+            // D10 §3.1: drop a line whose words are all suppressed and whose
+            // literal text is at most the motion code already in effect.
+            let lit_code = motion_code(&lit);
+            let lit_trim = lit.trim();
+            if words > 0
+                && shown == 0
+                && (lit_trim.is_empty()
+                    || (lit_code.is_some()
+                        && lit_code == self.motion_code
+                        && lit_trim.split_whitespace().count() == 1))
+            {
+                continue;
+            }
+            let mut text = text.trim_end().to_owned();
+            if text.is_empty() {
+                continue;
+            }
+            for (k, s) in changed {
+                self.last_word.insert(k, s);
+            }
+            if lit_code.is_some() {
+                self.motion_code = lit_code;
+            }
+            for (from, to) in &post.output.substitute {
+                text = text.replace(from.as_str(), to);
+            }
+            let ln = &post.line_numbering;
+            if ln.enabled && !text.starts_with('%') {
+                text = format!("{}{} {}", ln.prefix, self.line_no, text);
+                self.line_no += ln.increment;
+                if self.line_no > ln.maximum {
+                    self.line_no = ln.start;
+                }
+            }
+            if is_motion && let Some((setup, toolpath, pass, segment)) = self.at {
+                self.line_map.push(LineMapEntry {
+                    file: 0,
+                    line: self.lines.len(),
+                    setup,
+                    toolpath,
+                    pass,
+                    segment,
+                });
+            }
+            self.lines.push(text);
+            written += 1;
+        }
+        written
+    }
+}
+
+/// Removes the letters written directly before a suppressed word (`F` in
+/// `F[F]`) and one space before them, so `G1 X[X] Y[Y]` without `X` reads
+/// `G1 Y…`.
+fn strip_attached(s: &mut String) {
+    while s.ends_with(|c: char| c.is_ascii_alphabetic()) {
+        s.pop();
+    }
+    if s.ends_with(' ') {
+        s.pop();
+    }
+}
+
+/// The motion code a line's literal text starts with, normalised (`G00` →
+/// `G0`), if any.
+fn motion_code(lit: &str) -> Option<String> {
+    let first = lit.split_whitespace().next()?;
+    let n = first.strip_prefix(['G', 'g'])?;
+    match n.trim_start_matches('0') {
+        "" => Some("G0".into()),
+        d @ ("1" | "2" | "3") => Some(format!("G{d}")),
+        _ => None,
+    }
+}

@@ -93,8 +93,15 @@ All M0 and M1 Global Constraints apply. In addition:
 - `PostJob { program_name, date, time, machine: MachineInfo, setups: Vec<SetupJob> }`; `SetupJob { name, kind (Fixed | Indexed | Rotary), work_offset, index_a, index_b, toolpaths: Vec<ToolpathJob> }`; `ToolpathJob { name, tool: ToolInfo, spindle_rpm, coolant, feeds: Feeds (FeedRef → mm/min), safe_z, result: Arc<ToolpathResult> }`.
 - `fn post(job: &PostJob, post: &CompiledPost) -> Result<PostOutput, PostError>`; `PostOutput { files: Vec<String>, line_map: Vec<LineMapEntry>, warnings }`.
 - Event loop of spec 05 §5.6 for header, footer, setup and toolpath blocks, tool change, spindle and coolant on/off, feed change, rapid / first_rapid / feed / plunge / retract classification (D10 §4.2); modal word suppression (`when = "changed"`) and dropping lines that become a bare motion code already in effect (D10 §3.1); line numbering; line ending; provenance comment block (spec 05 §5.9) with resolved-post hash.
-- [ ] **Step 1:** Tests: minimal program (header, one rapid, one feed, footer) exact text; repeated feed moves suppress unchanged words; `M3` line with no words never dropped; tool change fires only on change; line numbers; CRLF output; line map covers each motion line.
-- [ ] **Step 2:** Fail, implement, pass.
+- [x] **Step 1:** Tests: minimal program (header, one rapid, one feed, footer) exact text; repeated feed moves suppress unchanged words; `M3` line with no words never dropped; tool change fires only on change; line numbers; CRLF output; line map covers each motion line.
+- [x] **Step 2:** Fail, implement, pass.
+- **Done.** Extra rules found while implementing:
+  - A suppressed word also removes letters written directly before it and one space (`F` in `F[F]`), so `G1 X[X] Y[Y] F[F]` with unchanged Y and F reads `G1 X10`.
+  - Safety rule: after any non-motion block writes a line, the last emitted axis words (X Y Z A B I J K) and motion code are forgotten, so the next move is written in full. A tool-change block may move the machine (`G53 G0 Z0`).
+  - Line numbering skips lines starting with `%`.
+  - Spindle and coolant are stopped before a tool change and before the footer.
+  - Arcs, helices and splines are linearized until Task 7; rotary moves, cycles and markers return `EmitError::Unsupported` until Task 8.
+  - Inch output divides lengths and feeds by 25.4. `PostJob.provenance` (`Provenance::of(&Resolved, id)`, SHA-256 of the resolved table) fills the first comment block.
 
 ### Task 7: Arcs and helices
 
