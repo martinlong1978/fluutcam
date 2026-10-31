@@ -49,6 +49,20 @@ pub(super) fn boolean(a: &Region2, b: &Region2, op: Op) -> Region2 {
             }
         }
     }
+    // Vertices of one region that lie within JOIN of a segment of the other
+    // cut it too, even where the intersection test misses them (nearly
+    // collinear edges), so that the pieces on both sides line up.
+    for (cuts, own, other) in [(&mut cut_a, &ia, &ib), (&mut cut_b, &ib, &ia)] {
+        for v in &other.segs {
+            let p = v.a;
+            let near = (p.x() - JOIN, p.y() - JOIN, p.x() + JOIN, p.y() + JOIN);
+            for i in own.query(&near) {
+                if let Some(q) = foot(&own.segs[i], p) {
+                    cuts[i].push(q);
+                }
+            }
+        }
+    }
     let mut kept = Vec::new();
     for (s, cuts) in ia.segs.iter().zip(&cut_a) {
         for piece in split(s, cuts) {
@@ -151,8 +165,19 @@ enum Class {
 
 fn classify(piece: &Seg2, other: &Indexed) -> Class {
     let m = piece.point_at(0.5);
-    if !other.near_boundary(m) {
-        return match other.contains(m) {
+    // A piece lies on the other boundary only when its ends do too; then
+    // the other region was cut at both ends and has a matching piece. A
+    // piece that only comes close (nearly collinear edges) is classified at
+    // a point away from the boundary instead.
+    let on = [m, piece.a, piece.b]
+        .iter()
+        .all(|&p| other.near_boundary(p));
+    if !on {
+        let p = [m, piece.point_at(0.25), piece.point_at(0.75)]
+            .into_iter()
+            .find(|&p| !other.near_boundary(p))
+            .unwrap_or(m);
+        return match other.contains(p) {
             Inside::In => Class::In,
             _ => Class::Out,
         };
@@ -215,6 +240,30 @@ fn intersections(s: &Seg2, t: &Seg2) -> Vec<Point2> {
         | PlineSegIntr::OverlappingLines { point1, point2 }
         | PlineSegIntr::OverlappingArcs { point1, point2 } => vec![p(point1), p(point2)],
     }
+}
+
+/// The point of the segment nearest to `p` when that is within [`JOIN`] and
+/// not an end point.
+fn foot(s: &Seg2, p: Point2) -> Option<Point2> {
+    let q = match s.arc() {
+        None => {
+            let d = s.b - s.a;
+            let t = (p - s.a).dot(d) / d.dot(d);
+            if t <= 0.0 || t >= 1.0 {
+                return None;
+            }
+            s.a + d * t
+        }
+        Some(g) => {
+            let r = p - g.centre;
+            let len = r.length();
+            if len == 0.0 || !g.contains_angle(libm::atan2(r.y(), r.x())) {
+                return None;
+            }
+            g.centre + r * (g.radius / len)
+        }
+    };
+    (q.distance(p) <= JOIN).then_some(q)
 }
 
 /// Parameter in [0, 1] of a point on the segment.
@@ -321,18 +370,41 @@ fn turns_before(x: (f64, f64), y: (f64, f64)) -> bool {
     }
 }
 
+/// Points sorted by x, for finding the points near a given one.
+struct ByX {
+    order: Vec<usize>,
+    xs: Vec<f64>,
+}
+
+impl ByX {
+    fn new(pts: &[Point2]) -> Self {
+        let mut order: Vec<usize> = (0..pts.len()).collect();
+        order.sort_by(|&i, &j| {
+            let (p, q) = (pts[i], pts[j]);
+            p.x().total_cmp(&q.x()).then(p.y().total_cmp(&q.y()))
+        });
+        let xs = order.iter().map(|&i| pts[i].x()).collect();
+        ByX { order, xs }
+    }
+
+    /// Indices of the points within [`JOIN`] of `p`.
+    fn near<'a>(&'a self, pts: &'a [Point2], p: Point2) -> impl Iterator<Item = usize> + 'a {
+        let lo = self.xs.partition_point(|&x| x < p.x() - JOIN);
+        self.order[lo..]
+            .iter()
+            .copied()
+            .take_while(move |&i| pts[i].x() <= p.x() + JOIN)
+            .filter(move |&i| pts[i].distance(p) <= JOIN)
+    }
+}
+
 /// Joins directed pieces end to start into closed loops. At a point where
 /// several pieces start, the loop takes the sharpest left turn: with the
 /// interior on the left of every piece, this traces each piece of interior
 /// on its own and never crosses another loop.
 fn stitch(pieces: Vec<Seg2>) -> Region2 {
-    // Piece starts sorted by x, for range lookups.
-    let mut by_x: Vec<usize> = (0..pieces.len()).collect();
-    by_x.sort_by(|&i, &j| {
-        let (p, q) = (pieces[i].a, pieces[j].a);
-        p.x().total_cmp(&q.x()).then(p.y().total_cmp(&q.y()))
-    });
-    let xs: Vec<f64> = by_x.iter().map(|&i| pieces[i].a.x()).collect();
+    let starts: Vec<Point2> = pieces.iter().map(|s| s.a).collect();
+    let by_start = ByX::new(&starts);
     let mut used = vec![false; pieces.len()];
     let mut loops = Vec::new();
     for first in 0..pieces.len() {
@@ -340,27 +412,19 @@ fn stitch(pieces: Vec<Seg2>) -> Region2 {
             continue;
         }
         used[first] = true;
-        let start = pieces[first].a;
         let mut verts = vec![Vertex {
-            p: start,
+            p: pieces[first].a,
             bulge: pieces[first].bulge,
         }];
         let mut cur = first;
         let closed = loop {
-            let end = pieces[cur].b;
-            let lo = xs.partition_point(|&x| x < end.x() - JOIN);
             let mut best: Option<(usize, (f64, f64))> = None;
-            for &k in &by_x[lo..] {
-                let s = &pieces[k];
-                if s.a.x() > end.x() + JOIN {
-                    break;
-                }
+            for k in by_start.near(&starts, pieces[cur].b) {
                 // The first piece is still a candidate: taking it closes the loop.
-                let open = !used[k] || (k == first && verts.len() > 1);
-                if !open || s.a.distance(end) > JOIN {
+                if used[k] && !(k == first && verts.len() > 1) {
                     continue;
                 }
-                let key = turn_key(&pieces[cur], s);
+                let key = turn_key(&pieces[cur], &pieces[k]);
                 if best.is_none_or(|(_, b)| turns_before(key, b)) {
                     best = Some((k, key));
                 }

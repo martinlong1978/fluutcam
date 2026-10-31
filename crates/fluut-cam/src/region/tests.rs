@@ -320,6 +320,63 @@ fn disc_tangent_to_hole() {
     check_ops(&ring, &disc, 1e-9);
 }
 
+#[test]
+fn union_of_nearly_collinear_stadiums() {
+    // Two consecutive steps of an adaptive pass, swept by R = 3: their
+    // straight sides are almost collinear and overlap.
+    let a = Region2 {
+        loops: vec![Loop2 {
+            verts: vec![
+                Vertex::new(85.79290117169626, 51.50368067174173, 0.0),
+                Vertex::new(86.54289987192651, 51.50507697147379, 1.0),
+                Vertex::new(86.53172947407005, 57.50506657331575, 0.0),
+                Vertex::new(85.7817307738398, 57.503670273583694, 1.0),
+            ],
+        }],
+    };
+    let b = Region2 {
+        loops: vec![Loop2 {
+            verts: vec![
+                Vertex::new(86.54222287068346, 51.505075787464875, 0.0),
+                Vertex::new(87.29222186691594, 51.50630283688617, 1.0),
+                Vertex::new(87.28240547154557, 57.50629480674596, 0.0),
+                Vertex::new(86.5324064753131, 57.50506775732467, 1.0),
+            ],
+        }],
+    };
+    let u = a.union(&b);
+    // Scanline integration of the two inputs gives 37.2743.
+    assert!(close(u.area(), 37.2743, 1e-3), "{u:?}");
+    assert_eq!(u.loops.len(), 1);
+    check_ops(&a, &b, 1e-6);
+    // Here a corner of `b` is 4e-4 along the edge from the crossing, close
+    // enough for the piece between them to pass near `a`'s edge at its
+    // middle but not at its end.
+    let a = Region2 {
+        loops: vec![Loop2 {
+            verts: vec![
+                Vertex::new(37.25114451005001, 45.379930205364545, 0.0),
+                Vertex::new(36.67505541474776, 44.89969968335055, 1.0),
+                Vertex::new(40.51689959085974, 40.29098692093255, 0.0),
+                Vertex::new(41.09298868616199, 40.77121744294655, 1.0),
+            ],
+        }],
+    };
+    let b = Region2 {
+        loops: vec![Loop2 {
+            verts: vec![
+                Vertex::new(36.67569122130502, 44.900229545991294, 0.0),
+                Vertex::new(36.099469660342585, 44.42015797561661, 1.0),
+                Vertex::new(39.940042223340036, 39.810385487917124, 0.0),
+                Vertex::new(40.516263784302474, 40.29045705829181, 1.0),
+            ],
+        }],
+    };
+    // The two caps of radius 3 overlap almost fully: the lens is 9π.
+    assert!(close(a.intersect(&b).area(), 9.0 * PI, 1e-3));
+    check_ops(&a, &b, 1e-6);
+}
+
 mod props {
     use super::*;
     use proptest::prelude::*;
