@@ -1,0 +1,18 @@
+# LinuxCNC (spec 05 §5.2.1): path blending with G64, tool length offset
+# after each tool change.
+format  = "fluut.post/1"
+id      = "fluut/linuxcnc"
+version = "1.0"
+name    = "LinuxCNC"
+extends = "fluut/gcode@1"
+
+[output]
+extension = "ngc"
+
+[blocks.header]
+mode  = "patch"
+after = { modes = [{ id = "blend", line = "G64 P0.01" }] }
+
+[blocks.tool_change]
+mode  = "patch"
+after = { change = [{ id = "length", line = "G43 H[T]" }] }

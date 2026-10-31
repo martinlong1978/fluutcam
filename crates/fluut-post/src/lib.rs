@@ -7,12 +7,14 @@
 //! formatting and the G-code emitter.
 
 pub mod arcs;
+pub mod builtin;
 pub mod emit;
 pub mod expr;
 pub mod format;
 pub mod job;
 pub mod merge;
 pub mod post;
+pub mod reference;
 pub mod template;
 
 pub use emit::{EmitError, LineMapEntry, PostOutput, post};

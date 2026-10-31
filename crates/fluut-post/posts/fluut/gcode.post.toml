@@ -1,0 +1,145 @@
+# RS-274/NGC core: the root of the built-in post tree (spec 05 §5.2.1).
+# Controller dialects extend this post; machines and users extend those.
+format  = "fluut.post/1"
+id      = "fluut/gcode"
+version = "1.0"
+name    = "RS-274/NGC G-code"
+
+[output]
+extension     = "nc"
+comment_start = "("
+comment_end   = ")"
+
+[words.X]
+prefix = "X"
+when   = "changed"
+[words.Y]
+prefix = "Y"
+when   = "changed"
+[words.Z]
+prefix = "Z"
+when   = "changed"
+[words.I]
+prefix = "I"
+[words.J]
+prefix = "J"
+[words.K]
+prefix = "K"
+[words.F]
+prefix   = "F"
+when     = "changed"
+decimals = 1
+[words.S]
+prefix   = "S"
+decimals = 0
+# Bare number: templates write T[T], H[T], D[T].
+[words.T]
+decimals = 0
+# Plane select (G17/G18/G19), written only when it changes.
+[words.PLANE]
+when = "changed"
+
+[arcs]
+enabled          = true
+planes           = ["XY", "XZ", "YZ"]
+centre_mode      = "ijk_incremental"
+max_sweep_deg    = 360
+radius_tolerance = 0.002
+
+[helix]
+enabled = true
+planes  = ["XY"]
+
+[cycles]
+enabled   = true
+supported = ["drill", "spot", "peck", "chip_break", "ream", "bore"]
+
+[blocks.header]
+lines = [
+  { id = "units", line = "G21" },
+  { id = "modes", line = "G17 G40 G49 G80 G90 G94" },
+]
+
+[blocks.footer]
+lines = [{ id = "end", line = "M30" }]
+
+[blocks.setup_start]
+lines = ["([SETUP_NAME])", "[WORK_OFFSET]"]
+
+[blocks.tool_change]
+lines = [{ id = "comment", line = "([TOOLNAME])" }, { id = "change", line = "T[T] M6" }]
+
+[blocks.spindle_on]
+lines = ["[S] M3"]
+
+[blocks.spindle_off]
+lines = ["M5"]
+
+[blocks.coolant_on]
+lines = [
+  { when = "state.coolant == 'mist'", line = "M7" },
+  { when = "state.coolant == 'flood'", line = "M8" },
+]
+
+[blocks.coolant_off]
+lines = ["M9"]
+
+[blocks.toolpath_start]
+lines = ["([TOOLPATH_NAME])"]
+
+[blocks.rapid]
+lines = ["G0 [X] [Y] [Z]"]
+
+[blocks.feed]
+lines = ["G1 [X] [Y] [Z] [F]"]
+
+[blocks.arc_cw]
+lines = ["[PLANE] G2 [X] [Y] [Z] [I] [J] [K] [F]"]
+
+[blocks.arc_ccw]
+lines = ["[PLANE] G3 [X] [Y] [Z] [I] [J] [K] [F]"]
+
+[blocks.helix_cw]
+lines = ["[PLANE] G2 [X] [Y] [Z] [I] [J] [F]"]
+
+[blocks.helix_ccw]
+lines = ["[PLANE] G3 [X] [Y] [Z] [I] [J] [F]"]
+
+# Canned cycles return to the R plane (G99); the engine holds back rapid
+# links between holes while a cycle is in effect.
+[blocks.cycle_start]
+lines = [
+  { when = "cycle.kind == 'drill'", line = "G99 G81 [X] [Y] Z[CYCLE_Z] R[CYCLE_R] [F]" },
+  { when = "cycle.kind == 'spot'", line = "G99 G82 [X] [Y] Z[CYCLE_Z] R[CYCLE_R] P[CYCLE_P] [F]" },
+  { when = "cycle.kind == 'peck'", line = "G99 G83 [X] [Y] Z[CYCLE_Z] R[CYCLE_R] Q[CYCLE_Q] [F]" },
+  { when = "cycle.kind == 'chip_break'", line = "G99 G73 [X] [Y] Z[CYCLE_Z] R[CYCLE_R] Q[CYCLE_Q] [F]" },
+  { when = "cycle.kind == 'ream'", line = "G99 G85 [X] [Y] Z[CYCLE_Z] R[CYCLE_R] [F]" },
+  { when = "cycle.kind == 'bore'", line = "G99 G86 [X] [Y] Z[CYCLE_Z] R[CYCLE_R] [F]" },
+]
+
+[blocks.cycle_point]
+lines = ["[X] [Y]"]
+
+[blocks.cycle_end]
+lines = ["G80"]
+
+[blocks.dwell]
+lines = ["G4 P[DWELL]"]
+
+[blocks.manual_nc]
+lines = [
+  { when = "marker.kind == 'stop'", line = "M0" },
+  { when = "marker.kind == 'optional_stop'", line = "M1" },
+  { when = "marker.kind == 'comment'", line = "([COMMENT])" },
+  { when = "marker.kind == 'pass_through'", line = "[COMMENT]" },
+  { when = "marker.kind == 'dwell'", line = "G4 P[DWELL]" },
+]
+
+[blocks.cutter_comp_left]
+lines = ["G41 D[T]"]
+
+[blocks.cutter_comp_right]
+lines = ["G42 D[T]"]
+
+[blocks.cutter_comp_off]
+lines = ["G40"]

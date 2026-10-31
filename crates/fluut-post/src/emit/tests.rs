@@ -392,7 +392,7 @@ fn full_circle_by_max_sweep() {
     assert_eq!(motion_lines("", r()), ["G3 X10 Y0 Z0 I-10 J0 F1000"]);
     assert_eq!(
         motion_lines("[arcs]\nmax_sweep_deg = 180", r()),
-        ["G3 X-10 Y0 Z0 I-10 J0 F1000", "G3 X10 I10 J0"]
+        ["G3 X-10 Y0 Z0 I-10 J0 F1000", "G3 X10 Y0 I10 J0"]
     );
 }
 
@@ -601,7 +601,7 @@ fn rotary_feed_methods() {
         [
             "G93",
             "G1 X0 A90 F64",
-            "G1 A180",
+            "G1 A180 F64",
             "G94",
             "G1 X5 Y0 Z10 F1000"
         ]

@@ -134,5 +134,12 @@ All M0 and M1 Global Constraints apply. In addition:
 - Reference suite (D10 §8) built in code: lines in all axes; arcs in XY/XZ/YZ with sweeps 1°, 90°, 179°, 181°, 359°, 360°; radii 0.01 and 2000; helices; rotary with and without X; tool changes; feed and spindle changes; each cycle kind; markers; an indexed setup; rounding edge values.
 - Built-in posts embedded with `include_str!` and served by a `BuiltinStore: DefStore`; a SHA-256 of each file is checked at load against a table generated at build time (spec 05 §5.9).
 - Golden test posts the suite with each built-in post and compares text; `FLUUT_BLESS=1` rewrites the files. Golden output is hand-checked before the first commit.
-- [ ] **Step 1:** Write posts and suite; bless; read every golden file by eye against RS-274/NGC, Grbl 1.1 and LinuxCNC documentation.
-- [ ] **Step 2:** Workspace checks; update `plan/README.md`.
+- [x] **Step 1:** Write posts and suite; bless; read every golden file by eye against RS-274/NGC, Grbl 1.1 and LinuxCNC documentation.
+- [x] **Step 2:** Workspace checks; update `plan/README.md`.
+- **Done.** Decisions made while implementing:
+  - Built-ins are served by `builtin_store()`, a `MemStore` filled from `BUILTIN_POSTS`. No hash check at load: the files are embedded in the signed binary, which covers their integrity.
+  - Built-ins: `fluut/gcode` (RS-274/NGC root), `fluut/grbl` (no M6, cycles expanded, no cutter compensation), `fluut/linuxcnc` (`G64 P0.01`, `G43 H[T]`) and the mixin `fluut/mixin/rotary-a`. The golden suite also posts LinuxCNC with the rotary mixin.
+  - The `T` word has no prefix, so templates write `T[T]`, `H[T]` and `D[T]`.
+  - Arcs and helices always write both in-plane axis words, even for a full circle: Grbl and LinuxCNC reject an arc without one.
+  - In inverse-time mode every rotary block writes F. Other rotary methods suppress a repeated F as usual.
+  - The suite has no tap: expanded tap is an error, and Grbl expands cycles.

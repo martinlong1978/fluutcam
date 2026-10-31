@@ -419,6 +419,16 @@ impl<'a> Emitter<'a> {
                 self.split_file();
             }
             if pass.comp != self.comp {
+                let need = match pass.comp {
+                    Some(CompSide::Left) => "cutter_comp_left",
+                    Some(CompSide::Right) => "cutter_comp_right",
+                    None => "cutter_comp_off",
+                };
+                if !self.has(need) {
+                    return Err(err(
+                        "controller compensation needs the post's cutter_comp blocks",
+                    ));
+                }
                 self.set_comp(pass.comp);
             }
             for (gi, seg) in pass.segments.iter().enumerate() {
@@ -542,12 +552,15 @@ impl<'a> Emitter<'a> {
                     extra.push(("FI", Val::Num(fv)));
                 }
             }
+            // Inverse time needs F on every block (RS-274/NGC 3.5.19).
+            if self.inverse_time {
+                self.last_word.remove("F");
+            }
             let event = if feed.is_none() { "rapid" } else { "rotary" };
             self.motion(event, &p, None, extra);
         }
-        // The next linear move must state its feed again.
+        // The next linear move restates its feed through feed_change.
         self.feed = None;
-        self.last_word.remove("F");
         Ok(())
     }
 
@@ -598,6 +611,8 @@ impl<'a> Emitter<'a> {
             self.cycle_open = Some(*c);
             "cycle_start"
         };
+        self.cx
+            .insert("cycle.kind".into(), Value::Str(cycle_str(c.kind).into()));
         self.motion(event, &at_z(at, c.depth_z), feed, extra);
         Ok(())
     }
@@ -860,6 +875,10 @@ impl<'a> Emitter<'a> {
                 self.dec_override.insert(ABS[k], d);
             }
         }
+        // RS-274 and Grbl reject an arc without an in-plane axis word, even
+        // a full circle, so those words are always written.
+        self.last_word.remove(AXES[iu]);
+        self.last_word.remove(AXES[iv]);
         let event = match (helix, ccw) {
             (false, true) => "arc_ccw",
             (false, false) => "arc_cw",
@@ -871,8 +890,11 @@ impl<'a> Emitter<'a> {
         true
     }
 
+    /// Whether the post has block `block` with at least one line. A block
+    /// emptied by `mode = "remove"` counts as absent, so its event falls back
+    /// (e.g. `plunge` to `feed`) instead of writing nothing.
     fn has(&self, block: &str) -> bool {
-        self.cp.blocks.contains_key(block)
+        self.cp.blocks.get(block).is_some_and(|l| !l.is_empty())
     }
 
     /// Event for a line move (D10 §4.2).
@@ -1031,7 +1053,7 @@ impl<'a> Emitter<'a> {
             {
                 continue;
             }
-            let mut text = text.trim_end().to_owned();
+            let mut text = text.trim().to_owned();
             if text.is_empty() {
                 continue;
             }
@@ -1097,6 +1119,18 @@ fn at_z(p: &AxisPos, z: f64) -> AxisPos {
     AxisPos {
         xyz: Point3::new(p.xyz.x(), p.xyz.y(), z),
         ..*p
+    }
+}
+
+fn cycle_str(k: CycleKind) -> &'static str {
+    match k {
+        CycleKind::Drill => "drill",
+        CycleKind::Spot => "spot",
+        CycleKind::Peck => "peck",
+        CycleKind::ChipBreak => "chip_break",
+        CycleKind::Tap => "tap",
+        CycleKind::Ream => "ream",
+        CycleKind::Bore => "bore",
     }
 }
 

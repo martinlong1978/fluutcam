@@ -1,0 +1,40 @@
+# Grbl 1.1 (spec 05 §5.2.1). No tool changer, no canned cycles, no cutter
+# compensation: cycles are expanded into moves, and a toolpath that needs
+# controller compensation cannot be posted.
+format  = "fluut.post/1"
+id      = "fluut/grbl"
+version = "1.0"
+name    = "Grbl 1.1"
+extends = "fluut/gcode@1"
+
+[output]
+extension = "gcode"
+
+[cycles]
+enabled = false
+
+[blocks.header]
+mode         = "patch"
+replace_line = { modes = "G17 G90 G94" }
+
+# Grbl does not accept M6: pause for a manual change instead.
+[blocks.tool_change]
+lines = ["M0 (Change to T[T]: [TOOLNAME])"]
+
+[blocks.cycle_start]
+mode = "remove"
+
+[blocks.cycle_point]
+mode = "remove"
+
+[blocks.cycle_end]
+mode = "remove"
+
+[blocks.cutter_comp_left]
+mode = "remove"
+
+[blocks.cutter_comp_right]
+mode = "remove"
+
+[blocks.cutter_comp_off]
+mode = "remove"

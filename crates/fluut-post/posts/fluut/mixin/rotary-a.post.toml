@@ -1,0 +1,26 @@
+# A rotary axis parallel to X (spec 05 §5.2.1 mixins): A words, rotary moves,
+# indexing to a Setup's index angle.
+format  = "fluut.post/1"
+id      = "fluut/mixin/rotary-a"
+version = "1.0"
+name    = "Rotary A axis"
+
+[words.A]
+prefix = "A"
+when   = "changed"
+
+[rotary]
+enabled            = true
+max_angle_per_line = 90
+
+[blocks.rapid]
+lines = ["G0 [X] [Y] [Z] [A]"]
+
+[blocks.feed]
+lines = ["G1 [X] [Y] [Z] [A] [F]"]
+
+[blocks.rotary]
+lines = ["G1 [X] [Y] [Z] [A] [F]"]
+
+[blocks.rotary_index]
+lines = ["G0 A[INDEX_A]"]
