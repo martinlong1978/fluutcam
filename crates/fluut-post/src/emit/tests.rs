@@ -598,7 +598,13 @@ fn rotary_feed_methods() {
     // Each 90° piece is 5π mm long: F = 1000 / 15.708 per minute.
     assert_eq!(
         &after(&inv, "(A)")[..5],
-        ["G93", "G1 X0 A90 F64", "G1 A180", "G94", "G1 X5 Y0 Z10 F1000"]
+        [
+            "G93",
+            "G1 X0 A90 F64",
+            "G1 A180",
+            "G94",
+            "G1 X5 Y0 Z10 F1000"
+        ]
     );
 
     let lin = all_lines(
@@ -690,13 +696,7 @@ fn native_cycles_hold_back_links() {
     let l = all_lines(&[DRILL], holes(CycleKind::Drill, None));
     assert_eq!(
         &after(&l, "G0 X0 Y0 Z2")[..5],
-        [
-            "G81 Z-5 R2 F300",
-            "X10",
-            "X20",
-            "G80",
-            "G0 X20 Y0 Z10"
-        ]
+        ["G81 Z-5 R2 F300", "X10", "X20", "G80", "G0 X20 Y0 Z10"]
     );
 }
 

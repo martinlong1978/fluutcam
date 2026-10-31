@@ -60,4 +60,4 @@ These must be written before the milestone that needs them:
 |---|---|---|
 | [2026-10-31-m0-workspace-geom.md](2026-10-31-m0-workspace-geom.md) | M0 | done; CI not yet run on macOS/Linux |
 | [2026-10-31-m1-geometry-path.md](2026-10-31-m1-geometry-path.md) | M1 | Done (B-spline closest point 20× over its benchmark target: CH-25) |
-| [2026-10-31-m2-post-engine.md](2026-10-31-m2-post-engine.md) | M2 | Tasks 1–7 done; 8–9 to do |
+| [2026-10-31-m2-post-engine.md](2026-10-31-m2-post-engine.md) | M2 | Tasks 1–8 done; 9 to do |

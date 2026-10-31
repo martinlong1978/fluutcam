@@ -118,8 +118,15 @@ All M0 and M1 Global Constraints apply. In addition:
 - Cycles: `cycle_start` / `cycle_point` / `cycle_end` with `[CYCLE_Z] [CYCLE_R] [CYCLE_Q] [CYCLE_P] [CYCLE_F]`; expansion when unsupported (D10 §5 table; tap without a spindle-reverse block is an error).
 - Markers to `manual_nc` (`[COMMENT]`, `[DWELL]`); `comment` block; cutter compensation events fired by passes marked compensated (field added to `fluut-path::Pass` as `comp: Option<CompSide>`).
 - `max_segment_length` splitting; `max_file_size` splitting at the first retract after the limit.
-- [ ] **Step 1:** Tests: rotary feed values for each method; split rotary; each cycle kind native and expanded; markers; comp events; segment split; file split lands after a retract.
-- [ ] **Step 2:** Fail, implement, pass.
+- [x] **Step 1:** Tests: rotary feed values for each method; split rotary; each cycle kind native and expanded; markers; comp events; segment split; file split lands after a retract.
+- [x] **Step 2:** Fail, implement, pass.
+- **Done.** Decisions made while implementing:
+  - Inverse-time feed writes `G93` before the first rotary line and `G94` before the next non-rotary move; these two codes come from the engine, not a block. After rotary moves the next linear move always states F.
+  - While a canned cycle is open, rapid links at or above its R plane are held back: the next `cycle_point` makes them unnecessary; anything else ends the cycle (`cycle_end`) and then writes them.
+  - Expanded peck and chip-break cycles retract 0.5 mm (at most half the peck) above the last depth before the next feed. Expanded tap is an error.
+  - `manual_nc` lines test `marker.kind` (`stop`, `optional_stop`, `comment`, `dwell`, `pass_through`); `[COMMENT]` holds comment or pass-through text, `[DWELL]` seconds. Without a `manual_nc` (or `dwell`) block the item is skipped with a warning.
+  - Cutter compensation events surround each pass with `Pass::comp` set (new `fluut_path::CompSide`).
+  - A file split happens at a pass boundary after a rapid or retract, never inside a cycle or a compensated pass. Each file is a whole program: provenance, `header`, spindle and coolant restored, …, `footer`.
 
 ### Task 9: Reference suite, built-in posts, golden files
 
