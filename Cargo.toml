@@ -18,10 +18,12 @@ fluut-topo = { path = "crates/fluut-topo", version = "0.1.0" }
 fluut-io-step = { path = "crates/fluut-io-step", version = "0.1.0" }
 fluut-model = { path = "crates/fluut-model", version = "0.1.0" }
 fluut-post = { path = "crates/fluut-post", version = "0.1.0" }
+fluut-sim = { path = "crates/fluut-sim", version = "0.1.0" }
 cavalier_contours = "0.9"
 glam = "0.34"
 libm = "0.2"
 memchr = "2"
+rayon = "1"
 smallvec = { version = "1.15", features = ["const_generics", "union"] }
 thiserror = "2"
 serde_json = "1"

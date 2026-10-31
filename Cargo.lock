@@ -442,6 +442,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "fluut-sim"
+version = "0.1.0"
+dependencies = [
+ "fluut-geom",
+ "fluut-path",
+ "glam",
+ "libm",
+ "proptest",
+ "rayon",
+ "smallvec",
+]
+
+[[package]]
 name = "fluut-topo"
 version = "0.1.0"
 dependencies = [

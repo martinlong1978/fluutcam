@@ -1,0 +1,21 @@
+[package]
+name = "fluut-sim"
+description = "FluutCAM simulation: tri-dexel stock and material removal (design D11)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+fluut-geom.workspace = true
+fluut-path.workspace = true
+glam.workspace = true
+libm.workspace = true
+rayon.workspace = true
+smallvec.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true
