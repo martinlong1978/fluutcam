@@ -32,6 +32,9 @@ fn main() {
     let mut files = Vec::new();
     step_files(Path::new(&dir), &mut files);
     let (mut bytes, mut secs, mut ok, mut ents) = (0usize, 0.0, 0usize, 0usize);
+    let mut supported = std::collections::BTreeMap::<String, usize>::new();
+    let mut unsupported = std::collections::BTreeMap::<String, (usize, usize)>::new();
+    let mut schemas = std::collections::BTreeMap::<String, usize>::new();
     for f in &files {
         let src = std::fs::read(f).expect("read");
         let t = Instant::now();
@@ -44,6 +47,18 @@ fn main() {
             Ok(m) => {
                 ok += 1;
                 ents += m.entities.len();
+                *schemas
+                    .entry(format!("{:?}", fluut_io_step::schema(&m)))
+                    .or_default() += 1;
+                let c = fluut_io_step::census(&m);
+                for (k, n) in c.supported {
+                    *supported.entry(k).or_default() += n;
+                }
+                for (k, n) in c.unsupported {
+                    let e = unsupported.entry(k).or_default();
+                    e.0 += n;
+                    e.1 += 1;
+                }
                 println!(
                     "{name}: {:.1} MB, {} entities, {:.1} ms",
                     src.len() as f64 / 1e6,
@@ -61,4 +76,13 @@ fn main() {
         secs,
         bytes as f64 / 1e6 / secs
     );
+    println!("schemas: {schemas:?}");
+    println!("supported entity kinds in bodies:");
+    for (k, n) in &supported {
+        println!("  {k}: {n}");
+    }
+    println!("unsupported entity kinds in bodies (count, files):");
+    for (k, (n, f)) in &unsupported {
+        println!("  {k}: {n} in {f} files");
+    }
 }
