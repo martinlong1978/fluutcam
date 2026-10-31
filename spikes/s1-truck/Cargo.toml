@@ -1,0 +1,19 @@
+[package]
+name = "s1-truck"
+description = "Spike S1: truck STEP and NURBS comparison (not part of FluutCAM)"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "MIT OR Apache-2.0"
+
+# Not a member of the FluutCAM workspace.
+[workspace]
+
+[dependencies]
+truck-stepio = "0.3"
+truck-geometry = "0.5"
+truck-topology = "0.6"
+fluut-geom = { path = "../../crates/fluut-geom" }
+
+[profile.release]
+debug = false
