@@ -138,7 +138,7 @@ fn refs(id: u64, p: Option<&Param>) -> R<Vec<u64>> {
 
 /// Knot vector from distinct knots and multiplicities.
 fn expand_knots(id: u64, mults: &[i64], knots: &[f64]) -> R<Vec<f64>> {
-    if mults.len() != knots.len() || mults.iter().any(|&m| m < 1 || m > 64) {
+    if mults.len() != knots.len() || mults.iter().any(|m| !(1..=64).contains(m)) {
         return fail(id, "bad knot multiplicities");
     }
     Ok(knots
