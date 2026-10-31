@@ -14,6 +14,7 @@ fluut-geom = { path = "crates/fluut-geom", version = "0.1.0" }
 fluut-path = { path = "crates/fluut-path", version = "0.1.0" }
 fluut-model = { path = "crates/fluut-model", version = "0.1.0" }
 fluut-post = { path = "crates/fluut-post", version = "0.1.0" }
+cavalier_contours = "0.9"
 glam = "0.34"
 libm = "0.2"
 smallvec = { version = "1.15", features = ["const_generics", "union"] }

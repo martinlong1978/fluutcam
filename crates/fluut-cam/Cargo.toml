@@ -1,0 +1,19 @@
+[package]
+name = "fluut-cam"
+description = "FluutCAM toolpath framework: regions, cutter queries, strategies (design D07-D09)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+cavalier_contours.workspace = true
+fluut-geom.workspace = true
+fluut-path.workspace = true
+libm.workspace = true
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
