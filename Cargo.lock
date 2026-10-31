@@ -380,6 +380,7 @@ dependencies = [
  "cavalier_contours",
  "fluut-geom",
  "fluut-path",
+ "fluut-topo",
  "libm",
  "proptest",
 ]

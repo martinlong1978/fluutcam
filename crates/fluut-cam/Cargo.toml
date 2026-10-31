@@ -10,6 +10,7 @@ license.workspace = true
 cavalier_contours.workspace = true
 fluut-geom.workspace = true
 fluut-path.workspace = true
+fluut-topo.workspace = true
 libm.workspace = true
 
 [lints]
