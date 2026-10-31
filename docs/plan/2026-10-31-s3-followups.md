@@ -54,5 +54,5 @@ All S3 Global Constraints apply. In addition:
 
 **Files:** Modify `docs/plan/spikes/s3-region-2d.md`, `docs/design/challenges.md`, `docs/plan/README.md`.
 
-- [ ] **Step 1:** Re-run `cargo run -p fluut-cam --example s3 --release`; add a dated "Follow-ups" section with before and after numbers.
-- [ ] **Step 2:** Update CH-01 and CH-16 where the results change them; mark this plan done.
+- [x] **Step 1:** Re-run `cargo run -p fluut-cam --example s3 --release`; add a dated "Follow-ups" section with before and after numbers.
+- [x] **Step 2:** Update CH-01 and CH-16 where the results change them; mark this plan done.

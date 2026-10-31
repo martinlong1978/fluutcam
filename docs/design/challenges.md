@@ -84,6 +84,8 @@ cross-platform bit-identity is required or only same-platform determinism.
 
 **S3 finding (2026-10-31).** `cavalier_contours` calls platform trigonometry (36 sites, offsets and intersections included). It is used through a copy patched to call `libm` ([S3 report](../plan/spikes/s3-region-2d.md) §3).
 
+**S3 follow-up (2026-10-31).** Done: the workspace uses `third_party/cavalier_contours`, patched to call `libm` ([S3 report](../plan/spikes/s3-region-2d.md#follow-ups-2026-10-31)). The risk is real: on one Linux machine, glibc and `libm` already give different bits for the crate's arc helpers, and the S3 adaptive runs change pass counts with the patch alone. `fluut-cam/tests/determinism.rs` pins offset, boolean and arc-helper results bit by bit, so the CI determinism job (D14 §3) will catch platform differences once it runs on all three platforms.
+
 ### CH-02 Document data structure and undo memory
 
 **Problem.** D01 §3.1 needs cheap snapshots of the project for background jobs, and D06 needs
@@ -296,6 +298,8 @@ steps per level, and the marching must not stall in narrow necks or leave uncut 
 trochoidal slotting in necks, offset-pattern fallback with feed reduction).
 
 **S3 (2026-10-31).** Prototype on exact arc regions works on 3 test shapes: path length near ideal, ≈0.2 % sliver area before the final contour pass, no grid. Engagement must also exclude the current pass's own earlier tool positions. Speed is 12–30 s per level against a target under 1 s; fixes are listed in the [S3 report](../plan/spikes/s3-region-2d.md) §5.
+
+**S3 follow-up (2026-10-31).** The region booleans now use a spatial index and a junction rule and stay consistent on every union of the adaptive runs. Sweeps and unions take under 1 % of a level, so speed now depends only on the engagement fixes of §5. The prototype's statistics move by a few degrees of RMS error depending on where loops start, because start points are sampled along K's loops; M6 should choose start points in a way that does not depend on that ([S3 report](../plan/spikes/s3-region-2d.md#follow-ups-2026-10-31)).
 
 ### CH-17 Exact medial axis for lines and arcs
 

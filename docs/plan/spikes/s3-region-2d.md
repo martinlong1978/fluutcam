@@ -63,6 +63,8 @@ Both limits must be fixed before M3 uses this code in production:
 - a spatial index, for which `cavalier_contours`' `StaticAABB2DIndex` can be reused;
 - a turn-angle rule at junctions.
 
+Both are done; see [Follow-ups](#follow-ups-2026-10-31). The figure-eight risk was real: a proptest on grid-aligned shapes finds it at once.
+
 ## 3. Determinism: `cavalier_contours` uses platform trigonometry
 
 **Finding.** The crate calls `tan`, `atan`, `atan2`, `sin`, `cos` and `acos` through `num_traits::Real`, which resolves to the platform libm. There are 36 call sites. They are in `raw_pline_offset.rs`, `pline_intersects.rs`, `pline_seg.rs`, `base_math.rs` and `traits.rs`, so offsets and intersections are affected.
@@ -72,6 +74,8 @@ This breaks the CH-01 resolution: results must be bit-identical on all platforms
 **Decision.** Use a patched copy of `cavalier_contours`. The licence is MIT OR Apache-2.0, so this is allowed. The patch routes these calls to `libm`: either a vendored crate under `third_party/`, or a git fork referenced through `[patch.crates-io]`. The patch is small and mechanical. We will also offer it upstream as an optional `libm` feature.
 
 This must happen before any `fluut-cam` output is golden-tested, which means early in M3.
+
+Done as a vendored copy; see [Follow-ups](#follow-ups-2026-10-31).
 
 ## 4. Line clipping
 
@@ -127,3 +131,48 @@ Path length is 8–29 % below the straight-wall estimate (area / 1.5 mm). The es
 1. Keep `cavalier_contours` (OQ-06 confirmed), with a `libm` patch (§3).
 2. Keep the multi-loop booleans in `fluut-cam`. Before M3 adds a spatial index and a junction rule.
 3. Build adaptive clearing on exact arc engagement, as designed. No grid fallback is needed. The prototype's speed issues have known fixes. Do the performance work as its own M6 task, with a target of < 1 s per level on these shapes.
+
+## Follow-ups (2026-10-31)
+
+Plan: [`../2026-10-31-s3-followups.md`](../2026-10-31-s3-followups.md). These numbers come from a different machine from the rest of this report: a Linux cloud container, release build, one thread. "Before" is `main` measured on that machine.
+
+### Deterministic `cavalier_contours`
+
+`third_party/cavalier_contours` is 0.9.0 with its trigonometry routed to `libm`, used through `[patch.crates-io]`; its `README-FLUUTCAM.md` lists the changes. All the crate's library trigonometry goes through 7 call sites; the other matches behind the "36 sites" count are its own tests and doc examples, which the workspace does not build. The crate's own 287 tests pass with the patch. `cargo deny` and `xtask check-layers` needed no change; `third_party` is in `workspace.exclude` so the copy keeps its own lints and its tests run in place.
+
+`crates/fluut-cam/tests/determinism.rs` pins the bits of offset, boolean and arc-helper results. Platform maths already makes a difference on one machine: with the unpatched crate, glibc and `libm` give different bits for `arcs_to_approx_lines`. The adaptive runs also changed with the patch alone (shape B 209 → 213 passes, C 201 → 184). So last-bit differences in trigonometry do reach toolpaths, which is what CH-01 feared.
+
+### Booleans
+
+- Segment pairs and point classification go through a `StaticAABB2DIndex` per region. Containment looks only at segments near the point or on the ray to its right.
+- Stitching takes the sharpest left turn where several pieces start at one point, using exact end tangents with ties broken by curvature. Loops that still pass a point twice, such as a hole touching its outer loop, are split there.
+- The old stitching does make figure-eights: a new proptest on grid-aligned rectangles and discs fails at once with it. The new code passes 200 000 cases, and both proptests now check that every loop is simple.
+- Re-running the measurements exposed a third problem. Consecutive adaptive steps give stadiums with nearly collinear sides. A sliver that came within 1e-7 of the other edge at its middle but not at its end was treated as coincident, so both sides dropped it. Vertices within 1e-7 of the other region's segments now cut them, and a piece counts as coincident only if its ends are on the other boundary too. `examples/s3_booleans.rs` replays every union of the adaptive runs and checks the area identities of §2.
+
+| | Before | After |
+|---|---|---|
+| Star polygons, 4 × 500 segments: ∪, ∩, ∖ | 30 ms | 3.8 ms |
+| Star polygons, 4 × 2 000 segments | 701 ms | 54 ms |
+| Star polygons, 4 × 8 000 segments | 31.5 s | 1.9 s |
+| Adaptive unions that break an area identity by > 1e-6 mm² | 65 of 10 725 | 0 of 10 423 (worst 4.5e-7) |
+| Sweep and K ∪ sweep inside the adaptive runs, A / B / C | 745 / 209 / 399 ms | 131 / 64 / 85 ms |
+| Swept union of the offset-pocket rings, A / B / C | 0.7 / 0.9 / 0.3 ms | 0.4 / 0.6 / 0.3 ms |
+
+The two adaptive rows were measured with the old boolean code on the patched crate, so their paths differ slightly from `main`'s (see above).
+
+The stars are a hard case for the index: their spikes point outwards, so near the x axis a ray to the right meets many segment boxes. At 4 × 8 000 segments that averages 356 boxes per ray, against 74 at 4 × 2 000. Areas are the same before and after. The offset pocket is unchanged: same rings, length and uncut area.
+
+### Adaptive clearing, re-run
+
+| Shape | Passes | Steps | RMS error | Steps > 10° off | Uncut mm² | Time |
+|---|---|---|---|---|---|---|
+| A, before | 229 | 4640 | 12.1° | 270 | 17.48 | 17.1 s |
+| A, after | 229 | 4640 | 12.1° | 270 | 17.48 | 16.9 s |
+| B, before | 209 | 2173 | 15.0° | 195 | 24.53 | 7.4 s |
+| B, after | 216 | 2207 | 18.9° | 293 | 28.45 | 8.6 s |
+| C, before | 201 | 3842 | 16.5° | 350 | 16.28 | 10.8 s |
+| C, after | 215 | 3576 | 17.5° | 340 | 15.66 | 14.4 s |
+
+A gives the same path as before. B and C give different paths, because the prototype samples its start points along K's offset from each loop's first vertex. Changing only where loops start moves B between 14.9° and 18.5° RMS. These statistics are therefore noisy by a few degrees, and better start-point selection belongs in the M6 work.
+
+Sweeps and unions now take under 1 % of a level. The time is engagement, as §5 said. B and C are slower per step after the change because their paths run past uncut regions with more segments (338 against 244 per pass on B), and engagement scans every segment. On A, segments per pass are unchanged (449). The §5 fixes still apply unchanged.
