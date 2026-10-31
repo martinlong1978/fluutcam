@@ -440,6 +440,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "fluut-topo"
+version = "0.1.0"
+dependencies = [
+ "fluut-geom",
+]
+
+[[package]]
 name = "fnv"
 version = "1.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"

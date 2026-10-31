@@ -1,0 +1,13 @@
+[package]
+name = "fluut-topo"
+description = "FluutCAM B-rep topology, validity checks and spatial index (design D03)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+fluut-geom.workspace = true
+
+[lints]
+workspace = true
