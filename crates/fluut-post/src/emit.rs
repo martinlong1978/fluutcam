@@ -15,15 +15,21 @@
 use crate::arcs::{self, Plane, corrected_centre, principal_plane, radius_error, split};
 use crate::expr::{Context, Value};
 use crate::format::{format_number, round_dec};
-use crate::job::{Coolant, PostJob, SetupJob, ToolpathJob};
-use crate::post::{ArcPlane, CentreMode, Units, When, WordFmt};
+use crate::job::{Coolant, PostJob, SetupJob, SetupKind, ToolpathJob};
+use crate::post::{ArcPlane, CentreMode, CycleName, RotaryMethod, Units, When, WordFmt};
 use crate::template::{CompiledPost, Tok};
-use fluut_geom::Aabb3;
-use fluut_path::{AxisPos, Motion, Segment, linearize};
+use fluut_geom::{Aabb3, Point3};
+use fluut_path::{
+    AxisPos, CompSide, CycleKind, CycleParams, MarkerKind, Motion, MotionInfo, Segment, linearize,
+};
 use std::collections::BTreeMap;
 
 #[cfg(test)]
 mod tests;
+
+/// Retract between pecks when expanding peck and chip-break cycles, mm
+/// (capped at half the peck depth).
+const PECK_GAP: f64 = 0.5;
 
 /// Words forgotten after a non-motion block (see module docs).
 const POSITION_WORDS: [&str; 8] = ["X", "Y", "Z", "A", "B", "I", "J", "K"];
@@ -50,7 +56,7 @@ pub struct PostOutput {
 
 #[derive(Clone, PartialEq, Debug, thiserror::Error)]
 pub enum EmitError {
-    #[error("setup {setup}, toolpath {toolpath}: {what} cannot be posted yet")]
+    #[error("setup {setup}, toolpath {toolpath}: {what}")]
     Unsupported {
         setup: usize,
         toolpath: usize,
@@ -102,6 +108,19 @@ struct Emitter<'a> {
     emitted: BTreeMap<String, f64>,
     /// Decimals raised for this event's words (arc centre correction).
     dec_override: BTreeMap<&'static str, u32>,
+    rotary_clamped: bool,
+    /// G93 in effect (spec 05 §5.7).
+    inverse_time: bool,
+    /// Parameters of the canned cycle in effect.
+    cycle_open: Option<CycleParams>,
+    /// Rapid links between holes held back while a cycle is in effect: the
+    /// next `cycle_point` makes them unnecessary; anything else writes them.
+    pending_links: Vec<AxisPos>,
+    comp: Option<CompSide>,
+    /// Finished files, when output is split.
+    files: Vec<String>,
+    /// Bytes in the current file.
+    bytes: u64,
 }
 
 impl<'a> Emitter<'a> {
@@ -133,6 +152,13 @@ impl<'a> Emitter<'a> {
             at: None,
             emitted: BTreeMap::new(),
             dec_override: BTreeMap::new(),
+            rotary_clamped: false,
+            inverse_time: false,
+            cycle_open: None,
+            pending_links: Vec::new(),
+            comp: None,
+            files: Vec::new(),
+            bytes: 0,
         };
         e.init_program_values();
         e
@@ -196,6 +222,10 @@ impl<'a> Emitter<'a> {
             Value::Num(self.spindle.unwrap_or(0.0)),
         );
         cx.insert("state.feed".into(), Value::Num(self.feed.unwrap_or(0.0)));
+        cx.insert(
+            "state.rotary_clamped".into(),
+            Value::Bool(self.rotary_clamped),
+        );
     }
 
     fn run(&mut self) -> Result<(), EmitError> {
@@ -204,6 +234,7 @@ impl<'a> Emitter<'a> {
         for (si, setup) in self.job.setups.iter().enumerate() {
             self.setup_values(si, setup);
             self.block("setup_start");
+            self.setup_rotary(setup.kind);
             for (ti, tp) in setup.toolpaths.iter().enumerate() {
                 self.toolpath(si, ti, tp)?;
             }
@@ -214,16 +245,58 @@ impl<'a> Emitter<'a> {
         Ok(())
     }
 
-    fn finish(self) -> PostOutput {
-        let mut text = self.lines.join(self.eol);
-        if !text.is_empty() {
-            text.push_str(self.eol);
-        }
+    fn finish(mut self) -> PostOutput {
+        self.close_file();
         PostOutput {
-            files: vec![text],
+            files: self.files,
             line_map: self.line_map,
             warnings: self.warnings,
         }
+    }
+
+    fn close_file(&mut self) {
+        let mut text = std::mem::take(&mut self.lines).join(self.eol);
+        if !text.is_empty() {
+            text.push_str(self.eol);
+        }
+        self.files.push(text);
+        self.bytes = 0;
+    }
+
+    /// Ends the current file and starts the next (spec 05 §5.5
+    /// `max_file_size`). Each file is a whole program: provenance, header,
+    /// spindle and coolant restored, …, footer. The tool stays loaded.
+    fn split_file(&mut self) {
+        self.block("footer");
+        self.close_file();
+        self.provenance();
+        self.block("header");
+        if self.spindle.is_some() {
+            self.block("spindle_on");
+        }
+        if self.coolant != Coolant::Off {
+            self.block("coolant_on");
+        }
+    }
+
+    /// Rotary state at a Setup start (spec 05 §5.6).
+    fn setup_rotary(&mut self, kind: SetupKind) {
+        match kind {
+            SetupKind::Indexed => {
+                if self.rotary_clamped {
+                    self.block("rotary_unclamp");
+                }
+                self.block("rotary_index");
+                self.rotary_clamped = self.has("rotary_clamp");
+                self.block("rotary_clamp");
+            }
+            SetupKind::Rotary if self.rotary_clamped => {
+                self.block("rotary_unclamp");
+                self.rotary_clamped = false;
+            }
+            _ => {}
+        }
+        self.update_state_cx();
     }
 
     fn provenance(&mut self) {
@@ -240,9 +313,12 @@ impl<'a> Emitter<'a> {
         if !p.hash.is_empty() {
             body.push(format!("Post hash: {}", p.hash));
         }
-        for b in body {
-            let line = format!("{}{}{}", o.comment_start, b, o.comment_end);
-            self.lines.push(line);
+        let body: Vec<String> = body
+            .into_iter()
+            .map(|b| format!("{}{}{}", o.comment_start, b, o.comment_end))
+            .collect();
+        for line in body {
+            self.push_line(line, false, false);
         }
     }
 
@@ -327,35 +403,298 @@ impl<'a> Emitter<'a> {
             }
         }
         self.block("toolpath_start");
+        let err = |what| EmitError::Unsupported {
+            setup: si,
+            toolpath: ti,
+            what,
+        };
         for (pi, pass) in tp.result.passes().iter().enumerate() {
+            let max = self.cp.post.output.max_file_size;
+            if max > 0
+                && self.bytes > max
+                && self.cycle_open.is_none()
+                && self.comp.is_none()
+                && matches!(self.prev_event.as_deref(), Some("rapid" | "retract"))
+            {
+                self.split_file();
+            }
+            if pass.comp != self.comp {
+                self.set_comp(pass.comp);
+            }
             for (gi, seg) in pass.segments.iter().enumerate() {
                 self.at = Some((si, ti, pi, gi));
-                self.segment(tp, seg)
-                    .map_err(|what| EmitError::Unsupported {
-                        setup: si,
-                        toolpath: ti,
-                        what,
-                    })?;
+                self.segment(tp, seg).map_err(err)?;
+            }
+            if pass.comp.is_some() {
+                self.set_comp(None);
             }
         }
+        self.close_cycle();
+        self.leave_inverse_time();
         self.at = None;
         self.block("toolpath_end");
         Ok(())
     }
 
     fn segment(&mut self, tp: &ToolpathJob, seg: &Segment) -> Result<(), &'static str> {
+        if let (Some(c), Segment::Line { a, b, m }) = (&self.cycle_open, seg)
+            && m.motion == Motion::Rapid
+            && a.xyz.z().min(b.xyz.z()) >= c.retract_z - 1e-9
+        {
+            self.pending_links.push(*b);
+            return Ok(());
+        }
+        if !matches!(seg, Segment::Cycle { .. }) {
+            self.close_cycle();
+        }
+        if !matches!(seg, Segment::Rotary { .. } | Segment::Marker { .. }) {
+            self.leave_inverse_time();
+        }
         match seg {
             Segment::Line { a, b, m } => {
                 let event = self.classify_line(a, b, m.motion, m.feed);
-                self.motion(event, b, tp.feeds.get(m.feed), Vec::new());
+                let feed = tp.feeds.get(m.feed);
+                let max = self.cp.post.output.max_segment_length;
+                let len = b.xyz.distance(a.xyz);
+                let n = if max > 0.0 && len > max {
+                    (len / max).ceil() as usize
+                } else {
+                    1
+                };
+                for k in 1..=n {
+                    let p = if k == n {
+                        *b
+                    } else {
+                        lerp(a, b, k as f64 / n as f64)
+                    };
+                    self.motion(event, &p, feed, Vec::new());
+                }
                 Ok(())
             }
             Segment::Arc { .. } | Segment::Helix { .. } => self.arc(tp, seg),
             Segment::Spline { .. } => self.linear(tp, seg),
-            Segment::Rotary { .. } => Err("a rotary move"),
-            Segment::Cycle { .. } => Err("a drilling cycle"),
-            Segment::Marker { .. } => Err("a manual NC marker"),
+            Segment::Rotary { a, b, radius, m } => self.rotary(tp, seg, a, b, *radius, m),
+            Segment::Cycle { at, cycle, m } => self.cycle(tp, at, cycle, m),
+            Segment::Marker { kind } => {
+                self.marker(kind);
+                Ok(())
+            }
         }
+    }
+
+    fn set_comp(&mut self, side: Option<CompSide>) {
+        if self.comp.is_some() {
+            self.block("cutter_comp_off");
+        }
+        match side {
+            Some(CompSide::Left) => self.block("cutter_comp_left"),
+            Some(CompSide::Right) => self.block("cutter_comp_right"),
+            None => {}
+        }
+        self.comp = side;
+    }
+
+    /// A rotary move (spec 05 §5.7): split above `max_angle_per_line`, feed
+    /// converted per `feed.rotary_method`.
+    fn rotary(
+        &mut self,
+        tp: &ToolpathJob,
+        seg: &Segment,
+        a: &AxisPos,
+        b: &AxisPos,
+        radius: f64,
+        m: &MotionInfo,
+    ) -> Result<(), &'static str> {
+        let post = &self.cp.post;
+        if !post.rotary.enabled {
+            return Err("rotary moves need a post with rotary.enabled");
+        }
+        let method = post.feed.rotary_method;
+        let turn = |x: Option<f64>, y: Option<f64>| (y.unwrap_or(0.0) - x.unwrap_or(0.0)).abs();
+        let angle = turn(a.a, b.a).max(turn(a.b, b.b));
+        let n = ((angle / post.rotary.max_angle_per_line) - 1e-9)
+            .ceil()
+            .max(1.0) as usize;
+        let piece_len = seg.length() / n as f64;
+        let feed = tp.feeds.get(m.feed);
+        if feed.is_some() && method == RotaryMethod::InverseTime && !self.inverse_time {
+            self.push_line("G93".into(), false, true);
+            self.inverse_time = true;
+            self.last_word.remove("F");
+        }
+        for k in 1..=n {
+            let p = if k == n {
+                *b
+            } else {
+                lerp(a, b, k as f64 / n as f64)
+            };
+            let mut extra = Vec::new();
+            if let Some(f) = feed {
+                let fv = match method {
+                    RotaryMethod::Degrees if radius > 0.0 => {
+                        f / radius * 180.0 / std::f64::consts::PI
+                    }
+                    RotaryMethod::InverseTime if piece_len > 0.0 => f / piece_len,
+                    _ => f * self.unit,
+                };
+                extra.push(("F", Val::Num(fv)));
+                if method == RotaryMethod::InverseTime {
+                    extra.push(("FI", Val::Num(fv)));
+                }
+            }
+            let event = if feed.is_none() { "rapid" } else { "rotary" };
+            self.motion(event, &p, None, extra);
+        }
+        // The next linear move must state its feed again.
+        self.feed = None;
+        self.last_word.remove("F");
+        Ok(())
+    }
+
+    fn leave_inverse_time(&mut self) {
+        if self.inverse_time {
+            self.push_line("G94".into(), false, true);
+            self.inverse_time = false;
+            self.feed = None;
+            self.last_word.remove("F");
+        }
+    }
+
+    /// A drilling cycle: native when the post supports the kind, else
+    /// expanded into moves (D10 §5).
+    fn cycle(
+        &mut self,
+        tp: &ToolpathJob,
+        at: &AxisPos,
+        c: &CycleParams,
+        m: &MotionInfo,
+    ) -> Result<(), &'static str> {
+        let post = &self.cp.post;
+        let feed = tp.feeds.get(m.feed).or(Some(tp.feeds.plunge));
+        let native = post.cycles.enabled && post.cycles.supported.contains(&cycle_name(c.kind));
+        if !native {
+            self.close_cycle();
+            return self.expand_cycle(at, c, feed);
+        }
+        let u = self.unit;
+        let mut extra = vec![
+            ("CYCLE_Z", Val::Num(c.depth_z * u)),
+            ("CYCLE_R", Val::Num(c.retract_z * u)),
+        ];
+        if let Some(q) = c.peck {
+            extra.push(("CYCLE_Q", Val::Num(q * u)));
+        }
+        if let Some(d) = c.dwell_s {
+            extra.push(("CYCLE_P", Val::Num(d)));
+        }
+        if let Some(f) = feed {
+            extra.push(("CYCLE_F", Val::Num(f * u)));
+        }
+        let event = if self.cycle_open == Some(*c) {
+            self.pending_links.clear();
+            "cycle_point"
+        } else {
+            self.close_cycle();
+            self.cycle_open = Some(*c);
+            "cycle_start"
+        };
+        self.motion(event, &at_z(at, c.depth_z), feed, extra);
+        Ok(())
+    }
+
+    fn close_cycle(&mut self) {
+        if self.cycle_open.take().is_some() {
+            self.block("cycle_end");
+            for p in std::mem::take(&mut self.pending_links) {
+                self.motion("rapid", &p, None, Vec::new());
+            }
+        }
+    }
+
+    fn expand_cycle(
+        &mut self,
+        at: &AxisPos,
+        c: &CycleParams,
+        feed: Option<f64>,
+    ) -> Result<(), &'static str> {
+        let rapid = |e: &mut Self, z: f64| e.motion("rapid", &at_z(at, z), None, Vec::new());
+        let cut = |e: &mut Self, z: f64| e.motion("feed", &at_z(at, z), feed, Vec::new());
+        rapid(self, c.retract_z);
+        match c.kind {
+            CycleKind::Tap => return Err("tapping needs a post with a native tap cycle"),
+            CycleKind::Peck | CycleKind::ChipBreak if c.peck.is_some_and(|q| q > 0.0) => {
+                let q = c.peck.unwrap_or(0.0);
+                let gap = PECK_GAP.min(q / 2.0);
+                let mut reached = c.top_z;
+                loop {
+                    if reached < c.top_z {
+                        rapid(self, reached + gap);
+                    }
+                    let next = (reached - q).max(c.depth_z);
+                    cut(self, next);
+                    reached = next;
+                    if next <= c.depth_z {
+                        break;
+                    }
+                    if c.kind == CycleKind::Peck {
+                        rapid(self, c.retract_z);
+                    } else {
+                        rapid(self, next + gap);
+                    }
+                }
+            }
+            _ => cut(self, c.depth_z),
+        }
+        if let Some(d) = c.dwell_s {
+            self.dwell(d);
+        }
+        if matches!(c.kind, CycleKind::Ream | CycleKind::Bore) {
+            cut(self, c.retract_z);
+        } else {
+            rapid(self, c.retract_z);
+        }
+        Ok(())
+    }
+
+    fn dwell(&mut self, seconds: f64) {
+        if !self.has("dwell") {
+            self.warnings
+                .push("dwell skipped: the post has no `dwell` block".into());
+            return;
+        }
+        self.event.clear();
+        self.event.insert("DWELL", Val::Num(seconds));
+        self.render("dwell", false);
+        self.event.clear();
+    }
+
+    /// Manual NC items (spec 05 §5.4.1 `manual_nc`): the block's lines can
+    /// test `marker.kind`.
+    fn marker(&mut self, kind: &MarkerKind) {
+        if !self.has("manual_nc") {
+            self.warnings
+                .push("manual NC item skipped: the post has no `manual_nc` block".into());
+            return;
+        }
+        let (name, comment, dwell) = match kind {
+            MarkerKind::Stop => ("stop", None, None),
+            MarkerKind::OptionalStop => ("optional_stop", None, None),
+            MarkerKind::Comment(t) => ("comment", Some(t.clone()), None),
+            MarkerKind::Dwell(d) => ("dwell", None, Some(*d)),
+            MarkerKind::PassThrough(t) => ("pass_through", Some(t.clone()), None),
+        };
+        self.cx
+            .insert("marker.kind".into(), Value::Str(name.into()));
+        self.event.clear();
+        if let Some(c) = comment {
+            self.event.insert("COMMENT", Val::Text(c));
+        }
+        if let Some(d) = dwell {
+            self.event.insert("DWELL", Val::Num(d));
+        }
+        self.block("manual_nc");
+        self.event.clear();
+        self.cx.remove("marker.kind");
     }
 
     /// Writes `seg` as line moves within its own tolerance.
@@ -710,28 +1049,66 @@ impl<'a> Emitter<'a> {
             for (from, to) in &post.output.substitute {
                 text = text.replace(from.as_str(), to);
             }
-            let ln = &post.line_numbering;
-            if ln.enabled && !text.starts_with('%') {
-                text = format!("{}{} {}", ln.prefix, self.line_no, text);
-                self.line_no += ln.increment;
-                if self.line_no > ln.maximum {
-                    self.line_no = ln.start;
-                }
-            }
-            if is_motion && let Some((setup, toolpath, pass, segment)) = self.at {
-                self.line_map.push(LineMapEntry {
-                    file: 0,
-                    line: self.lines.len(),
-                    setup,
-                    toolpath,
-                    pass,
-                    segment,
-                });
-            }
-            self.lines.push(text);
+            self.push_line(text, is_motion, true);
             written += 1;
         }
         written
+    }
+
+    /// Appends a line: line number (if enabled and `numbered`), line map
+    /// entry (if `is_motion`), byte count.
+    fn push_line(&mut self, mut text: String, is_motion: bool, numbered: bool) {
+        let ln = &self.cp.post.line_numbering;
+        if numbered && ln.enabled && !text.starts_with('%') {
+            text = format!("{}{} {}", ln.prefix, self.line_no, text);
+            self.line_no += ln.increment;
+            if self.line_no > ln.maximum {
+                self.line_no = ln.start;
+            }
+        }
+        if is_motion && let Some((setup, toolpath, pass, segment)) = self.at {
+            self.line_map.push(LineMapEntry {
+                file: self.files.len(),
+                line: self.lines.len(),
+                setup,
+                toolpath,
+                pass,
+                segment,
+            });
+        }
+        self.bytes += (text.len() + self.eol.len()) as u64;
+        self.lines.push(text);
+    }
+}
+
+fn lerp(a: &AxisPos, b: &AxisPos, f: f64) -> AxisPos {
+    let mix = |x: Option<f64>, y: Option<f64>| match (x, y) {
+        (Some(x), Some(y)) => Some(x + (y - x) * f),
+        _ => y,
+    };
+    AxisPos {
+        xyz: a.xyz.lerp(b.xyz, f),
+        a: mix(a.a, b.a),
+        b: mix(a.b, b.b),
+    }
+}
+
+fn at_z(p: &AxisPos, z: f64) -> AxisPos {
+    AxisPos {
+        xyz: Point3::new(p.xyz.x(), p.xyz.y(), z),
+        ..*p
+    }
+}
+
+fn cycle_name(k: CycleKind) -> CycleName {
+    match k {
+        CycleKind::Drill => CycleName::Drill,
+        CycleKind::Spot => CycleName::Spot,
+        CycleKind::Peck => CycleName::Peck,
+        CycleKind::ChipBreak => CycleName::ChipBreak,
+        CycleKind::Tap => CycleName::Tap,
+        CycleKind::Ream => CycleName::Ream,
+        CycleKind::Bore => CycleName::Bore,
     }
 }
 

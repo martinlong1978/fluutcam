@@ -112,6 +112,7 @@ impl Schema {
             ("state.feed", Num),
             ("state.rotary_clamped", Bool),
             ("state.first_tool", Bool),
+            ("marker.kind", Str),
         ]
         .into_iter()
         .fold(Schema::new(), |s, (p, t)| s.with(p, t))

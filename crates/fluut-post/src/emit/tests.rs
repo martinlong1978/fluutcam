@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use super::*;
+use crate::job::SetupKind;
 use crate::job::{Feeds, MachineInfo, Provenance, ToolInfo};
 use crate::{Post, resolve_post};
 use fluut_geom::Point3;
 use fluut_model::{DefRef, MemStore};
-use fluut_path::{FeedRef, MotionInfo, Pass, PassKind, ToolpathResult};
+use fluut_path::{
+    CycleKind, CycleParams, FeedRef, MarkerKind, MotionInfo, Pass, PassKind, ToolpathResult,
+};
 use std::sync::Arc;
 
 const POST: &str = r#"
@@ -255,23 +258,6 @@ fn plunge_and_retract_blocks_used_when_defined() {
     assert!(l.contains(&"G1 Y5"));
     // The final move is a retract at rapid feed, so it is a rapid event.
     assert!(l.contains(&"G0 Z5"));
-}
-
-#[test]
-fn unsupported_segments_error() {
-    let r = Arc::new(
-        ToolpathResult::new(vec![Pass::new(
-            PassKind::Cut,
-            vec![Segment::Marker {
-                kind: fluut_path::MarkerKind::Stop,
-            }],
-        )])
-        .unwrap(),
-    );
-    assert!(matches!(
-        post(&job(vec![toolpath("A", 1, r)]), &compiled("")),
-        Err(EmitError::Unsupported { .. })
-    ));
 }
 
 // --- arcs and helices (Task 7) ----------------------------------------------
@@ -549,5 +535,292 @@ proptest::proptest! {
         let lead = result([a[0], a[1], 5.0], &[(Motion::Rapid, FeedRef::Rapid, a)]);
         let out = post(&job(vec![toolpath("L", 1, lead), toolpath("A", 1, res)]), &c).unwrap();
         check_arcs(&out.files[0], 0.002);
+    }
+}
+
+// --- rotary, cycles, markers, compensation, limits (Task 8) -----------------
+
+fn ax(x: f64, y: f64, z: f64, a: Option<f64>) -> AxisPos {
+    AxisPos {
+        xyz: Point3::new(x, y, z),
+        a,
+        b: None,
+    }
+}
+
+fn one_pass(segs: Vec<Segment>) -> Arc<ToolpathResult> {
+    Arc::new(ToolpathResult::new(vec![Pass::new(PassKind::Cut, segs)]).unwrap())
+}
+
+const ROTARY: &str = "[rotary]\nenabled = true\n[words.A]\nprefix = 'A'\nwhen = 'changed'\n[blocks.rotary]\nlines = ['G1 [X] [A] F[F]']";
+
+fn half_turn_then_line() -> Arc<ToolpathResult> {
+    let m = MotionInfo::new(Motion::Cut, FeedRef::Cut, 0.01);
+    let (a, b) = (
+        ax(0.0, 0.0, 10.0, Some(0.0)),
+        ax(0.0, 0.0, 10.0, Some(180.0)),
+    );
+    let c = ax(5.0, 0.0, 10.0, Some(180.0));
+    one_pass(vec![
+        Segment::Rotary {
+            a,
+            b,
+            radius: 10.0,
+            m,
+        },
+        Segment::Line { a: b, b: c, m },
+    ])
+}
+
+fn all_lines(extra: &[&str], r: Arc<ToolpathResult>) -> Vec<String> {
+    let out = post(&job(vec![toolpath("A", 1, r)]), &compiled_stack(extra)).unwrap();
+    lines(&out).iter().map(|s| s.to_string()).collect()
+}
+
+fn after<'a>(l: &'a [String], marker: &str) -> &'a [String] {
+    let i = l.iter().position(|x| x == marker).unwrap();
+    &l[i + 1..]
+}
+
+#[test]
+fn rotary_feed_methods() {
+    let deg = all_lines(&[ROTARY], half_turn_then_line());
+    // 180° split at 90° per line; F = 1000 / 10 · 180/π deg/min.
+    assert_eq!(
+        &after(&deg, "(A)")[..3],
+        ["G1 X0 A90 F5730", "G1 A180", "G1 X5 Y0 Z10 F1000"]
+    );
+
+    let inv = all_lines(
+        &[ROTARY, "[feed]\nrotary_method = 'inverse_time'"],
+        half_turn_then_line(),
+    );
+    // Each 90° piece is 5π mm long: F = 1000 / 15.708 per minute.
+    assert_eq!(
+        &after(&inv, "(A)")[..5],
+        ["G93", "G1 X0 A90 F64", "G1 A180", "G94", "G1 X5 Y0 Z10 F1000"]
+    );
+
+    let lin = all_lines(
+        &[ROTARY, "[feed]\nrotary_method = 'linear_only'"],
+        half_turn_then_line(),
+    );
+    assert_eq!(&after(&lin, "(A)")[..2], ["G1 X0 A90 F1000", "G1 A180"]);
+
+    let r = post(
+        &job(vec![toolpath("A", 1, half_turn_then_line())]),
+        &compiled(""),
+    );
+    assert!(matches!(r, Err(EmitError::Unsupported { .. })));
+}
+
+#[test]
+fn indexed_setups_clamp_and_unclamp() {
+    let c = compiled(
+        "[blocks.rotary_index]\nlines=['G0 A[INDEX_A]']\n[blocks.rotary_clamp]\nlines=['M10']\n[blocks.rotary_unclamp]\nlines=['M11']",
+    );
+    let mut j = job(vec![toolpath("A", 1, pocket())]);
+    let s0 = j.setups[0].clone();
+    j.setups = vec![
+        SetupJob {
+            kind: SetupKind::Indexed,
+            index_a: Some(0.0),
+            ..s0.clone()
+        },
+        SetupJob {
+            kind: SetupKind::Indexed,
+            index_a: Some(90.0),
+            ..s0.clone()
+        },
+        SetupJob {
+            kind: SetupKind::Rotary,
+            ..s0
+        },
+    ];
+    let out = post(&j, &c).unwrap();
+    let seq: Vec<&str> = lines(&out)
+        .into_iter()
+        .filter(|l| l.starts_with("M1") || l.starts_with("G0 A"))
+        .collect();
+    assert_eq!(seq, ["G0 A0", "M10", "M11", "G0 A90", "M10", "M11"]);
+}
+
+const DRILL: &str = "[cycles]\nenabled = true\nsupported = ['drill', 'peck']\n[blocks.cycle_start]\nlines = ['G81 [X] [Y] Z[CYCLE_Z] R[CYCLE_R] F[F]']\n[blocks.cycle_point]\nlines = ['[X] [Y]']\n[blocks.cycle_end]\nlines = ['G80']";
+
+fn holes(kind: CycleKind, peck: Option<f64>) -> Arc<ToolpathResult> {
+    let m = MotionInfo::new(Motion::Plunge, FeedRef::Plunge, 0.01);
+    let r = MotionInfo::new(Motion::Rapid, FeedRef::Rapid, 0.01);
+    let cycle = CycleParams {
+        kind,
+        top_z: 0.0,
+        depth_z: -5.0,
+        retract_z: 2.0,
+        peck,
+        dwell_s: None,
+    };
+    let mut segs = vec![Segment::Line {
+        a: ax(0.0, 0.0, 10.0, None),
+        b: ax(0.0, 0.0, 2.0, None),
+        m: r,
+    }];
+    for (i, x) in [0.0, 10.0, 20.0].into_iter().enumerate() {
+        if i > 0 {
+            segs.push(Segment::Line {
+                a: ax(x - 10.0, 0.0, 2.0, None),
+                b: ax(x, 0.0, 2.0, None),
+                m: r,
+            });
+        }
+        segs.push(Segment::Cycle {
+            at: ax(x, 0.0, 2.0, None),
+            cycle,
+            m,
+        });
+    }
+    segs.push(Segment::Line {
+        a: ax(20.0, 0.0, 2.0, None),
+        b: ax(20.0, 0.0, 10.0, None),
+        m: r,
+    });
+    one_pass(segs)
+}
+
+#[test]
+fn native_cycles_hold_back_links() {
+    let l = all_lines(&[DRILL], holes(CycleKind::Drill, None));
+    assert_eq!(
+        &after(&l, "G0 X0 Y0 Z2")[..5],
+        [
+            "G81 Z-5 R2 F300",
+            "X10",
+            "X20",
+            "G80",
+            "G0 X20 Y0 Z10"
+        ]
+    );
+}
+
+#[test]
+fn expanded_cycles() {
+    let l = all_lines(&[], holes(CycleKind::Drill, None));
+    assert_eq!(
+        &after(&l, "G0 X0 Y0 Z2")[..3],
+        ["G1 Z-5 F300", "G0 Z2", "G0 X10"]
+    );
+    let l = all_lines(&[], holes(CycleKind::Peck, Some(2.0)));
+    assert_eq!(
+        &after(&l, "G0 X0 Y0 Z2")[..9],
+        [
+            "G1 Z-2 F300",
+            "G0 Z2",
+            "Z-1.5",
+            "G1 Z-4",
+            "G0 Z2",
+            "Z-3.5",
+            "G1 Z-5",
+            "G0 Z2",
+            "X10"
+        ]
+        .map(|x| x.to_owned())
+        .map(|x| if x.starts_with('Z') || x.starts_with('X') {
+            format!("G0 {x}")
+        } else {
+            x
+        })
+    );
+    let r = post(
+        &job(vec![toolpath("A", 1, holes(CycleKind::Tap, None))]),
+        &compiled(""),
+    );
+    assert!(matches!(r, Err(EmitError::Unsupported { .. })));
+}
+
+#[test]
+fn markers() {
+    let m = |kind| Segment::Marker { kind };
+    let r = one_pass(vec![
+        m(MarkerKind::Stop),
+        m(MarkerKind::Comment("check clamps".into())),
+        m(MarkerKind::Dwell(1.5)),
+    ]);
+    let nc = "[blocks.manual_nc]\nlines = [{when = \"marker.kind == 'stop'\", line = 'M0'}, {when = \"marker.kind == 'comment'\", line = '([COMMENT])'}, {when = \"marker.kind == 'dwell'\", line = 'G4 P[DWELL]'}]";
+    let l = all_lines(&[nc], r.clone());
+    assert_eq!(&after(&l, "(A)")[..3], ["M0", "(check clamps)", "G4 P1.5"]);
+    let out = post(&job(vec![toolpath("A", 1, r)]), &compiled("")).unwrap();
+    assert_eq!(out.warnings.len(), 3);
+}
+
+#[test]
+fn cutter_comp_around_pass() {
+    let mut res = (*pocket()).clone();
+    let passes: Vec<Pass> = res
+        .passes()
+        .iter()
+        .cloned()
+        .map(|p| p.with_comp(fluut_path::CompSide::Left))
+        .collect();
+    res = ToolpathResult::new(passes).unwrap();
+    let l = all_lines(
+        &["[blocks.cutter_comp_left]\nlines=['G41 D[T]']\n[blocks.cutter_comp_off]\nlines=['G40']"],
+        Arc::new(res),
+    );
+    assert_eq!(after(&l, "(A)")[0], "G41 D1");
+    let g40 = l.iter().position(|x| x == "G40").unwrap();
+    assert_eq!(l[g40 - 1], "G0 Z5");
+}
+
+#[test]
+fn long_lines_split() {
+    let l = all_lines(&["[output]\nmax_segment_length = 3.0"], pocket());
+    // The 10 mm cut becomes 4 lines of 2.5 mm.
+    let i = l.iter().position(|x| x == "G1 Z-1").unwrap();
+    assert_eq!(
+        &l[i + 1..i + 5],
+        ["G1 X2.5 F1000", "G1 X5", "G1 X7.5", "G1 X10"]
+    );
+}
+
+#[test]
+fn files_split_after_a_retract() {
+    let passes: Vec<Pass> = (0..6).map(|_| pocket().passes()[0].clone()).collect();
+    // Make the passes continuous: each pocket pass starts at Z10 and ends at
+    // (10, 5, 5); join them with a link pass.
+    let mut all = Vec::new();
+    for (i, p) in passes.into_iter().enumerate() {
+        if i > 0 {
+            all.push(Pass::new(
+                PassKind::Link,
+                vec![Segment::Line {
+                    a: ax(10.0, 5.0, 5.0, None),
+                    b: ax(0.0, 0.0, 10.0, None),
+                    m: MotionInfo::new(Motion::Rapid, FeedRef::Rapid, 0.01),
+                }],
+            ));
+        }
+        all.push(p);
+    }
+    let r = Arc::new(ToolpathResult::new(all).unwrap());
+    let out = post(
+        &job(vec![toolpath("A", 1, r)]),
+        &compiled("[output]\nmax_file_size = 150"),
+    )
+    .unwrap();
+    assert!(out.files.len() > 1, "{:?}", out.files);
+    for f in &out.files {
+        assert!(f.starts_with("(FluutCAM"));
+        assert!(f.contains("%\nG21 G90\n"));
+        assert!(f.ends_with("M30\n%\n"));
+    }
+    // Every file after the first restarts the spindle.
+    assert!(out.files[1].contains("M3 S12000"));
+    assert!(out.line_map.iter().any(|e| e.file == 1));
+    for e in &out.line_map {
+        assert!(
+            out.files[e.file]
+                .lines()
+                .nth(e.line)
+                .unwrap()
+                .starts_with('G')
+        );
     }
 }

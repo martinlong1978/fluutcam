@@ -15,10 +15,20 @@ pub enum PassKind {
     Retract,
 }
 
+/// Side for cutter compensation in the controller (G41/G42; D09 §2.4).
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum CompSide {
+    Left,
+    Right,
+}
+
 #[derive(Clone, PartialEq, Debug)]
 pub struct Pass {
     pub kind: PassKind,
     pub segments: Vec<Segment>,
+    /// Set when the controller compensates this pass (compensation "in
+    /// control" or "wear"); the post fires the cutter-comp events around it.
+    pub comp: Option<CompSide>,
 }
 
 /// An invariant violation. `pass` and `index` locate the offending segment.
@@ -39,7 +49,17 @@ const ARC_RADIUS_REL_TOL: f64 = 1e-9;
 
 impl Pass {
     pub fn new(kind: PassKind, segments: Vec<Segment>) -> Pass {
-        Pass { kind, segments }
+        Pass {
+            kind,
+            segments,
+            comp: None,
+        }
+    }
+
+    /// The pass with controller compensation on `side`.
+    pub fn with_comp(mut self, side: CompSide) -> Pass {
+        self.comp = Some(side);
+        self
     }
 
     /// Checks the D08 §2 invariants within this pass. `pass` is used only to

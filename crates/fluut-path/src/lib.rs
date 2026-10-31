@@ -12,7 +12,7 @@ pub mod pass;
 pub mod segment;
 
 pub use linearize::linearize;
-pub use pass::{Pass, PassKind, PathError, PathStats, ToolpathResult};
+pub use pass::{CompSide, Pass, PassKind, PathError, PathStats, ToolpathResult};
 pub use segment::{
     AxisPos, CycleKind, CycleParams, FeedRef, MarkerKind, Motion, MotionInfo, PersistId, Segment,
 };
