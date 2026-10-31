@@ -107,6 +107,14 @@ impl Seg2 {
         }
     }
 
+    pub(crate) fn support_x(&self) -> (f64, f64) {
+        self.support(Vec2::new(1.0, 0.0))
+    }
+
+    pub(crate) fn support_y(&self) -> (f64, f64) {
+        self.support(Vec2::new(0.0, 1.0))
+    }
+
     /// Minimum and maximum of `p · dir` over the segment.
     fn support(&self, dir: Vec2) -> (f64, f64) {
         let pa = self.a.0.dot(dir.0);
@@ -334,6 +342,19 @@ impl Region2 {
         Region2 { loops }
     }
 
+    pub fn union(&self, o: &Region2) -> Region2 {
+        boolean::boolean(self, o, boolean::Op::Union)
+    }
+
+    pub fn intersect(&self, o: &Region2) -> Region2 {
+        boolean::boolean(self, o, boolean::Op::Intersect)
+    }
+
+    /// This region minus `o`.
+    pub fn subtract(&self, o: &Region2) -> Region2 {
+        boolean::boolean(self, o, boolean::Op::Subtract)
+    }
+
     /// `(min, max)` corners of the bounding box.
     pub fn bbox(&self) -> (Point2, Point2) {
         let (x0, x1) = self.support(Vec2::new(1.0, 0.0));
@@ -365,6 +386,8 @@ pub fn seg_distance(s: &Seg2, p: Point2) -> f64 {
         }
     }
 }
+
+mod boolean;
 
 #[cfg(test)]
 mod tests;

@@ -149,3 +149,99 @@ fn offset_zero_and_empty() {
     assert_eq!(plate().offset(0.0), plate());
     assert!(Region2::empty().offset(3.0).is_empty());
 }
+
+fn check_ops(a: &Region2, b: &Region2, tol: f64) {
+    let (u, i, d) = (a.union(b), a.intersect(b), a.subtract(b));
+    let (aa, ab) = (a.area(), b.area());
+    assert!(
+        close(u.area() + i.area(), aa + ab, tol),
+        "u {} i {}",
+        u.area(),
+        i.area()
+    );
+    assert!(
+        close(d.area(), aa - i.area(), tol),
+        "d {} i {}",
+        d.area(),
+        i.area()
+    );
+    assert!(i.area() >= -tol && d.area() >= -tol);
+}
+
+#[test]
+fn booleans_of_rectangles() {
+    let a = Region2::rect(0.0, 0.0, 10.0, 10.0);
+    let b = Region2::rect(5.0, 5.0, 15.0, 15.0);
+    assert!(close(a.intersect(&b).area(), 25.0, 1e-9));
+    assert!(close(a.union(&b).area(), 175.0, 1e-9));
+    assert!(close(a.subtract(&b).area(), 75.0, 1e-9));
+    assert_eq!(a.union(&b).loops.len(), 1);
+    check_ops(&a, &b, 1e-9);
+}
+
+#[test]
+fn booleans_disjoint_and_contained() {
+    let a = Region2::rect(0.0, 0.0, 10.0, 10.0);
+    let far = Region2::rect(20.0, 0.0, 30.0, 10.0);
+    assert!(a.intersect(&far).is_empty());
+    assert_eq!(a.union(&far).loops.len(), 2);
+    let d = a.subtract(&far);
+    assert_eq!(d.loops.len(), 1);
+    assert!(close(d.area(), 100.0, 1e-12));
+    let inner = Region2::circle(5.0, 5.0, 2.0);
+    let ring = a.subtract(&inner);
+    assert_eq!(ring.loops.len(), 2);
+    assert!(close(ring.area(), 100.0 - 4.0 * PI, 1e-9));
+    assert!(close(a.intersect(&inner).area(), 4.0 * PI, 1e-9));
+    assert!(close(a.union(&inner).area(), 100.0, 1e-9));
+    check_ops(&a, &inner, 1e-9);
+}
+
+#[test]
+fn booleans_touching_edge() {
+    let a = Region2::rect(0.0, 0.0, 10.0, 10.0);
+    let b = Region2::rect(10.0, 0.0, 20.0, 10.0);
+    let u = a.union(&b);
+    assert!(close(u.area(), 200.0, 1e-9));
+    assert_eq!(u.loops.len(), 1);
+    assert!(a.intersect(&b).area().abs() < 1e-9);
+    assert!(close(a.subtract(&b).area(), 100.0, 1e-9));
+    // Same rectangle: coincident everywhere.
+    assert!(close(a.union(&a).area(), 100.0, 1e-9));
+    assert!(close(a.intersect(&a).area(), 100.0, 1e-9));
+    assert!(a.subtract(&a).is_empty());
+}
+
+#[test]
+fn plate_minus_disc_across_hole() {
+    let p = plate();
+    let disc = Region2::circle(62.0, 30.0, 6.0);
+    let r = p.subtract(&disc);
+    // The disc and the hole overlap in a lens; numeric check of areas.
+    check_ops(&p, &disc, 1e-9);
+    assert_eq!(r.loops.len(), 2);
+    assert!(r.area() < p.area());
+}
+
+mod props {
+    use super::*;
+    use proptest::prelude::*;
+
+    fn shape() -> impl Strategy<Value = Region2> {
+        prop_oneof![
+            (0.0..20.0f64, 0.0..20.0f64, 1.0..15.0f64, 1.0..15.0f64)
+                .prop_map(|(x, y, w, h)| Region2::rect(x, y, x + w, y + h)),
+            (0.0..20.0f64, 0.0..20.0f64, 0.5..10.0f64)
+                .prop_map(|(x, y, r)| Region2::circle(x, y, r)),
+        ]
+    }
+
+    proptest! {
+        #[test]
+        fn area_identities(a in shape(), b in shape(), c in shape()) {
+            let ab = a.union(&b);
+            check_ops(&ab, &c, 1e-6);
+            check_ops(&a.subtract(&b), &c, 1e-6);
+        }
+    }
+}
