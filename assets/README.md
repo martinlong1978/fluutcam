@@ -36,3 +36,9 @@ A dark variant changes only the wordmark:
 
 The icon and "CAM" stay as they are. `fluutcam-D-logo-dark.svg` was derived from
 `fluutcam-D-logo.svg` by this rule.
+
+## Licence
+
+The assets are licensed like the code, under either the
+[Apache License, Version 2.0](../LICENSE-APACHE) or the [MIT licence](../LICENSE-MIT), at your
+option.
