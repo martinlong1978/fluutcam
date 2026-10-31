@@ -15,6 +15,7 @@ Implements: [S 01 §1.8, §1.8.1], [S 06 §6.1–6.3], OQ-10 (Windows, macOS, Li
 ├─ testdata/                  small fixtures in git; large STEP corpus via Git LFS
 ├─ fuzz/                      cargo-fuzz targets
 ├─ docs/                      spec, design, plans; user and API docs (generated parts from D12 §5)
+├─ assets/                    brand: logos and app icons as SVG masters (assets/README.md)
 └─ packaging/                 WiX, macOS bundle/notarization, AppImage, Flatpak manifests
 ```
 
@@ -66,6 +67,9 @@ scripting API version follow [S 02 §2.0] and [S 09 §9.6] independently.
 | Windows | MSI + portable zip | `cargo-wix`; Authenticode signing (signing service or HSM-backed certificate) |
 | macOS | universal DMG | `lipo`; `codesign` + `notarytool` |
 | Linux | AppImage, Flatpak | `appimagetool` (signed); Flathub manifest |
+
+App and installer icons (ICO, ICNS, PNG at the sizes each platform needs) are generated from the
+SVG masters in `assets/` during packaging; generated rasters are not committed.
 
 CI verifies every signature after signing; a failed check stops the release [S 06 §6.2].
 

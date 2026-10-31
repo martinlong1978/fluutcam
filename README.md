@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/fluutcam-D-logo-dark.svg">
+    <img src="assets/fluutcam-D-logo.svg" alt="FluutCAM" width="440">
+  </picture>
+</p>
+
 # FluutCAM
 
 Open-source CAM software. Exact B-rep geometry core, layered post-processors, written in Rust.
@@ -5,6 +12,7 @@ Open-source CAM software. Exact B-rep geometry core, layered post-processors, wr
 - Specification: [`docs/spec/`](docs/spec/README.md)
 - Detailed design: [`docs/design/`](docs/design/README.md)
 - Implementation roadmap: [`docs/plan/`](docs/plan/README.md)
+- Brand assets: [`assets/`](assets/README.md)
 
 ## Building
 

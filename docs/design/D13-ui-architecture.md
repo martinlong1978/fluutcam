@@ -166,6 +166,12 @@ Depends on OQ-09. Requirements [S 08 §8.11] and what the prototype must show:
 
 Prototype scope [S 08 §8.11]; decision recorded in [S 01 §1.8].
 
+### 6.1 Branding
+
+The window icon, the About dialog and the start page use the logos and icons in `assets/` (see
+`assets/README.md`), following the system light or dark theme with the light and dark logo
+variants.
+
 ## 7. Timeline (v1, OQ-20)
 
 `TimelineVM` = list of Setups → toolpath clips with start time and duration (D11 §6), markers
