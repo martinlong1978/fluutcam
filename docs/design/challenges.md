@@ -100,6 +100,8 @@ Undo stores previous root `Arc`s.
 
 **Revisit.** Validate memory and speed with a 200-toolpath project during the UI prototype.
 
+**S4 finding (2026-11-01).** Not exercised: the S4 prototypes have no document model, edits or undo ([S4 report](../plan/spikes/s4-ui-toolkit.md#9-challenges)). They only showed that a 200-toolpath browser costs the UI about 5 ms per frame (egui; slint with Skia). Memory and speed of the `Arc` tree and undo move to M4 (`fluut-model`), with the 200-toolpath project as the test.
+
 ### CH-03 Tangential and degenerate plane sections
 
 **Problem.** Roughing and waterline levels are placed exactly at the heights of flat faces
@@ -411,6 +413,8 @@ complex parts.
 runs when the drag ends (if auto-calculate is on).
 
 **Revisit.** UI prototype: check that the draped preview is convincing and fast enough.
+
+**S4 finding (2026-11-01).** Prototyped for raster patterns in both UI prototypes ([S4 report](../plan/spikes/s4-ui-toolkit.md#7-other-s-08-811-requirements)). The fragment shader draws lines at `stepover` across `pass_angle_deg`, draped on the display mesh, from two uniforms. Editing rebuilds no buffers. On 1 M triangles the cost was within noise on a software rasteriser. Scrubbing moves the lines in the next frame, and the result reads as the pass layout on the part. Offset (ring) patterns cannot be drawn this way: they need 2-D offsets from `fluut-cam` draped as lines. That case stays open for M5.
 
 ### CH-24 Mirror transforms: face sense and p-curves
 

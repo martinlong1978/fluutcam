@@ -48,22 +48,22 @@ All earlier Global Constraints apply to the workspace. In addition:
 - Renderer: colour and depth textures of a given size; gradient background; soft two-light shading; a draped pass preview: raster lines at `stepover` and `pass_angle_deg` drawn on the mesh in the fragment shader, as CH-23's workaround proposes.
 - Mock data: two Setups with toolpaths (`pocket_2d`, `contour_2d`, `parallel`) and their status icons (S 08 §8.6). The `pocket_2d` inspector has D15 §4.1 `passes` fields (`pattern`, `stepover`, `step_down`, `direction`, `offset_order`, `pass_angle_deg`) and D15 §4.2 validation of `stepover` against the tool diameter.
 - Bench harness: `S4_BENCH=<frames>` orbits the camera every frame and prints frame-time percentiles; `S4_STARTUP=1` prints the time to the first presented frame and exits.
-- [ ] **Step 1:** Unit tests: triangle count, normals unit length, camera orbit keeps distance, pan moves the target, validation codes.
-- [ ] **Step 2:** Implement; pass.
+- [x] **Step 1:** Unit tests: triangle count, normals unit length, camera orbit keeps distance, pan moves the target, validation codes.
+- [x] **Step 2:** Implement; pass.
 
 ### Task 3: `egui` prototype
 
 **Files:** Create `spikes/s4-egui/{Cargo.toml, src/main.rs}`.
 
 - Title bar with units badge; ribbon with stage tabs and a toolpath gallery (S 08 §8.2–§8.3); browser tree; inspector with a scrub-able numeric field and the validation message under it; viewport with an overlay work-zero triad; panels in `egui_dock`, so they dock and float.
-- [ ] **Step 1:** Run under Xvfb; take a screenshot for the report.
+- [x] **Step 1:** Run under Xvfb; take a screenshot for the report.
 
 ### Task 4: `slint` prototype
 
 **Files:** Create `spikes/s4-slint/{Cargo.toml, build.rs, src/main.rs, ui/app.slint}`.
 
 - The same panels and fields. Slint has no docking; panels are fixed in a layout.
-- [ ] **Step 1:** Run under Xvfb; take a screenshot for the report.
+- [x] **Step 1:** Run under Xvfb; take a screenshot for the report.
 
 ### Task 5: Measurements
 
@@ -71,21 +71,27 @@ All earlier Global Constraints apply to the workspace. In addition:
 
 For each prototype: frame time while orbiting about 1 M triangles, and with a small mesh to separate UI cost from mesh cost; idle CPU over 10 s; startup time to the first frame; release binary size (as built and stripped); lines of code (toolkit-specific only); clean release build time.
 
-- [ ] **Step 1:** Run; record the numbers and what the machine cannot measure.
+- [x] **Step 1:** Run; record the numbers and what the machine cannot measure.
 
 ### Task 6: Licences
 
 - `slint`: GPL-3.0, the royalty-free licence and the commercial licence, against MIT OR Apache-2.0 and the shipped binaries of D14 §5 and S 06 §6.1–§6.2. `egui` and the crates it brings.
-- [ ] **Step 1:** Record facts with links to the licence texts.
+- [x] **Step 1:** Record facts with links to the licence texts.
 
 ### Task 7: Accessibility, IME, localisation and high DPI
 
 - What each toolkit provides for S 08 §8.9, §8.10a and §8.11 items 5–6, checked in the prototypes where the headless machine allows and in the sources otherwise.
-- [ ] **Step 1:** Record findings.
+- [x] **Step 1:** Record findings.
 
 ### Task 8: Report and challenges
 
 **Files:** Create `docs/plan/spikes/s4-ui-toolkit.md`; modify `docs/design/challenges.md` (CH-02, CH-23), `docs/plan/README.md`.
 
-- [ ] **Step 1:** Report: numbers, licence findings, the S 08 §8.11 checklist, and a recommendation marked as for the product owner to decide.
-- [ ] **Step 2:** Update CH-23 and CH-02; mark this plan done; commit and push.
+- [x] **Step 1:** Report: numbers, licence findings, the S 08 §8.11 checklist, and a recommendation marked as for the product owner to decide.
+- [x] **Step 2:** Update CH-23 and CH-02; mark this plan done; commit and push.
+
+**Done.** Findings in [`spikes/s4-ui-toolkit.md`](spikes/s4-ui-toolkit.md). The recommendation (egui) is for the product owner to decide; S 01 §1.8, S 08 §8.11 and D13 §6 change only after that decision. Deviations from this plan:
+- Slint was also measured with its Skia renderer (`--features skia`), because FemtoVG on the software rasteriser hid the toolkit's own cost.
+- `spikes/s4-common/a11y/` was added to read each prototype's AT-SPI tree.
+- The bench harness gained `S4_TREE` (a 200-toolpath browser) and `viewport_bench` gained `S4_PREVIEW` (preview cost).
+- Docking was tested only by moving a tab between tab groups in egui. Native extra windows were not prototyped in either toolkit.
