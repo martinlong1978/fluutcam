@@ -29,3 +29,14 @@ zero     = { method = "stock_top_corner", corner = "front_left" }
     machining_tolerance = 0.02
     step_down           = 2
     min_slope_deg       = 30
+
+  [[setup.toolpath]]
+  id   = "t2"
+  name = "Flats"
+  type = "horizontal"
+  tool = "shop#flat-6"
+
+    [setup.toolpath.passes]
+    pattern        = "offset"
+    stepover       = 4
+    stock_to_leave = 0.1

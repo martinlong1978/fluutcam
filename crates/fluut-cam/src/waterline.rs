@@ -250,6 +250,40 @@ impl<'a> Waterline<'a> {
     /// A contour point at `p` from the probe just inside. At a cliff (τ
     /// jumps: a vertical wall), the probe touches the top of the wall, so
     /// the slope and drive flag come from the wall face at the level.
+    /// The boundary on the circle of radius `r` about `p`, searched from
+    /// the open side (−`n`) through the travel direction `t` to the
+    /// material side (`n`): the fallback at inside corners, where the line
+    /// along `n` runs parallel to the next wall.
+    fn around(&self, p: Point2, t: Vec2, n: Vec2, r: f64, z: f64) -> Option<(Point2, Probe)> {
+        const K: usize = 16;
+        let at = |th: f64| {
+            let (s, c) = libm::sincos(th);
+            p + (t * c + n * s) * r
+        };
+        let half = std::f64::consts::FRAC_PI_2;
+        let mut prev = (-half, self.inside(at(-half), z));
+        for i in 1..=K {
+            let th = -half + std::f64::consts::PI * i as f64 / K as f64;
+            let cur = (th, self.inside(at(th), z));
+            if !prev.1.0 && cur.1.0 {
+                let (mut lo, mut hi, mut pin) = (prev.0, cur.0, cur.1.1?);
+                while (at(hi) - at(lo)).length() > CUTOFF {
+                    let m = 0.5 * (lo + hi);
+                    let (is_in, pr) = self.inside(at(m), z);
+                    if is_in {
+                        hi = m;
+                        pin = pr.unwrap_or(pin);
+                    } else {
+                        lo = m;
+                    }
+                }
+                return Some((at(lo), pin));
+            }
+            prev = cur;
+        }
+        None
+    }
+
     fn point(&self, p: Point2, pin: &Probe, n_old: Vec2, z: f64) -> WPoint {
         let n = if pin.toward.length() > 0.5 {
             pin.toward
@@ -371,7 +405,9 @@ impl<'a> Waterline<'a> {
             let cur = pts[pts.len() - 1];
             let t = Vec2::new(-cur.n.y(), cur.n.x()) * sign;
             let c = cur.p + t * step;
-            let found = self.project(c, cur.n, 2.0 * step, z);
+            let found = self
+                .project(c, cur.n, 2.0 * step, z)
+                .or_else(|| self.around(cur.p, t, cur.n, step, z));
             let ok = found.and_then(|(p, pin)| {
                 let nxt = self.point(p, &pin, cur.n, z);
                 let d = nxt.p - cur.p;

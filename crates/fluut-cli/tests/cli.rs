@@ -275,7 +275,7 @@ const RIDGE: Reference = Reference {
 const DOME: Reference = Reference {
     name: "dome",
     part: step::dome,
-    toolpaths: &["t1"],
+    toolpaths: &["t1", "t2"],
     zero: [-5.0, -5.0, 29.0],
 };
 

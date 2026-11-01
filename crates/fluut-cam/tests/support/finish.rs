@@ -186,14 +186,16 @@ pub fn reference<'a>(g: &'a SetupGeometry, tl: &Tool, stock: f64) -> SurfaceQuer
 
 /// Dense drops along every segment: the tool is never below the surface by
 /// more than `tol` (D08 §11 gouge check). On a horizontal move (a
-/// waterline) the error of a chord is sideways, so a point may instead be
-/// within `tol` sideways of where the tool clears.
+/// waterline) or a vertical one (along a wall) the error is sideways, so a
+/// point may instead be within `tol` sideways of where the tool clears.
 pub fn assert_no_gouge(g: &SetupGeometry, r: &Generated, tl: &Tool, stock: f64, tol: f64) {
     let q = reference(g, tl, stock);
     for s in r.result.segments() {
         for p in fluut_path::linearize(s, 1e-3) {
             let (a, b) = (p.start().unwrap().xyz, p.end().unwrap().xyz);
-            let level = (a.z() - b.z()).abs() < 1e-12;
+            // Horizontal or vertical: the error is sideways.
+            let level =
+                (a.z() - b.z()).abs() < 1e-12 || libm::hypot(a.x() - b.x(), a.y() - b.y()) < 1e-6;
             for k in 0..=10 {
                 let x = a.lerp(b, k as f64 / 10.0);
                 if let Some(h) = q.drop(x.x(), x.y()) {
@@ -236,4 +238,44 @@ pub fn assert_translation_invariant(part: fn([f64; 3]) -> String, t: &Toolpath) 
         }
     }
     assert!(worst < 1e-6, "{worst}");
+}
+
+/// A tetrahedron of planar triangles, as a mesh import would give.
+pub fn mesh() -> SetupGeometry {
+    use fluut_cam::cutter::synth::{Builder, line};
+    use fluut_geom::Frame;
+    let v = [
+        Point3::new(0.0, 0.0, 0.0),
+        Point3::new(20.0, 0.0, 0.0),
+        Point3::new(0.0, 20.0, 0.0),
+        Point3::new(5.0, 5.0, 8.0),
+    ];
+    let mut b = Builder::new("mesh");
+    let mut e = std::collections::BTreeMap::new();
+    for (i, j) in [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)] {
+        let (c, r) = line(v[i], v[j]).unwrap();
+        e.insert((i, j), b.edge(Some(c), r, v[i]));
+    }
+    let edge = |i: usize, j: usize| {
+        if i < j {
+            (e[&(i, j)], true)
+        } else {
+            (e[&(j, i)], false)
+        }
+    };
+    for [i, j, k] in [[0, 2, 1], [0, 1, 3], [1, 2, 3], [2, 0, 3]] {
+        let n = (v[j] - v[i]).cross(v[k] - v[j]);
+        let f = Frame::new(v[i], n, v[j] - v[i]).unwrap();
+        b.face(
+            Surface::plane(f),
+            true,
+            &[vec![edge(i, j), edge(j, k), edge(k, i)]],
+        );
+    }
+    SetupGeometry {
+        bodies: vec![SetupBody {
+            id: "b-m".into(),
+            geom: BodyGeom::Brep(b.build()),
+        }],
+    }
 }

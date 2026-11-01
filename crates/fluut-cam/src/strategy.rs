@@ -5,10 +5,12 @@
 
 mod contour;
 mod contour_2d;
+mod horizontal;
 mod parallel;
 mod pocket_2d;
 
 pub use contour::Contour;
 pub use contour_2d::Contour2d;
+pub use horizontal::Horizontal;
 pub use parallel::Parallel;
 pub use pocket_2d::Pocket2d;

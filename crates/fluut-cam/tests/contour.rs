@@ -381,3 +381,39 @@ fn seeds_find_every_loop() {
     let c: Vec<Point2> = r.iter().map(|l| Point2::new(l[0].x(), l[0].y())).collect();
     assert!((c[0].x() < 20.0) != (c[1].x() < 20.0));
 }
+
+#[test]
+fn inside_corners_close() {
+    // The pocket block: a pocket with sharp inside corners around an
+    // island. Every contour closes, and each pocket loop keeps R from the
+    // walls.
+    let g = load_step(&step::pocket_block([0.0; 3]));
+    for id in ["f6", "b6"] {
+        let r = run(&g, &contour(id, "[passes]\nstep_down = 3\n"));
+        assert!(!warnings(&r).contains(&"cam.contour.loop_open"), "{id}");
+        for l in runs(&r) {
+            assert_eq!(l.first(), l.last(), "{id}: open {l:?}");
+        }
+        let pocket: Vec<Point3> = cut_points(&r)
+            .into_iter()
+            .filter(|p| {
+                p.z() >= 12.0
+                    && p.z() <= 17.0
+                    && p.x() > 5.0
+                    && p.x() < 75.0
+                    && p.y() > 5.0
+                    && p.y() < 55.0
+            })
+            .filter(|p| !(p.x() > 30.0 && p.x() < 50.0 && p.y() > 20.0 && p.y() < 40.0))
+            .collect();
+        assert!(!pocket.is_empty(), "{id}");
+        for p in pocket {
+            let wall = (p.x() - 10.0)
+                .min(70.0 - p.x())
+                .min(p.y() - 10.0)
+                .min(50.0 - p.y());
+            assert!(wall >= 3.0 - 0.01, "{id}: {p:?}");
+        }
+        assert_no_gouge(&g, &r, &tool(id), 0.0, 0.01 + 1e-9);
+    }
+}
