@@ -21,8 +21,9 @@ use fluut_path::{Motion, ToolpathResult};
 use glam::DVec3;
 
 /// Bytes per ray of the stock, with room for spilled spans (S5: +20 %) and
-/// for one copy of every tile in the checkpoints.
-pub const BYTES_PER_RAY: f64 = 24.0 * 1.2 * 2.0;
+/// for the tiles the checkpoints copy: about 3 to 5 copies of the stock on
+/// the M7 measurements, so 4.
+pub const BYTES_PER_RAY: f64 = 24.0 * 1.2 * 4.0;
 /// Default memory budget (D11 §2).
 pub const DEFAULT_BUDGET: usize = 512 << 20;
 
@@ -120,6 +121,10 @@ pub struct Finding {
     pub depth: f64,
 }
 
+/// Chords between checkpoints within a toolpath: a scrub re-runs at most
+/// this many (D11 §4).
+pub const CHECKPOINT: usize = 32768;
+
 /// Most findings kept per check; the rest are counted.
 pub const MAX_FINDINGS: usize = 1000;
 
@@ -209,8 +214,9 @@ pub struct Simulation {
     pub res: f64,
     pub toolpaths: Vec<Clip>,
     pub chords: Vec<Chord>,
-    /// The stock before each toolpath, then the final stock.
-    checkpoints: Vec<TriDexel>,
+    /// The stock after the first `n` chords, by `n`: before each toolpath
+    /// and every [`CHECKPOINT`] chords within one, then the final stock.
+    checkpoints: Vec<(usize, TriDexel)>,
     /// Sorted by toolpath, segment and check.
     pub findings: Vec<Finding>,
     /// Findings dropped past [`MAX_FINDINGS`], per check.
@@ -319,24 +325,31 @@ impl Simulation {
             probes(&assemblies[c.toolpath as usize], &c.sweep, out);
         };
         for span in &toolpaths {
-            checkpoints.push(d.clone());
-            let part = &chords[span.chords.clone()];
-            let base = span.chords.start as u64;
-            let stop = |done: usize| {
-                monitor.progress(base + done as u64, total);
-                monitor.cancelled()
-            };
-            let (st, h) = sim::cut_chords(&mut d, part, Some(&probe), &stop);
-            if monitor.cancelled() {
-                return Err(Cancelled);
+            let mut from = span.chords.start;
+            loop {
+                checkpoints.push((from, d.clone()));
+                let to = (from + CHECKPOINT).min(span.chords.end);
+                let base = from as u64;
+                let stop = |done: usize| {
+                    monitor.progress(base + done as u64, total);
+                    monitor.cancelled()
+                };
+                let (st, h) = sim::cut_chords(&mut d, &chords[from..to], Some(&probe), &stop);
+                if monitor.cancelled() {
+                    return Err(Cancelled);
+                }
+                stats.add(&st);
+                hits.extend(h.into_iter().map(|x| Hit {
+                    chord: x.chord + from as u32,
+                    ..x
+                }));
+                from = to;
+                if from >= span.chords.end {
+                    break;
+                }
             }
-            stats.add(&st);
-            hits.extend(h.into_iter().map(|x| Hit {
-                chord: x.chord + span.chords.start as u32,
-                ..x
-            }));
         }
-        checkpoints.push(d);
+        checkpoints.push((chords.len(), d));
         monitor.progress(total, total);
         let mut sim = Simulation {
             stock,
@@ -391,17 +404,32 @@ impl Simulation {
 
     /// The stock after the whole program.
     pub fn stock_final(&self) -> &TriDexel {
-        self.checkpoints.last().expect("a final stock")
+        &self.checkpoints.last().expect("a final stock").1
     }
 
     /// The stock before any cut.
     pub fn stock_initial(&self) -> &TriDexel {
-        &self.checkpoints[0]
+        &self.checkpoints[0].1
     }
 
     /// The stock before toolpath `i` (`i = toolpaths.len()`: the final one).
     pub fn checkpoint(&self, i: usize) -> &TriDexel {
-        &self.checkpoints[i]
+        let n = self
+            .toolpaths
+            .get(i)
+            .map_or(self.chords.len(), |c| c.chords.start);
+        let k = self.checkpoints.partition_point(|(m, _)| *m <= n);
+        &self.checkpoints[k - 1].1
+    }
+
+    /// Bytes of the stock and every checkpoint, shared tiles once.
+    pub fn memory(&self) -> usize {
+        let mut seen = std::collections::BTreeSet::new();
+        self.checkpoints
+            .iter()
+            .flat_map(|(_, d)| d.grids.iter())
+            .map(|g| g.unique_bytes(&mut seen))
+            .sum()
     }
 
     /// Program length in seconds.
@@ -418,17 +446,10 @@ impl Simulation {
     /// before them, cut by the chords after it (D11 §4).
     pub fn stock_after(&self, n: usize) -> TriDexel {
         let n = n.min(self.chords.len());
-        let i = self
-            .toolpaths
-            .iter()
-            .rposition(|s| s.chords.start <= n)
-            .unwrap_or(0);
-        let from = self.toolpaths.get(i).map_or(0, |s| s.chords.start);
-        if n == self.chords.len() {
-            return self.stock_final().clone();
-        }
-        let mut d = self.checkpoints[i].clone();
-        sim::cut_chords(&mut d, &self.chords[from..n], None, &|_| false);
+        let k = self.checkpoints.partition_point(|(m, _)| *m <= n);
+        let (from, cp) = &self.checkpoints[k - 1];
+        let mut d = cp.clone();
+        sim::cut_chords(&mut d, &self.chords[*from..n], None, &|_| false);
         d
     }
 

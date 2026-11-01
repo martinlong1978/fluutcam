@@ -203,6 +203,13 @@ fn checkpoints_share_tiles_and_scrubbing_restores_them() {
     let (a, b) = (&s.checkpoint(1).grids[2], &s.checkpoint(2).grids[2]);
     let shared = a.shared_tiles(b);
     assert!(shared > 0 && shared < a.nv.div_ceil(crate::dexel::ROWS));
+    // Shared tiles count once: less than three full stocks.
+    let one = fresh.memory().total();
+    assert!(
+        s.memory() > one && s.memory() < 3 * one,
+        "{} vs {one}",
+        s.memory()
+    );
     // Scrubbing to each checkpoint's time gives that checkpoint.
     for (i, clip) in s.toolpaths.iter().enumerate() {
         assert_eq!(

@@ -35,8 +35,8 @@ All earlier Global Constraints apply. In addition:
 - Cone tools (V, drill, taper) through the GJK fallback.
 - `Simulation::run`: whole `ToolpathResult`s, each with its tool assembly and feeds, in order; checkpoint after each toolpath; progress per batch; cancel between batches.
 - `Simulation::stock_at(t)`: the latest checkpoint before `t`, plus the chords up to `t`.
-- [ ] **Step 1:** Tests: a slot of a flat tool through a block gives exact dexel lengths in all three families; same stock hash on 1 and 4 threads through `Simulation::run`; checkpoints unchanged by later cuts; `stock_at` at the end equals the final stock; cancel stops the run; resolution from error and budget.
-- [ ] **Step 2:** Fail, implement, pass. Keep the spike modules and their tests.
+- [x] **Step 1:** Tests: a slot of a flat tool through a block gives exact dexel lengths in all three families; same stock hash on 1 and 4 threads through `Simulation::run`; checkpoints unchanged by later cuts; `stock_at` at the end equals the final stock; cancel stops the run; resolution from error and budget.
+- [x] **Step 2:** Fail, implement, pass. Keep the spike modules and their tests.
 
 ### Task 2: Verification
 
@@ -44,8 +44,8 @@ All earlier Global Constraints apply. In addition:
 
 - During removal: rapid moves that cut material; material inside the holder or a shank wider than the tool; material above the flute length (warning).
 - After removal, with a `Part` height query: gouges (stock below the part by more than the tolerance at a Z ray and on a ring of that radius around it), attributed to the first chord that cut below the part; rest material on and off the part.
-- [ ] **Step 1:** Tests, each with a positive and a negative case.
-- [ ] **Step 2:** Fail, implement, pass.
+- [x] **Step 1:** Tests, each with a positive and a negative case.
+- [x] **Step 2:** Fail, implement, pass.
 
 ### Task 3: Time estimate
 
@@ -53,8 +53,8 @@ All earlier Global Constraints apply. In addition:
 
 - D11 §6: programmed feed, axis-limited speed, junction deviation, trapezoidal profiles, centripetal limit on arcs, dwells, correction factor. Without an acceleration, time is length over speed.
 - `Session::time_estimate(toolpath)`; `fluut calc` prints it.
-- [ ] **Step 1:** Tests: a hand-computed program (a straight line, a split straight line, a right-angle corner, an arc, a dwell); without acceleration; the CLI line.
-- [ ] **Step 2:** Fail, implement, pass.
+- [x] **Step 1:** Tests: a hand-computed program (a straight line, a split straight line, a right-angle corner, an arc, a dwell); without acceleration; the CLI line.
+- [x] **Step 2:** Fail, implement, pass.
 
 ### Task 4: `fluut-core` simulation node and job
 
@@ -63,8 +63,8 @@ All earlier Global Constraints apply. In addition:
 - `NodeId::Simulation(setup)`, hashed from the Setup's result and post hashes, tool assemblies, machine and settings.
 - `Session::simulate(setup, settings, monitor)`; findings as diagnostics on their toolpaths; the result cached by node hash.
 - `fluut sim <project>`.
-- [ ] **Step 1:** Tests: graph invalidation; simulate on a reference project; a cached second run; cancel.
-- [ ] **Step 2:** Fail, implement, pass.
+- [x] **Step 1:** Tests: graph invalidation; simulate on a reference project; a cached second run; cancel.
+- [x] **Step 2:** Fail, implement, pass.
 
 ### Task 5: `fluut-app`
 
@@ -72,12 +72,22 @@ All earlier Global Constraints apply. In addition:
 
 - Simulate command (calculates what is stale first); a Simulation tab with play, pause, a scrub slider, toolpath clips and the findings; clicking a finding centres the view on it.
 - Stock mesh by dual contouring on the tri-dexel (D11 §4), built off the UI thread.
-- [ ] **Step 1:** Tests: playback view model (play, pause, tick, seek, end, clips); simulate job through the worker; the ribbon command.
-- [ ] **Step 2:** Fail, implement, pass.
+- [x] **Step 1:** Tests: playback view model (play, pause, tick, seek, end, clips); simulate job through the worker; the ribbon command.
+- [x] **Step 2:** Fail, implement, pass.
 
 ### Task 6: Measurements and documents
 
 **Files:** `crates/fluut-sim/examples/m7.rs`; `docs/design/D11-simulation.md`, `docs/design/challenges.md` (CH-22), `docs/plan/README.md`, this plan.
 
 - Memory, time per move and full simulation time on the reference projects and the S5 stand-ins; what needs a real GPU.
-- [ ] **Step 1:** Measure; record; workspace checks; commit.
+- [x] **Step 1:** Measure; record; workspace checks; commit.
+
+**Done.** Implementation notes and measurements are in [D11 §10](../design/D11-simulation.md#10-m7-implementation-2026-11-01); CH-22 updated. Deviations from this plan and from D11:
+- Tasks 1 and 2 were committed together, and the time estimate's `fluut-sim` part with them; its session and CLI part went with task 4.
+- Gouges are measured as vertical depth below the exact part top (a drop query) with a ring test, not as closest-point distance to the faces; a closest-point query on trimmed faces does not exist yet.
+- Checkpoints are taken every 32 768 chords within a toolpath as well as before each one, and they cost 3–5× the bare stock, so the memory budget counts 115 B per ray instead of 24.
+- The stock mesh is rebuilt whole on every scrub, not per dirty tile, and has no deviation colours; it takes 0.2–3 s at 0.2 mm, so scrubbing is not interactive on large programs.
+- Body stock, region-of-interest refinement and the rest heat map are not built. Cylinder stock works in `fluut-sim` only, since no rotary Setup is calculated yet.
+- Machine definitions have no acceleration, correction factor or tool-change time, so the session's estimate is length over speed; the estimator supports them.
+- The app's Simulation tab is a minimal timeline: a slider, toolpath clips and the findings list; no tool-change or index markers.
+- Findings on the reference projects, left for their owners: `block` t2 rapids down to 2 mm above its floor through the 0.2 mm of wall stock t1 left; `holes` t2 has one rapid in stock; `plate2d` t2 (score) and t4 (adaptive pocket) cut below the model, by design of that project's depths.

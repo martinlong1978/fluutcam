@@ -23,5 +23,8 @@ postcard.workspace = true
 serde.workspace = true
 sha2.workspace = true
 
+[dev-dependencies]
+rayon.workspace = true
+
 [lints]
 workspace = true

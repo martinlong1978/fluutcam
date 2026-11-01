@@ -151,6 +151,22 @@ impl DexelGrid {
         &mut self.tiles
     }
 
+    /// Bytes of the tiles not in `seen`, which then holds them.
+    pub(crate) fn unique_bytes(&self, seen: &mut std::collections::BTreeSet<usize>) -> usize {
+        let mut n = 0;
+        for t in &self.tiles {
+            if seen.insert(Arc::as_ptr(t) as usize) {
+                n += t.len() * size_of::<Spans>();
+                n += t
+                    .iter()
+                    .filter(|r| r.spilled())
+                    .map(|r| r.capacity() * size_of::<Span>())
+                    .sum::<usize>();
+            }
+        }
+        n
+    }
+
     /// Tiles held in common with `other`, for tests of copy-on-write.
     pub fn shared_tiles(&self, other: &DexelGrid) -> usize {
         self.tiles
