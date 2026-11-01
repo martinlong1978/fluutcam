@@ -438,6 +438,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "fluut-io-mesh"
+version = "0.1.0"
+dependencies = [
+ "fluut-geom",
+ "fluut-topo",
+ "thiserror",
+]
+
+[[package]]
 name = "fluut-io-step"
 version = "0.1.0"
 dependencies = [
