@@ -51,6 +51,7 @@ id          = "s1"
 name        = "Turn profile"
 kind        = "rotary"                         # three_axis | rotary | indexed   (03 §3.9.2)
 machine     = "user/my-router@2"               # latest 2.x  
+material    = "MDF"                            # selects tool cutting-data presets (2.4)
 work_offset = "G54"
 geometry    = { bodies = ["b-7f3a…"], scale = [1, 1, 1], mirror = [false, false, false] }
 orientation = { rotary_axis = { face = "f-12" }, a_zero_toward = "+Z" }   # 03 §3.9.3
@@ -140,9 +141,14 @@ Toolpath keys:
 - Parameters sit in the five groups of 03 §3.10.2: `tool_params`, `geometry`, `heights`,
   `passes`, `linking`. Only fields the type declares are allowed; any other key is an error.
 - Keys use plain CAM terms (`stock_to_leave`, `step_down`, `stepover`).
-- Geometry-group keys not shown above: `drive_faces`, `check_faces`, `excluded_faces`,
-  `boundary`, `rest_from` (03 §3.10.5).
-- Full per-type key lists: strategy specification **[OPEN]** (04 §4.13.7).
+- Geometry-group keys not shown above: `drive_faces`, `drive_curves`, `check_faces`,
+  `excluded_faces`, `boundary`, `rest_from` (03 §3.10.5). A selection is an array of
+  `{ body = id }`, `{ face = id }` or `{ edge = id }` tables; `edge` names a B-rep edge or a
+  WireBody curve (03 §3.5).
+- `material` on a Setup selects the `[[tool.preset]]` with the same `material` (2.4). A child
+  Setup inherits it.
+- Full per-type key lists: [D15](../design/D15-toolpath-parameters.md) for the common
+  parameters and the M3 types; the rest **[OPEN]** (04 §4.13.7).
 
 ## 2.2 Post-processor definition
 
@@ -238,6 +244,7 @@ shape       = "flat"                          # flat | ball | bull | v | taper
 diameter    = 6.0
 corner_radius = 0.0
 flute_length  = 22
+centre_cutting = true                         # can plunge straight down; default true
 overall_length = 60
 shank_diameter = 6.0
 holder      = { diameter = 20, length = 40 }  # check geometry (04 §4.2.1)

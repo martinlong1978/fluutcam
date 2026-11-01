@@ -148,7 +148,7 @@ fields introduced by DC-01 and DC-02; §3.10 places them in groups.
 | `excludedFaces` | new | Faces ignored entirely (e.g. fixture bodies imported with the model). |
 | `outputArcs` | new | Fit arcs/helices in output (default true; post capability permitting). |
 | `passLayout` | new | `even` (default) \| `fixedFromEdge`; see 04 §4.12.4 |
-| `boundary` | new | optional containment curve (WireBody ref) + side (inside/outside/on) + tool-position (centre/inside/outside) |
+| `boundary` | new | optional containment curve (WireBody ref) + side (inside/outside) + tool-position (centre/inside/outside) |
 
 ## 3.4 ToolpathResult model
 
@@ -187,7 +187,9 @@ come from storage.
 Serialization of computed toolpaths **[DECIDED — OQ-03]**: a sidecar folder
 `<project>.fluut-cache/` next to the project, one file per ToolpathResult, `serde` binary
 encoding (e.g. `postcard`). Each file holds a schema version and a hash of every input (geometry
-hashes, Setup, Toolpath parameters, tool, FluutCAM version). On load, a missing file, version
+hashes, Setup, the Toolpath parameters that affect the result, tool, FluutCAM version).
+Feeds, spindle speed and other parameters applied only at post time are not in this hash: changing
+them invalidates the post output, not the ToolpathResult (D15 §1.8). On load, a missing file, version
 mismatch or hash mismatch means "not calculated" (08 §8.6). The cache is disposable: deleting it
 loses nothing but calculation time. The project file stays small and diffable.
 
@@ -198,7 +200,9 @@ STEP files change during design iteration. On re-import:
 1. Match bodies and faces by STEP entity name and persistent id where present (AP242
    persistent ids), else by geometric signature (surface kind + parameters + bounds within
    modelling tolerance).
-2. Toolpaths keep face selections for matched faces.
+2. Toolpaths keep face selections for matched faces. Edges and WireBody curves selected as drive
+   curves (`{ edge = id }`, 02 §2.1) get persistent ids by the same scheme and are matched the
+   same way.
 3. Unmatched selected faces MUST be reported to the user. They MUST NOT be silently dropped.
 
 ## 3.6 Scriptable object model
@@ -411,12 +415,12 @@ like Fusion). A type declares which fields of each group it uses.
 |---|---|
 | **Tool** | tool ref; spindle rpm; feeds: cutting, lead-in, lead-out, ramp, plunge, transition; coolant |
 | **Geometry** | drive faces / curves / holes; check faces; excluded faces; boundary + tool containment; rest machining source (§3.10.5) |
-| **Heights** | clearance, retract, feed, top, bottom. Each is "reference + offset"; references: stock top/bottom, model top/bottom, selection, Setup clearance. Rotary Setups use radii instead of Z (03 §3.9) |
+| **Heights** | clearance, retract, feed, top, bottom. Each is "reference + offset"; references: stock top/bottom, model top/bottom, selection, Setup clearance, work zero. Rotary Setups use radii instead of Z (03 §3.9) |
 | **Passes** | the type's own pattern parameters (stepover, step-down, angle, direction, pass layout, stock to leave radial/axial, machining tolerance, spring passes, …) |
 | **Linking** | retract policy (full / minimum / stay down); lead-in/out (arc, linear, radius); ramp type (plunge, zigzag, helix, profile) and angle; transitions; ordering |
 
 Defaults: feeds, speeds, stepover and step-down come from the tool's cutting-data preset for
-the Setup's material (02 §2.4). Heights default from the Setup's stock and clearance.
+the Setup's material (the Setup's `material` key, 02 §2.1, §2.4). Heights default from the Setup's stock and clearance.
 
 ### 3.10.3 Implementation
 

@@ -74,8 +74,8 @@ Defaults use the `DefaultRule` forms of D06 §3.3:
 | text with a formula | `Computed`, evaluated on the resolved values at calculation time |
 
 Defaults are resolved at calculation time, so a preset edit changes every toolpath that uses
-the default (D06 §3.1). A default marked **†** is provisional: the spec does not fix it and it is
-listed in §7.
+the default (D06 §3.1). A default marked **†** is a constant the spec does not fix. It was
+accepted with the §7 decisions (decision 15) and may be tuned during M3 against real cuts.
 
 When a `FromTool` default has no preset to come from (no matching preset, or the preset lacks
 the key) and the key is absent, the field has no value. This is validation error
@@ -113,9 +113,8 @@ changes (D01 §4, D06 §6.1):
 | **P** (post) | post output and time estimate only. Numeric feeds are resolved at post time (D08 §9) | `ToolpathResult` and its cache file |
 | **N** (none) | nothing computed (display only) | everything |
 
-For P fields to keep the cache, the `ToolpathResult` node hash must leave out the P fields.
-D01 §4 and [S 03 §3.4] say the hash covers "Toolpath parameters"; this document narrows that to
-R fields (§7, question 1).
+The `ToolpathResult` node hash covers R fields only, so P fields keep the cache (D01 §4,
+[S 03 §3.4]; §7, decision 1). P fields feed the `PostOutput` node.
 
 ### 1.9 Types and in-process stock
 
@@ -201,7 +200,7 @@ chain, in selection order. Chains are projected along the tool axis onto the XY 
 | `check_faces` | Selection (faces) | | all faces not in `drive_faces` or `excluded_faces` [S 03 §3.3] | — | `drive_faces`, `excluded_faces` | R |
 | `excluded_faces` | Selection (faces) | | empty | — | — | R |
 | `boundary.curves` | Selection (curves) | closed chains | absent = no boundary | — | — | R |
-| `boundary.side` | Enum `inside` \| `outside` \| `on` | | `inside` † | — | `boundary.curves` | R |
+| `boundary.side` | Enum `inside` \| `outside` | | `inside` † | — | `boundary.curves` | R |
 | `boundary.tool_containment` | Enum `inside` \| `centre` \| `outside` | | `inside` † | — | `boundary.curves`, tool radius | R |
 | `rest_from` | Enum `off` \| `previous` | | `off` | — | earlier toolpaths in the Setup | R |
 
@@ -212,7 +211,7 @@ chain, in selection order. Chains are projected along the tool axis onto the XY 
   boundary by −R, 0 or +R before it limits the region (D08 §3).
 - `rest_from = "previous"` takes the starting stock from the in-process stock after all earlier
   enabled toolpaths in the Setup, including stock carried from a parent Setup [S 03 §3.10.5,
-  §3.9.6]. Choosing a subset of earlier toolpaths is §7, question 6.
+  §3.9.6]. Choosing a subset of earlier toolpaths is not in v1 (§7, decision 6).
 
 | Code | Sev | Rule |
 |---|---|---|
@@ -233,6 +232,7 @@ Each height is `{ ref = <reference>, offset = <Length> }` [S 03 §3.10.2]. `offs
 | `setup_clearance` | Setup `clearance` plane |
 | `stock_top`, `stock_bottom` | Setup stock bounds along the tool axis |
 | `model_top`, `model_bottom` | bounds of the Setup's bodies along the tool axis |
+| `work_zero` | Z = 0 of the work frame W (§7, decision 4) |
 | `selection` | top/`feed`/`retract`/`clearance`: highest Z of the drive selection; `bottom`: lowest Z of the drive selection |
 
 | Key | Range | Default | Depends on |
@@ -247,7 +247,7 @@ Each height is `{ ref = <reference>, offset = <Length> }` [S 03 §3.10.2]. `offs
 fields are class **R**: they move cuts or links.
 
 `feed`'s default refers to the resolved `top`; this is the only height that may take `top` as a
-reference. Whether users may also use `top` (or the work zero) as a reference is §7, question 4.
+reference. Users cannot choose `top` or another height as a reference (§7, decision 4).
 
 | Code | Sev | Rule |
 |---|---|---|
@@ -265,15 +265,18 @@ The type-specific Passes fields are in §3–§5. These are shared:
 | `max_segment_length` | Length | > 0 | absent = no cap | yes | — | R |
 | `output_arcs` | Bool | | `true` [S 03 §3.3] | — | post arc support | R |
 | `pass_layout` | Enum `even` \| `fixed_from_edge` | | `even` [S 04 §4.12.4] | — | — | R |
-| `stock_to_leave` | Length | ≥ 0 (§7, question 3) | `0` [S 03 §3.10.4] | yes | — | R |
+| `stock_to_leave` | Length | 2-D types: > −R; 3-D types: > −r (corner radius; ≥ 0 for flat tools) (§7, decision 3) | `0` [S 03 §3.10.4] | yes | tool | R |
 | `stock_to_leave_axial` | Length | ≥ 0 | `stock_to_leave` | yes | `stock_to_leave` | R |
 
+A negative `stock_to_leave` cuts past the model, for inlays and press fits.
 `stock_to_leave` is radial (walls) for 2-D types and a uniform normal offset for 3-D finishing
 types. `stock_to_leave_axial` applies to floors and is used by 2-D types only.
 
 | Code | Sev | Rule |
 |---|---|---|
 | `param.passes.machining_tolerance.min` | E | ≥ 1e-4 mm |
+| `param.passes.stock_to_leave.range` | E | `stock_to_leave` at or below the lower bound for the type and tool |
+| `param.passes.stock_to_leave.negative` | W | `stock_to_leave` < 0 (the cut goes past the model) |
 | `param.passes.machining_tolerance.coarse` | W | > 0.1 mm † |
 | `param.passes.max_segment_length.short` | W | < 10 × machining tolerance (very long output) |
 | `param.passes.stepover.max` | E | stepover (given or computed) ≤ tool diameter (D09 §7) |
@@ -310,7 +313,7 @@ All Linking fields are class **R**.
 |---|---|---|
 | `param.linking.lead.radius` | E | `arc` lead with radius ≤ 0 |
 | `param.linking.ramp.angle` | E | angle outside (0, 90] |
-| `param.linking.ramp.plunge_tool` | W | `plunge` ramp with a tool not marked centre-cutting (§7, question 8) |
+| `param.linking.ramp.plunge_tool` | W | `plunge` ramp with a tool that has `centre_cutting = false` [S 02 §2.4] |
 
 ## 3. `contour_2d`
 
@@ -321,7 +324,7 @@ finishing passes and tabs (D09 §2.4). Finishing type: no stock-clearing layers
 **Common fields used:** item keys; all of `tool_params`; `drive_curves`, `drive_faces` (vertical
 wall faces: their bottom edges are profiled), `excluded_faces`; all heights; `machining_tolerance`,
 `max_segment_length`, `output_arcs`, `stock_to_leave`, `stock_to_leave_axial`; all of
-`linking`. **Not used:** `check_faces` (§7, question 5), `boundary`, `rest_from`, `pass_layout`
+`linking`. **Not used:** `check_faces` (§7, decision 5), `boundary`, `rest_from`, `pass_layout`
 (depth levels are always `even`, D09 §2).
 
 **Type defaults for common fields:** `heights.top = { ref = "stock_top" }`,
@@ -330,9 +333,10 @@ wall faces: their bottom edges are profiled), `excluded_faces`; all heights; `ma
 
 ### 3.1 Side and direction
 
-Closed chains are first oriented counter-clockwise seen from +Z of W. Then `left` means inside
-and `right` means outside. Open chains keep their selection direction. The tool centre path is
-the chain offset by R + `stock_to_leave` to the chosen side (`on`: no offset).
+Closed chains take `inside` or `outside`; open chains take `left` or `right`, seen along their
+selection direction (§7, decision 14). Internally, closed chains are oriented counter-clockwise
+seen from +Z of W, so `inside` is `left` and `outside` is `right`. The tool centre path is the
+chain offset by R + `stock_to_leave` to the chosen side (`on`: no offset).
 
 `direction` sets the travel direction along the chain. With the spindle turning clockwise (M3),
 climb means the material is on the right of the tool in the direction of travel. `direction`
@@ -343,13 +347,14 @@ and `direction` is not used; open chains are then cut in selection direction.
 
 | Key | Type | Range | Default | Expr | Depends on |
 |---|---|---|---|---|---|
-| `side` | Enum `left` \| `right` \| `on` | | `right` † (outside of closed chains) | — | chain orientation |
+| `side` | Enum `inside` \| `outside` \| `left` \| `right` \| `on` | `inside`/`outside` closed chains only; `left`/`right` open chains only | `outside` for closed chains, `right` for open † | — | chain closure |
 | `direction` | Enum `climb` \| `conventional` | | `climb` | — | `side` ≠ `on` |
 | `compensation` | Enum `computer` \| `control` \| `wear` | | `computer` | — | `side`, post |
 | `step_down` | Length | > 0 | preset `step_down` | yes | tool, material |
 | `depth_count` | Count | ≥ 1 | absent | — | replaces `step_down` |
 | `finishing_pass_count` | Count | 0 … 10 † | `0` | — | — |
 | `finishing_stepover` | Length | (0, D] | `0.1 · tool.diameter` † | yes | `finishing_pass_count` > 0 |
+| `finish_every_level` | Bool | | `false` | — | `finishing_pass_count` > 0 |
 | `spring_pass_count` | Count | 0 … 5 † | `0` | — | — |
 | `start_point` | Point | | absent = nearest to the previous end (D09 §2.4) | — | closed chains |
 | `tabs.mode` | Enum `off` \| `count` \| `distance` \| `points` | | `off` | — | — |
@@ -366,7 +371,9 @@ and `direction` is not used; open chains are then cut in selection direction.
   `step_down ≥ top − bottom` gives one depth.
 - **Finishing passes.** At each level, passes at offsets R + `stock_to_leave` +
   i·`finishing_stepover`, for i = `finishing_pass_count` … 0; the last pass is on the final
-  offset (D09 §2.4). Whether these run at every level or only the last is §7, question 7.
+  offset (D09 §2.4). With `finish_every_level = false` (default), levels above the last are cut at
+  the final offset only, and the finishing passes run at the last level. With `true`, every level
+  gets them (§7, decision 7).
 - **Spring passes** repeat the final pass at the final level, unchanged.
 - **Compensation.** `computer`: the offset is in the path. `control`: the path is the chain
   offset by `stock_to_leave` only, and the post emits `cutter_comp_left/right` on the lead-in and
@@ -394,6 +401,8 @@ All `contour_2d` fields are class **R**.
 | `param.contour_2d.tabs.points.empty` | E | `tabs.mode = "points"` with no points |
 | `cam.contour_2d.tabs.overlap` | W | tabs plus their ramps overlap on a chain; overlapping tabs merge |
 | `cam.contour_2d.offset_empty` | W | an inside offset vanishes (chain too small for the tool) |
+| `param.contour_2d.side.closure` | E | `inside`/`outside` used with an open chain, or `left`/`right` with a closed chain |
+| `cam.contour_2d.tabs.moved` | W | a `points` tab snapped more than one tool diameter from its stored point (the chain changed; §7, decision 13) |
 | `param.contour_2d.start_point.open` | W | `start_point` set but every chain is open (ignored) |
 
 ### 3.4 Example
@@ -417,7 +426,7 @@ All `contour_2d` fields are class **R**.
     bottom = { ref = "stock_bottom", offset = -0.2 }   # cut through into the spoilboard
 
     [setup.toolpath.passes]
-    side                 = "right"                 # outside of the closed outline
+    side                 = "outside"               # closed outline
     direction            = "climb"
     step_down            = 4.0
     finishing_pass_count = 1
@@ -437,11 +446,11 @@ Clears closed regions in Z steps with an offset or raster pattern (D09 §2.2). R
 **Common fields used:** item keys; all of `tool_params`; `drive_curves` (closed chains; nested
 chains become islands), `drive_faces` (planar floor faces: their loops give the region and their
 Z the floor), `excluded_faces`, `boundary`, `rest_from`; all heights; all common Passes fields;
-all of `linking`. **Not used:** `check_faces` (§7, question 5).
+all of `linking`. **Not used:** `check_faces` (§7, decision 5).
 
 **Type defaults for common fields:** `heights.top = { ref = "stock_top" }`,
 `heights.bottom = { ref = "selection" }`, `lead_in.kind = "none"`, `ramp.kind = "helix"`,
-`stock_to_leave = 0` † (§7, question 2).
+`stock_to_leave = 0` (§7, decision 2).
 
 ### 4.1 Fields (`passes`)
 
@@ -460,7 +469,8 @@ all of `linking`. **Not used:** `check_faces` (§7, question 5).
   first ring is the finishing boundary (D09 §2.2). `pass_layout` does not apply.
 - **Raster:** lines at `pass_angle_deg` laid out by `pass_layout` across the region, then a
   final contour pass on the boundary ring. Raster lines alternate direction (zig-zag);
-  `direction` applies to the rings and the final contour pass (§7, question 9).
+  `direction` applies to the rings and the final contour pass. No one-way raster in v1 (§7,
+  decision 9).
 - **Rest:** with `rest_from = "previous"`, the region at each level is intersected with the
   remaining stock grown by R (D09 §2.2).
 
@@ -616,31 +626,30 @@ Tests:
 - Unit round trip: entering each Length field in inches and reading it back gives the same mm
   value to 1e-12.
 
-## 7. Open questions
+## 7. Decisions
 
-The spec does not settle these. The design uses the provisional choice shown (marked † in the
-tables) until the product owner decides.
+The spec did not settle these. The product owner accepted the answers below on 2026-11-01.
+Decisions 1, 8, 10, 11, 12 and 14 changed the spec (and D01) the same day.
 
-| # | Question | Provisional choice |
+| # | Question | Decision |
 |---|---|---|
-| 1 | [S 03 §3.4] and D01 §4 put "Toolpath parameters" into the result hash. D08 §9 says a feed change needs no recalculation. Should the hash cover only result-affecting (R) fields? | Yes: hash R fields only (§1.8). Needs a one-line change to S 03 §3.4 and D01 §4 |
-| 2 | Default `stock_to_leave` for roughing types (`pocket_2d`). The spec gives 0 only for finishing types. | `0` |
-| 3 | Negative stock to leave (deliberate undercut), and its lower bound. | Not allowed in v1 (≥ 0) |
-| 4 | Height references beyond the spec's list: the work zero (Z = 0), and other heights (`top`) as a reference. | Only `feed` defaults to `top`; no user-visible extra references |
-| 5 | Do 2-D types protect check faces (gouge check against the model), or cut exactly what the curves say? | Not in v1; 2-D types do not use `check_faces` |
-| 6 | `rest_from`: all earlier toolpaths only, or a chosen subset? | `off` \| `previous` |
-| 7 | `contour_2d` finishing passes at every depth level, or only at the final level (or a choice)? | Every level |
-| 8 | Tool library has no "centre cutting" flag [S 02 §2.4]; plunge ramps cannot be checked. | Warning only when a flag exists; add `centre_cutting` to the tool format |
-| 9 | One-way raster for `pocket_2d` (so raster passes are all climb)? | Zig-zag only |
-| 10 | Spec 02 lists no key for 2-D drive curves, and no persistent id form for edges and wire curves (03 §3.5 covers bodies and faces). | `drive_curves`; `{ edge = id }` with ids from the same scheme as faces |
-| 11 | Where the Setup's material is stored, which selects the tool preset [S 03 §3.10.2]. Spec 02 has no `material` key on a Setup. | A `material` string on the Setup, matched to `tool.preset.material` |
-| 12 | `boundary.side = "on"` [S 03 §3.3]: meaning for a containment boundary. | Treated as `inside` with `tool_containment = "centre"`; may be dropped |
-| 13 | Persistence of `contour_2d` tab positions across re-import and chain changes. | Model-frame points, snapped to the nearest chain point |
-| 14 | `contour_2d` side for closed chains: `left`/`right` after CCW orientation, or explicit `inside`/`outside`? | `left`/`right` as the spec says, with closed chains oriented CCW (§3.1) |
-| 15 | Provisional constants: feed defaults for ramp, leads and transitions; heights (`retract` stock top + 5, `feed` top + 2); `safety_distance` 1; lead and helix radii 0.5·D; ramp angle 3°; tab defaults; `coolant` off; tolerance warning above 0.1 mm; `finishing_pass_count` ≤ 10, `spring_pass_count` ≤ 5; default `pattern`, `side`, `pass_angle_deg`, `direction`, `retract`, `transitions` and lead kinds. | As in the tables |
-| 16 | Spindle direction: climb/conventional assume M3 (clockwise). Machines or tools that run M4. | M3 assumed; revisit with the machine format |
+| 1 | Does the result hash cover all toolpath parameters, or only those that change the result? | R fields only (§1.8). Spec 03 §3.4 and D01 §4 updated |
+| 2 | Default `stock_to_leave` for roughing types (`pocket_2d`) | `0`; tool presets may override it later |
+| 3 | Negative stock to leave, and its lower bound | Allowed: > −R for 2-D types, > −r (corner radius) for 3-D types; always a warning |
+| 4 | Extra height references | `work_zero` added (spec 03 §3.10.2). `top` is not a user reference; only `feed` defaults to it |
+| 5 | Do 2-D types gouge-check against `check_faces`? | Not in v1 |
+| 6 | `rest_from`: all earlier toolpaths, or a chosen subset? | `off` \| `previous` in v1 |
+| 7 | `contour_2d` finishing passes at every level or only the last? | Last level by default; `finish_every_level` turns on every level |
+| 8 | No "centre cutting" flag on tools | `centre_cutting` added to the tool format (spec 02 §2.4), default `true` |
+| 9 | One-way raster for `pocket_2d` | Zig-zag only in v1 |
+| 10 | Key and ids for 2-D drive curves | `drive_curves`; `{ edge = id }` with ids from the same scheme as faces (spec 02 §2.1, 03 §3.5) |
+| 11 | Where the Setup's material is stored | `material` key on the Setup (spec 02 §2.1), matched to `tool.preset.material`, inherited by child Setups |
+| 12 | `boundary.side = "on"` | Dropped; use `tool_containment = "centre"` (spec 03 §3.3 updated) |
+| 13 | Tab positions across re-import | Model-frame points snapped to the nearest chain point; warning when a point moves more than one tool diameter |
+| 14 | `contour_2d` side naming | `inside`/`outside` for closed chains, `left`/`right` for open (spec 04 §4.13.7 updated) |
+| 15 | Constants the spec does not fix (marked †) | As in the tables; tuned during M3 against real cuts |
+| 16 | Spindle direction | M3 (clockwise) assumed; a spindle direction joins the machine format in M7 |
 
 ## 8. Challenges
 
-- None new. Question 1 is a spec change, not a design problem; it is raised with the product
-  owner with the other open questions.
+- None new.

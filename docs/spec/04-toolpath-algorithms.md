@@ -505,7 +505,7 @@ Passes-group parameters per v1 type. Common groups are in 03 §3.10.2. Every typ
 | `face` | stepover, direction (climb/conventional), pass angle, overlap beyond stock, step-down + final step-down |
 | `adaptive_2d` | optimal load (radial engagement), step-down, stock to leave (radial, axial), min cutting radius, direction |
 | `pocket_2d` | pattern (offset/raster), stepover, step-down, stock to leave, direction |
-| `contour_2d` | side (left/right/on), compensation (computer / control / wear), multiple depths (count, step), finishing passes (count, stepover), tabs (positions, width, height) |
+| `contour_2d` | side (inside/outside for closed chains, left/right for open, on), finish every level, compensation (computer / control / wear), multiple depths (count, step), finishing passes (count, stepover), tabs (positions, width, height) |
 | `trace` | depth (curve Z or set depth), side offset, multiple depths |
 | `engrave` | max depth; flat-bottom area left for a separate clearing toolpath; corner sharpening. V tool required |
 | `chamfer_2d` | chamfer width, tip offset, side |
