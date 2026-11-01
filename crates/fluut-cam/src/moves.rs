@@ -167,6 +167,24 @@ impl Out {
         }
     }
 
+    /// An arc of `sweep` about `normal` through `centre`, from the current
+    /// point to `b` (vertical leads of 3-D types).
+    pub fn arc(&mut self, b: Point3, centre: Point3, normal: UnitVec3, sweep: f64, mv: Mv) {
+        let Some(a) = self.cur else {
+            return;
+        };
+        let b = AxisPos::xyz(b);
+        self.segs.push(Segment::Arc {
+            a,
+            b,
+            centre,
+            normal,
+            sweep,
+            m: mv.info(self.tol),
+        });
+        self.cur = Some(b);
+    }
+
     /// Follows `path` at constant Z.
     pub fn path(&mut self, path: &Path2, mv: Mv) {
         let Some(a) = self.cur else {

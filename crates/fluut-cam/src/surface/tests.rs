@@ -192,8 +192,7 @@ fn drive_box_covers_the_drive_faces() {
     };
     let q = SurfaceQuery::new(&g, &sets, Cutter::ball(6.0).unwrap(), 0.0).unwrap();
     let (lo, hi) = q.drive_box().unwrap();
-    assert!(lo.x() <= 0.0 && lo.y() <= 0.0 && hi.x() >= 10.0 && hi.y() >= 8.0);
-    assert!(lo.x() > -0.1 && hi.x() < 10.1);
+    assert_eq!((lo, hi), (Point2::new(0.0, 0.0), Point2::new(10.0, 8.0)));
 }
 
 #[test]

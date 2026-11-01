@@ -126,6 +126,7 @@ fn boss_region() -> Region2 {
         let b = match k {
             step::Kind::Line => 0.0,
             step::Kind::Arc { .. } => libm::tan(std::f64::consts::PI / 8.0),
+            step::Kind::Arc3 { .. } => unreachable!("planar profile"),
         };
         verts.push(fluut_cam::Vertex::new(p.pts[i][0], p.pts[i][1], b));
     }
@@ -676,8 +677,6 @@ fn pocket_helix_entry_or_fallback() {
 }
 
 #[test]
-fn parallel_is_registered_but_unavailable() {
-    let g = load(&step::boss([0.0; 3]));
-    assert_eq!(run_err(&g, &tp("parallel", "")), ["cam.type.unavailable"]);
+fn every_type_is_registered() {
     assert_eq!(fluut_cam::registry().len(), 3);
 }

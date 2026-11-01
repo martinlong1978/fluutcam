@@ -135,7 +135,8 @@ impl Builder {
     }
 }
 
-fn line(a: Point3, b: Point3) -> Option<(Curve3, Interval)> {
+/// A line from `a` to `b` parametrised by length.
+pub fn line(a: Point3, b: Point3) -> Option<(Curve3, Interval)> {
     let d = b - a;
     let dir = UnitVec3::new(d)?;
     Some((

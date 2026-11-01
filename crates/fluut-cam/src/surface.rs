@@ -4,11 +4,11 @@
 //! drive, check and excluded faces, the stock to leave as a grown cutter
 //! profile, the slope at a contact, and a bound for links.
 
-use crate::cutter::geom::{BuildOptions, QueryGeometry};
+use crate::cutter::geom::{BuildOptions, QueryGeometry, curve_box};
 use crate::cutter::solve::{Contact, ContactOn, SolveStats};
 use crate::cutter::{Cutter, DropOptions, drop};
 use crate::geometry::{BodyGeom, SetupGeometry, face_id};
-use fluut_geom::{Aabb3, Point2, Point3};
+use fluut_geom::{Aabb3, Curve3, Interval, Point2, Point3};
 use std::cell::Cell;
 use std::collections::BTreeSet;
 use std::f64::consts::FRAC_PI_2;
@@ -230,17 +230,26 @@ impl<'a> SurfaceQuery<'a> {
         z + self.stock.max(0.0)
     }
 
-    /// Conservative XY box of the drive faces (from their primitive boxes),
-    /// or `None` if there are none.
+    /// XY box of the drive faces from their edges: exact for lines,
+    /// circles and ellipses. A face that bulges sideways beyond its edges
+    /// is not covered. `None` if there are no drive faces.
     pub fn drive_box(&self) -> Option<(Point2, Point2)> {
         let mut bb = Aabb3::empty();
         for b in &self.bodies {
-            for (i, p) in b.q.prims.iter().enumerate() {
-                if let crate::cutter::geom::Prim::Face { face, .. } = p
-                    && b.drive_face[*face as usize]
-                {
-                    let bx = b.q.prim_box(i as u32);
-                    bb = bb.with_point(bx.min).with_point(bx.max);
+            let body = b.q.body;
+            for (fi, f) in body.faces.iter().enumerate() {
+                if !b.drive_face[fi] || b.q.faces[fi].is_none() {
+                    continue;
+                }
+                for &l in &f.loops {
+                    for &c in &body.loops[l as usize].coedges {
+                        let e = &body.edges[body.coedges[c as usize].edge as usize];
+                        let eb = match e.curve {
+                            Some(ci) => edge_box(&body.curves[ci as usize], e.range),
+                            None => Aabb3::from_points(&[body.vertices[e.v0 as usize].p]),
+                        };
+                        bb = bb.with_point(eb.min).with_point(eb.max);
+                    }
                 }
             }
         }
@@ -250,6 +259,17 @@ impl<'a> SurfaceQuery<'a> {
                 Point2::new(bb.max.x(), bb.max.y()),
             )
         })
+    }
+}
+
+/// Box of an edge: exact for lines and conics, sampled otherwise.
+fn edge_box(c: &Curve3, range: Interval) -> Aabb3 {
+    match c {
+        Curve3::Line { .. } | Curve3::Circle { .. } | Curve3::Ellipse { .. } => curve_box(c, range),
+        _ => {
+            let pts: Vec<Point3> = c.tessellate(range, 1e-4).into_iter().map(|x| x.1).collect();
+            Aabb3::from_points(&pts)
+        }
     }
 }
 
