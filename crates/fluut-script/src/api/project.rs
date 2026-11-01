@@ -55,21 +55,26 @@ pub(crate) fn by_name<'a, T>(
     }
 }
 
-/// `to` relative to the folder `from`, when `to` is inside it; else `to`.
+/// `to` relative to the folder `from`, with `/` separators and `..` where
+/// needed; `to` as it is when the two share no root (another drive).
 pub(crate) fn relative(from: &Path, to: &Path) -> String {
-    let rel = to.strip_prefix(from).unwrap_or(to);
-    let parts: Vec<String> = rel
-        .components()
-        .map(|c| match c {
-            Component::Normal(s) => s.to_string_lossy().into_owned(),
-            c => c.as_os_str().to_string_lossy().into_owned(),
-        })
-        .collect();
-    if rel.is_absolute() {
-        rel.to_string_lossy().into_owned()
-    } else {
-        parts.join("/")
+    let real = |p: &Path| crate::perm::real_path(&std::path::absolute(p).unwrap_or(p.into()));
+    let (Some(from), Some(to)) = (real(from), real(to)) else {
+        return to.to_string_lossy().into_owned();
+    };
+    let a: Vec<Component> = from.components().collect();
+    let b: Vec<Component> = to.components().collect();
+    let common = a.iter().zip(&b).take_while(|(x, y)| x == y).count();
+    if common == 0 {
+        return to.to_string_lossy().into_owned();
     }
+    let mut parts: Vec<String> = vec!["..".into(); a.len() - common];
+    parts.extend(
+        b[common..]
+            .iter()
+            .map(|c| c.as_os_str().to_string_lossy().into_owned()),
+    );
+    parts.join("/")
 }
 
 impl ProjectH {
@@ -253,6 +258,8 @@ impl ProjectH {
             for n in &moved {
                 g.apply(Edit::set_geometry(n))?;
             }
+            std::fs::create_dir_all(&new_dir)
+                .or_else(|e| fail(format!("cannot create {}: {e}", new_dir.display())))?;
             let s = g.session_mut()?;
             s.path = Some(p);
             s.dir = new_dir;

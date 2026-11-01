@@ -288,7 +288,14 @@ pub(super) fn register(e: &mut Engine) {
     e.register_indexer_get(GroupH::get);
     e.register_indexer_set(GroupH::set);
     e.register_fn("keys", |h: &mut GroupH| -> Res<Array> {
-        Ok(h.local_map()?.keys().map(|k| k.to_string().into()).collect())
+        let group = h.group;
+        h.tp.with(|_, _, t| {
+            Ok(t.params
+                .group(group)
+                .iter()
+                .map(|(k, _)| k.to_owned().into())
+                .collect())
+        })
     });
     e.register_fn("fields", |h: &mut GroupH| -> Res<Array> {
         let group = h.group;

@@ -24,10 +24,11 @@ value the project file holds (spec 02 §2.1), converted one-to-one:
 | inline table | `map` |
 
 Numbers are mm, mm/min, rpm, degrees and seconds, as in the file. Where the file takes a
-length, a script may also give a string with a unit: `"0.25in"`, `"6mm"` (D15 §1.2). A plain
-number string (`"6"`) is mm. † Unit strings are converted in every value except the identifier
-keys (`id`, `name`, `based_on`, `machine`, `material`, `work_offset`, `tool`, `template`,
-`type`), since no other string field can hold a number followed by `mm` or `in`.
+length, a script may also give a string with a unit: `"0.25in"`, `"6mm"` (D15 §1.2). In a
+toolpath length field a plain number string (`"6"`) is mm. † Unit strings are converted in every
+value except the identifier keys (`id`, `name`, `based_on`, `machine`, `material`,
+`work_offset`, `tool`, `template`, `type`), since no other string field can hold a number
+followed by `mm` or `in`.
 
 **Errors.** Every failing call raises a runtime error whose message names the object and the
 reason, in the same words as the file reader ("`passes.stepover_x` is not a field of
@@ -50,7 +51,7 @@ Visible everywhere, including inside functions and imported modules.
 | `fluut.require(v)` | `()` | error unless `fluut.version >= v` (`"1"`, `"1.2"`, `"1.2.3"`); the runtime form of `//! fluut >= v` |
 | `fluut.project` | `Project` | the current project; error when none is open |
 | `fluut.has_project` | `bool` | † added so scripts can test before `fluut.project` |
-| `fluut.open(path)` | `Project` | *R*. Opens a project file and makes it current. † Headless only: in the app the user opens projects |
+| `fluut.open(path)` | `Project` | *R*. Opens a project file and makes it current; its folder becomes the project folder of §8. † Headless only: in the app the user opens projects |
 | `fluut.new_project(units)` | `Project` | `"mm"` or `"inch"`; a project in memory, current until another is opened. It has no folder until `save_as` |
 | `fluut.log(msg)` | `()` | info line in the script console (any value; converted with `to_string`) |
 | `fluut.warn(msg)` | `()` | † warning line in the console |
@@ -156,9 +157,12 @@ its inputs have changed, and `"not_calculated"` otherwise.
 
 ## 6. Model, `Body`, `Face`
 
+Spec 09 §9.4 names the import `Model.import`; `import` is a Rhai keyword, so the member is
+`import_file`.
+
 | Member | Type | Notes |
 |---|---|---|
-| `model.import(path)`, `model.import(path, unit)` | `array` of `Body` | *R*, *E* (`AddGeometry`). Kind from the extension (`step`/`stp`, `stl`, `dxf`, `svg`). `unit` is needed for STL and DXF (spec 02 §2.1). † The project must have a folder (opened or saved): source paths are stored relative to it |
+| `model.import_file(path)`, `model.import_file(path, unit)` | `array` of `Body` | *R*, *E* (`AddGeometry`). Kind from the extension (`step`/`stp`, `stl`, `dxf`, `svg`). `unit` is needed for STL and DXF (spec 02 §2.1). † The project must have a folder (opened or saved): source paths are stored relative to it |
 | `model.reimport(source_id)` | `map` | *R*, *E* (`SetGeometry` and `RemapIds`). `#{ matched: n, unmatched: [ids], diagnostics: [...] }` (spec 03 §3.5) |
 | `model.sources` | `array` of `map` | `id`, `path`, `kind`, `unit` |
 | `model.bodies` | `array` of `Body` | every body of every source |
@@ -195,7 +199,6 @@ its inputs have changed, and `"not_calculated"` otherwise.
 |---|---|---|
 | `library.tools(lib)` | `array` of `map` | tools of library `lib` (`id`, `name`, `number`, `shape`, `diameter`, `corner_radius`, `flute_length`, `ref`) |
 | `library.tool(ref)` | `map` or `()` | one tool, same keys |
-| `library.tool_libraries` | `array` of `string` | † library ids |
 | `library.machines`, `library.posts`, `library.templates` | `array` of `string` | references `id@major.minor`, all layers, sorted |
 | `ui.message(text)` | `()` | |
 | `ui.ask_number(label, default, unit)` | `float` | `unit` is a display hint (`"mm"`, `"deg"`, `""`) |

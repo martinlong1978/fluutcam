@@ -253,8 +253,10 @@ pub(super) fn register(e: &mut Engine) {
     e.register_type_with_name::<ModelH>("Model");
     e.register_type_with_name::<BodyH>("Body");
     e.register_type_with_name::<FaceH>("Face");
-    e.register_fn("import", |h: &mut ModelH, path: &str| h.import(path, None));
-    e.register_fn("import", |h: &mut ModelH, path: &str, unit: &str| {
+    e.register_fn("import_file", |h: &mut ModelH, path: &str| {
+        h.import(path, None)
+    });
+    e.register_fn("import_file", |h: &mut ModelH, path: &str, unit: &str| {
         h.import(path, Some(unit.to_owned()))
     });
     e.register_fn("reimport", ModelH::reimport);
