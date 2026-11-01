@@ -36,6 +36,10 @@ Memory: 24 bytes per ray plus 8 bytes per span beyond the second. 200 × 200 × 
 automatically from the stock size and an memory budget (default 512 MB), and the user can
 refine a region of interest.
 
+Rotary Setups use the same tri-dexel. S5 tried cylindrical dexels (radial rays on an (x, θ)
+grid plus X rays). They were 14–27 % faster with the same error but needed 1.4× the memory, so
+they were not adopted ([S5 follow-ups](../plan/spikes/s5-simulation.md#follow-ups-2026-11-01)).
+
 The use of a grid here is allowed: simulation is not toolpath computation (DC-02). Verification
 compares against **exact** faces (§5), so verdicts do not depend on the grid alone.
 
@@ -63,12 +67,14 @@ Ray ∩ V uses the cheapest exact method (S5 measured the cost per ray):
 | line along a fixed tool axis, ball | one capsule (V is the bottom capsule translated along the line) | 25 |
 | line along a fixed tool axis, flat/bull | 1-D convex minimum of the bottom profile over the chord | 55 / 300 |
 | line across a fixed axis on a level chord, flat/bull | 2-D capsule of the tool's radius at the line's height | 60 |
-| ball, any other line (including rotary chords) | hull of four sphere centres ⊕ ball: spheres, edge cylinders, thickened triangles | 90–300 |
-| flat/bull, any other line | GJK ray cast on the support function, to 1e-4 mm | 2 500–3 300 |
+| line across a fixed axis on a ramp or plunge, flat/bull | the tool's section at the line's height is a disc moving along the chord. On the straight flank it sweeps a 2-D capsule; in a bull's corner bands, golden-section search on a convex 1-D function | 70 / 150 |
+| ball, any other line (including rotary chords) | first the bottom and top capsules: an end whose normal points away from both axes (down on the bottom capsule, up on the top) lies on the hull; else the hull of four sphere centres ⊕ ball | 150–300 |
+| flat/bull, rotary chords and lines neither along nor across the axis | GJK ray cast on the support function, to 1e-4 mm | 2 500–3 300 |
 
 - Parallel over rays (`rayon`), deterministic: chords are taken in batches of 32 768; for each
-  family, rows of rays are split into tiles of two rows, and each tile applies the batch's
-  chords in program order. The stock is bit-identical on any thread count.
+  family, rows of rays are split into tiles of two rows. Only tiles that some chord of the batch
+  reaches are scheduled, and each applies the batch's chords in program order. The stock is
+  bit-identical on any thread count.
 - Rotary Setups: the tool tip at machine `xyz, A` is at `R_x(−A)·xyz` in the stock frame and
   its axis is `R_x(−A)·Z`.
 
@@ -120,9 +126,10 @@ slowest axis. Arcs: centripetal limit `v ≤ sqrt(a_max · r)`.
 | Scrub within one toolpath | < 150 ms |
 | Time estimate, 1 M segments | < 1 s |
 
-S5 measured (4 cores, synthetic stand-ins, [report](../plan/spikes/s5-simulation.md)):
-- **Relief finish at 0.2 mm:** 33–47 µs per move, about 35–50 s per million moves. That is near the target on 8 cores.
-- **Rotary wrap at 0.2 mm:** 221 µs per move, about 6× over the target. Rotary Setups should use a cylindrical dexel layout (radial rays along the tool axis); this is to be measured in M7.
+S5 measured (4 cores, synthetic stand-ins, [report](../plan/spikes/s5-simulation.md), after the
+[follow-ups](../plan/spikes/s5-simulation.md#follow-ups-2026-11-01)):
+- **Relief finish at 0.2 mm:** 34 µs per move after roughing, 59 µs from full stock. That is near the target on 8 cores.
+- **Rotary wrap at 0.2 mm:** 117 µs per move, about 3× over the target. Cylindrical dexels gave only 100 µs and are not used. The remaining cost is ray tests across the tool's shank on rotary chords.
 
 Error between rays depends on the sharpness of the machined detail. The relief needs 0.1 mm for 0.05 mm error; the smooth rotary wrap needs 0.4 mm.
 
@@ -135,4 +142,4 @@ Error between rays depends on the sharpness of the machined detail. The relief n
 
 ## 9. Challenges
 
-- CH-22 Simulation memory and speed for large stock at fine resolution (deferred; S5 measured it, rotary speed is open).
+- CH-22 Simulation memory and speed for large stock at fine resolution (deferred; S5 measured it, rotary speed is still about 3× over target).

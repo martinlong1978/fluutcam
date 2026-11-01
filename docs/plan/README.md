@@ -65,4 +65,4 @@ These must be written before the milestone that needs them:
 | [2026-10-31-s3-followups.md](2026-10-31-s3-followups.md) | S3 | Done: `cavalier_contours` vendored with `libm` trigonometry and pinned bit by bit; booleans indexed, simple loops at touching points, consistent on all adaptive unions ([report](spikes/s3-region-2d.md#follow-ups-2026-10-31)) |
 | [2026-10-31-s1-kernel-step.md](2026-10-31-s1-kernel-step.md) | S1 | Done: [report](spikes/s1-kernel-step.md); own reader 33/33 files, 61/63 shells clean; no `truck` crates |
 | [2026-10-31-s5-simulation.md](2026-10-31-s5-simulation.md) | S5 | Done: [report](spikes/s5-simulation.md); tri-dexel kept, relief 106 MB and 29 s at 0.1 mm on 4 cores; rotary 6× too slow, try cylindrical dexels |
-| [2026-11-01-s5-followups.md](2026-11-01-s5-followups.md) | S5 | In progress |
+| [2026-11-01-s5-followups.md](2026-11-01-s5-followups.md) | S5 | Done: [report](spikes/s5-simulation.md#follow-ups-2026-11-01); GJK gone from 3-axis ramps, rotary 254 → 117 µs per move at 0.2 mm (still 3× over target), cylindrical dexels tried and not adopted |

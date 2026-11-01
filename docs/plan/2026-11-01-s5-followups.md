@@ -42,7 +42,7 @@ All S5 Global Constraints apply. In addition:
 
 **Files:** Create `docs/plan/2026-11-01-s5-followups.md`; modify `docs/plan/README.md`.
 
-- [ ] **Step 1:** Write this plan and add it to the plans table.
+- [x] **Step 1:** Write this plan and add it to the plans table.
 
 ### Task 2: Ramps and plunges seen from the side
 
@@ -54,8 +54,8 @@ All S5 Global Constraints apply. In addition:
   - On the flank the section is a disc of radius `R` moving along a line, so the interval is a 2-D capsule.
   - In a corner band (bull only) the section has radius `R − r + √(r² − v²)`, where `v` is the height above or below the corner centre. The `β` for which it reaches the line form an interval: the point `(b, v)`, with `b` the line's offset, lies in a 2-D capsule of radius `r` around `[−(R − r), R − r] × {0}`. The entry and exit are convex in `β`; a golden-section search finds them.
 - GJK stays only for flat and bull tools on lines that are neither along nor across the axis, and on rotary chords.
-- [ ] **Step 1:** Tests: flat and bull ramps and plunges against GJK, 300 random lines each, within 1e-3 mm. The brute-force test also covers steep ramps. `flat_plunge_is_cylinder` checks the side method exactly.
-- [ ] **Step 2:** Fail, implement, pass. `examples/s5.rs rays` times the new side case instead of GJK.
+- [x] **Step 1:** Tests: flat and bull ramps and plunges against GJK, 300 random lines each, within 1e-3 mm. The brute-force test also covers steep ramps. `flat_plunge_is_cylinder` checks the side method exactly.
+- [x] **Step 2:** Fail, implement, pass. `examples/s5.rs rays` times the new side case instead of GJK.
 
 ### Task 3: Cylindrical dexels for rotary Setups
 
@@ -68,14 +68,14 @@ All S5 Global Constraints apply. In addition:
   - `volumes()`, `memory()`, `hash()`.
 - **Which radial rays a chord can touch:** the θ range comes from the angles of the chord box's (y, z) corners, wrapping at 2π; the whole circle if the box contains the axis. The radius range runs from the box's nearest to its farthest point from the axis.
 - **Spike measurements:** `spike::probe::probe_line` (exact spans on any line) and `spike::probe::radial_error` (bilinear surface in (x, θ) through the outermost span ends, against the probe).
-- [ ] **Step 1:** Tests:
+- [x] **Step 1:** Tests:
   - Ball fast path against the full hull on random rotary and fixed chords.
   - Volume of a fresh `CylDexel` against πR²L.
   - A full rotary turn cuts a ring: radial tops at `8 ± sagitta`, X rays outside the ring untouched.
   - Probe equals the grid on sampled rays.
   - The same hash on 1 and 4 threads.
-- [ ] **Step 2:** Fail, implement, pass.
-- [ ] **Step 3:** `examples/s5.rs cyl`: memory, time per move at 0.4/0.2/0.1 mm (1 and 4 threads), tests per chord per family, and error against the exact probe in the S5 rotary window. Re-run `rotary` for the tri-dexel with the fast path.
+- [x] **Step 2:** Fail, implement, pass.
+- [x] **Step 3:** `examples/s5.rs cyl`: memory, time per move at 0.4/0.2/0.1 mm (1 and 4 threads), tests per chord per family, and error against the exact probe in the S5 rotary window. Re-run `rotary` for the tri-dexel with the fast path.
 
 ### Task 4: Z-family parallelism on rasters
 
@@ -84,12 +84,12 @@ All S5 Global Constraints apply. In addition:
 - First measure the speed-up of each family from 1 to 4 threads on the relief finish (`Stats::secs`).
 - Then schedule only tiles that have chords, as separate work items. If that is not enough, interleave them so neighbouring busy tiles go to different threads, or batch chords by region.
 - The order of chords within a tile does not change.
-- [ ] **Step 1:** Test: `same_hash_on_one_and_many_threads` still passes. Add a raster whose batch covers a narrow band of a wide grid.
-- [ ] **Step 2:** Implement and measure the per-family speed-up before and after.
+- [x] **Step 1:** Test: `same_hash_on_one_and_many_threads` still passes. Add a raster whose batch covers a narrow band of a wide grid.
+- [x] **Step 2:** Implement and measure the per-family speed-up before and after.
 
 ### Task 5: Report
 
 **Files:** Modify `docs/plan/spikes/s5-simulation.md`, `docs/design/challenges.md`, `docs/design/D11-simulation.md`, `docs/plan/README.md`.
 
-- [ ] **Step 1:** Add a dated "Follow-ups" section to the S5 report, with before and after numbers.
-- [ ] **Step 2:** Update CH-22 and D11 §2, §3 and §7 where the findings change them. Mark this plan done.
+- [x] **Step 1:** Add a dated "Follow-ups" section to the S5 report, with before and after numbers.
+- [x] **Step 2:** Update CH-22 and D11 §2, §3 and §7 where the findings change them. Mark this plan done.
