@@ -18,7 +18,8 @@ pub struct Limits {
     /// Most curves in the result, after block and `use` expansion.
     pub max_curves: usize,
     /// Most entities or elements visited, counting every expanded copy. This
-    /// bounds the time spent on block fan-outs that produce few curves.
+    /// bounds the time spent on block fan-outs that produce few curves (about
+    /// 0.5 µs per visit, so the default is a few seconds at worst).
     pub max_items: usize,
     /// Deepest nesting of `INSERT`s, or of `use` and groups in SVG.
     pub max_depth: usize,
@@ -34,7 +35,7 @@ impl Default for Limits {
         Limits {
             max_bytes: 256 << 20,
             max_curves: 2_000_000,
-            max_items: 20_000_000,
+            max_items: 5_000_000,
             max_depth: 16,
             max_points: 1_000_000,
             max_coord: 1e9,
