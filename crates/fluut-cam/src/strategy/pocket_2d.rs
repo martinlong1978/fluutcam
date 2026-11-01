@@ -23,6 +23,9 @@ use fluut_path::ToolpathResult;
 #[derive(Debug)]
 pub struct Pocket2d;
 
+/// The areas of one level: an index into the safe regions and the passes.
+type LevelPlan = Vec<(usize, Vec<Path2>)>;
+
 /// Safety cap on rings per level.
 const MAX_RINGS: usize = 10_000;
 
@@ -144,7 +147,6 @@ impl ToolpathType for Pocket2d {
                 ));
             }
         }
-        let parts = areas(&centre);
         let stepover = pk.stepover.unwrap_or(0.4 * d);
         let bottom = h.bottom + p.passes.stock_to_leave_axial;
         let zs = levels(h.top, bottom, pk.step_down, None);
@@ -205,13 +207,52 @@ impl ToolpathType for Pocket2d {
             }
             v
         };
-        let per_area: Vec<Vec<Path2>> = parts.iter().map(area_paths).collect();
+        // With rest machining each level clears only the tool-centre
+        // positions within R of the stock left between it and the level
+        // above (D15 §4); levels that meet the same stock share passes.
+        let windows = match (p.geometry.rest_previous, input.in_process) {
+            (true, Some(st)) => Some(
+                st.windows(&zs)
+                    .iter()
+                    .map(|w| crate::stock::rest_material(w, &clear, tol))
+                    .collect::<Vec<_>>(),
+            ),
+            _ => None,
+        };
+        let mut safe: Vec<Region2> = Vec::new();
+        // Per level: indices into `safe` and the passes of each area.
+        let mut plans: Vec<LevelPlan> = Vec::new();
+        let mut seen: Vec<(Option<Region2>, LevelPlan)> = Vec::new();
+        for li in 0..zs.len() {
+            let w = windows.as_ref().map(|w| w[li].clone());
+            if let Some((_, plan)) = seen.iter().find(|(k, _)| *k == w) {
+                plans.push(plan.clone());
+                continue;
+            }
+            let parts = match &w {
+                None => areas(&centre),
+                Some(w) => areas(&centre.intersect(&w.offset(r)))
+                    .into_iter()
+                    .filter(|a| a.area() > tol * tol)
+                    .collect(),
+            };
+            let plan: LevelPlan = parts
+                .iter()
+                .map(|a| {
+                    safe.push(a.clone());
+                    (safe.len() - 1, area_paths(a))
+                })
+                .collect();
+            seen.push((w, plan.clone()));
+            plans.push(plan);
+        }
         let mut cuts = Vec::new();
         let mut prev_end: Option<Point2> = None;
-        let mut emit = |ai: usize, li: usize, cuts: &mut Vec<Cut>| {
+        let mut emit = |li: usize, ai: usize, cuts: &mut Vec<Cut>| {
             let z = zs[li];
             let ramp_from = if li == 0 { h.top } else { zs[li - 1] };
-            for path in &per_area[ai] {
+            let (si, paths) = &plans[li][ai];
+            for path in paths {
                 let mut path = path.clone();
                 if path.closed
                     && let Some(q) = prev_end
@@ -220,23 +261,26 @@ impl ToolpathType for Pocket2d {
                 }
                 prev_end = Some(path.end());
                 cuts.push(Cut {
-                    area: Some(ai),
+                    area: Some(*si),
                     ..Cut::flat(path, z, turn, ramp_from)
                 });
             }
         };
+        // Areas change from level to level with rest machining, so
+        // `by_area` keeps them only without it.
         match p.linking.order {
-            Order::ByLevel => {
-                for li in 0..zs.len() {
-                    for ai in 0..parts.len() {
-                        emit(ai, li, &mut cuts);
+            Order::ByArea if windows.is_none() => {
+                for ai in 0..plans.first().map_or(0, Vec::len) {
+                    for li in 0..zs.len() {
+                        emit(li, ai, &mut cuts);
                     }
                 }
             }
-            Order::ByArea => {
-                for ai in 0..parts.len() {
-                    for li in 0..zs.len() {
-                        emit(ai, li, &mut cuts);
+            _ => {
+                let counts: Vec<usize> = plans.iter().map(Vec::len).collect();
+                for (li, n) in counts.into_iter().enumerate() {
+                    for ai in 0..n {
+                        emit(li, ai, &mut cuts);
                     }
                 }
             }
@@ -247,7 +291,7 @@ impl ToolpathType for Pocket2d {
             linking: &p.linking,
             tool_diameter: d,
             tol,
-            safe: &parts,
+            safe: &safe,
         };
         let passes = link(&cuts, &cx, &mut diags);
         let passes = finish(

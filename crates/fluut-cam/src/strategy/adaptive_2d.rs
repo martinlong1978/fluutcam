@@ -137,116 +137,152 @@ impl ToolpathType for Adaptive2d {
             climb,
             ..Params::new(r, ad.optimal_load)
         };
-        let stock = input
+        let box_stock = input
             .stock
             .map(|b| Region2::rect(b.min.x(), b.min.y(), b.max.x(), b.max.y()));
+        let bottom = h.bottom + p.passes.stock_to_leave_axial;
+        let zs = levels(h.top, bottom, ad.step_down, None);
+        // With rest machining a level meets only the stock left between it
+        // and the level above; outside that the region counts as cleared,
+        // as in an open pocket (D15b §2.2). Levels that meet the same stock
+        // share one path search.
+        let windows = match (p.geometry.rest_previous, input.in_process) {
+            (true, Some(st)) => Some(
+                st.windows(&zs)
+                    .iter()
+                    .map(|w| crate::stock::rest_material(w, &region, tol))
+                    .collect::<Vec<_>>(),
+            ),
+            _ => None,
+        };
         let mut safe: Vec<Region2> = Vec::new();
-        let mut plans = Vec::new();
         let mut incomplete = false;
         let mut fell_back = false;
         let orient = |path: Path2| if climb { path } else { path.reversed() };
-        for a in areas(&centre) {
-            let material = a.offset(r);
-            // Open pocket: the region reaches outside the stock, so the
-            // first cut enters from there, without a ramp (D15b §2.2).
-            let outside = stock
-                .as_ref()
-                .map(|s| material.subtract(s))
-                .filter(|o| o.area() > tol * material.perimeter());
-            let deep = deepest(&a, params.step);
-            let mut entry = None;
-            let k0 = match &outside {
-                Some(o) => o.clone(),
-                None => {
-                    let rad = match p.linking.ramp.kind {
-                        RampKind::Helix => {
-                            p.linking.ramp.radius.min(a.boundary_distance(deep) - tol)
-                        }
-                        _ => 0.0,
-                    };
-                    if rad > tol {
-                        let c = Region2::circle(deep.x(), deep.y(), rad);
-                        safe.push(Region2::circle(deep.x(), deep.y(), rad + 1e-6));
-                        entry = Some((orient(Path2::from_loop(&c.loops[0])), safe.len() - 1));
-                        Region2::circle(deep.x(), deep.y(), rad + r).intersect(&material)
-                    } else {
-                        if p.linking.ramp.kind == RampKind::Helix {
-                            fell_back = true;
-                        }
-                        Region2::circle(deep.x(), deep.y(), r).intersect(&material)
-                    }
-                }
+        let mut sets: Vec<(Option<Region2>, Vec<AreaPlan>)> = Vec::new();
+        let mut level_set = Vec::new();
+        for li in 0..zs.len() {
+            let w = windows.as_ref().map(|w| w[li].clone());
+            if let Some(i) = sets.iter().position(|(k, _)| *k == w) {
+                level_set.push(i);
+                continue;
+            }
+            let (stock, parts) = match &w {
+                None => (box_stock.clone(), areas(&centre)),
+                Some(w) => (
+                    Some(w.clone()),
+                    areas(&centre.intersect(&w.offset(r)))
+                        .into_iter()
+                        .filter(|a| a.area() > tol * tol)
+                        .collect(),
+                ),
             };
-            let Cleared {
-                passes,
-                cleared,
-                stats,
-            } = adaptive::clear(&material, &a, k0, deep, &params);
-            let mut ps = Vec::new();
-            for pass in passes {
-                safe.push(pass.safe);
-                let segs = pass
-                    .pts
-                    .windows(2)
-                    .map(|w| Seg2 {
-                        a: w[0],
-                        b: w[1],
-                        bulge: 0.0,
-                    })
-                    .collect();
-                ps.push((Path2::open(segs), safe.len() - 1));
-            }
-            // Final contour at R + stock to leave, in `direction`.
-            safe.push(adaptive::shrink(&cleared, r - 1e-6));
-            let fin_safe = safe.len() - 1;
-            let finish: Vec<(Path2, usize)> = a
-                .loops
-                .iter()
-                .map(|l| (orient(Path2::from_loop(l)), fin_safe))
-                .collect();
-            let swept_finish = a
-                .loops
-                .iter()
-                .map(|l| swept_loop(l, r))
-                .fold(Region2::empty(), |acc, s| acc.union(&s));
-            // Slivers left between passes: one short move from cleared
-            // material to the tool position nearest each (D15b §2.2: the
-            // path keeps φ ≤ φ*; these cut less).
-            let mut left = material.subtract(&cleared).subtract(&swept_finish);
-            let mut done = cleared.clone();
-            for l in left.loops.iter().filter(|l| l.area() > tol * tol) {
-                let n = l.verts.len() as f64;
-                let (sx, sy) = l
-                    .verts
-                    .iter()
-                    .fold((0.0, 0.0), |(x, y), v| (x + v.p.x(), y + v.p.y()));
-                let target = nearest_in(&a, Point2::new(sx / n, sy / n));
-                let inner = adaptive::shrink(&done, r - 1e-6);
-                let Some(from) = nearest_on(&inner, target) else {
-                    continue;
+            let mut plans = Vec::new();
+            for a in parts {
+                let material = a.offset(r);
+                // Open pocket: the region reaches outside the stock, so the
+                // first cut enters from there, without a ramp (D15b §2.2).
+                let outside = stock
+                    .as_ref()
+                    .map(|s| material.subtract(s))
+                    .filter(|o| o.area() > tol * material.perimeter());
+                let deep = deepest(&a, params.step);
+                let mut entry = None;
+                let k0 = match &outside {
+                    Some(o) => o.clone(),
+                    None => {
+                        let rad = match p.linking.ramp.kind {
+                            RampKind::Helix => {
+                                p.linking.ramp.radius.min(a.boundary_distance(deep) - tol)
+                            }
+                            _ => 0.0,
+                        };
+                        if rad > tol {
+                            let c = Region2::circle(deep.x(), deep.y(), rad);
+                            safe.push(Region2::circle(deep.x(), deep.y(), rad + 1e-6));
+                            entry = Some((orient(Path2::from_loop(&c.loops[0])), safe.len() - 1));
+                            Region2::circle(deep.x(), deep.y(), rad + r).intersect(&material)
+                        } else {
+                            if p.linking.ramp.kind == RampKind::Helix {
+                                fell_back = true;
+                            }
+                            Region2::circle(deep.x(), deep.y(), r).intersect(&material)
+                        }
+                    }
                 };
-                if from.distance(target) <= tol {
-                    continue;
+                let Cleared {
+                    passes,
+                    cleared,
+                    stats,
+                } = adaptive::clear(&material, &a, k0, deep, &params);
+                let mut ps = Vec::new();
+                for pass in passes {
+                    safe.push(pass.safe);
+                    let segs = pass
+                        .pts
+                        .windows(2)
+                        .map(|w| Seg2 {
+                            a: w[0],
+                            b: w[1],
+                            bulge: 0.0,
+                        })
+                        .collect();
+                    ps.push((Path2::open(segs), safe.len() - 1));
                 }
-                done = done.union(&swept_path(&[from, target], r));
-                ps.push((
-                    Path2::open(vec![Seg2 {
-                        a: from,
-                        b: target,
-                        bulge: 0.0,
-                    }]),
-                    fin_safe,
-                ));
+                // Final contour at R + stock to leave, in `direction`.
+                safe.push(adaptive::shrink(&cleared, r - 1e-6));
+                let fin_safe = safe.len() - 1;
+                let finish: Vec<(Path2, usize)> = a
+                    .loops
+                    .iter()
+                    .map(|l| (orient(Path2::from_loop(l)), fin_safe))
+                    .collect();
+                let swept_finish = a
+                    .loops
+                    .iter()
+                    .map(|l| swept_loop(l, r))
+                    .fold(Region2::empty(), |acc, s| acc.union(&s));
+                // Slivers left between passes: one short move from cleared
+                // material to the tool position nearest each (D15b §2.2: the
+                // path keeps φ ≤ φ*; these cut less).
+                let mut left = material.subtract(&cleared).subtract(&swept_finish);
+                let mut done = cleared.clone();
+                for l in left.loops.iter().filter(|l| l.area() > tol * tol) {
+                    let n = l.verts.len() as f64;
+                    let (sx, sy) = l
+                        .verts
+                        .iter()
+                        .fold((0.0, 0.0), |(x, y), v| (x + v.p.x(), y + v.p.y()));
+                    let target = nearest_in(&a, Point2::new(sx / n, sy / n));
+                    let inner = adaptive::shrink(&done, r - 1e-6);
+                    let Some(from) = nearest_on(&inner, target) else {
+                        continue;
+                    };
+                    if from.distance(target) <= tol {
+                        continue;
+                    }
+                    done = done.union(&swept_path(&[from, target], r));
+                    ps.push((
+                        Path2::open(vec![Seg2 {
+                            a: from,
+                            b: target,
+                            bulge: 0.0,
+                        }]),
+                        fin_safe,
+                    ));
+                }
+                left = left.subtract(&done);
+                if stats.stop == "max passes" || !left.offset(-tol).is_empty() {
+                    incomplete = true;
+                }
+                plans.push(AreaPlan {
+                    entry,
+                    passes: ps,
+                    finish,
+                });
             }
-            left = left.subtract(&done);
-            if stats.stop == "max passes" || !left.offset(-tol).is_empty() {
-                incomplete = true;
-            }
-            plans.push(AreaPlan {
-                entry,
-                passes: ps,
-                finish,
-            });
+            sets.push((w, plans));
+            level_set.push(sets.len() - 1);
         }
         if fell_back {
             diags.push(Diagnostic::warning(
@@ -260,15 +296,13 @@ impl ToolpathType for Adaptive2d {
                 "material above the tolerance is left after the path search stopped",
             ));
         }
-        let bottom = h.bottom + p.passes.stock_to_leave_axial;
-        let zs = levels(h.top, bottom, ad.step_down, None);
         let turn = if climb { Turn::Left } else { Turn::Right };
         let mut cuts = Vec::new();
         let mut prev_end: Option<Point2> = None;
         let mut emit = |ai: usize, li: usize, cuts: &mut Vec<Cut>| {
             let z = zs[li];
             let ramp_from = if li == 0 { h.top } else { zs[li - 1] };
-            let plan = &plans[ai];
+            let plan = &sets[level_set[li]].1[ai];
             if let Some((path, s)) = &plan.entry {
                 cuts.push(Cut {
                     area: Some(*s),
@@ -296,17 +330,20 @@ impl ToolpathType for Adaptive2d {
             }
             prev_end = None;
         };
+        // Areas change from level to level with rest machining, so
+        // `by_area` keeps them only without it.
+        let n_areas = |li: usize| sets[level_set[li]].1.len();
         match p.linking.order {
-            Order::ByLevel => {
-                for li in 0..zs.len() {
-                    for ai in 0..plans.len() {
+            Order::ByArea if windows.is_none() => {
+                for ai in 0..zs.first().map_or(0, |_| n_areas(0)) {
+                    for li in 0..zs.len() {
                         emit(ai, li, &mut cuts);
                     }
                 }
             }
-            Order::ByArea => {
-                for ai in 0..plans.len() {
-                    for li in 0..zs.len() {
+            _ => {
+                for li in 0..zs.len() {
+                    for ai in 0..n_areas(li) {
                         emit(ai, li, &mut cuts);
                     }
                 }

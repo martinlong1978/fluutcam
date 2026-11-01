@@ -282,12 +282,11 @@ fn geometry_codes() {
         "[geometry]\ndrive_faces = [{ face = \"f1\" }]\nexcluded_faces = [{ face = \"f2\" }]\n",
         "[geometry]\ndrive_faces = [{ face = \"f1\" }]\nexcluded_faces = [{ face = \"f1\" }]\n",
     );
-    params_case(
-        "param.geometry.rest_from.unsupported",
-        "pocket_2d",
-        &format!("{DRIVE}rest_from = \"off\"\n"),
-        &format!("{DRIVE}rest_from = \"previous\"\n"),
-    );
+    // Rest machining is available: `previous` is no longer an error.
+    let t = tp("pocket_2d", &format!("{DRIVE}rest_from = \"previous\"\n"));
+    let d = validate(&t, &ValidateCx::new(Some(&tool("flat-6"))));
+    assert!(d.iter().all(|d| !d.code.contains("rest_from")), "{d:?}");
+    assert!(t.params.reads_in_process());
 }
 
 #[test]

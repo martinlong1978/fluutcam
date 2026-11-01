@@ -153,6 +153,36 @@ impl LayeredStock {
         union_all(parts)
     }
 
+    /// The material between `lo` and `hi`: the union of the slabs that
+    /// reach into (`lo`, `hi`]. `hi` may be infinite.
+    pub fn between(&self, lo: f64, hi: f64) -> Region2 {
+        let lo = lo.max(self.bottom);
+        let mut parts = Vec::new();
+        for (k, r) in self.levels.range((
+            std::ops::Bound::Excluded(Key(lo)),
+            std::ops::Bound::Unbounded,
+        )) {
+            if !r.is_empty() && parts.last() != Some(r) {
+                parts.push(r.clone());
+            }
+            if k.0 >= hi {
+                break;
+            }
+        }
+        union_all(parts)
+    }
+
+    /// The material each level of a toolpath meets: for level `i`, the
+    /// slabs between it and level `i − 1` (everything above for the first).
+    pub fn windows(&self, zs: &[f64]) -> Vec<Region2> {
+        (0..zs.len())
+            .map(|i| {
+                let hi = if i == 0 { f64::INFINITY } else { zs[i - 1] };
+                self.between(zs[i], hi)
+            })
+            .collect()
+    }
+
     /// Splits the slab holding `z` at `z`; both halves keep its region.
     pub fn ensure_level(&mut self, z: f64) {
         if z <= self.bottom || self.levels.contains_key(&Key(z)) {
@@ -194,6 +224,14 @@ impl LayeredStock {
             self.remove_swept(k.0 + sweep.lift, &swept);
         }
     }
+}
+
+/// The stock in `window` that lies in the region to clear, shrunk by
+/// twice `tol`. This drops the slivers [`LayeredStock::apply`] leaves
+/// along every cut, and material a tool already reached to within the
+/// tolerance; neither is stock to rough.
+pub fn rest_material(window: &Region2, region: &Region2, tol: f64) -> Region2 {
+    window.intersect(region).offset(-2.0 * tol)
 }
 
 /// Union of many regions as a balanced tree.

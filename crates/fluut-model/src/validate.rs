@@ -318,13 +318,6 @@ impl V<'_, '_> {
                 && !matches!((lo, hi), (Some(a), Some(b)) if a > b);
             self.range("geometry", "geometry.hole_diameter", ok, "0 ≤ min ≤ max");
         }
-        if g.rest_previous {
-            self.e(
-                "param.geometry.rest_from.unsupported",
-                "geometry.rest_from",
-                "rest machining from previous toolpaths is not available yet".into(),
-            );
-        }
     }
 
     fn heights(&mut self) {

@@ -77,6 +77,23 @@ fn a_cut_clears_only_the_slabs_above_its_tip() {
 }
 
 #[test]
+fn between_takes_the_slabs_in_a_window() {
+    let mut s = block();
+    s.remove_swept(15.0, &Region2::rect(10.0, 10.0, 30.0, 30.0));
+    s.remove_swept(5.0, &Region2::rect(60.0, 10.0, 70.0, 20.0));
+    // (15, 20]: both holes.
+    let w = s.between(15.0, 18.0);
+    assert!(!inside(&w, 20.0, 20.0) && !inside(&w, 65.0, 15.0));
+    // (10, 15]: only the deep one.
+    let w = s.between(10.0, 15.0);
+    assert!(inside(&w, 20.0, 20.0) && !inside(&w, 65.0, 15.0));
+    // (4, ∞): material everywhere below 5.
+    let w = s.between(4.0, f64::INFINITY);
+    assert!(inside(&w, 20.0, 20.0) && inside(&w, 65.0, 15.0));
+    assert!(s.between(20.0, 30.0).is_empty());
+}
+
+#[test]
 fn a_level_run_sweeps_its_capsule() {
     let mut s = block();
     let r = result(vec![

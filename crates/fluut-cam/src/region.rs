@@ -319,6 +319,25 @@ impl Region2 {
         if d == 0.0 {
             return self.clone();
         }
+        // `cavalier_contours` can fail an internal assertion on degenerate
+        // input (a collapsed slice). The offset is then retried a hair
+        // deeper or shallower; a shrink that still fails gives nothing
+        // (less room for the tool), a growth re-raises the failure.
+        let mut last = None;
+        for k in [0.0, 1e-7, -1e-7, 1e-6] {
+            let dk = d + k * d.signum();
+            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.offset_raw(dk))) {
+                Ok(r) => return r,
+                Err(e) => last = Some(e),
+            }
+        }
+        match last {
+            Some(e) if d > 0.0 => std::panic::resume_unwind(e),
+            _ => Region2::empty(),
+        }
+    }
+
+    fn offset_raw(&self, d: f64) -> Region2 {
         let shape = Shape::from_plines(self.loops.iter().map(Loop2::to_pline));
         // cavalier_contours offsets to the left of the loop direction, which
         // is inward for counter-clockwise loops.
