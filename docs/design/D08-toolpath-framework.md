@@ -248,6 +248,15 @@ tool diameter (D15 §2.6), and its retract height is `min(retract, max(stock top
 safety_distance)`, the material bound standing in for the drops along the link. Every
 toolpath starts above its first entry at its `clearance` height and ends there.
 
+M3 `parallel` (with the S2 drop queries): a link stays down and follows the surface (drops
+along it) when the policy allows it (`stay_down`, or `minimum` up to one tool diameter), the
+straight link lies in the region and every point of it would be cut. Otherwise the tool lifts
+to `safety_distance` above a conservative bound of the geometry under the link (the highest
+primitive box within the tool radius), capped at `retract` for `minimum`. It then rapids down to the feed
+height, or to `safety_distance` above the entry when the link is already below the feed
+height, and plunges. Leads are in the vertical plane of the pass, tangent to it in 3-D, and dropped if
+drops along them show a gouge.
+
 ### 8.3 Leads and ramps
 
 - Lead-in/out: tangent arc of the given radius in the plane of the pass (or vertical arc for
