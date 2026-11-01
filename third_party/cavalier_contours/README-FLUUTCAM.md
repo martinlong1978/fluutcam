@@ -17,7 +17,16 @@ differ in the last bit between platforms. See the S3 report, `docs/plan/spikes/s
 
 ## What changed
 
-Only the trigonometric calls. Everything else is as published.
+The trigonometric calls, and one fix for collapsed offset slices. Everything else is as
+published.
+
+- `src/polyline/pline_view.rs`, `PlineViewData::create_on_single_segment`: returns `None`
+  when the end point lies within `VALIDATION_EPS` of the segment's start vertex. Such a slice
+  is collapsed, but it was built anyway and failed `validate_for_source`, which panicked in
+  debug builds. It happened when an inward offset reached exactly half a slot's width
+  (`offset_to_exactly_half_the_width` in `crates/fluut-cam/src/region/tests.rs`).
+
+The trigonometric changes:
 
 - `src/core/traits/real.rs`: the `Real` trait has five new methods, `libm_sin_cos`,
   `libm_tan`, `libm_atan`, `libm_atan2` and `libm_acos`, implemented for `f32` and `f64`

@@ -278,6 +278,16 @@ where
         {
             return None;
         }
+        // FluutCAM patch: an end point on the segment's own start vertex
+        // means the start is within `VALIDATION_EPS` of it too, so the
+        // selection is collapsed. Without this, view data that fails
+        // `validate_for_source` was built (a debug assertion in debug builds).
+        if end_intersect.fuzzy_eq_eps(
+            source.at(start_index).pos(),
+            T::from(Self::VALIDATION_EPS).unwrap(),
+        ) {
+            return None;
+        }
         let view_data = Self {
             start_index,
             end_index_offset: 0,
