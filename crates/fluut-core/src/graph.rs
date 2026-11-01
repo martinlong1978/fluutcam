@@ -21,6 +21,9 @@ pub enum NodeId {
     Result(String),
     /// A toolpath's post output (feeds, speed, names).
     Post(String),
+    /// A Setup's simulation (D11): its enabled toolpaths' results and
+    /// feeds, and their tools.
+    Simulation(String),
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -88,6 +91,12 @@ impl Graph {
                     deps,
                 },
             );
+            let mut sim = format!(
+                "{ALGORITHM_VERSION} sim
+{setup_hash}
+"
+            );
+            let mut sim_deps = vec![setup.clone()];
             for t in &s.toolpaths {
                 let tool = tools.get(t.tool_ref());
                 let m = material.as_deref();
@@ -102,6 +111,17 @@ impl Graph {
                         deps: vec![setup.clone()],
                     },
                 );
+                if t.is_enabled() {
+                    // The whole tool: flute length, shank and holder are
+                    // checked, and they need not change the result.
+                    sim.push_str(&format!(
+                        "{} = {post}
+{tool:?}
+",
+                        t.id
+                    ));
+                    sim_deps.push(NodeId::Post(t.id.clone()));
+                }
                 nodes.insert(
                     NodeId::Post(t.id.clone()),
                     Node {
@@ -110,6 +130,13 @@ impl Graph {
                     },
                 );
             }
+            nodes.insert(
+                NodeId::Simulation(s.id.clone()),
+                Node {
+                    hash: sha256_hex(sim.as_bytes()),
+                    deps: sim_deps,
+                },
+            );
         }
         Graph { nodes }
     }

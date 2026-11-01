@@ -7,6 +7,7 @@ use crate::cache::DiskCache;
 use crate::frame::SetupFrame;
 use crate::graph::{Graph, NodeId};
 use crate::reimport::{ReimportReport, Unmatched, belongs, match_bodies, references};
+use crate::sim::{DropPart, SimResult, SimSettings, assembly, diagnostic, feeds, kinematics};
 use crate::store::ModelStore;
 use fluut_cam::StrategyInput;
 use fluut_cam::geometry::SetupBody;
@@ -123,6 +124,8 @@ pub struct Session {
     /// Results calculated (not taken from a cache) in this session.
     pub calculated: usize,
     next_job: u64,
+    /// The last simulation of each Setup, with the key it was made for.
+    sims: BTreeMap<String, (String, Arc<SimResult>)>,
 }
 
 impl Session {
@@ -140,6 +143,7 @@ impl Session {
             warnings: Vec::new(),
             cache: BTreeMap::new(),
             next_job: 1,
+            sims: BTreeMap::new(),
         }
     }
 
@@ -460,6 +464,142 @@ impl Session {
 
     pub fn is_stale(&self, toolpath: &str) -> bool {
         self.result(toolpath).is_none()
+    }
+
+    /// Estimated machining time of a toolpath's current result, s (D11 §6),
+    /// with its feeds and its Setup's machine.
+    pub fn time_estimate(&self, toolpath: &str) -> Option<f64> {
+        let result = self.result(toolpath)?;
+        let (s, t) = self.project.toolpath(toolpath)?;
+        let rs = fluut_model::setup::resolve_setup(&self.project, &s.id).ok()?;
+        let tool = self.tools.get(t.tool_ref())?;
+        let f = feeds(&t.params, tool, rs.material.as_deref());
+        let k = kinematics(self.machine(rs.machine.as_deref()).as_ref());
+        Some(fluut_sim::time::estimate(result.segments(), &f, &k))
+    }
+
+    fn sim_key(&self, setup: &str, settings: &SimSettings) -> Option<String> {
+        let g = self.graph();
+        let h = g.hash(&NodeId::Simulation(setup.to_owned()))?;
+        let rs = fluut_model::setup::resolve_setup(&self.project, setup).ok()?;
+        let machine = self.machine(rs.machine.as_deref());
+        Some(format!(
+            "{h}
+{}machine = {:?}
+",
+            settings.text(),
+            machine.map(|m| m.fields)
+        ))
+    }
+
+    /// The Setup's simulation, if its inputs have not changed since.
+    pub fn simulation(&self, setup: &str, settings: &SimSettings) -> Option<Arc<SimResult>> {
+        let (key, r) = self.sims.get(setup)?;
+        (self.sim_key(setup, settings).as_ref() == Some(key)).then(|| r.clone())
+    }
+
+    /// Simulates a Setup's enabled toolpaths in order (D11). Every one
+    /// needs a current result: calculate first. Findings come back as
+    /// diagnostics on their toolpaths; the result is kept until an input
+    /// changes.
+    pub fn simulate(
+        &mut self,
+        setup: &str,
+        settings: &SimSettings,
+        monitor: &dyn fluut_sim::Monitor,
+    ) -> Result<Arc<SimResult>, Vec<Diagnostic>> {
+        if let Some(r) = self.simulation(setup, settings) {
+            return Ok(r);
+        }
+        let err = |code: &str, m: String| vec![Diagnostic::error(code, m)];
+        let s = self
+            .project
+            .setup(setup)
+            .ok_or_else(|| {
+                err(
+                    "sim.setup.missing",
+                    format!("Setup `{setup}` is not in the project"),
+                )
+            })?
+            .clone();
+        let rs = fluut_model::setup::resolve_setup(&self.project, setup).map_err(|d| vec![d])?;
+        let fr = self
+            .setup_bodies(&rs)
+            .and_then(|b| SetupFrame::new(&rs, b))
+            .map_err(|d| vec![d])?;
+        let mut missing = Vec::new();
+        let mut inputs = Vec::new();
+        for t in s.toolpaths.iter().filter(|t| t.is_enabled()) {
+            let (Some(r), Some(tool)) = (self.result(&t.id), self.tools.get(t.tool_ref())) else {
+                missing.push(t.id.clone());
+                continue;
+            };
+            let Some(a) = assembly(tool) else {
+                return Err(err(
+                    "sim.tool.unsupported",
+                    format!("toolpath `{}`: the tool has no usable size", t.id),
+                ));
+            };
+            inputs.push((
+                t.id.clone(),
+                r,
+                a,
+                feeds(&t.params, tool, rs.material.as_deref()),
+            ));
+        }
+        if !missing.is_empty() {
+            return Err(err(
+                "sim.result.missing",
+                format!("calculate first: {}", missing.join(", ")),
+            ));
+        }
+        let stock = fluut_sim::Stock::Box {
+            min: fr.stock.min,
+            max: fr.stock.max,
+        };
+        // The gouge tolerance is the toolpaths' machining tolerance.
+        let tol = inputs
+            .iter()
+            .flat_map(|(_, r, ..)| r.segments().filter_map(|x| x.motion()))
+            .map(|m| f64::from(m.tol))
+            .fold(0.0, f64::max);
+        let tol = if tol > 0.0 { tol } else { 0.01 };
+        let programs: Vec<fluut_sim::Program> = inputs
+            .iter()
+            .map(|(id, r, a, f)| fluut_sim::Program {
+                id: id.clone(),
+                result: r,
+                tool: *a,
+                feeds: *f,
+            })
+            .collect();
+        let run = fluut_sim::Settings {
+            res: fluut_sim::resolution(&stock, settings.error, settings.budget),
+            rotary: false,
+            kinematics: kinematics(self.machine(rs.machine.as_deref()).as_ref()),
+            tol,
+        };
+        let part = DropPart::new(&fr.geometry);
+        let sim = fluut_sim::Simulation::run(stock, &programs, &run, Some(&part), monitor)
+            .map_err(|_| err("sim.cancelled", "the simulation was cancelled".into()))?;
+        let mut diagnostics: Vec<Diagnostic> =
+            sim.findings.iter().map(|f| diagnostic(&sim, f)).collect();
+        if sim.dropped > 0 {
+            diagnostics.push(Diagnostic::warning(
+                "sim.findings.dropped",
+                format!("{} more findings not listed", sim.dropped),
+            ));
+        }
+        let r = Arc::new(SimResult {
+            setup: setup.to_owned(),
+            sim,
+            diagnostics,
+            tol,
+        });
+        if let Some(key) = self.sim_key(setup, settings) {
+            self.sims.insert(setup.to_owned(), (key, r.clone()));
+        }
+        Ok(r)
     }
 
     fn setup_bodies(&self, s: &ResolvedSetup) -> Result<Vec<SetupBody>, Diagnostic> {
