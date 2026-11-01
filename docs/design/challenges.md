@@ -11,7 +11,7 @@ Problems found during detailed design. Each has a status:
 |---|---|---|---|
 | CH-01 | Cross-platform floating-point determinism | D01 §6 | resolved |
 | CH-02 | Document data structure and undo memory | D01 §3.1 | deferred |
-| CH-03 | Tangential and degenerate plane sections | D02 §5, D03 §5.1 | deferred |
+| CH-03 | Tangential and degenerate plane sections | D02 §5, D03 §5.1 | handled for waterlines (M6); open for plane sections |
 | CH-04 | Self-intersecting offsets of free-form surfaces | D02 §4.3 | deferred |
 | CH-05 | Silhouette outline robustness for free-form faces | D03 §5.3 | deferred |
 | CH-06 | Mesh region grouping for selection | D03 §1.2 | deferred |
@@ -123,6 +123,30 @@ lying entirely inside one cell (a bump top just cut by the plane) is missed. Fix
 S1: seed also from critical points of `n·S` (interior extrema), found by Newton from each cell.
 
 **S1 (2026-10-31).** Not exercised: no plane sections were run on corpus bodies. S2 and M3 use the S1 bodies for this.
+
+**M6 waterlines (2026-11-01).** `contour`, `horizontal` and the steep part of
+`steep_and_shallow` take their constant-Z contours from the drop function τ(x, y), not from
+plane sections ([plan](../plan/2026-11-01-m6-3d-finishing.md)). Findings:
+- *Tangent levels.* A level at the Z of a horizontal face makes τ = z on an area under a flat
+  or bull tool, so classifying τ against z is noise. Every level is classified against
+  z + 10⁻⁶ mm, the "just above" side of the workaround above; the CL point is output at z.
+  A floor at the level then gives the foot of its walls, and a plateau top at the level gives
+  nothing. Tested on the dome's block top (Z 10) with flat, bull and ball tools: the contour
+  is the boss wall at R, with no loops on the flat.
+- *The offset of δ.* On shallow ground the contour moves sideways by δ / tan β: 1.6 · 10⁻⁶ mm at
+  32° in the tests. That is far below any tolerance.
+- *Tangent peaks.* A level just below a smooth top gives a loop that can be smaller than the
+  seed-line spacing (R/2) and be missed. The material left is within about R²/(32 ρ) of the
+  top, on ground that is shallow there.
+- *Cliffs.* At a vertical wall τ jumps, and the drop's contact is on top of the wall, not at
+  the level. Slope and drive face are then taken from the face the side of the tool touches
+  at the level. Without this, the drive faces of a boss were mixed up at the level.
+- *Inside corners.* Correcting along the contact direction finds no boundary just before a
+  sharp inside corner. A circle search around the last point (from the open side to the
+  material side) fixes it.
+
+Plane sections (D03 §5.1) are still owed for `pocket_3d` and `adaptive_3d`; these findings
+apply to them too.
 
 ### CH-04 Self-intersecting offsets of free-form surfaces
 
@@ -372,6 +396,13 @@ chosen offset library does uniform offsets only.
 **Revisit.** Compare pass counts with Fusion on test parts; consider own variable offsetter.
 
 **S3 (2026-10-31).** Confirmed: uniform offsets only. Workaround stands.
+
+**M6 `scallop` (2026-11-01).** Built as the workaround: pass k+1 is the region offset by
+s·cos θ, θ the steepest cut contact on passes k and k+1, rechecked up to four times;
+`cam.scallop.extra_passes` reports a step reduced because the next pass is steeper. On a
+vertical wall s·cos θ is zero, so no step is below s/10, and the 3-D stepover is not kept on
+walls steeper than about 84°. That is the job of `steep_and_shallow`. Pass counts against
+Fusion are still to compare.
 
 ### CH-19 Offsets in unrolled rotary coordinates
 

@@ -353,7 +353,7 @@ pub fn edge(g: &QueryGeometry, i: u32, ax: Axis, c: &Cutter) -> Option<Contact> 
 }
 
 /// Parameters of a point on an analytic surface (closed-form closest point).
-fn analytic_uv(s: &Surface, p: Point3) -> (f64, f64) {
+pub(crate) fn analytic_uv(s: &Surface, p: Point3) -> (f64, f64) {
     let iv = |lo, hi| Interval { lo, hi };
     let big = iv(-1e9, 1e9);
     let turn = iv(0.0, TAU);
@@ -464,6 +464,31 @@ fn ball_on_quadric(q: &QueryFace, face: u32, s: &Surface, ax: Axis, c: &Cutter) 
             }
         }
         _ => return None,
+    }
+    best_point(q, face, s, ax, c, pts)
+}
+
+/// Flat and bull-nose tools on the outside of a sphere, in closed form:
+/// the sphere grown by the corner radius r touches the disc of radius
+/// R − r at height τ + r. Seam-proof where the numeric seeding is not
+/// (M6). Candidates only: [`best_point`] keeps those inside the face.
+fn bull_on_sphere(q: &QueryFace, face: u32, s: &Surface, ax: Axis, c: &Cutter) -> Option<Contact> {
+    let Surface::Sphere { frame, r: rho } = s else {
+        return None;
+    };
+    let o = frame.origin;
+    let (rf, r) = (c.flat_radius(), c.corner());
+    let grown = rho + r;
+    let (dx, dy) = (ax.x - o.x(), ax.y - o.y());
+    let d = libm::hypot(dx, dy);
+    let mut pts = vec![o + Vec3::new(0.0, 0.0, *rho)];
+    let e = d - rf;
+    if e > 0.0 && e <= grown {
+        let h = (grown * grown - e * e).sqrt();
+        let disc = Vec3::new(dx * e / d, dy * e / d, h);
+        if let Some(u) = disc.normalized() {
+            pts.push(o + u.get() * *rho);
+        }
     }
     best_point(q, face, s, ax, c, pts)
 }
@@ -784,6 +809,20 @@ pub fn face(
         Surface::Sphere { .. } | Surface::Cylinder { .. } if is_ball => {
             stats.faces_closed_form += 1;
             ball_on_quadric(q, face, s, ax, c)
+        }
+        // Outside of a sphere: the closed form is the whole answer.
+        Surface::Sphere { .. } if g.body.faces[face as usize].same_sense => {
+            stats.faces_closed_form += 1;
+            bull_on_sphere(q, face, s, ax, c)
+        }
+        Surface::Sphere { .. } => {
+            stats.faces_closed_form += 1;
+            let a = bull_on_sphere(q, face, s, ax, c);
+            let b = numeric(q, face, s, uv, bx, ax, c, seeding, stats);
+            match (a, b) {
+                (Some(a), Some(b)) => Some(if b.tau > a.tau { b } else { a }),
+                (a, b) => a.or(b),
+            }
         }
         _ => {
             stats.faces_numeric += 1;

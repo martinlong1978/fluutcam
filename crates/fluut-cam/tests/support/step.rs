@@ -325,6 +325,15 @@ impl Writer {
         self.face(&[b], s, true);
     }
 
+    /// A spherical face of radius `r` about `centre`, facing away from it,
+    /// bounded by `edges` (counter-clockwise seen from outside).
+    pub fn sphere_face(&mut self, edges: &[([f64; 3], [f64; 3], Kind)], centre: [f64; 3], r: f64) {
+        let b = self.bound(edges, true);
+        let ax = self.placement(centre, [0.0, 0.0, 1.0], [1.0, 0.0, 0.0]);
+        let s = self.add(&format!("SPHERICAL_SURFACE('',#{ax},{r:?})"));
+        self.face(&[b], s, true);
+    }
+
     /// The file: one solid of every face added.
     pub fn finish(mut self, name: &str) -> String {
         let list: Vec<String> = self.faces.iter().map(|f| format!("#{f}")).collect();
@@ -524,4 +533,36 @@ pub fn holes(shift: [f64; 3]) -> String {
     w.walls(&blind, 7.0, 15.0, false);
     w.cap(&blind, &[], 7.0, true);
     w.finish("holes")
+}
+
+/// Centre (XY) and radius of the [`dome`] boss.
+pub const DOME_CENTRE: [f64; 2] = [40.0, 30.0];
+pub const DOME_RADIUS: f64 = 12.0;
+/// Z of the top of the [`dome`] boss's cylinder (the hemisphere's centre).
+pub const DOME_SHOULDER: f64 = 16.0;
+
+/// An 80 × 60 × 10 block with a round boss of radius 12 at (40, 30): a
+/// vertical cylinder from Z 10 to 16 under a hemisphere, top at Z 28.
+/// Faces: bottom, four sides, the top with a hole, two half cylinders and
+/// the hemisphere.
+pub fn dome(shift: [f64; 3]) -> String {
+    let mut w = Writer::new(shift);
+    let outer = Profile::rect(0.0, 0.0, 80.0, 60.0);
+    let [cx, cy] = DOME_CENTRE;
+    let r = DOME_RADIUS;
+    let arc = Kind::Arc {
+        centre: [cx, cy],
+        ccw: true,
+    };
+    let circle = Profile {
+        pts: vec![[cx - r, cy], [cx + r, cy]],
+        kinds: vec![arc; 2],
+    };
+    w.walls(&outer, 0.0, 10.0, true);
+    w.cap(&outer, &[], 0.0, false);
+    w.cap(&outer, std::slice::from_ref(&circle), 10.0, true);
+    w.walls(&circle, 10.0, DOME_SHOULDER, true);
+    let (a, b) = ([cx - r, cy, DOME_SHOULDER], [cx + r, cy, DOME_SHOULDER]);
+    w.sphere_face(&[(a, b, arc), (b, a, arc)], [cx, cy, DOME_SHOULDER], r);
+    w.finish("dome")
 }

@@ -8,7 +8,8 @@
 //! across re-import is M4.
 
 use crate::cutter::geom::curve_box;
-use fluut_geom::{Aabb3, Affine, Curve3, Interval, Point3};
+use crate::cutter::trim::Trim;
+use fluut_geom::{Aabb3, Affine, Curve3, Interval, Point3, Surface, Tol, Vec3};
 use fluut_topo::{BrepBody, WireBody, WireCurve};
 
 #[derive(Debug, Clone)]
@@ -111,9 +112,10 @@ impl SetupGeometry {
             .fold(1e-6, f64::max)
     }
 
-    /// Bounds of every body, from vertices and edges: exact for lines,
-    /// circles and ellipses, from samples `chord` apart for other curves.
-    /// A face that bulges beyond its edges (a sphere cap) is not covered.
+    /// Bounds of every body, from vertices, edges and the face interiors:
+    /// edges are exact for lines, circles and ellipses and sampled `chord`
+    /// apart otherwise; a face that bulges beyond its edges adds its
+    /// interior extremes ([`face_interior_points`]).
     pub fn bounds(&self, chord: f64) -> Aabb3 {
         let mut bb = Aabb3::empty();
         let mut add = |c: &Curve3, range: Interval| match c {
@@ -147,6 +149,11 @@ impl SetupGeometry {
             if let BodyGeom::Brep(x) = &b.geom {
                 for v in &x.vertices {
                     bb = bb.with_point(v.p);
+                }
+                for f in 0..x.faces.len() as u32 {
+                    for p in face_interior_points(x, f, chord) {
+                        bb = bb.with_point(p);
+                    }
                 }
             }
         }
@@ -184,9 +191,58 @@ fn transform_brep(b: &BrepBody, a: &Affine) -> Option<BrepBody> {
     Some(out)
 }
 
-/// Z range of a face, from its edges.
+/// Points of a curved face's interior that can lie beyond its edges: for
+/// a sphere, its axis-aligned extreme points that are inside the face
+/// (exact); for other curved faces, a 17 × 17 sample of the parameter box
+/// inside the trim. Empty for planes.
+pub fn face_interior_points(b: &BrepBody, f: u32, chord: f64) -> Vec<Point3> {
+    let face = &b.faces[f as usize];
+    let s = &b.surfaces[face.surface as usize];
+    if matches!(s, Surface::Plane { .. }) {
+        return Vec::new();
+    }
+    let Ok(trim) = Trim::build(b, f, chord.max(1e-4)) else {
+        return Vec::new();
+    };
+    let uv = trim.uv_box();
+    let mut out = Vec::new();
+    if let Surface::Sphere { frame, r } = s {
+        let tol = Tol::for_machining(1e-6, 1e-3);
+        for d in [
+            Vec3::new(1.0, 0.0, 0.0),
+            Vec3::new(-1.0, 0.0, 0.0),
+            Vec3::new(0.0, 1.0, 0.0),
+            Vec3::new(0.0, -1.0, 0.0),
+            Vec3::new(0.0, 0.0, 1.0),
+            Vec3::new(0.0, 0.0, -1.0),
+        ] {
+            let p = frame.origin + d * *r;
+            let c = s.closest(p, uv, &tol);
+            if c.dist <= 1e-9 * r.max(1.0) && trim.contains(c.u, c.v) {
+                out.push(p);
+            }
+        }
+        return out;
+    }
+    const N: usize = 17;
+    for i in 0..N {
+        for j in 0..N {
+            let u = uv.u.at(i as f64 / (N - 1) as f64);
+            let v = uv.v.at(j as f64 / (N - 1) as f64);
+            if trim.contains(u, v) {
+                out.push(s.eval(u, v));
+            }
+        }
+    }
+    out
+}
+
+/// Z range of a face, from its edges and interior ([`face_interior_points`]).
 pub fn face_z_range(b: &BrepBody, f: u32, chord: f64) -> Interval {
-    let bb = b.face_box(f, chord);
+    let mut bb = b.face_box(f, chord);
+    for p in face_interior_points(b, f, chord) {
+        bb = bb.with_point(p);
+    }
     Interval {
         lo: bb.min.z(),
         hi: bb.max.z(),

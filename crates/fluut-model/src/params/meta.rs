@@ -148,10 +148,16 @@ pub enum ToolpathTypeId {
     Drill,
     Adaptive2d,
     Engrave,
+    // 3-D finishing (D15b §5).
+    Contour,
+    Horizontal,
+    Spiral,
+    Scallop,
+    SteepAndShallow,
 }
 
 impl ToolpathTypeId {
-    pub const ALL: [ToolpathTypeId; 10] = [
+    pub const ALL: [ToolpathTypeId; 15] = [
         ToolpathTypeId::Contour2d,
         ToolpathTypeId::Pocket2d,
         ToolpathTypeId::Parallel,
@@ -162,6 +168,11 @@ impl ToolpathTypeId {
         ToolpathTypeId::Drill,
         ToolpathTypeId::Adaptive2d,
         ToolpathTypeId::Engrave,
+        ToolpathTypeId::Contour,
+        ToolpathTypeId::Horizontal,
+        ToolpathTypeId::Spiral,
+        ToolpathTypeId::Scallop,
+        ToolpathTypeId::SteepAndShallow,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -176,6 +187,11 @@ impl ToolpathTypeId {
             ToolpathTypeId::Drill => "drill",
             ToolpathTypeId::Adaptive2d => "adaptive_2d",
             ToolpathTypeId::Engrave => "engrave",
+            ToolpathTypeId::Contour => "contour",
+            ToolpathTypeId::Horizontal => "horizontal",
+            ToolpathTypeId::Spiral => "spiral",
+            ToolpathTypeId::Scallop => "scallop",
+            ToolpathTypeId::SteepAndShallow => "steep_and_shallow",
         }
     }
 
@@ -196,7 +212,27 @@ impl ToolpathTypeId {
             ToolpathTypeId::Drill => super::tables::DRILL,
             ToolpathTypeId::Adaptive2d => super::tables::ADAPTIVE_2D,
             ToolpathTypeId::Engrave => super::tables::ENGRAVE,
+            ToolpathTypeId::Contour => super::tables::CONTOUR,
+            ToolpathTypeId::Horizontal => super::tables::HORIZONTAL,
+            ToolpathTypeId::Spiral => super::tables::SPIRAL,
+            ToolpathTypeId::Scallop => super::tables::SCALLOP,
+            ToolpathTypeId::SteepAndShallow => super::tables::STEEP_AND_SHALLOW,
         }
+    }
+
+    /// 3-D types that follow the surface (D15 §5, D15b §5): stock to leave
+    /// is a normal offset, `top` may equal `bottom`, and there are no
+    /// ramps.
+    pub fn follows_surface(self) -> bool {
+        matches!(
+            self,
+            ToolpathTypeId::Parallel
+                | ToolpathTypeId::Contour
+                | ToolpathTypeId::Horizontal
+                | ToolpathTypeId::Spiral
+                | ToolpathTypeId::Scallop
+                | ToolpathTypeId::SteepAndShallow
+        )
     }
 
     /// The fields of one group.

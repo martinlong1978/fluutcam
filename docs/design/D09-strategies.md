@@ -231,6 +231,24 @@ slope limits: keep only portions whose contact normal is steeper than min angle
 On vertical cylinders, cones and tori the trace detects a single analytic contact face and
 emits an arc directly (D08 §4.3).
 
+**M6 (2026-11-01).** Built without plane sections ([plan](../plan/2026-11-01-m6-3d-finishing.md), CH-03):
+- *Seeds* come from the drop function, not from sections: lines along X at most R/2 apart.
+  Each line's τ profile is sampled once (chords within tol/4) and gives the crossings of
+  every level.
+- *Tracing* corrects along the contact direction (axis to contact, where τ rises) with a
+  bracketed regula falsi to 10⁻⁷ mm, keeping the point on the τ ≤ z side. It needs no
+  gradient, so cliffs (a flat tool at a wall) are traced too. Near inside corners it falls
+  back to a circle search.
+- *Steps* are at most R/2; a step is halved while the turn of the contact direction implies
+  a sagitta over tol/4.
+- *Levels* are classified at z + 10⁻⁶ mm (CH-03).
+- *Cliffs.* Where τ jumps, slope and drive face come from the wall at the level.
+- *Region:* the drive box grown by R + stock + tol, limited by the boundary.
+- *Links* between levels go across at the upper level, checked against that level's traced
+  contours, then straight down.
+- *`by_area`* joins loops at adjacent levels whose boxes overlap.
+- *Not built:* arcs from single analytic contacts, and `rayon`.
+
 ### 4.5 `horizontal`
 
 ```
@@ -239,6 +257,10 @@ per flat (grouped by equal height): area = face region offset by −R (tool stay
     minus areas where the tool collides with walls (section just above the flat, offset by R)
     clear with offset pattern at z = flat height + axial stock_to_leave
 ```
+
+**M6 (2026-11-01).** The walls come from the waterline just above the flat with the cutter
+grown by the stock to leave, not from a section offset by R ([plan](../plan/2026-11-01-m6-3d-finishing.md)). That is exact for
+sloped walls too. Raster as well as offset; the 2-D linker.
 
 ### 4.6 `spiral`
 
@@ -251,6 +273,11 @@ clip spiral by region exactly (arc ∩ region boundary); sample CL along each ke
 machine_corners: after the spiral, a contour pass along the region boundary to clear corners
 direction: inside-out or outside-in
 ```
+
+**M6 (2026-11-01).** The spiral is evaluated exactly rather than as a biarc chain, since the
+output is lines through CL points ([plan](../plan/2026-11-01-m6-3d-finishing.md)). The region is the drive box (the silhouette,
+D03 §5.3, is still owed). For curved drives the sampler also checks the drop at each chord's
+middle.
 
 ### 4.7 `scallop`
 
@@ -268,6 +295,10 @@ Design: approximate each pass as an offset of the previous one by the minimum `s
 pass (conservative: scallop never exceeds the target), then insert extra passes where the 3-D
 gap exceeds `s` (CH-18).
 
+**M6 (2026-11-01).** The step is s·cos θ, θ the steepest cut contact on passes k and k+1,
+rechecked against the next pass; it is never below s/10 ([plan](../plan/2026-11-01-m6-3d-finishing.md), CH-18). `continuous`
+ends a loop one step early and links along the surface to the next.
+
 ### 4.8 `steep_and_shallow`
 
 ```
@@ -278,6 +309,11 @@ steep part: contour (§4.4) restricted to steep areas (slope limit = threshold)
 shallow part: parallel (§4.3) or scallop (§4.7) restricted to the shallow region
 order: steep first by default (param)
 ```
+
+**M6 (2026-11-01).** The shallow region is not traced as an iso-slope curve. It is the cut
+runs of a probe `parallel` (slopes up to the threshold), widened into strips one stepover
+wide, unioned and offset by `overlap`: exact along the probe passes, within the stepover
+across them ([plan](../plan/2026-11-01-m6-3d-finishing.md)).
 
 ## 5. Rotary types
 

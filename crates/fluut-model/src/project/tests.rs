@@ -93,7 +93,7 @@ fn example_type(block: &str) -> Option<ToolpathTypeId> {
 
 #[test]
 fn every_d15b_example_round_trips() {
-    // D15b §2–§3 examples of the types this build has (D15 §6 test).
+    // D15b examples of the types this build has (D15 §6 test).
     let mut seen = Vec::new();
     for (h, block) in doc_examples("D15b-toolpath-parameters-2.md") {
         let Some(kind) = example_type(&block) else {
@@ -114,7 +114,12 @@ fn every_d15b_example_round_trips() {
             "engrave",
             "chamfer_2d",
             "bore",
-            "drill"
+            "drill",
+            "contour",
+            "horizontal",
+            "spiral",
+            "scallop",
+            "steep_and_shallow"
         ]
     );
 }

@@ -483,6 +483,94 @@ pub struct Engrave {
     pub corner_sharpening: bool,
 }
 
+/// `contour` (waterline, D15b §5.1).
+#[derive(Clone, PartialEq, Debug)]
+pub struct Contour {
+    pub step_down: f64,
+    pub scallop_height: Option<f64>,
+    pub min_slope_deg: f64,
+    pub max_slope_deg: f64,
+    pub direction: CutDirection,
+}
+
+/// `horizontal` (D15b §5.2).
+#[derive(Clone, PartialEq, Debug)]
+pub struct Horizontal {
+    pub pattern: Pattern,
+    pub stepover: Option<f64>,
+    pub pass_angle_deg: f64,
+    pub direction: CutDirection,
+}
+
+/// `spiral` (D15b §5.3).
+#[derive(Clone, PartialEq, Debug)]
+pub struct Spiral {
+    /// Model frame M; `None`: the centroid of the region.
+    pub centre: Option<[f64; 3]>,
+    pub stepover: Option<f64>,
+    pub scallop_height: Option<f64>,
+    pub direction: OffsetOrder,
+    /// Counter-clockwise seen from +Z of W.
+    pub ccw: bool,
+    pub machine_corners: bool,
+}
+
+/// `scallop` (D15b §5.4).
+#[derive(Clone, PartialEq, Debug)]
+pub struct Scallop {
+    pub stepover: Option<f64>,
+    pub scallop_height: Option<f64>,
+    /// Order of the loops.
+    pub direction: OffsetOrder,
+    /// Travel along each loop.
+    pub cut_direction: CutDirection,
+    pub continuous: bool,
+    pub min_slope_deg: f64,
+    pub max_slope_deg: f64,
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum RegionOrder {
+    SteepFirst,
+    ShallowFirst,
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum ShallowPattern {
+    Parallel,
+    Scallop,
+}
+
+/// `steep.*` of `steep_and_shallow`: as `contour`.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Steep {
+    pub step_down: f64,
+    pub scallop_height: Option<f64>,
+    pub direction: CutDirection,
+}
+
+/// `shallow.*` of `steep_and_shallow`: as `parallel` or `scallop`.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Shallow {
+    pub pattern: ShallowPattern,
+    pub stepover: Option<f64>,
+    pub scallop_height: Option<f64>,
+    pub pass_angle_deg: f64,
+    /// `Zigzag` only with the `parallel` pattern; `Climb` and
+    /// `Conventional` are the cut direction of `scallop`.
+    pub direction: ParallelDirection,
+}
+
+/// `steep_and_shallow` (D15b §5.5).
+#[derive(Clone, PartialEq, Debug)]
+pub struct SteepAndShallow {
+    pub threshold_deg: f64,
+    pub overlap: f64,
+    pub region_order: RegionOrder,
+    pub steep: Steep,
+    pub shallow: Shallow,
+}
+
 #[derive(Clone, PartialEq, Debug)]
 pub enum TypeParams {
     Contour2d(Contour2d),
@@ -495,6 +583,11 @@ pub enum TypeParams {
     Drill(Drill),
     Adaptive2d(Adaptive2d),
     Engrave(Engrave),
+    Contour(Contour),
+    Horizontal(Horizontal),
+    Spiral(Spiral),
+    Scallop(Scallop),
+    SteepAndShallow(SteepAndShallow),
 }
 
 /// Every parameter of a toolpath with defaults applied.
@@ -527,6 +620,41 @@ impl ResolvedParams {
     pub fn parallel(&self) -> Option<&Parallel> {
         match &self.ty {
             TypeParams::Parallel(c) => Some(c),
+            _ => None,
+        }
+    }
+
+    pub fn contour3d(&self) -> Option<&Contour> {
+        match &self.ty {
+            TypeParams::Contour(c) => Some(c),
+            _ => None,
+        }
+    }
+
+    pub fn horizontal(&self) -> Option<&Horizontal> {
+        match &self.ty {
+            TypeParams::Horizontal(c) => Some(c),
+            _ => None,
+        }
+    }
+
+    pub fn spiral(&self) -> Option<&Spiral> {
+        match &self.ty {
+            TypeParams::Spiral(c) => Some(c),
+            _ => None,
+        }
+    }
+
+    pub fn scallop(&self) -> Option<&Scallop> {
+        match &self.ty {
+            TypeParams::Scallop(c) => Some(c),
+            _ => None,
+        }
+    }
+
+    pub fn steep_and_shallow(&self) -> Option<&SteepAndShallow> {
+        match &self.ty {
+            TypeParams::SteepAndShallow(c) => Some(c),
             _ => None,
         }
     }
@@ -589,10 +717,15 @@ impl ResolvedParams {
             TypeParams::Trace(p) => p.step_down,
             TypeParams::Adaptive2d(p) => p.step_down,
             TypeParams::Engrave(p) => p.step_down,
+            TypeParams::Contour(c) => Some(c.step_down),
             TypeParams::Parallel(_)
             | TypeParams::Chamfer2d(_)
             | TypeParams::Bore(_)
-            | TypeParams::Drill(_) => None,
+            | TypeParams::Drill(_)
+            | TypeParams::Horizontal(_)
+            | TypeParams::Spiral(_)
+            | TypeParams::Scallop(_)
+            | TypeParams::SteepAndShallow(_) => None,
         }
     }
 
@@ -602,7 +735,12 @@ impl ResolvedParams {
             TypeParams::Pocket2d(p) => p.stepover,
             TypeParams::Parallel(p) => p.stepover,
             TypeParams::Face(p) => p.stepover,
-            TypeParams::Contour2d(_)
+            TypeParams::Horizontal(p) => p.stepover,
+            TypeParams::Spiral(p) => p.stepover,
+            TypeParams::Scallop(p) => p.stepover,
+            TypeParams::SteepAndShallow(p) => p.shallow.stepover,
+            TypeParams::Contour(_)
+            | TypeParams::Contour2d(_)
             | TypeParams::Trace(_)
             | TypeParams::Chamfer2d(_)
             | TypeParams::Bore(_)
@@ -904,6 +1042,76 @@ pub fn resolve(p: &Params, tool: &Tool, material: Option<&str>) -> ResolvedParam
             min_slope_deg: g.num_or("passes.min_slope_deg", 0.0),
             max_slope_deg: g.num_or("passes.max_slope_deg", 90.0),
         }),
+        ToolpathTypeId::Contour => TypeParams::Contour(Contour {
+            step_down: g.num_or("passes.step_down", 0.1 * d),
+            scallop_height: g.num("passes.scallop_height"),
+            min_slope_deg: g.num_or("passes.min_slope_deg", 0.0),
+            max_slope_deg: g.num_or("passes.max_slope_deg", 90.0),
+            direction: direction(g.text("passes.direction")),
+        }),
+        ToolpathTypeId::Horizontal => TypeParams::Horizontal(Horizontal {
+            pattern: match g.text("passes.pattern") {
+                "raster" => Pattern::Raster,
+                _ => Pattern::Offset,
+            },
+            stepover: g.or_preset("passes.stepover", "stepover"),
+            pass_angle_deg: g.num_or("passes.pass_angle_deg", 0.0),
+            direction: direction(g.text("passes.direction")),
+        }),
+        ToolpathTypeId::Spiral => TypeParams::Spiral(Spiral {
+            centre: g.point("passes.centre"),
+            stepover: g.or_preset("passes.stepover", "stepover"),
+            scallop_height: g.num("passes.scallop_height"),
+            direction: match g.text("passes.direction") {
+                "outside_in" => OffsetOrder::OutsideIn,
+                _ => OffsetOrder::InsideOut,
+            },
+            ccw: g.text("passes.rotation") != "cw",
+            machine_corners: g.flag("passes.machine_corners", false),
+        }),
+        ToolpathTypeId::Scallop => TypeParams::Scallop(Scallop {
+            stepover: g.or_preset("passes.stepover", "stepover"),
+            scallop_height: g.num("passes.scallop_height"),
+            direction: match g.text("passes.direction") {
+                "inside_out" => OffsetOrder::InsideOut,
+                _ => OffsetOrder::OutsideIn,
+            },
+            cut_direction: direction(g.text("passes.cut_direction")),
+            continuous: g.flag("passes.continuous", false),
+            min_slope_deg: g.num_or("passes.min_slope_deg", 0.0),
+            max_slope_deg: g.num_or("passes.max_slope_deg", 90.0),
+        }),
+        ToolpathTypeId::SteepAndShallow => {
+            let pattern = match g.text("passes.shallow.pattern") {
+                "scallop" => ShallowPattern::Scallop,
+                _ => ShallowPattern::Parallel,
+            };
+            TypeParams::SteepAndShallow(SteepAndShallow {
+                threshold_deg: g.num_or("passes.threshold_deg", 45.0),
+                overlap: g.num_or("passes.overlap", 0.2 * d),
+                region_order: match g.text("passes.region_order") {
+                    "shallow_first" => RegionOrder::ShallowFirst,
+                    _ => RegionOrder::SteepFirst,
+                },
+                steep: Steep {
+                    step_down: g.num_or("passes.steep.step_down", 0.1 * d),
+                    scallop_height: g.num("passes.steep.scallop_height"),
+                    direction: direction(g.text("passes.steep.direction")),
+                },
+                shallow: Shallow {
+                    pattern,
+                    stepover: g.or_preset("passes.shallow.stepover", "stepover"),
+                    scallop_height: g.num("passes.shallow.scallop_height"),
+                    pass_angle_deg: g.num_or("passes.shallow.pass_angle_deg", 0.0),
+                    direction: match (g.text("passes.shallow.direction"), pattern) {
+                        ("climb", _) => ParallelDirection::Climb,
+                        ("conventional", _) => ParallelDirection::Conventional,
+                        ("zigzag", _) | (_, ShallowPattern::Parallel) => ParallelDirection::Zigzag,
+                        (_, ShallowPattern::Scallop) => ParallelDirection::Climb,
+                    },
+                },
+            })
+        }
         ToolpathTypeId::Face => TypeParams::Face(Face {
             stepover: g.or_preset("passes.stepover", "stepover"),
             direction: parallel_direction(g.text("passes.direction")),

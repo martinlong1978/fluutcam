@@ -8,7 +8,7 @@ use crate::cutter::geom::{BuildOptions, QueryGeometry, curve_box};
 use crate::cutter::solve::{Contact, ContactOn, SolveStats};
 use crate::cutter::{Cutter, DropOptions, drop};
 use crate::geometry::{BodyGeom, SetupGeometry, face_id};
-use fluut_geom::{Aabb3, Curve3, Interval, Point2, Point3};
+use fluut_geom::{Aabb3, Curve3, Interval, Point2, Point3, Vec2};
 use std::cell::Cell;
 use std::collections::BTreeSet;
 use std::f64::consts::FRAC_PI_2;
@@ -33,6 +33,19 @@ pub struct Hit {
     pub slope: f64,
     /// The contact is on a drive face, or on an edge or vertex of one.
     pub drive: bool,
+}
+
+/// A drop with what a waterline needs.
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub struct Probe {
+    pub tip: f64,
+    /// As [`Hit::slope`], except that an edge or vertex on the rim of a
+    /// flat tool counts as vertical.
+    pub slope: f64,
+    pub drive: bool,
+    /// Unit XY vector from the tool axis to the contact (zero when the
+    /// contact is on the axis): τ rises along it.
+    pub toward: Vec2,
 }
 
 /// Drop queries on the drive and check faces of a Setup (excluded faces
@@ -143,6 +156,100 @@ impl<'a> SurfaceQuery<'a> {
     /// The highest tool position with its axis through `(x, y)`; `None`
     /// if nothing is under the tool.
     pub fn drop(&self, x: f64, y: f64) -> Option<Hit> {
+        let (b, c) = self.best(x, y)?;
+        Some(Hit {
+            tip: c.tau + self.stock,
+            slope: self.slope(b, x, y, &c),
+            drive: self.is_drive(b, &c),
+        })
+    }
+
+    /// As [`SurfaceQuery::drop`], with the contact direction and the slope
+    /// a waterline uses (D09 §4.4).
+    pub fn probe(&self, x: f64, y: f64) -> Option<Probe> {
+        let (b, c) = self.best(x, y)?;
+        let (dx, dy) = (c.point.x() - x, c.point.y() - y);
+        let d = libm::hypot(dx, dy);
+        let toward = if d > 1e-12 {
+            Vec2::new(dx / d, dy / d)
+        } else {
+            Vec2::new(0.0, 0.0)
+        };
+        let mut slope = self.slope(b, x, y, &c);
+        // On the rim of a flat tool an edge or a vertex is a wall: τ jumps
+        // there.
+        if self.cutter.corner() == 0.0
+            && d - self.cutter.radius() >= -FLAT_EPS
+            && !matches!(c.on, ContactOn::Face { .. })
+        {
+            slope = FRAC_PI_2;
+        }
+        Some(Probe {
+            tip: c.tau + self.stock,
+            slope,
+            drive: self.is_drive(b, &c),
+            toward,
+        })
+    }
+
+    /// The face the side of the tool touches when its tip is at `z` with
+    /// the axis at `p`, facing `n` (unit XY, towards the material): for a
+    /// waterline at a cliff, where the drop's contact is on top of the wall,
+    /// not at the level. The nearest face point within `eps` of the side of
+    /// the (grown) cutter at the top of its corner. `(slope, drive)`.
+    pub fn wall_at(&self, p: Point2, n: Vec2, z: f64, eps: f64) -> Option<(f64, bool)> {
+        let c = &self.cutter;
+        let q = Point3::new(
+            p.x() + n.x() * c.radius(),
+            p.y() + n.y() * c.radius(),
+            z - self.stock + c.corner(),
+        );
+        let bx = Aabb3 {
+            min: Point3::new(q.x() - eps, q.y() - eps, q.z() - eps),
+            max: Point3::new(q.x() + eps, q.y() + eps, q.z() + eps),
+        };
+        let tol = fluut_geom::Tol::for_machining(1e-6, 1e-3);
+        let mut best: Option<(f64, f64, bool)> = None;
+        for b in &self.bodies {
+            for i in b.q.bvh.query(&bx) {
+                let crate::cutter::geom::Prim::Face { face, uv } = b.q.prims[i as usize] else {
+                    continue;
+                };
+                let Some(qf) = &b.q.faces[face as usize] else {
+                    continue;
+                };
+                let f = &b.q.body.faces[face as usize];
+                let srf = &b.q.body.surfaces[f.surface as usize];
+                let cp = srf.closest(q, uv, &tol);
+                // The trim takes analytic parameters in their base period.
+                let (u, v) = match srf {
+                    fluut_geom::Surface::BSpline(_)
+                    | fluut_geom::Surface::Extrusion { .. }
+                    | fluut_geom::Surface::Revolution { .. }
+                    | fluut_geom::Surface::Offset { .. } => (cp.u, cp.v),
+                    _ => crate::cutter::solve::analytic_uv(srf, cp.point),
+                };
+                if cp.dist > eps || !qf.trim.contains(u, v) {
+                    continue;
+                }
+                if best.is_some_and(|(d, _, _)| d <= cp.dist) {
+                    continue;
+                }
+                let slope = srf.normal(cp.u, cp.v).map_or(FRAC_PI_2, |nn| {
+                    let nz = if f.same_sense {
+                        nn.get().z()
+                    } else {
+                        -nn.get().z()
+                    };
+                    libm::acos(nz.clamp(-1.0, 1.0))
+                });
+                best = Some((cp.dist, slope, b.drive_face[face as usize]));
+            }
+        }
+        best.map(|(_, s, d)| (s, d))
+    }
+
+    fn best(&self, x: f64, y: f64) -> Option<(&BodyQuery<'a>, Contact)> {
         self.drops.set(self.drops.get() + 1);
         let mut best: Option<(&BodyQuery, Contact)> = None;
         let mut st = SolveStats::default();
@@ -154,17 +261,15 @@ impl<'a> SurfaceQuery<'a> {
                 best = Some((b, c));
             }
         }
-        let (b, c) = best?;
-        let drive = match c.on {
+        best
+    }
+
+    fn is_drive(&self, b: &BodyQuery, c: &Contact) -> bool {
+        match c.on {
             ContactOn::Face { face, .. } => b.drive_face[face as usize],
             ContactOn::Edge { edge, .. } => b.drive_edge[edge as usize],
             ContactOn::Vertex(v) => b.drive_vertex[v as usize],
-        };
-        Some(Hit {
-            tip: c.tau + self.stock,
-            slope: self.slope(b, x, y, &c),
-            drive,
-        })
+        }
     }
 
     /// Slope at contact `c` of the grown cutter with its axis at `(x, y)`.
