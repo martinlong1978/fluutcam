@@ -337,6 +337,37 @@ fn errors_and_usage() {
     assert!(fluut(&["--version"]).status.success());
 }
 
+#[test]
+fn an_earlier_crash_report_is_announced_once() {
+    let data = tmp("crash-data");
+    let reports = data.join("crashes");
+    std::fs::create_dir_all(&reports).unwrap();
+    std::fs::write(reports.join("crash-1-2.txt"), "report").unwrap();
+    let run = || {
+        Command::new(env!("CARGO_BIN_EXE_fluut"))
+            .arg("calc")
+            .env("FLUUT_DATA_DIR", &data)
+            .output()
+            .unwrap()
+    };
+    let first = String::from_utf8_lossy(&run().stderr).into_owned();
+    assert!(first.contains("the last run crashed"), "{first}");
+    assert!(first.contains("Nothing was sent"), "{first}");
+    assert!(reports.join("crash-1-2.seen.txt").is_file());
+    let second = String::from_utf8_lossy(&run().stderr).into_owned();
+    assert!(!second.contains("crashed"), "{second}");
+}
+
+#[test]
+fn version_names_the_workspace_version() {
+    let o = fluut(&["--version"]);
+    assert_eq!(
+        String::from_utf8_lossy(&o.stdout).trim(),
+        format!("fluut {}", fluut_core::build_info::version_string())
+    );
+    assert!(String::from_utf8_lossy(&o.stdout).starts_with("fluut 0.1.0"));
+}
+
 /// A reference project: its directory and STEP stem, the writer of its
 /// part, the toolpaths, and the work zero (the front left stock top
 /// corner) for an unshifted part.

@@ -1,0 +1,336 @@
+# Release workflow (design D14 §5, spec 06 §6.2).
+#
+# Pushing a tag `vX.Y.Z` builds release binaries for Windows, macOS and Linux,
+# packages them, adds an SBOM, checksums and the update manifest, and creates a
+# DRAFT GitHub release. A person publishes the draft after looking at it.
+#
+# Signing is optional. Every signing, notarisation and verification step is
+# guarded on its secrets being set; without them the workflow still makes
+# unsigned packages. The `secrets` context cannot be used in a step `if`, so
+# the `check` job reports which secrets exist as outputs (`sign_*`), and the
+# signing steps test those. Each secret is given only to the step that uses
+# it, never to a step that builds code. The secrets to provide are listed in
+# docs/plan/2026-11-01-m8-release.md.
+
+name: Release
+
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+*"]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # The tag must name the workspace version, so a package never carries a
+  # different version than its tag.
+  check:
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      epoch: ${{ steps.v.outputs.epoch }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+      sign_windows: ${{ steps.secrets.outputs.windows }}
+      sign_macos: ${{ steps.secrets.outputs.macos }}
+      notarise_macos: ${{ steps.secrets.outputs.notarise }}
+      sign_minisign: ${{ steps.secrets.outputs.minisign }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show
+      - id: v
+        run: |
+          version=$(cargo xtask version)
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match the workspace version $version"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          # SOURCE_DATE_EPOCH: the commit time (D14 §5.4).
+          echo "epoch=$(git log -1 --format=%ct)" >> "$GITHUB_OUTPUT"
+          case "$version" in *-*) pre=true ;; *) pre=false ;; esac
+          echo "prerelease=$pre" >> "$GITHUB_OUTPUT"
+      - id: secrets
+        name: Which signing secrets are set?
+        env:
+          WINDOWS_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+          MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
+          MINISIGN_PUBLIC_KEY: ${{ secrets.MINISIGN_PUBLIC_KEY }}
+        run: |
+          all_set() { for v in "$@"; do [ -n "${!v}" ] || return 1; done; }
+          flag() { if all_set "${@:2}"; then echo "$1=true"; else echo "$1=false"; fi; }
+          {
+            flag windows WINDOWS_CERT_PFX_BASE64 WINDOWS_CERT_PASSWORD
+            flag macos MACOS_CERT_P12_BASE64 MACOS_CERT_PASSWORD MACOS_SIGN_IDENTITY
+            flag notarise MACOS_CERT_P12_BASE64 MACOS_CERT_PASSWORD MACOS_SIGN_IDENTITY APPLE_ID APPLE_TEAM_ID APPLE_APP_PASSWORD
+            flag minisign MINISIGN_SECRET_KEY MINISIGN_PUBLIC_KEY
+          } | tee -a "$GITHUB_OUTPUT"
+
+  build:
+    needs: check
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { name: windows-x86_64, os: windows-latest, target: x86_64-pc-windows-msvc, ext: ".exe" }
+          - { name: linux-x86_64, os: ubuntu-22.04, target: x86_64-unknown-linux-gnu, ext: "" }
+          - { name: macos-aarch64, os: macos-latest, target: aarch64-apple-darwin, ext: "" }
+          - { name: macos-x86_64, os: macos-latest, target: x86_64-apple-darwin, ext: "" }
+    runs-on: ${{ matrix.os }}
+    env:
+      SOURCE_DATE_EPOCH: ${{ needs.check.outputs.epoch }}
+      # Fixed seed for compile-time random constants (ahash), so builds repeat.
+      CONST_RANDOM_SEED: fluutcam-release
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show
+      - run: rustup target add ${{ matrix.target }}
+      - name: Release flags (path remapping, control-flow guard)
+        shell: bash
+        run: echo "RUSTFLAGS=$(cargo xtask rustflags)" >> "$GITHUB_ENV"
+      - name: Build
+        run: cargo build --release --locked --target ${{ matrix.target }} -p fluut-cli -p fluut-app
+      - name: Collect binaries
+        shell: bash
+        run: |
+          mkdir bin
+          for b in fluut fluutcam; do
+            cp "target/${{ matrix.target }}/release/$b${{ matrix.ext }}" bin/
+          done
+
+      # Authenticode signs PE files, not zips, so the executables are signed
+      # here, before they are packed.
+      - name: Sign executables (Authenticode)
+        if: ${{ matrix.name == 'windows-x86_64' && needs.check.outputs.sign_windows == 'true' }}
+        shell: pwsh
+        env:
+          WINDOWS_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: |
+          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" |
+            Sort-Object FullName | Select-Object -Last 1
+          [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\cert.pfx", [Convert]::FromBase64String($env:WINDOWS_CERT_PFX_BASE64))
+          try {
+            foreach ($exe in "bin\fluut.exe", "bin\fluutcam.exe") {
+              & $signtool.FullName sign /fd SHA256 /f "$env:RUNNER_TEMP\cert.pfx" /p $env:WINDOWS_CERT_PASSWORD `
+                /tr http://timestamp.digicert.com /td SHA256 $exe
+              if ($LASTEXITCODE -ne 0) { throw "signtool sign failed for $exe" }
+            }
+          } finally {
+            Remove-Item "$env:RUNNER_TEMP\cert.pfx" -Force -ErrorAction SilentlyContinue
+          }
+      - name: Verify signatures
+        if: ${{ matrix.name == 'windows-x86_64' && needs.check.outputs.sign_windows == 'true' }}
+        shell: pwsh
+        run: |
+          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" |
+            Sort-Object FullName | Select-Object -Last 1
+          foreach ($exe in "bin\fluut.exe", "bin\fluutcam.exe") {
+            & $signtool.FullName verify /pa /v $exe
+            if ($LASTEXITCODE -ne 0) { throw "signature check failed for $exe" }
+          }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bin-${{ matrix.name }}
+          path: bin/
+          if-no-files-found: error
+
+  # Archives that need no platform tools: the Windows zip and the Linux
+  # tarball are written by `cargo xtask package`, with the same bytes for the
+  # same input.
+  package-portable:
+    needs: [check, build]
+    runs-on: ubuntu-22.04
+    env:
+      SOURCE_DATE_EPOCH: ${{ needs.check.outputs.epoch }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: bin-*
+          path: in
+      - run: cargo xtask icons icons
+      - run: |
+          cargo xtask package --platform windows-x86_64 --bin-dir in/bin-windows-x86_64 --icons icons --out dist
+          cargo xtask package --platform linux-x86_64 --bin-dir in/bin-linux-x86_64 --icons icons --out dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-portable
+          path: dist/
+          if-no-files-found: error
+
+  package-macos:
+    needs: [check, build]
+    runs-on: macos-latest
+    env:
+      SOURCE_DATE_EPOCH: ${{ needs.check.outputs.epoch }}
+      VERSION: ${{ needs.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: bin-macos-*
+          path: in
+      - name: Universal binaries
+        run: |
+          mkdir bin
+          for b in fluut fluutcam; do
+            lipo -create -output "bin/$b" "in/bin-macos-aarch64/$b" "in/bin-macos-x86_64/$b"
+            chmod +x "bin/$b"
+            lipo -info "bin/$b"
+          done
+      - run: cargo xtask icons icons
+      - run: cargo xtask package --platform macos-universal --bin-dir bin --icons icons --out dist
+
+      - name: Import signing certificate
+        if: ${{ needs.check.outputs.sign_macos == 'true' }}
+        env:
+          MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          kc="$RUNNER_TEMP/build.keychain"
+          pw=$(uuidgen)
+          echo "$MACOS_CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$pw" "$kc"
+          security set-keychain-settings -lut 3600 "$kc"
+          security unlock-keychain -p "$pw" "$kc"
+          security import "$RUNNER_TEMP/cert.p12" -k "$kc" -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$pw" "$kc"
+          security list-keychains -d user -s "$kc" login.keychain
+          rm -f "$RUNNER_TEMP/cert.p12"
+      - name: Sign the app (Developer ID)
+        if: ${{ needs.check.outputs.sign_macos == 'true' }}
+        env:
+          MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+        run: |
+          app=dist/FluutCAM.app
+          for f in "$app/Contents/MacOS/fluut" "$app/Contents/MacOS/fluutcam" "$app"; do
+            codesign --force --options runtime --timestamp --sign "$MACOS_SIGN_IDENTITY" "$f"
+          done
+          codesign --verify --strict --verbose=2 "$app"
+      # A universal binary made by lipo has lost its signature, and Apple
+      # Silicon refuses to run unsigned code, so unsigned builds are signed
+      # ad hoc.
+      - name: Sign the app ad hoc (no certificate)
+        if: ${{ needs.check.outputs.sign_macos != 'true' }}
+        run: |
+          app=dist/FluutCAM.app
+          codesign --force --sign - "$app/Contents/MacOS/fluut"
+          codesign --force --sign - "$app/Contents/MacOS/fluutcam"
+          codesign --force --sign - "$app"
+
+      - name: Disk image
+        run: |
+          mkdir dmg
+          cp -R dist/FluutCAM.app dmg/
+          ln -s /Applications dmg/Applications
+          hdiutil create -volname FluutCAM -srcfolder dmg -ov -format UDZO \
+            "dist/fluutcam-$VERSION-macos-universal.dmg"
+          rm -rf dist/FluutCAM.app dmg
+      - name: Sign the disk image
+        if: ${{ needs.check.outputs.sign_macos == 'true' }}
+        env:
+          MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+        run: |
+          dmg="dist/fluutcam-$VERSION-macos-universal.dmg"
+          codesign --force --timestamp --sign "$MACOS_SIGN_IDENTITY" "$dmg"
+          codesign --verify --verbose=2 "$dmg"
+      - name: Notarise and staple
+        if: ${{ needs.check.outputs.notarise_macos == 'true' }}
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          dmg="dist/fluutcam-$VERSION-macos-universal.dmg"
+          xcrun notarytool submit "$dmg" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_PASSWORD" --wait
+          xcrun stapler staple "$dmg"
+          xcrun stapler validate "$dmg"
+          spctl --assess --type open --context context:primary-signature --verbose "$dmg"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-macos
+          path: dist/
+          if-no-files-found: error
+
+  release:
+    needs: [check, package-portable, package-macos]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    env:
+      SOURCE_DATE_EPOCH: ${{ needs.check.outputs.epoch }}
+      VERSION: ${{ needs.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          merge-multiple: true
+          path: dist
+
+      # CycloneDX SBOM of the two shipped programs (D14 §5.3).
+      - name: SBOM
+        run: |
+          cargo install cargo-cyclonedx --locked --version 0.5.7
+          cargo cyclonedx --format json
+          for crate in fluut-app fluut-cli; do
+            f=$(find "crates/$crate" -maxdepth 1 \( -name '*.cdx.json' -o -name 'bom.json' \) | head -n 1)
+            if [ -z "$f" ]; then
+              echo "::error::no SBOM written for $crate"
+              exit 1
+            fi
+            cp "$f" "dist/fluutcam-$VERSION-sbom-$crate.cdx.json"
+          done
+
+      - name: Update manifest
+        run: |
+          curl -fsSL "https://github.com/${{ github.repository }}/releases/latest/download/releases.json" \
+            -o previous.json || rm -f previous.json
+          prev=()
+          if [ -f previous.json ]; then prev=(--previous previous.json); fi
+          cargo xtask manifest --dist dist --out dist/releases.json "${prev[@]}" \
+            --base-url "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}"
+          cat dist/releases.json
+      - run: cargo xtask checksums dist
+
+      # minisign (Ed25519) signatures over the manifest and the checksums.
+      - name: Sign manifest and checksums (minisign)
+        if: ${{ needs.check.outputs.sign_minisign == 'true' }}
+        env:
+          MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
+          MINISIGN_PASSWORD: ${{ secrets.MINISIGN_PASSWORD }}
+          MINISIGN_PUBLIC_KEY: ${{ secrets.MINISIGN_PUBLIC_KEY }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y minisign
+          printf '%s\n' "$MINISIGN_SECRET_KEY" > "$RUNNER_TEMP/minisign.key"
+          for f in releases.json SHA256SUMS; do
+            printf '%s\n' "$MINISIGN_PASSWORD" |
+              minisign -S -s "$RUNNER_TEMP/minisign.key" -m "dist/$f" -x "dist/$f.minisig"
+            minisign -V -P "$MINISIGN_PUBLIC_KEY" -m "dist/$f" -x "dist/$f.minisig"
+          done
+          rm -f "$RUNNER_TEMP/minisign.key"
+
+      - name: Draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          args=(--draft --verify-tag --title "FluutCAM $VERSION" --generate-notes)
+          if [ "${{ needs.check.outputs.prerelease }}" = "true" ]; then args+=(--prerelease); fi
+          gh release create "$GITHUB_REF_NAME" dist/* "${args[@]}"

@@ -60,6 +60,22 @@ fn parse(mut it: impl Iterator<Item = String>) -> Result<Args, String> {
     Ok(a)
 }
 
+/// Installs the crash-report hook and tells the user about reports from an
+/// earlier crash (D14 §6). Nothing is sent anywhere.
+fn crash_reports() {
+    use std::io::IsTerminal;
+    let Some(dir) = fluut_core::crash::install("fluut") else {
+        return;
+    };
+    let ask = std::io::stdin().is_terminal() && std::io::stderr().is_terminal();
+    let _ = fluut_core::crash::offer_to_show(
+        &dir,
+        ask,
+        &mut std::io::stdin().lock(),
+        &mut std::io::stderr(),
+    );
+}
+
 fn main() -> ExitCode {
     let mut args = std::env::args().skip(1).peekable();
     match args.peek().map(String::as_str) {
@@ -68,11 +84,12 @@ fn main() -> ExitCode {
             return ExitCode::SUCCESS;
         }
         Some("-V" | "--version") => {
-            println!("fluut {}", env!("CARGO_PKG_VERSION"));
+            println!("fluut {}", fluut_core::build_info::version_string());
             return ExitCode::SUCCESS;
         }
         _ => {}
     }
+    crash_reports();
     if args.peek().map(String::as_str) == Some("run") {
         args.next();
         return match parse_run(args) {
