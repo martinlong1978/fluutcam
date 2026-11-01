@@ -589,6 +589,8 @@ G1 A180
 G1 A270
 G1 A360
 G0 Z25
+(Check the roughed part before finishing)
+M0
 M5
 (6 mm ball)
 T2 M6

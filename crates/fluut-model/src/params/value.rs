@@ -96,6 +96,8 @@ pub enum PValue {
     Num(Num),
     Bool(bool),
     Enum(String),
+    /// Free text (D15b §7 `manual_nc.text`).
+    Text(String),
     Height(HeightSpec),
     Selection(Vec<Sel>),
     Point([Num; 3]),
@@ -255,6 +257,10 @@ pub(crate) fn convert(
             }
             _ => return Err(format!("expected a string, {}", found())),
         },
+        FieldKind::Text => match v {
+            V::String(s) => PValue::Text(s.clone()),
+            _ => return Err(format!("expected a string, {}", found())),
+        },
         FieldKind::Height => PValue::Height(height(v, HEIGHT_REFS, "a height reference")?),
         FieldKind::XPos => PValue::Height(height(v, X_REFS, "an X reference")?),
         FieldKind::Selection => PValue::Selection(selection(v)?),
@@ -362,7 +368,7 @@ pub(crate) fn write_value(v: &PValue) -> String {
     match v {
         PValue::Num(n) => n.to_toml(),
         PValue::Bool(b) => b.to_string(),
-        PValue::Enum(s) => quote(s),
+        PValue::Enum(s) | PValue::Text(s) => quote(s),
         PValue::Height(h) => match h.offset {
             None => format!("{{ ref = {} }}", quote(&h.reference)),
             Some(o) => format!(

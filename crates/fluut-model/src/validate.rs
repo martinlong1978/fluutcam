@@ -89,6 +89,10 @@ impl<'a> ValidateCx<'a> {
 /// Validates one toolpath. The diagnostics carry the toolpath id.
 pub fn validate(tp: &Toolpath, cx: &ValidateCx) -> Vec<Diagnostic> {
     let mut out = Vec::new();
+    if tp.kind() == ToolpathTypeId::ManualNc {
+        manual_nc(tp, &mut out);
+        return tag(out, tp);
+    }
     let Some(tool) = cx.tool else {
         out.push(
             Diagnostic::error(
@@ -141,8 +145,54 @@ pub fn validate(tp: &Toolpath, cx: &ValidateCx) -> Vec<Diagnostic> {
         ToolpathTypeId::RotaryAlongX => v.rotary_along_x(),
         ToolpathTypeId::RotaryAroundA => v.rotary_around_a(),
         ToolpathTypeId::RotarySpiral => v.rotary_spiral(),
+        ToolpathTypeId::ManualNc => {}
     }
     tag(out, tp)
+}
+
+/// `manual_nc` has no tool and no geometry (D15b §7). The post rule
+/// `param.manual_nc.post` is checked at post time.
+fn manual_nc(tp: &Toolpath, out: &mut Vec<Diagnostic>) {
+    let kind = match tp.params.get("passes.kind") {
+        Some(PValue::Enum(s)) => s.as_str(),
+        _ => "optional_stop",
+    };
+    let text = match tp.params.get("passes.text") {
+        Some(PValue::Text(t)) => Some(t.as_str()),
+        _ => None,
+    };
+    if matches!(kind, "comment" | "pass_through") && text.is_none_or(str::is_empty) {
+        out.push(
+            Diagnostic::error(
+                "param.manual_nc.text.required",
+                format!("a `{kind}` item needs a text"),
+            )
+            .at("passes.text"),
+        );
+    }
+    if kind == "dwell" && text.is_some() {
+        out.push(
+            Diagnostic::warning(
+                "param.manual_nc.text.unused",
+                "the text of a dwell is ignored",
+            )
+            .at("passes.text"),
+        );
+    }
+    let dwell = tp
+        .params
+        .get("passes.dwell_s")
+        .and_then(PValue::num)
+        .unwrap_or(1.0);
+    if dwell <= 0.0 {
+        out.push(
+            Diagnostic::error(
+                "param.manual_nc.dwell.range",
+                format!("dwell {dwell} s must be above 0"),
+            )
+            .at("passes.dwell_s"),
+        );
+    }
 }
 
 fn tag(out: Vec<Diagnostic>, tp: &Toolpath) -> Vec<Diagnostic> {

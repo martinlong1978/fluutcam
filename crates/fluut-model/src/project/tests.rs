@@ -120,7 +120,8 @@ fn every_d15b_example_round_trips() {
             "rotary_rough",
             "rotary_along_x",
             "rotary_around_a",
-            "rotary_spiral"
+            "rotary_spiral",
+            "manual_nc"
         ]
     );
 }

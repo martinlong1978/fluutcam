@@ -75,6 +75,8 @@ pub enum FieldKind {
     Height,
     /// `{ ref, offset }` along X of W (D15b §1.4).
     XPos,
+    /// A string (D15b §7).
+    Text,
     /// Array of `{ body | face | edge = id }` (D15 §2.3.1).
     Selection,
     /// `[x, y, z]` in the model frame, mm.
@@ -156,10 +158,11 @@ pub enum ToolpathTypeId {
     RotaryAlongX,
     RotaryAroundA,
     RotarySpiral,
+    ManualNc,
 }
 
 impl ToolpathTypeId {
-    pub const ALL: [ToolpathTypeId; 16] = [
+    pub const ALL: [ToolpathTypeId; 17] = [
         ToolpathTypeId::Contour2d,
         ToolpathTypeId::Pocket2d,
         ToolpathTypeId::Parallel,
@@ -176,6 +179,7 @@ impl ToolpathTypeId {
         ToolpathTypeId::RotaryAlongX,
         ToolpathTypeId::RotaryAroundA,
         ToolpathTypeId::RotarySpiral,
+        ToolpathTypeId::ManualNc,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -196,6 +200,7 @@ impl ToolpathTypeId {
             ToolpathTypeId::RotaryAlongX => "rotary_along_x",
             ToolpathTypeId::RotaryAroundA => "rotary_around_a",
             ToolpathTypeId::RotarySpiral => "rotary_spiral",
+            ToolpathTypeId::ManualNc => "manual_nc",
         }
     }
 
@@ -222,6 +227,7 @@ impl ToolpathTypeId {
             ToolpathTypeId::RotaryAlongX => super::tables::ROTARY_ALONG_X,
             ToolpathTypeId::RotaryAroundA => super::tables::ROTARY_AROUND_A,
             ToolpathTypeId::RotarySpiral => super::tables::ROTARY_SPIRAL,
+            ToolpathTypeId::ManualNc => super::tables::MANUAL_NC,
         }
     }
 

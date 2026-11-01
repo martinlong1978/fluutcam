@@ -33,6 +33,15 @@ clearance   = { kind = "cylinder", radius = 25 }
     stock_to_leave      = 0.3
 
   [[setup.toolpath]]
+  id   = "t5"
+  name = "Check the part"
+  type = "manual_nc"
+
+    [setup.toolpath.passes]
+    kind = "stop"
+    text = "Check the roughed part before finishing"
+
+  [[setup.toolpath]]
   id   = "t2"
   name = "Square finish"
   type = "rotary_along_x"

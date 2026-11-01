@@ -1184,6 +1184,21 @@ pub(crate) const ROTARY_SPIRAL: &[FieldMeta] = &[
     lead_out(LEAD_NONE),
 ];
 
+// ── manual_nc (D15b §7) ──────────────────────────────────────────────
+
+pub(crate) const MANUAL_NC: &[FieldMeta] = &[
+    f(
+        "kind",
+        Passes,
+        Enum(&["stop", "optional_stop", "comment", "dwell", "pass_through"]),
+        text("optional_stop"),
+        R,
+        false,
+    ),
+    f("text", Passes, Text, NoDefault, R, false),
+    f("dwell_s", Passes, Duration, num(1.0), R, true),
+];
+
 /// Whether `key` is a field of `group` for some type. Used to tell an
 /// undeclared common field (an error, spec 03 §3.10.3) from an unknown key.
 pub fn known_in_any_type(group: Group, key: &str) -> bool {

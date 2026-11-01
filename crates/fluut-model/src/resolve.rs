@@ -571,6 +571,24 @@ pub struct RotarySpiral {
     pub from_end: bool,
 }
 
+/// `manual_nc` (D15b §7): one block in the program.
+#[derive(Clone, PartialEq, Debug)]
+pub enum ManualKind {
+    Stop,
+    OptionalStop,
+    Comment,
+    Dwell,
+    PassThrough,
+}
+
+/// `manual_nc` (D15b §7).
+#[derive(Clone, PartialEq, Debug)]
+pub struct ManualNc {
+    pub kind: ManualKind,
+    pub text: Option<String>,
+    pub dwell_s: f64,
+}
+
 #[derive(Clone, PartialEq, Debug)]
 pub enum TypeParams {
     Contour2d(Contour2d),
@@ -589,6 +607,7 @@ pub enum TypeParams {
     RotaryAlongX(RotaryAlongX),
     RotaryAroundA(RotaryAroundA),
     RotarySpiral(RotarySpiral),
+    ManualNc(ManualNc),
 }
 
 /// Every parameter of a toolpath with defaults applied.
@@ -716,6 +735,13 @@ impl ResolvedParams {
         }
     }
 
+    pub fn manual_nc(&self) -> Option<&ManualNc> {
+        match &self.ty {
+            TypeParams::ManualNc(c) => Some(c),
+            _ => None,
+        }
+    }
+
     /// Step-down of the type, if it has one.
     pub fn step_down(&self) -> Option<f64> {
         match &self.ty {
@@ -730,7 +756,8 @@ impl ResolvedParams {
             TypeParams::RotaryRough(p) => p.radial_step_down,
             TypeParams::RotaryAlongX(_)
             | TypeParams::RotaryAroundA(_)
-            | TypeParams::RotarySpiral(_) => None,
+            | TypeParams::RotarySpiral(_)
+            | TypeParams::ManualNc(_) => None,
             TypeParams::Parallel(_)
             | TypeParams::Chamfer2d(_)
             | TypeParams::Bore(_)
@@ -745,7 +772,9 @@ impl ResolvedParams {
             TypeParams::Parallel(p) => p.stepover,
             TypeParams::Face(p) => p.stepover,
             TypeParams::Pocket3d(p) => p.pocket.stepover,
-            TypeParams::Adaptive3d(_) | TypeParams::RotaryAlongX(_) => None,
+            TypeParams::Adaptive3d(_) | TypeParams::RotaryAlongX(_) | TypeParams::ManualNc(_) => {
+                None
+            }
             TypeParams::RotaryRough(p) => p.stepover_x,
             TypeParams::RotaryAroundA(p) => p.stepover_x,
             TypeParams::RotarySpiral(p) => p.advance,
@@ -1050,6 +1079,20 @@ pub fn resolve(p: &Params, tool: &Tool, material: Option<&str>) -> ResolvedParam
             },
         }),
         ToolpathTypeId::Pocket2d => TypeParams::Pocket2d(pocket(&g)),
+        ToolpathTypeId::ManualNc => TypeParams::ManualNc(ManualNc {
+            kind: match g.text("passes.kind") {
+                "stop" => ManualKind::Stop,
+                "comment" => ManualKind::Comment,
+                "dwell" => ManualKind::Dwell,
+                "pass_through" => ManualKind::PassThrough,
+                _ => ManualKind::OptionalStop,
+            },
+            text: match g.p.get("passes.text") {
+                Some(PValue::Text(t)) => Some(t.clone()),
+                _ => None,
+            },
+            dwell_s: g.num_or("passes.dwell_s", 1.0),
+        }),
         ToolpathTypeId::RotaryRough => TypeParams::RotaryRough(RotaryRough {
             radial_step_down: g.or_preset("passes.radial_step_down", "step_down"),
             stepover_x: g.or_preset("passes.stepover_x", "stepover"),

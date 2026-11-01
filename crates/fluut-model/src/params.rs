@@ -250,6 +250,7 @@ fn fits(kind: FieldKind, v: &PValue) -> bool {
         ) => true,
         (FieldKind::Count, PValue::Num(n)) => n.int,
         (FieldKind::Bool, PValue::Bool(_)) => true,
+        (FieldKind::Text, PValue::Text(_)) => true,
         (FieldKind::Enum(allowed), PValue::Enum(s)) => allowed.contains(&s.as_str()),
         (FieldKind::Height, PValue::Height(h)) => HEIGHT_REFS.contains(&h.reference.as_str()),
         (FieldKind::XPos, PValue::Height(h)) => X_REFS.contains(&h.reference.as_str()),

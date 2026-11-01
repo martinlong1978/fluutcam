@@ -573,6 +573,29 @@ impl Session {
                         continue;
                     }
                 };
+                // `manual_nc` has no tool and no geometry (D15b §7).
+                if t.kind() == fluut_model::params::ToolpathTypeId::ManualNc {
+                    match fluut_cam::strategy::manual_nc(t, rs.kind) {
+                        Ok(g) => {
+                            self.calculated += 1;
+                            let st = *g.result.stats();
+                            self.cache.insert(
+                                hash,
+                                Cached {
+                                    result: Arc::new(g.result),
+                                    diagnostics: g.diagnostics.clone(),
+                                },
+                            );
+                            reports.push(report(
+                                JobState::Done { cached: false },
+                                g.diagnostics,
+                                Some(st),
+                            ));
+                        }
+                        Err(e) => reports.push(report(JobState::Failed, e.diagnostics(), None)),
+                    }
+                    continue;
+                }
                 let Some(tool) = self.tools.get(t.tool_ref()) else {
                     let d = validate(t, &ValidateCx::new(None));
                     reports.push(report(JobState::Failed, d, None));
@@ -693,6 +716,23 @@ impl Session {
             },
         };
         let mut reports = self.calculate_with(&Targets::All, Some(caps));
+        // `manual_nc` needs the post's `manual_nc` block (D15b §7).
+        if !has("manual_nc") {
+            for t in self.project.setups.iter().flat_map(|s| s.toolpaths.iter()) {
+                if t.is_enabled()
+                    && t.kind() == fluut_model::params::ToolpathTypeId::ManualNc
+                    && let Some(rep) = reports.iter_mut().find(|r| r.toolpath == t.id)
+                {
+                    rep.diagnostics.push(
+                        Diagnostic::error(
+                            "param.manual_nc.post",
+                            format!("post `{post_id}` has no manual_nc block"),
+                        )
+                        .on(&t.id),
+                    );
+                }
+            }
+        }
         // Post-dependent rules also for toolpaths taken from the cache.
         let project = self.project.clone();
         for (s, rs) in project.setups.iter().zip(resolve_all(&project)) {
@@ -742,6 +782,30 @@ impl Session {
             let Ok(rs) = rs else { continue };
             let mut toolpaths = Vec::new();
             for t in s.toolpaths.iter().filter(|t| t.is_enabled()) {
+                if t.kind() == fluut_model::params::ToolpathTypeId::ManualNc {
+                    // No tool: the post keeps the active one (D15b §9,
+                    // decision 16) and emits only the markers.
+                    let Some(result) = self.result(&t.id) else {
+                        continue;
+                    };
+                    let prev = toolpaths.last().cloned();
+                    toolpaths.push(ToolpathJob {
+                        name: t.name.clone(),
+                        kind: t.kind().as_str().to_owned(),
+                        result,
+                        ..prev.unwrap_or_else(|| ToolpathJob {
+                            name: String::new(),
+                            kind: String::new(),
+                            tool: ToolInfo::default(),
+                            spindle_rpm: 0.0,
+                            coolant: fluut_post::Coolant::Off,
+                            feeds: Feeds::default(),
+                            safe_z: 0.0,
+                            result: Arc::new(ToolpathResult::new(Vec::new()).expect("empty")),
+                        })
+                    });
+                    continue;
+                }
                 let (Some(result), Some(tool)) = (self.result(&t.id), self.tools.get(t.tool_ref()))
                 else {
                     continue;

@@ -240,6 +240,39 @@ fn golden_rotary() {
     );
 }
 
+/// The 4-axis post without a `manual_nc` block.
+const NO_MANUAL_POST: &str = r#"format  = "fluut.post/1"
+id      = "test/no-manual"
+version = "1.0"
+name    = "No manual NC"
+extends = "shop/linuxcnc-4x@1"
+
+[blocks.manual_nc]
+lines = []
+"#;
+
+#[test]
+fn manual_nc_needs_the_post_block() {
+    let mut s = Session::open(&here("projects/shaft/shaft.fluut"), &[]).unwrap();
+    let mut store = s.library.mem_store(fluut_model::library::DefKind::Post);
+    store.insert_toml(NO_MANUAL_POST).unwrap();
+    let opts = PostOptions {
+        date: "2026-11-01".into(),
+        time: "12:00:00".into(),
+        notes: String::new(),
+    };
+    let e = s.post("test/no-manual", &store, &opts).unwrap_err();
+    assert!(e.iter().any(|d| d.code == "param.manual_nc.post"), "{e:?}");
+    let (out, _) = s.post("shop/linuxcnc-4x", &store, &opts).unwrap();
+    let g = out.files.concat();
+    // The stop comes after the roughing, before the next tool, with no tool
+    // change of its own.
+    let stop = g.lines().position(|l| l == "M0").unwrap();
+    let t2 = g.lines().position(|l| l == "T2 M6").unwrap();
+    assert!(stop < t2);
+    assert_eq!(g.lines().filter(|l| l.ends_with(" M6")).count(), 2);
+}
+
 #[test]
 fn rotary_invariance_along_x() {
     // Moving the part along the rotary axis, with the zero on the stock

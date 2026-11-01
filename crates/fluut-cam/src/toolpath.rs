@@ -5,8 +5,8 @@
 use crate::geometry::SetupGeometry;
 use crate::stock::LayeredStock;
 use crate::strategy::{
-    Adaptive2d, Adaptive3d, Bore, Chamfer2d, Contour2d, Drill, Engrave, Face, Parallel, Pocket2d,
-    Pocket3d, RotaryAlongX, RotaryAroundA, RotaryRough, RotarySpiral, Trace,
+    Adaptive2d, Adaptive3d, Bore, Chamfer2d, Contour2d, Drill, Engrave, Face, ManualNc, Parallel,
+    Pocket2d, Pocket3d, RotaryAlongX, RotaryAroundA, RotaryRough, RotarySpiral, Trace,
 };
 use fluut_geom::{Aabb3, Affine, Point2, Point3};
 use fluut_model::params::{FieldMeta, ToolpathTypeId};
@@ -156,7 +156,8 @@ static ROTARY_ROUGH: RotaryRough = RotaryRough;
 static ROTARY_ALONG_X: RotaryAlongX = RotaryAlongX;
 static ROTARY_AROUND_A: RotaryAroundA = RotaryAroundA;
 static ROTARY_SPIRAL: RotarySpiral = RotarySpiral;
-static REGISTRY: [&dyn ToolpathType; 16] = [
+static MANUAL_NC: ManualNc = ManualNc;
+static REGISTRY: [&dyn ToolpathType; 17] = [
     &CONTOUR_2D,
     &POCKET_2D,
     &PARALLEL,
@@ -173,6 +174,7 @@ static REGISTRY: [&dyn ToolpathType; 16] = [
     &ROTARY_ALONG_X,
     &ROTARY_AROUND_A,
     &ROTARY_SPIRAL,
+    &MANUAL_NC,
 ];
 
 /// Every type of this build (D09 §1).
@@ -198,6 +200,7 @@ pub fn find(id: ToolpathTypeId) -> &'static dyn ToolpathType {
         ToolpathTypeId::RotaryAlongX => &ROTARY_ALONG_X,
         ToolpathTypeId::RotaryAroundA => &ROTARY_AROUND_A,
         ToolpathTypeId::RotarySpiral => &ROTARY_SPIRAL,
+        ToolpathTypeId::ManualNc => &MANUAL_NC,
     }
 }
 
