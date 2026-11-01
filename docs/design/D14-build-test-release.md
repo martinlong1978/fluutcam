@@ -16,7 +16,7 @@ Implements: [S 01 §1.8, §1.8.1], [S 06 §6.1–6.3], OQ-10 (Windows, macOS, Li
 ├─ fuzz/                      cargo-fuzz targets
 ├─ docs/                      spec, design, plans; user and API docs (generated parts from D12 §5)
 ├─ assets/                    brand: logos and app icons as SVG masters (assets/README.md)
-└─ packaging/                 WiX, macOS bundle/notarization, AppImage, Flatpak manifests
+└─ packaging/                 WiX, AppImage and Flatpak manifests (not yet written; §5.2)
 ```
 
 Every source file carries `SPDX-License-Identifier: MIT OR Apache-2.0`.
@@ -28,6 +28,9 @@ Every source file carries `SPDX-License-Identifier: MIT OR Apache-2.0`.
 - Profiles: `release` with `lto = "thin"`, `codegen-units = 1`, `panic = "unwind"` (crash
   reporter needs unwinding to capture state); `bench` inherits release with debug info.
 - Windows: `-C control-flow-guard` [S 06 §6.3]. All platforms: PIE/ASLR, NX defaults.
+  The release flags (CFG, path remapping) come from one place, `cargo xtask rustflags`; the
+  release workflow and `cargo xtask repro-check` both use it. Ordinary development builds do
+  not set them.
 - Determinism: no `-C target-cpu=native` in release builds (CH-01).
 
 ## 3. CI pipeline (GitHub Actions)
@@ -35,14 +38,18 @@ Every source file carries `SPDX-License-Identifier: MIT OR Apache-2.0`.
 | Job | Platforms | Runs |
 |---|---|---|
 | lint | Linux | `cargo fmt --check`, `clippy -D warnings`, `xtask check-layers`, `cargo deny check` |
+| docs | Linux | `cargo doc --workspace --no-deps` (warnings do not fail it yet) |
+| repro | Linux | `xtask repro-check`: two clean release builds of `fluut`, equal hashes (§5.4); on main, tags and request |
 | test | Windows, macOS (arm64), Linux | `cargo nextest run` (unit, property, integration), golden posts, D08 endpoint/stepover/invariance tests |
 | determinism | all three | calculate reference projects with 1 and N threads; result hashes must be identical across all platforms (CH-01, required) |
 | bench | Linux (dedicated runner) | `criterion` targets of D02 §8, D07 §8, D11 §7; fail on > 10 % regression |
 | fuzz | Linux, nightly toolchain | each fuzz target 10 min nightly; corpus cached |
-| audit | Linux, daily | `cargo audit` |
+| audit | Linux, daily | `cargo audit` (`.github/workflows/audit.yml`; the ignore list in `.cargo/audit.toml` mirrors `deny.toml`) |
 | ui | Linux (headless GPU via lavapipe) | view-model tests, screenshot tests (D13 §10) |
 
-Pull requests run lint + test + determinism; nightly runs everything.
+Pull requests run lint + test + determinism; nightly runs everything. Tests run with
+`cargo test`, not `nextest`. The determinism, bench, fuzz and ui jobs are not set up yet.
+There is no MSRV job: `rust-version` equals the pinned toolchain.
 
 ## 4. Test data
 
@@ -60,6 +67,13 @@ Pull requests run lint + test + determinism; nightly runs everything.
 Semantic versioning for the application. Format versions (`fluut.project/1` etc.) and the
 scripting API version follow [S 02 §2.0] and [S 09 §9.6] independently.
 
+There is one version for the whole workspace: `[workspace.package] version` in the root
+`Cargo.toml`, which every crate inherits. `fluut --version` prints it with the short git commit
+(`fluut 0.1.0 (d4af3c037012)`), and so does the About dialog. `fluut_core::build_info` holds both;
+its build script reads the commit from git, or from `FLUUT_GIT_COMMIT` when building from a
+source archive. A release is a tag `vX.Y.Z`; the release workflow stops if the tag and the
+workspace version differ.
+
 ### 5.2 Packaging and signing [S 06 §6.2]
 
 | Platform | Artefact | Tooling |
@@ -68,8 +82,26 @@ scripting API version follow [S 02 §2.0] and [S 09 §9.6] independently.
 | macOS | universal DMG | `lipo`; `codesign` + `notarytool` |
 | Linux | AppImage, Flatpak | `appimagetool` (signed); Flathub manifest |
 
+Built so far (`.github/workflows/release.yml`, `cargo xtask package`):
+
+| Platform | Artefact | Notes |
+|---|---|---|
+| Windows x86-64 | `fluutcam-<v>-windows-x86_64.zip` | `fluutcam.exe`, `fluut.exe`, icon, licences. Executables signed with `signtool` when the certificate secrets exist. No MSI yet |
+| Linux x86-64 | `fluutcam-<v>-linux-x86_64.tar.gz` | `bin/`, `.desktop` file, hicolor icons, licences, built on Ubuntu 22.04 (glibc 2.35). No AppImage or Flatpak yet |
+| macOS | `fluutcam-<v>-macos-universal.dmg`, `…-macos-universal-cli.tar.gz` | `lipo` of the arm64 and x86-64 builds in `FluutCAM.app`; Developer ID signing and `notarytool` when the secrets exist, ad-hoc signing otherwise |
+
+The archives are written by `cargo xtask package` (sorted entries, fixed time stamp, no
+owners), so they are reproducible and need no platform tools. Every signing, notarisation and
+verification step is skipped when its secrets are missing, so unsigned builds still work. The
+workflow makes a draft release; a person publishes it.
+
 App and installer icons (ICO, ICNS, PNG at the sizes each platform needs) are generated from the
 SVG masters in `assets/` during packaging; generated rasters are not committed.
+`cargo xtask icons <out-dir>` renders `fluut-D-icon-stock.svg` with `resvg` and writes
+`windows/fluutcam.ico` (16–256 px), `macos/fluutcam.icns` (16–1024 px) and
+`linux/hicolor/<N>x<N>/apps/fluutcam.png` (16–512 px). The window icon and the About logos are
+rendered from the same SVGs by `fluut-app`'s build script. The `.exe` file icon needs a
+resource compiler and is not set yet.
 
 CI verifies every signature after signing; a failed check stops the release [S 06 §6.2].
 
@@ -79,16 +111,63 @@ CI verifies every signature after signing; a failed check stops the release [S 0
 public key is compiled into the app. Published with each release alongside checksums and a
 CycloneDX SBOM (`cargo-cyclonedx`).
 
+Format `fluut.releases/1`, written by `cargo xtask manifest`:
+
+```json
+{
+  "format": "fluut.releases/1",
+  "channel": "stable",
+  "releases": [
+    {
+      "version": "0.1.0",
+      "date": "2026-11-01",
+      "artefacts": [
+        { "platform": "linux-x86_64", "kind": "tar.gz",
+          "name": "fluutcam-0.1.0-linux-x86_64.tar.gz",
+          "url": "https://…/fluutcam-0.1.0-linux-x86_64.tar.gz",
+          "sha256": "…", "size": 123456, "min_os": "glibc-2.35" }
+      ]
+    }
+  ]
+}
+```
+
+Releases are newest first; a new manifest is the old one (downloaded from the latest release)
+plus the new release. `min_os` is `windows-10`, `macos-11.0` or `glibc-2.35`. The signature is
+`releases.json.minisig`. The release workflow also signs `SHA256SUMS`. The update check itself
+(HTTPS, signature and hash verification) is not written yet.
+
 ### 5.4 Reproducibility
 
 Builds use pinned toolchain, `--locked`, `SOURCE_DATE_EPOCH`, and path remapping
 (`--remap-path-prefix`). A second CI job rebuilds Linux artefacts and compares hashes.
+
+`cargo xtask repro-check` builds `fluut` twice from scratch in the same directory with
+`--locked`, `SOURCE_DATE_EPOCH` and the flags of `cargo xtask rustflags`, and compares SHA-256.
+The release workflow sets `SOURCE_DATE_EPOCH` to the commit time and builds on a fixed runner
+image. Archives made by `cargo xtask package` are byte-reproducible given the same binaries.
+`ahash` (through `rhai`) draws constants at compile time with `const-random`; the builds set
+`CONST_RANDOM_SEED` to a fixed value, or every build differs. On Windows two builds still differ in 20 bytes (the PE time stamp and
+the PDB GUID, both derived from the PDB); the check is meant for Linux and has not yet run there.
+The git commit in the binary is
+the same for the same commit; a build from a source archive
+has none unless `FLUUT_GIT_COMMIT` is set, so it differs.
 
 ## 6. Crash reporting [S 06 §6.4]
 
 Panic hook and native crash handler write a minidump-free report (backtrace, versions, OS, last
 log lines; no project data) to the data dir. On next start the user is asked whether to view
 and send it. Sending goes to a project-run endpoint over HTTPS. Off by default.
+
+Built so far, the local part only (`fluut_core::crash`): both programs install a panic hook
+that writes `crash-<time>-<pid>.txt` (panic message and location, thread, backtrace, version
+with commit, OS and architecture) to `<data dir>/crashes`. The data dir is `%LOCALAPPDATA%\FluutCAM`,
+`~/Library/Application Support/FluutCAM` or `$XDG_DATA_HOME/fluutcam`; `FLUUT_DATA_DIR`
+overrides it. On the next start `fluut` says that the last run crashed, where the report is,
+and that nothing was sent, and when run in a terminal offers to print it; `fluutcam` writes the
+same note to stderr. A report is then renamed to `….seen.txt`. **Nothing is sent**; there is no
+endpoint, no opt-in setting and no sending code. Not built yet: the last log lines (the code
+has no logging), a native crash handler, and the in-window dialog (it needs translated texts).
 
 ## 7. Open-source project setup
 

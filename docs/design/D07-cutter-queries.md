@@ -200,6 +200,14 @@ emitting a gouging point [S 04 §4.2.4].
   therefore cannot raise `NoConvergence`; the rule is suspended until a test separating "no
   interior contact" from "missed contact" exists (CH-12).
 
+**M6 (2026-11-01).** Flat and bull tools on the outside of a sphere now have a closed form:
+the sphere grown by r touches the flat disc of radius R − r. The numeric seeding missed the
+contact near the sphere's seam (2 of 2 000 drops on the dome reference part, 18 mm low), and
+the waterline turned those misses into stray loops. For the waterline at a cliff,
+`SurfaceQuery::wall_at` finds the face the side of the tool touches at a given tip height:
+the nearest face point to the side, at the top of the corner. Its trim test uses
+parameters in the face's base period, as the drop solvers do.
+
 **Trim classification without p-curves (S2, 2026-11-01).** The corpus has none (S1), so each face's loops are
 projected into (u,v) once: closest point for the first edge point, then Gauss–Newton along the
 loop, unwrapped across seams, filled in at poles and apexes (free parameter taken from the

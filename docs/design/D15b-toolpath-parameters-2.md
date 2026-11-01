@@ -1429,6 +1429,16 @@ Passes fields (`machining_tolerance` included: there is no geometry).
     - `Engrave::flat_areas` gives the flat region for the WireBody command of decision 9.
     - It also reports `cam.geometry.drive.empty`, `cam.geometry.chain_self_intersects` (as
       `pocket_2d`) and `cam.engrave.medial_axis` (E, the axis trace failed; not expected).
+- Built in M6 for §5 ([plan](../plan/2026-11-01-m6-3d-finishing.md)):
+  - Codes added: `cam.<type>.tool_shape` (E, not a flat, ball or bull tool) for all five;
+    `cam.contour.empty`, `cam.scallop.empty`, `cam.steep_and_shallow.empty` (W, nothing in
+    the region is cut); `cam.<type>.lead.dropped` (W, as `parallel`);
+    `param.steep_and_shallow.overlap.range` and
+    `param.steep_and_shallow.steep.step_down.range` (E, the generic range codes).
+  - `cam.contour.loop_open` is raised when a contour is cut short inside the region: at a
+    slope or drive-face limit, or where the trace is lost.
+  - `param.passes.step_down.flute` also checks `steep.step_down`.
+  - `top` = `bottom` is allowed for all five, as for `parallel`.
 
 ## 9. Decisions
 

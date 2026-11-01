@@ -846,6 +846,203 @@ pub(crate) const ENGRAVE: &[FieldMeta] = &[
     ORDER,
 ];
 
+// ── 3-D finishing (D15b §5) ──────────────────────────────────────────
+
+/// `drive_faces` of the 3-D types: empty means every face.
+const DRIVE_FACES_3D: FieldMeta = f(
+    "drive_faces",
+    Geometry,
+    Selection,
+    Computed("all faces of the Setup's bodies"),
+    R,
+    false,
+);
+const STEP_DOWN_FINISH: FieldMeta = f(
+    "step_down",
+    Passes,
+    Length,
+    Computed("0.1 * tool.diameter"),
+    R,
+    true,
+);
+const STEPOVER: FieldMeta = f("stepover", Passes, Length, FromTool("stepover"), R, true);
+const SCALLOP_HEIGHT: FieldMeta = f("scallop_height", Passes, Length, NoDefault, R, true);
+const MIN_SLOPE: FieldMeta = f("min_slope_deg", Passes, Angle, num(0.0), R, true);
+const MAX_SLOPE: FieldMeta = f("max_slope_deg", Passes, Angle, num(90.0), R, true);
+const CUT_DIRECTION: FieldMeta = f(
+    "direction",
+    Passes,
+    Enum(CLIMB_CONVENTIONAL),
+    text("climb"),
+    R,
+    false,
+);
+const PASS_ANGLE: FieldMeta = f("pass_angle_deg", Passes, Angle, num(0.0), R, true);
+
+/// The common fields of the five types (D15b §5) with the type's own
+/// `passes` fields and extra `linking` fields, in canonical order.
+macro_rules! finishing {
+    ($($pass:expr),* $(,)? $(; $($link:expr),* $(,)?)?) => {
+        &[
+            SPINDLE_RPM,
+            FEEDS,
+            COOLANT,
+            DRIVE_FACES_3D,
+            CHECK_FACES,
+            EXCLUDED_FACES,
+            BOUNDARY,
+            CLEARANCE,
+            RETRACT_H,
+            FEED_H,
+            top("model_top"),
+            bottom("model_bottom"),
+            MACHINING_TOLERANCE,
+            MAX_SEGMENT_LENGTH,
+            OUTPUT_ARCS,
+            $($pass,)*
+            RETRACT,
+            SAFETY_DISTANCE,
+            TRANSITIONS,
+            lead_in(LEAD_NONE),
+            lead_out(LEAD_NONE),
+            $($($link,)*)?
+        ]
+    };
+}
+
+pub(crate) const CONTOUR: &[FieldMeta] = finishing![
+    STEP_DOWN_FINISH,
+    SCALLOP_HEIGHT,
+    MIN_SLOPE,
+    MAX_SLOPE,
+    CUT_DIRECTION,
+    STOCK_TO_LEAVE;
+    ORDER,
+];
+
+pub(crate) const HORIZONTAL: &[FieldMeta] = finishing![
+    f(
+        "pattern",
+        Passes,
+        Enum(&["offset", "raster"]),
+        text("offset"),
+        R,
+        false,
+    ),
+    STEPOVER,
+    PASS_ANGLE,
+    CUT_DIRECTION,
+    PASS_LAYOUT,
+    STOCK_TO_LEAVE,
+    STOCK_TO_LEAVE_AXIAL,
+];
+
+const INSIDE_OUT: &[&str] = &["inside_out", "outside_in"];
+
+pub(crate) const SPIRAL: &[FieldMeta] = finishing![
+    f(
+        "centre",
+        Passes,
+        Point,
+        Computed("centroid of the region"),
+        R,
+        false
+    ),
+    STEPOVER,
+    SCALLOP_HEIGHT,
+    f(
+        "direction",
+        Passes,
+        Enum(INSIDE_OUT),
+        text("inside_out"),
+        R,
+        false
+    ),
+    f(
+        "rotation",
+        Passes,
+        Enum(&["ccw", "cw"]),
+        text("ccw"),
+        R,
+        false
+    ),
+    f("machine_corners", Passes, Bool, flag(false), R, false),
+    STOCK_TO_LEAVE,
+];
+
+pub(crate) const SCALLOP: &[FieldMeta] = finishing![
+    STEPOVER,
+    SCALLOP_HEIGHT,
+    f(
+        "direction",
+        Passes,
+        Enum(&["outside_in", "inside_out"]),
+        text("outside_in"),
+        R,
+        false,
+    ),
+    f(
+        "cut_direction",
+        Passes,
+        Enum(CLIMB_CONVENTIONAL),
+        text("climb"),
+        R,
+        false,
+    ),
+    f("continuous", Passes, Bool, flag(false), R, false),
+    MIN_SLOPE,
+    MAX_SLOPE,
+    STOCK_TO_LEAVE,
+];
+
+const STEEP: &[FieldMeta] = &[STEP_DOWN_FINISH, SCALLOP_HEIGHT, CUT_DIRECTION];
+const SHALLOW: &[FieldMeta] = &[
+    f(
+        "pattern",
+        Passes,
+        Enum(&["parallel", "scallop"]),
+        text("parallel"),
+        R,
+        false,
+    ),
+    STEPOVER,
+    SCALLOP_HEIGHT,
+    PASS_ANGLE,
+    f(
+        "direction",
+        Passes,
+        Enum(&["zigzag", "climb", "conventional"]),
+        Computed("zigzag (parallel) or climb (scallop)"),
+        R,
+        false,
+    ),
+];
+
+pub(crate) const STEEP_AND_SHALLOW: &[FieldMeta] = finishing![
+    f("threshold_deg", Passes, Angle, num(45.0), R, true),
+    f(
+        "overlap",
+        Passes,
+        Length,
+        Computed("0.2 * tool.diameter"),
+        R,
+        true,
+    ),
+    f(
+        "region_order",
+        Passes,
+        Enum(&["steep_first", "shallow_first"]),
+        text("steep_first"),
+        R,
+        false,
+    ),
+    f("steep", Passes, Table(STEEP), NoDefault, R, false),
+    f("shallow", Passes, Table(SHALLOW), NoDefault, R, false),
+    PASS_LAYOUT,
+    STOCK_TO_LEAVE;
+    ORDER,
+];
+
 /// Whether `key` is a field of `group` for some type. Used to tell an
 /// undeclared common field (an error, spec 03 §3.10.3) from an unknown key.
 pub fn known_in_any_type(group: Group, key: &str) -> bool {

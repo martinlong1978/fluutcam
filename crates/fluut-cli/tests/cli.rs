@@ -74,6 +74,7 @@ fn step_inputs_match_the_writer() {
         &step::plate([0.0; 3]),
     );
     check_file(&here("projects/holes/holes.step"), &step::holes([0.0; 3]));
+    check_file(&here("projects/dome/dome.step"), &step::dome([0.0; 3]));
 }
 
 #[test]
@@ -85,6 +86,7 @@ fn projects_are_canonical() {
         "projects/plate/plate.fluut",
         "projects/plate2d/plate2d.fluut",
         "projects/holes/holes.fluut",
+        "projects/dome/dome.fluut",
     ] {
         let text = std::fs::read_to_string(here(p)).unwrap();
         let l = fluut_model::project::read(&text).unwrap();
@@ -160,6 +162,27 @@ fn golden_parallel() {
         "fluut/linuxcnc",
         "ridge-linuxcnc.ngc",
         &[],
+    );
+}
+
+#[test]
+fn golden_3d_finishing() {
+    // One toolpath of each 3-D finishing type (D15b §5) on the dome.
+    golden(
+        "projects/dome/dome.fluut",
+        "fluut/linuxcnc",
+        "dome-linuxcnc.ngc",
+        &[],
+    );
+    let o = fluut(&["calc", here("projects/dome/dome.fluut").to_str().unwrap()]);
+    let out = String::from_utf8_lossy(&o.stdout);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    assert_eq!(
+        out.lines()
+            .filter(|l| l.contains(": calculated; cut "))
+            .count(),
+        DOME.toolpaths.len(),
+        "{out}"
     );
 }
 
@@ -333,6 +356,37 @@ fn errors_and_usage() {
     assert!(fluut(&["--version"]).status.success());
 }
 
+#[test]
+fn an_earlier_crash_report_is_announced_once() {
+    let data = tmp("crash-data");
+    let reports = data.join("crashes");
+    std::fs::create_dir_all(&reports).unwrap();
+    std::fs::write(reports.join("crash-1-2.txt"), "report").unwrap();
+    let run = || {
+        Command::new(env!("CARGO_BIN_EXE_fluut"))
+            .arg("calc")
+            .env("FLUUT_DATA_DIR", &data)
+            .output()
+            .unwrap()
+    };
+    let first = String::from_utf8_lossy(&run().stderr).into_owned();
+    assert!(first.contains("the last run crashed"), "{first}");
+    assert!(first.contains("Nothing was sent"), "{first}");
+    assert!(reports.join("crash-1-2.seen.txt").is_file());
+    let second = String::from_utf8_lossy(&run().stderr).into_owned();
+    assert!(!second.contains("crashed"), "{second}");
+}
+
+#[test]
+fn version_names_the_workspace_version() {
+    let o = fluut(&["--version"]);
+    assert_eq!(
+        String::from_utf8_lossy(&o.stdout).trim(),
+        format!("fluut {}", fluut_core::build_info::version_string())
+    );
+    assert!(String::from_utf8_lossy(&o.stdout).starts_with("fluut 0.1.0"));
+}
+
 /// A reference project: its directory and STEP stem, the writer of its
 /// part, the toolpaths, and the work zero (the front left stock top
 /// corner) for an unshifted part.
@@ -370,6 +424,14 @@ const RIDGE: Reference = Reference {
     part: step::ridge,
     toolpaths: &["t1", "t2"],
     zero: [-5.0, -5.0, 16.358983848622453],
+};
+
+/// The stock top is 1 above the dome top (stock margin).
+const DOME: Reference = Reference {
+    name: "dome",
+    part: step::dome,
+    toolpaths: &["t1", "t2", "t3", "t4", "t5"],
+    zero: [-5.0, -5.0, 29.0],
 };
 
 /// The project `r` in `dir` with the model moved by `shift`, and the work
@@ -425,7 +487,7 @@ fn translation_invariance() {
     // together moves no toolpath coordinate by more than ε_s, and the
     // G-code is the same.
     let shift = [0.123457, -0.987651, 0.31];
-    for r in [&BLOCK, &RIDGE, &PLATE, &HOLES] {
+    for r in [&BLOCK, &RIDGE, &PLATE, &HOLES, &DOME] {
         for point in [true, false] {
             let n = r.name;
             let a = shifted(r, &tmp(&format!("inv-{n}-a-{point}")), [0.0; 3], point);

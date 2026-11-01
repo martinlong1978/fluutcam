@@ -1,0 +1,84 @@
+format = "fluut.project/1"
+name   = "Dome"
+units  = "mm"
+
+[[geometry]]
+id   = "g1"
+path = "dome.step"
+kind = "step"
+
+  [[geometry.body]]
+  id   = "b-262"
+  name = "dome"
+
+[[setup]]
+id       = "s1"
+name     = "Top"
+kind     = "three_axis"
+material = "MDF"
+stock    = { kind = "block", margin = [5, 5, 1] }
+zero     = { method = "stock_top_corner", corner = "front_left" }
+
+  [[setup.toolpath]]
+  id   = "t1"
+  name = "Waterline"
+  type = "contour"
+  tool = "shop#ball-6"
+
+    [setup.toolpath.passes]
+    machining_tolerance = 0.02
+    step_down           = 2
+    min_slope_deg       = 30
+
+  [[setup.toolpath]]
+  id   = "t2"
+  name = "Flats"
+  type = "horizontal"
+  tool = "shop#flat-6"
+
+    [setup.toolpath.passes]
+    pattern        = "offset"
+    stepover       = 4
+    stock_to_leave = 0.1
+
+  [[setup.toolpath]]
+  id   = "t3"
+  name = "Spiral dome"
+  type = "spiral"
+  tool = "shop#ball-6"
+
+    [setup.toolpath.geometry]
+    drive_faces = [{ face = "f-262.8" }]
+
+    [setup.toolpath.passes]
+    machining_tolerance = 0.02
+    stepover            = 1.5
+    direction           = "outside_in"
+
+  [[setup.toolpath]]
+  id   = "t4"
+  name = "Scallop dome"
+  type = "scallop"
+  tool = "shop#ball-6"
+
+    [setup.toolpath.geometry]
+    drive_faces = [{ face = "f-262.8" }]
+    boundary    = { curves = [{ face = "f-262.8" }], tool_containment = "centre" }
+
+    [setup.toolpath.passes]
+    machining_tolerance = 0.02
+    stepover            = 2
+    continuous          = true
+
+  [[setup.toolpath]]
+  id   = "t5"
+  name = "Steep and shallow"
+  type = "steep_and_shallow"
+  tool = "shop#ball-6"
+
+    [setup.toolpath.passes]
+    machining_tolerance = 0.02
+    threshold_deg       = 40
+    overlap             = 1
+    steep               = { step_down = 2 }
+    shallow             = { stepover = 3, pass_angle_deg = 45 }
