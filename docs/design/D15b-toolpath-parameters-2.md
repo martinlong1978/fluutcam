@@ -14,7 +14,8 @@ D15 §2 and are not repeated here. Each type section gives:
 - rules, validation codes and a TOML example;
 - whether it updates or reads in-process stock (D15 §1.9, §1 here).
 
-A † default in this document is provisional until the open questions (§9) are decided.
+The §9 decisions were accepted by the product owner on 2026-11-01. A † default is a constant
+the spec does not fix; it may be tuned against real cuts.
 
 Types:
 
@@ -133,7 +134,7 @@ frame (§6).
 ### 1.9 Tool-shape checks
 
 Types that need a tool shape report `param.<type>.tool_shape`. Shapes come from the tool
-`shape` key [S 02 §2.4]: `flat`, `ball`, `bull`, `v`, `taper`. "V tool" below means `v` or
+`shape` key [S 02 §2.4]: `flat`, `ball`, `bull`, `v`, `taper`, `drill` (§9, decision 3). "V tool" below means `v` or
 `taper` with half-angle α > 0 (D07 §1).
 
 ### 1.10 In-process stock, all types
@@ -251,7 +252,7 @@ direction changes (D09 §2.3). Roughing type.
 
 | Key | Type | Range | Default | Expr | Depends on | Class |
 |---|---|---|---|---|---|---|
-| `optimal_load` | Length | (0, 0.5·D] | `0.1 · tool.diameter` † | yes | tool | R |
+| `optimal_load` | Length | (0, 0.5·D] | preset `optimal_load`, else `0.1 · tool.diameter` † (§9, decision 1) | yes | tool, material | R |
 | `step_down` | Length | > 0 | preset `step_down` | yes | tool, material | R |
 | `min_cutting_radius` | Length | ≥ 0 | `0.1 · tool.diameter` † | yes | tool | R |
 | `direction` | Enum `climb` \| `conventional` | | `climb` | — | — | R |
@@ -603,8 +604,8 @@ is its initial plane.
 | `peck_depth` | Length | > 0 | `tool.diameter` † | yes | `cycle` ∈ {`peck`, `chip_break`} | R |
 | `chip_break_retract` | Length | > 0 | `0.5` † | yes | `cycle` = `chip_break` | R |
 | `dwell_s` | Duration | ≥ 0 | `0.5` † for `dwell`, `spot`, `bore`; else `0` | yes | `cycle` | R |
-| `pitch` | Length | > 0 | — (required for `tap`) | yes | `cycle` = `tap` | R |
-| `depth_to` | Enum `tip` \| `full_diameter` | | `tip` | — | tool point angle | R |
+| `pitch` | Length | > 0 | the tool's `pitch` (§9, decision 4) | yes | `cycle` = `tap` | R |
+| `depth_to` | Enum `tip` \| `full_diameter` | | `tip` | — | tool `point_angle_deg` | R |
 | `to_cone_tip` | Bool | | `false` | — | holes with a cone bottom | R |
 | `retract_mode` | Enum `retract` \| `feed` | | `retract` † | — | — | R |
 | `hole_order` | Enum `shortest` \| `selection` | | `shortest` | — | — | R |
@@ -632,8 +633,9 @@ is its initial plane.
 
 | Code | Sev | Rule |
 |---|---|---|
-| `param.drill.tool_shape` | W | tool is not a drill (§9, question 3); `flat` tools also warn when `centre_cutting = false` |
-| `param.drill.pitch.required` | E | `cycle = "tap"` and no `pitch` |
+| `param.drill.tool_shape` | W | tool `shape` is not `drill`; `flat` tools also warn when `centre_cutting = false` |
+| `param.drill.pitch.required` | E | `cycle = "tap"` and neither the toolpath nor the tool has a `pitch` |
+| `param.drill.pitch.override` | W | the toolpath `pitch` differs from the tool's `pitch` |
 | `param.drill.tap.post` | E | `cycle = "tap"` and the resolved post cannot emit a tap cycle (taps cannot be expanded) |
 | `param.drill.cycle.expanded` | W | the post does not support the cycle; it is expanded |
 | `param.drill.peck_depth.deep` | W | `peck_depth` > flute length |
@@ -705,7 +707,7 @@ stock) are entered from outside.
 
 | Key | Type | Range | Default | Expr | Depends on | Class |
 |---|---|---|---|---|---|---|
-| `optimal_load` | Length | (0, 0.5·D] | `0.1 · tool.diameter` † | yes | tool | R |
+| `optimal_load` | Length | (0, 0.5·D] | preset `optimal_load`, else `0.1 · tool.diameter` † (§9, decision 1) | yes | tool, material | R |
 | `step_down` | Length | > 0 | preset `step_down` | yes | tool, material | R |
 | `fine_step_down` | Length | (0, `step_down`) | absent = off | yes | `step_down` | R |
 | `min_cutting_radius` | Length | ≥ 0 | `0.1 · tool.diameter` † | yes | tool | R |
@@ -1149,7 +1151,7 @@ Keys as in the [S 02 §2.1] example.
 - **Per radius r:** the section of the bodies by the cylinder r, unrolled to (x, r·θ), offset by
   R + `stock_to_leave` (CH-19); the rest of the band [`x_start`, `x_end`] × full A that still
   holds stock is cleared with full A sweeps at X positions `stepover_x` apart, laid out by
-  `pass_layout` (§9, question 8).
+  `pass_layout` (§9, decision 8).
 - **Direction.** `zigzag` alternates the A sense between sweeps; `climb` and `conventional`
   keep one sense (the uncut side on the right of travel for climb, spindle M3).
 - **Starting stock** as §1.10: the stock cylinder, the carried stock, or with `rest_from` the
@@ -1410,16 +1412,17 @@ Passes fields (`machining_tolerance` included: there is no geometry).
   code has a passing and a failing case; P fields leave the result hash unchanged and R fields
   change it.
 
-## 9. Open questions
+## 9. Decisions
 
-Provisional choices are used in the tables above; † marks the provisional defaults.
+The spec did not settle these. The product owner accepted the answers below on 2026-11-01;
+decisions 1, 3 and 4 differ from the first draft and changed spec 02 §2.4 the same day.
 
-| # | Question | Provisional choice |
+| # | Question | Decision |
 |---|---|---|
-| 1 | Default `optimal_load` (`adaptive_2d`, `adaptive_3d`): a constant, or a new preset key? | `0.1 · tool.diameter` †; add `optimal_load` to `[[tool.preset]]` [S 02 §2.4] later |
+| 1 | Default `optimal_load` (`adaptive_2d`, `adaptive_3d`): a constant, or a new preset key? | Preset key `optimal_load` in `[[tool.preset]]` [S 02 §2.4]; `0.1 · tool.diameter` † when the preset has none |
 | 2 | Rotary height references (§1.3): `stock_bottom` and `work_zero` both resolve to the axis | As §1.3 |
-| 3 | The tool format has no drill shape and no point angle (`drill`, `depth_to`) | Add `shape = "drill"` and `point_angle_deg` (default `118` †) to [S 02 §2.4]. Until then `param.drill.tool_shape` warns only when `centre_cutting = false`, and `full_diameter` uses 118° |
-| 4 | Tap `pitch`: on the toolpath or on the tool? | On the toolpath in v1 |
+| 3 | The tool format has no drill shape and no point angle (`drill`, `depth_to`) | `shape = "drill"` and `point_angle_deg` (default `118`) added to [S 02 §2.4] |
+| 4 | Tap `pitch`: on the toolpath or on the tool? | On the tool (`pitch` in [S 02 §2.4]); the toolpath may override it, with a warning |
 | 5 | Starting stock of 3-D and rotary roughing with `rest_from = "off"` | The Setup stock, including stock carried from a parent Setup (§1.10) |
 | 6 | Stock to leave on check faces in 3-D roughing | None (§4); a separate check-face allowance later |
 | 7 | `face` with drive faces inside the stock outline (a boss top in a pocket) | The area always includes the stock outline; no ramped entries in v1 |

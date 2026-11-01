@@ -240,11 +240,13 @@ name   = "Router bits"
 id          = "flat-6"
 name        = "6 mm 2-flute flat"
 number      = 1                               # ATC / T-number
-shape       = "flat"                          # flat | ball | bull | v | taper
+shape       = "flat"                          # flat | ball | bull | v | taper | drill
 diameter    = 6.0
 corner_radius = 0.0
 flute_length  = 22
 centre_cutting = true                         # can plunge straight down; default true
+# point_angle_deg = 118                       # drill shape only; default 118
+# pitch          = 1.0                        # taps only: thread pitch, mm
 overall_length = 60
 shank_diameter = 6.0
 holder      = { diameter = 20, length = 40 }  # check geometry (04 §4.2.1)
@@ -257,6 +259,7 @@ names       = { de = "6 mm Schaftfräser" }    # localized names
   plunge     = 800
   stepover   = 2.4
   step_down  = 3.0
+  optimal_load = 0.6                          # adaptive radial engagement (optional)
 ```
 
 ## 2.5 Imported definition formats
