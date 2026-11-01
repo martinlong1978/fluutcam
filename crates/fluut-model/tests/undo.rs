@@ -577,3 +577,24 @@ fn field_edits_in_a_group_do_not_coalesce_with_the_step_before() {
     d.end_group().unwrap();
     assert_eq!(d.undo_len(), 2);
 }
+
+#[test]
+fn an_inline_table_field_is_set_whole() {
+    let mut d = Document::new(base());
+    d.apply(Edit::set_toolpath_field(
+        "t1",
+        "linking.ramp",
+        Some("{ kind = \"helix\", angle_deg = 3 }"),
+    ))
+    .unwrap();
+    let t = d.project().toolpath("t1").unwrap().1;
+    assert!(t.params.is_set("linking.ramp.angle_deg"));
+    assert!(
+        d.apply(Edit::set_toolpath_field(
+            "t1",
+            "linking.ramp",
+            Some("{ kind = \"helix\", colour = 3 }")
+        ))
+        .is_err()
+    );
+}
