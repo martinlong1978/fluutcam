@@ -17,7 +17,7 @@ Problems found during detailed design. Each has a status:
 | CH-06 | Mesh region grouping for selection | D03 §1.2 | deferred |
 | CH-07 | Reference results for the STEP test corpus | D04 §10 | resolved |
 | CH-08 | P-curves on B-spline faces near seams and singularities | D04 §5.2 | resolved |
-| CH-09 | DXF reader coverage | D05 §3 | deferred |
+| CH-09 | DXF reader coverage (own reader chosen; corpus check open) | D05 §3 | deferred |
 | CH-10 | EPS import dropped from v1 (design assumption) | D05 §4 | resolved |
 | CH-11 | Definition version scheme | D06 §4.2 | resolved |
 | CH-12 | Free-form face contact convergence and seeding | D07 §4.3 | deferred |
@@ -204,6 +204,13 @@ malformed exports).
 poor.
 
 **Revisit.** After running the DXF corpus.
+
+**M7 (2026-11-01).** An own reader was written instead of trying the `dxf` crate. Group-code
+pairs are simple, and an own reader bounds every count (entities, block expansion, points) and
+needs no new dependency. It covers the D05 §3 entities, blocks nested 16 deep and OCS. Binary
+DXF is reported as unsupported. It is tested on hand-written files and fuzzed, but not yet on
+exports from LibreCAD, Inkscape, AutoCAD or Fusion. That corpus check is what remains open
+([plan](../plan/2026-11-01-m7-io-2d-mesh.md)).
 
 ### CH-10 EPS import dropped from v1 (design assumption)
 
