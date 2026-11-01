@@ -12,4 +12,7 @@
 //! - `text`, `brand`: user-visible text and the brand.
 
 pub mod brand;
+pub mod jobs;
+pub mod scene;
+pub mod session;
 pub mod text;
