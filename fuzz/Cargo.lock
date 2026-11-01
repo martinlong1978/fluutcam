@@ -36,6 +36,8 @@ checksum = "1c66915cc5391097de7a2b0b972e8505aa33c0df401fd3a6811dbdb32881ba48"
 name = "fluut-fuzz"
 version = "0.0.0"
 dependencies = [
+ "fluut-io-2d",
+ "fluut-io-mesh",
  "fluut-io-step",
  "libfuzzer-sys",
 ]
@@ -47,6 +49,27 @@ dependencies = [
  "glam",
  "libm",
  "smallvec",
+ "thiserror",
+]
+
+[[package]]
+name = "fluut-io-2d"
+version = "0.1.0"
+dependencies = [
+ "fluut-geom",
+ "fluut-topo",
+ "glam",
+ "libm",
+ "roxmltree",
+ "thiserror",
+]
+
+[[package]]
+name = "fluut-io-mesh"
+version = "0.1.0"
+dependencies = [
+ "fluut-geom",
+ "fluut-topo",
  "thiserror",
 ]
 
@@ -147,6 +170,15 @@ name = "r-efi"
 version = "6.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
+
+[[package]]
+name = "roxmltree"
+version = "0.21.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9da7f59328b09405b181fee1018925fad50f157afb43c0c0f5c522c256dd5907"
+dependencies = [
+ "memchr",
+]
 
 [[package]]
 name = "shlex"
