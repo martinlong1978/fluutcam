@@ -673,7 +673,7 @@ fn numeric(
             | Surface::Sphere { .. }
             | Surface::Torus { .. }
     );
-    let zmid = 0.5 * (bx.min.z() + bx.max.z());
+    let ztop = bx.max.z();
     let mut targets = vec![(ax.x, ax.y)];
     for ring in 1..=seeding.rings {
         let rr = rad * ring as f64 / seeding.rings as f64 * (1.0 - 1e-3);
@@ -693,9 +693,10 @@ fn numeric(
             continue;
         }
         let start = if analytic {
-            // Closed-form closest point to the target at mid height, moved
-            // into the face's parameter box by whole periods.
-            let (mut u, mut v) = analytic_uv(s, Point3::new(tx, ty, zmid));
+            // Closed-form closest point to the target at the top of the
+            // box (so the upper layer of a surface wins), moved into the
+            // face's parameter box by whole periods.
+            let (mut u, mut v) = analytic_uv(s, Point3::new(tx, ty, ztop));
             let (pu, pv) = s.periodicity();
             if let Some(p) = pu {
                 u += p * ((q.uv.u.at(0.5) - u) / p).round();
@@ -705,12 +706,9 @@ fn numeric(
             }
             (u, v)
         } else {
+            let top = Point3::new(tx, ty, ztop);
             grid.iter()
-                .min_by(|a, b| {
-                    let da = (a.0.x() - tx).powi(2) + (a.0.y() - ty).powi(2);
-                    let db = (b.0.x() - tx).powi(2) + (b.0.y() - ty).powi(2);
-                    da.total_cmp(&db)
-                })
+                .min_by(|a, b| a.0.distance(top).total_cmp(&b.0.distance(top)))
                 .map(|g| (g.1, g.2))?
         };
         if let Some((u, v)) = vertical_project(s, tx, ty, start, q.uv) {

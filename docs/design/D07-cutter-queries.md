@@ -102,6 +102,14 @@ return best
 
 Most queries touch one or two primitives after sorting, so cost is dominated by one solve.
 
+**S2 (2026-10-31).** Implemented as a best-first search over the BVH nodes themselves (a heap
+ordered by the same bound), not a cylinder query followed by a sort: nodes whose bound cannot
+beat the best contact are never opened. The bound needs only conservative boxes: line and arc
+boxes are exact, B-spline curves and patches use their poles, analytic patches a sample grid
+grown by the bilinear interpolation error `(Δu²·max|Suu| + Δv²·max|Svv|)/8`. On corpus parts a
+drop solves about 2 primitives; on dense free-form models about 8 ([S2 report](../plan/spikes/s2-cutter-queries.md) §2).
+
+
 ## 4. Per-primitive solvers
 
 ### 4.1 Vertex (0-D)
@@ -122,6 +130,13 @@ Maximise `f(t) = C(t)·a − h(d(C(t)))` over the edge's parameter range clipped
 
 Endpoints of the range are vertices (covered by §4.1), so the solver only reports interior
 maxima.
+
+**S2 (2026-10-31).** On a line, f is concave for flat, ball and bull tools (`h` convex and
+non-decreasing, `d(t)` convex), so one Brent maximisation on the exactly clipped range is
+enough; no closed form was needed. Curves are sampled at most R/4 apart on the pieces whose
+box reaches the footprint; local minima of `d` within a sample spacing of the rim are refined
+so that a curve grazing the footprint is not missed; rim crossings use false position. The
+spike includes the range ends instead of relying on §4.1.
 
 ### 4.3 Face interior (2-D)
 
@@ -154,6 +169,41 @@ Converged when the 3-D step < `tol.solver` and the residual angle < `tol.angle`.
 trim. If no seed converges for a candidate whose bound exceeds the current best, return
 `QueryError::NoConvergence { face, q }`: the caller reports it at the location rather than
 emitting a gouging point [S 04 §4.2.4].
+
+**S2 (2026-10-31): what was built and what changed.**
+
+- *Contact map.* For a vertical axis the two equations are `G(u,v) = q_xy` with
+  `G = S_xy + (R − r)·n̂_xy + r·n_xy`, n the upward unit normal and `n̂_xy` its unit horizontal
+  part (D07 §1.1 profile; flat: r = 0, ball: R − r = 0). Its Jacobian follows from the second
+  derivatives of S. Damped Newton with backtracking on `|G − q|`.
+- *Flat bottom.* Flat and bull tools also touch where the surface is horizontal under the flat
+  part (`d ≤ R − r`, where `G` is singular). Solved as a stationary point of `z − ε·d²` with a
+  tiny ε, so that a horizontal ridge (singular Hessian of z) gives its point nearest the axis.
+- *Any face point is a valid answer.* Every candidate is a real point p of the face in the
+  footprint, scored `τ = p_z − h(d(p))`. A solver can therefore miss a contact but never place
+  the tool too high, and extra candidates (both signs of the ball offset, minima of F) are
+  harmless. Closed forms built: planes (all tools), ball on sphere and cylinder; the rest use
+  Newton.
+- *Seeding (replaces 1 and 2 above).* Targets in the footprint (the axis point and two rings of
+  8) are projected vertically onto the surface; starts come from the closed-form closest point
+  for analytic faces and from a 4 × 4 sample of the patch for B-splines. Newton runs from the
+  3 candidates with the highest `τ` (points outside the footprint ranked down). Seeding from a
+  sample of the whole face missed contacts on large faces (a 17.5 mm torus fillet ring under a
+  6 mm tool) and was dropped.
+- *Non-convergence is normal.* About half of all Newton runs do not converge, because most
+  candidate primitives have no interior contact (it is on an edge). Non-convergence alone
+  therefore cannot raise `NoConvergence`; the rule is suspended until a test separating "no
+  interior contact" from "missed contact" exists (CH-12).
+
+**Trim classification without p-curves (S2).** The corpus has none (S1), so each face's loops are
+projected into (u,v) once: closest point for the first edge point, then Gauss–Newton along the
+loop, unwrapped across seams, filled in at poles and apexes (free parameter taken from the
+neighbours), and closed through a pole when an odd number of loops wrap around the surface
+(which pole follows from the loop direction and face sense). Points are classified even–odd
+with a ray along the non-periodic parameter. All 7 902 corpus faces get a trim. Accuracy is
+the polyline chord (1e-3 mm by default): a contact up to about `chord × slope` outside the true
+face may be accepted, which showed up once on the corpus as a 1.5e-4 mm difference to the
+reference. Exact edge geometry near the boundary (or p-curves, M4) removes this.
 
 ### 4.4 Triangles (mesh bodies)
 
@@ -231,6 +281,12 @@ contact). The waterline tracer in D09 uses predictor–corrector on `level_resid
 - Brute-force reference: dense sampling of every primitive (10⁶ points) for τ; solver result
   must be ≥ reference − 1e-9 and within 1e-7 of it (the solver may only find a higher, more
   exact maximum).
+  **S2:** sampling alone cannot get within 1e-7, least of all for flat tools, which touch on the
+  footprint rim. The reference (`fluut-cam::cutter::reference`) samples every primitive near
+  the axis and refines the best samples by compass search inside the face and footprint, and
+  by a compass search along the rim `d = R`. The tests require τ ≥ reference − 1e-7 and that
+  the reported contact is a real point of its primitive in the footprint with `τ = p_z − h(d)`;
+  the solver may be above the reference.
 - Analytic: ball on sphere, cylinder, torus; flat on tilted plane; V-tool on edges — compared
   with hand-derived closed forms.
 - Mesh vs B-rep: a fine tessellation of a B-rep part gives τ within chord error of the B-rep τ.
