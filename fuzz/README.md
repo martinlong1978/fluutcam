@@ -12,6 +12,7 @@ like `spikes/`; it needs a nightly toolchain and `cargo install cargo-fuzz`.
 | `dxf` | any bytes into `fluut_io_2d::read_dxf`, with small curve and entity limits |
 | `svg` | any bytes into `fluut_io_2d::read_svg`, with small curve and element limits |
 | `stl` | any bytes into `fluut_io_mesh::read_stl`, welding and adjacency included |
+| `script` | any text as a script (`fluut_script::run`) on the `block` project, small limits, no file access |
 
 Run from this directory, seeded with the small files in `seeds/`. The STEP
 seeds are the unit-test fixtures (a cube, a cylinder with and without
@@ -42,3 +43,12 @@ cargo +nightly fuzz run -O -a dxf corpus/dxf -- -dict=dxf.dict -max_total_time=6
 
 The same for `svg` (with `svg.dict`) and `stl` (no dictionary). The corpora and crash artefacts stay out of git; every
 crash found becomes a regression test next to the code it broke.
+
+The `script` seeds are scripts from the `fluut-script` tests and the spec 09 example; the
+dictionary holds API names and Rhai keywords. Scripts may fail; the target checks that they
+neither panic nor hang nor grow without bound:
+
+```bash
+mkdir -p corpus/script && cp seeds/script/* corpus/script/
+cargo +nightly fuzz run -O script corpus/script -- -dict=rhai.dict -max_total_time=600 -timeout=10 -rss_limit_mb=2048 -max_len=4096
+```

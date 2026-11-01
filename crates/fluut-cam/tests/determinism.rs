@@ -143,3 +143,35 @@ fn arc_helpers_are_bit_exact() {
         "{got:#x?}"
     );
 }
+
+/// Node and edge counts and a hash of node points, radii and edge
+/// parameters of the medial axis (CH-17).
+#[test]
+fn medial_axes_are_bit_exact() {
+    use fluut_cam::region::medial::medial_axis;
+    let want = [
+        ("A plate", 11, 11, 0xa537_bc9a_830c_486b),
+        ("B rooms", 18, 17, 0x38f8_c9a5_ae6c_8ba7),
+        ("C slotted disc", 7, 6, 0x815c_ca3f_e24b_f348),
+    ];
+    for ((name, r), want) in shapes::all().into_iter().zip(want) {
+        let m = medial_axis(&r).unwrap();
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        let mut eat = |x: f64| {
+            for byte in x.to_bits().to_le_bytes() {
+                h ^= u64::from(byte);
+                h = h.wrapping_mul(0x0000_0100_0000_01b3);
+            }
+        };
+        for n in &m.nodes {
+            eat(n.p.x());
+            eat(n.p.y());
+            eat(n.radius);
+        }
+        for e in &m.edges {
+            eat(e.u0);
+            eat(e.u1);
+        }
+        assert_eq!((name, m.nodes.len(), m.edges.len(), h), want);
+    }
+}

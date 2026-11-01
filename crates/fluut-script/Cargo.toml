@@ -1,0 +1,17 @@
+[package]
+name = "fluut-script"
+description = "FluutCAM scripting: sandboxed rhai engine and the object API (design D12, D12b)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+fluut-core.workspace = true
+fluut-model.workspace = true
+libm.workspace = true
+rhai.workspace = true
+toml.workspace = true
+
+[lints]
+workspace = true

@@ -249,6 +249,8 @@ fn fits(kind: FieldKind, v: &PValue) -> bool {
         (FieldKind::Selection, PValue::Selection(_)) => true,
         (FieldKind::Point, PValue::Point(_)) => true,
         (FieldKind::Points, PValue::Points(_)) => true,
+        // Sub-fields were checked when the table was read.
+        (FieldKind::Table(_), PValue::Table(_)) => true,
         _ => false,
     }
 }

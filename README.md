@@ -30,3 +30,9 @@ cargo xtask check-layers
 
 Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or
 [MIT licence](LICENSE-MIT) at your option.
+
+## Contributing
+
+Contributions are welcome. Unless you state otherwise, a contribution you submit is licensed
+under the same dual licence, with no additional terms. Each commit needs a `Signed-off-by`
+line (Developer Certificate of Origin). Details are in [CONTRIBUTING.md](CONTRIBUTING.md).

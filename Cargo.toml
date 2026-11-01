@@ -26,6 +26,7 @@ fluut-post = { path = "crates/fluut-post", version = "0.1.0" }
 fluut-sim = { path = "crates/fluut-sim", version = "0.1.0" }
 fluut-cam = { path = "crates/fluut-cam", version = "0.1.0" }
 fluut-core = { path = "crates/fluut-core", version = "0.1.0" }
+fluut-script = { path = "crates/fluut-script", version = "0.1.0" }
 cavalier_contours = "0.9"
 glam = "0.34"
 libm = "0.2"
@@ -44,6 +45,9 @@ crc32fast = "1"
 proptest = "1"
 approx = "0.5"
 criterion = "0.8"
+# Scripting (D12): no default features, so no clock (`no_time`) and no
+# run-time random seed.
+rhai = { version = "1.27", default-features = false, features = ["std", "sync", "no_time", "no_custom_syntax"] }
 
 # Vendored copies with local changes; see each crate's README-FLUUTCAM.md.
 [patch.crates-io]

@@ -37,6 +37,11 @@ impl ModelStore {
         self.sources.get(id)
     }
 
+    /// Every source, by id.
+    pub fn sources(&self) -> impl Iterator<Item = (&str, &LoadedSource)> {
+        self.sources.iter().map(|(k, v)| (k.as_str(), v))
+    }
+
     /// Every body of every source, by source id.
     pub fn bodies(&self) -> impl Iterator<Item = &SetupBody> {
         self.sources.values().flat_map(|s| s.bodies.iter())

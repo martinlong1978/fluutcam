@@ -1420,8 +1420,15 @@ Passes fields (`machining_tolerance` included: there is no geometry).
     tolerance is left after the final contour.
   - `heights.order` checks only down to `top` for types without `bottom` (`chamfer_2d`,
     `engrave`), and allows `top` = `bottom` for `trace` in `curve` mode.
-  - `engrave` waits for the exact medial axis (CH-17): its parameters are validated and
-    `generate` reports `cam.type.unavailable`.
+  - `engrave` is built on the exact medial axis (CH-17,
+    [plan](../plan/2026-11-01-medial-axis-engrave.md)). Clarifications:
+    - `corner_sharpening` adds the axis branches from the edge of a flat area to a convex
+      corner. Without flat areas the axis reaches every convex corner, so corners are sharp
+      anyway.
+    - With `step_down`, levels stop at the deepest point of the path (at most `max_depth`).
+    - `Engrave::flat_areas` gives the flat region for the WireBody command of decision 9.
+    - It also reports `cam.geometry.drive.empty`, `cam.geometry.chain_self_intersects` (as
+      `pocket_2d`) and `cam.engrave.medial_axis` (E, the axis trace failed; not expected).
 - Built in M6 for §5 ([plan](../plan/2026-11-01-m6-3d-finishing.md)):
   - Codes added: `cam.<type>.tool_shape` (E, not a flat, ball or bull tool) for all five;
     `cam.contour.empty`, `cam.scallop.empty`, `cam.steep_and_shallow.empty` (W, nothing in
