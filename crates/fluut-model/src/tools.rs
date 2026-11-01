@@ -1,7 +1,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Tool libraries (spec 02 §2.4).
+//!
+//! A library may have a `version` (`major.minor`, default `1.0`) and may
+//! `extends` another library: its tools replace the parent's tools with
+//! the same id and add the rest (D06 §4). References take a version as
+//! other definitions do: `shop#flat-6`, `shop@2#flat-6`.
 
+use crate::defs::{DefRef, MAX_DEPTH, Version, VersionReq};
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::fmt;
@@ -15,6 +21,10 @@ pub struct ToolLibrary {
     pub id: String,
     #[serde(default)]
     pub name: String,
+    /// `major.minor`; absent means `1.0`.
+    pub version: Option<String>,
+    /// Parent library reference, e.g. `fluut/router-bits@1`.
+    pub extends: Option<String>,
     #[serde(rename = "tool", default)]
     pub tools: Vec<Tool>,
 }
@@ -129,7 +139,21 @@ impl ToolLibrary {
                 return Err(format!("tool `{}`: diameter is not a number", t.id));
             }
         }
+        if let Some(v) = &lib.version {
+            Version::parse(v).map_err(|e| e.to_string())?;
+        }
+        if let Some(e) = &lib.extends {
+            DefRef::parse(e).map_err(|e| e.to_string())?;
+        }
         Ok((lib, warnings))
+    }
+
+    /// The library version (`1.0` when not given).
+    pub fn version(&self) -> Version {
+        self.version
+            .as_deref()
+            .and_then(|v| Version::parse(v).ok())
+            .unwrap_or(Version { major: 1, minor: 0 })
     }
 
     pub fn tool(&self, id: &str) -> Option<&Tool> {
@@ -137,33 +161,40 @@ impl ToolLibrary {
     }
 }
 
-/// `library#tool` (spec 02 §2.1).
+/// `library#tool` or `library@version#tool` (spec 02 §2.1).
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct ToolRef {
     pub library: String,
     pub tool: String,
+    pub version: VersionReq,
 }
 
 impl ToolRef {
     pub fn parse(s: &str) -> Option<ToolRef> {
         let (l, t) = s.split_once('#')?;
-        (!l.is_empty() && !t.is_empty()).then(|| ToolRef {
-            library: l.to_owned(),
+        let lib = DefRef::parse(l).ok()?;
+        (!t.is_empty()).then(|| ToolRef {
+            library: lib.id,
             tool: t.to_owned(),
+            version: lib.version,
         })
     }
 }
 
 impl fmt::Display for ToolRef {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}#{}", self.library, self.tool)
+        let lib = DefRef {
+            id: self.library.clone(),
+            version: self.version,
+        };
+        write!(f, "{lib}#{}", self.tool)
     }
 }
 
-/// Every loaded tool library, by id.
+/// Every loaded tool library, by id and version.
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct ToolStore {
-    libs: BTreeMap<String, ToolLibrary>,
+    libs: BTreeMap<(String, Version), ToolLibrary>,
 }
 
 impl ToolStore {
@@ -171,15 +202,35 @@ impl ToolStore {
         ToolStore::default()
     }
 
-    /// Adds a library; a later library with the same id replaces it.
+    /// Adds a library; a later library with the same id and version
+    /// replaces it.
     pub fn insert(&mut self, lib: ToolLibrary) {
-        self.libs.insert(lib.id.clone(), lib);
+        self.libs.insert((lib.id.clone(), lib.version()), lib);
     }
 
-    /// The tool named by `library#tool`.
+    /// The highest version of library `id` that `req` accepts.
+    pub fn library(&self, id: &str, req: VersionReq) -> Option<&ToolLibrary> {
+        self.libs
+            .range((id.to_owned(), Version { major: 0, minor: 0 })..)
+            .take_while(|((l, _), _)| l == id)
+            .filter(|((_, v), _)| req.matches(*v))
+            .last()
+            .map(|(_, lib)| lib)
+    }
+
+    /// The tool named by `library#tool` or `library@version#tool`. A tool
+    /// not in the library is looked up in the library it `extends`.
     pub fn get(&self, r: &str) -> Option<&Tool> {
         let r = ToolRef::parse(r)?;
-        self.libs.get(&r.library)?.tool(&r.tool)
+        let mut lib = self.library(&r.library, r.version)?;
+        for _ in 0..MAX_DEPTH {
+            if let Some(t) = lib.tool(&r.tool) {
+                return Some(t);
+            }
+            let parent = DefRef::parse(lib.extends.as_deref()?).ok()?;
+            lib = self.library(&parent.id, parent.version)?;
+        }
+        None
     }
 }
 
@@ -245,5 +296,46 @@ colour = "red"
         let e = ToolLibrary::parse("format = \"fluut.tools/2\"\nid = \"x\"").unwrap_err();
         assert!(e.contains("expected"), "{e}");
         assert!(ToolLibrary::parse("format = \"fluut.tools/1\"\nid = \"x\"\n[[tool]]\nid = \"a\"\nshape = \"star\"\ndiameter = 1").is_err());
+    }
+    fn lib(src: &str) -> ToolLibrary {
+        ToolLibrary::parse(src).unwrap().0
+    }
+
+    #[test]
+    fn versions_and_extends() {
+        let mut s = ToolStore::new();
+        s.insert(lib(
+            "format = \"fluut.tools/1\"\nid = \"base\"\nversion = \"1.0\"\n\
+             [[tool]]\nid = \"a\"\nshape = \"flat\"\ndiameter = 3\n\
+             [[tool]]\nid = \"b\"\nshape = \"flat\"\ndiameter = 4",
+        ));
+        s.insert(lib(
+            "format = \"fluut.tools/1\"\nid = \"base\"\nversion = \"2.1\"\n\
+             [[tool]]\nid = \"a\"\nshape = \"flat\"\ndiameter = 30",
+        ));
+        s.insert(lib(
+            "format = \"fluut.tools/1\"\nid = \"shop\"\nextends = \"base@1\"\n\
+             [[tool]]\nid = \"b\"\nshape = \"ball\"\ndiameter = 5",
+        ));
+        assert_eq!(s.get("base#a").unwrap().diameter, 30.0);
+        assert_eq!(s.get("base@1#a").unwrap().diameter, 3.0);
+        assert_eq!(s.get("base@2.1#a").unwrap().diameter, 30.0);
+        assert!(s.get("base@2.0#a").is_none());
+        assert!(s.get("base@3#a").is_none());
+        // The child replaces `b` and inherits `a` from base 1.x.
+        assert_eq!(s.get("shop#b").unwrap().diameter, 5.0);
+        assert_eq!(s.get("shop#a").unwrap().diameter, 3.0);
+        assert_eq!(s.get("shop@1.0#a").unwrap().diameter, 3.0);
+        assert!(s.get("shop#c").is_none());
+        assert_eq!(ToolRef::parse("shop@2#a").unwrap().to_string(), "shop@2#a");
+        assert!(ToolRef::parse("shop@x#a").is_none());
+        // A cycle ends the lookup.
+        s.insert(lib(
+            "format = \"fluut.tools/1\"\nid = \"loop\"\nextends = \"loop\"",
+        ));
+        assert!(s.get("loop#a").is_none());
+        assert!(
+            ToolLibrary::parse("format = \"fluut.tools/1\"\nid = \"x\"\nversion = \"1\"").is_err()
+        );
     }
 }

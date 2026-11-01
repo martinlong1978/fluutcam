@@ -2,9 +2,12 @@
 
 //! The project document (spec 02 §2.1, D06 §1, §7.2).
 //!
-//! M3 holds the minimal project: geometry sources, `three_axis` Setups with
-//! the fields of D06 §1.1, and toolpaths with their parameter groups.
-//! [`read`] and [`write`] round-trip a canonical file byte for byte.
+//! A project holds geometry sources, Setups and their toolpaths. Every
+//! Setup field is optional: an absent field is inherited from `based_on`
+//! or takes its default ([`crate::setup`]). Setups are shared `Arc`s, so a
+//! cloned project (an undo entry) costs only the Setups that change
+//! (CH-02). [`read`] and [`write`] round-trip a canonical file byte for
+//! byte.
 
 mod read;
 mod write;
@@ -15,50 +18,93 @@ mod tests;
 pub use read::{LoadError, Loaded, read};
 pub use write::write;
 
+pub(crate) use read::{Cx, SETUP_KEYS, TOOLPATH_KEYS, check_ids};
+pub(crate) use write::{
+    setup as write_setup, setup_value, source as write_source, toolpath as write_toolpath,
+};
+
 use crate::params::{Num, Params, ToolpathTypeId};
 use std::fmt;
+use std::sync::Arc;
 
-/// File format id and major version (D06 §7.2).
+/// File format id and version (D06 §7.2). The writer always writes
+/// `fluut.project/1`; the reader accepts minors up to [`PROJECT_MINOR`]
+/// and runs the migrations of older minors.
 pub const PROJECT_FORMAT: &str = "fluut.project";
 pub const PROJECT_MAJOR: u32 = 1;
+pub const PROJECT_MINOR: u32 = 0;
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct Project {
-    /// As read, e.g. `fluut.project/1`; written back unchanged.
-    pub format: String,
     pub name: String,
     /// Display and entry unit; the file always holds mm (D15 §1.2).
     pub units: DisplayUnit,
     pub geometry: Vec<GeometrySource>,
-    pub setups: Vec<Setup>,
+    /// In machining order.
+    pub setups: Vec<Arc<Setup>>,
+    /// Saved camera views, kept as written (D13 owns their keys).
+    pub views: Vec<toml::Table>,
 }
 
 impl Project {
     pub fn new(name: &str) -> Project {
         Project {
-            format: format!("{PROJECT_FORMAT}/{PROJECT_MAJOR}"),
             name: name.to_owned(),
             units: DisplayUnit::Mm,
             geometry: Vec::new(),
             setups: Vec::new(),
+            views: Vec::new(),
         }
     }
 
     pub fn setup(&self, id: &str) -> Option<&Setup> {
-        self.setups.iter().find(|s| s.id == id)
+        self.setups.iter().find(|s| s.id == id).map(|s| &**s)
+    }
+
+    pub fn setup_index(&self, id: &str) -> Option<usize> {
+        self.setups.iter().position(|s| s.id == id)
     }
 
     /// The Setup holding toolpath `id`, and the toolpath.
     pub fn toolpath(&self, id: &str) -> Option<(&Setup, &Toolpath)> {
         self.setups
             .iter()
-            .find_map(|s| s.toolpaths.iter().find(|t| t.id == id).map(|t| (s, t)))
+            .find_map(|s| s.toolpaths.iter().find(|t| t.id == id).map(|t| (&**s, t)))
     }
 
+    /// The toolpath, unsharing its Setup.
     pub fn toolpath_mut(&mut self, id: &str) -> Option<&mut Toolpath> {
-        self.setups
+        let i = self
+            .setups
+            .iter()
+            .position(|s| s.toolpaths.iter().any(|t| t.id == id))?;
+        Arc::make_mut(&mut self.setups[i])
+            .toolpaths
             .iter_mut()
-            .find_map(|s| s.toolpaths.iter_mut().find(|t| t.id == id))
+            .find(|t| t.id == id)
+    }
+
+    /// The Setup, unshared.
+    pub fn setup_mut(&mut self, id: &str) -> Option<&mut Setup> {
+        let i = self.setup_index(id)?;
+        Some(Arc::make_mut(&mut self.setups[i]))
+    }
+
+    pub fn source(&self, id: &str) -> Option<&GeometrySource> {
+        self.geometry.iter().find(|g| g.id == id)
+    }
+
+    /// Every id in the document: sources, Setups, toolpaths.
+    pub fn ids(&self) -> impl Iterator<Item = &str> {
+        self.geometry
+            .iter()
+            .map(|g| g.id.as_str())
+            .chain(self.setups.iter().map(|s| s.id.as_str()))
+            .chain(
+                self.setups
+                    .iter()
+                    .flat_map(|s| s.toolpaths.iter().map(|t| t.id.as_str())),
+            )
     }
 }
 
@@ -73,6 +119,14 @@ impl DisplayUnit {
         match self {
             DisplayUnit::Mm => "mm",
             DisplayUnit::Inch => "inch",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<DisplayUnit> {
+        match s {
+            "mm" => Some(DisplayUnit::Mm),
+            "inch" => Some(DisplayUnit::Inch),
+            _ => None,
         }
     }
 
@@ -167,6 +221,17 @@ impl SetupKind {
             SetupKind::Indexed => "indexed",
         }
     }
+
+    /// Rotary and indexed Setups turn about the rotary axis.
+    pub fn is_rotary(self) -> bool {
+        self != SetupKind::ThreeAxis
+    }
+}
+
+impl fmt::Display for SetupKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
 }
 
 /// A signed model axis.
@@ -214,34 +279,90 @@ impl AxisDir {
     }
 }
 
-/// Which model directions become +Z and +X of the work frame (spec 03
-/// §3.9.3). M3 takes signed model axes only; picks from faces come later.
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
-pub struct Orientation {
-    pub tool_axis: AxisDir,
-    pub x_axis: AxisDir,
+/// A direction picked from the model (spec 03 §3.9.3): a signed model axis,
+/// a face (planar normal, or cylinder or cone axis) or an edge (line).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum AxisPick {
+    Axis(AxisDir),
+    Face(String),
+    Edge(String),
+}
+
+impl From<AxisDir> for AxisPick {
+    fn from(a: AxisDir) -> AxisPick {
+        AxisPick::Axis(a)
+    }
+}
+
+/// How model axes map to machine axes (spec 03 §3.9.3).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum Orientation {
+    /// `three_axis`: +Z and +X of the work frame.
+    ThreeAxis {
+        tool_axis: AxisPick,
+        x_axis: AxisPick,
+    },
+    /// `rotary` and `indexed`: the rotary axis line and the model direction
+    /// that points to +Z of W at A = 0 (default +Z).
+    Rotary {
+        rotary_axis: AxisPick,
+        a_zero_toward: Option<AxisPick>,
+    },
 }
 
 impl Default for Orientation {
     fn default() -> Self {
-        Orientation {
-            tool_axis: AxisDir::PosZ,
-            x_axis: AxisDir::PosX,
+        Orientation::ThreeAxis {
+            tool_axis: AxisPick::Axis(AxisDir::PosZ),
+            x_axis: AxisPick::Axis(AxisDir::PosX),
         }
     }
 }
 
-/// Stock (spec 03 §3.9.6). M3: a block from the model bounds plus margins:
-/// `margin = [x, y, z]` grows both X sides, both Y sides and the top.
+/// Body selection, scale and mirror of a Setup (spec 02 §2.1).
+#[derive(Clone, PartialEq, Debug, Default)]
+pub struct GeometrySel {
+    /// Body ids; `None` = every body of every source.
+    pub bodies: Option<Vec<String>>,
+    /// Per-axis scale about the model origin.
+    pub scale: Option<[Num; 3]>,
+    pub mirror: Option<[bool; 3]>,
+}
+
+/// Stock (spec 03 §3.9.6).
 #[derive(Clone, PartialEq, Debug)]
 pub enum StockSpec {
-    Block { margin: [Num; 3] },
+    /// A box: the model bounds in the aligned frame grown by `margin = [x,
+    /// y, z]` (both X sides, both Y sides, the top), or an explicit `size`
+    /// centred on the model in X and Y with its bottom at the model bottom.
+    Block {
+        margin: Option<[Num; 3]>,
+        size: Option<[Num; 3]>,
+    },
+    /// Coaxial with the rotary axis.
+    Cylinder { radius: Num, length: Num },
+    /// A body of the model (a casting, a prior-operation part).
+    Body { body: String },
+    /// The material left by the parent Setup (`based_on`).
+    FromPrevious,
+}
+
+impl StockSpec {
+    pub fn kind(&self) -> &'static str {
+        match self {
+            StockSpec::Block { .. } => "block",
+            StockSpec::Cylinder { .. } => "cylinder",
+            StockSpec::Body { .. } => "body",
+            StockSpec::FromPrevious => "from_previous",
+        }
+    }
 }
 
 impl Default for StockSpec {
     fn default() -> Self {
         StockSpec::Block {
-            margin: [Num::int(0); 3],
+            margin: None,
+            size: None,
         }
     }
 }
@@ -273,7 +394,16 @@ impl Corner {
     }
 }
 
-/// Work zero of a `three_axis` Setup (spec 03 §3.9.3).
+/// X of the work zero on the rotary axis.
+#[derive(Clone, PartialEq, Debug)]
+pub enum AxisX {
+    StockLeft,
+    StockRight,
+    /// An X in the aligned frame.
+    At(Num),
+}
+
+/// Work zero (spec 03 §3.9.3).
 #[derive(Clone, PartialEq, Debug)]
 pub enum ZeroSpec {
     StockTopCorner(Corner),
@@ -281,6 +411,10 @@ pub enum ZeroSpec {
     StockTopCentre,
     /// A point in the model frame M.
     Point([Num; 3]),
+    /// Rotary and indexed Setups: Y and Z on the rotary axis, X free.
+    OnAxis {
+        x: AxisX,
+    },
 }
 
 impl Default for ZeroSpec {
@@ -289,29 +423,74 @@ impl Default for ZeroSpec {
     }
 }
 
-/// Setup clearance plane: `offset` above the stock top.
+/// The Setup clearance: a plane `offset` above the stock top, or a
+/// cylinder about the rotary axis.
 #[derive(Clone, PartialEq, Debug)]
-pub struct ClearanceSpec {
-    pub offset: Num,
+pub enum ClearanceSpec {
+    Plane { offset: Option<Num> },
+    Cylinder { radius: Num },
 }
 
 impl ClearanceSpec {
     pub const DEFAULT_OFFSET: f64 = 10.0;
+
+    /// The plane offset above the stock top (default 10 mm).
+    pub fn plane_offset(&self) -> Option<f64> {
+        match self {
+            ClearanceSpec::Plane { offset } => {
+                Some(offset.map_or(ClearanceSpec::DEFAULT_OFFSET, |n| n.v))
+            }
+            ClearanceSpec::Cylinder { .. } => None,
+        }
+    }
 }
 
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum AngleMode {
+    Absolute,
+    Relative,
+}
+
+impl AngleMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            AngleMode::Absolute => "absolute",
+            AngleMode::Relative => "relative",
+        }
+    }
+}
+
+/// Rotary position of an indexed Setup, degrees (spec 03 §3.9.5).
+#[derive(Clone, PartialEq, Debug)]
+pub struct IndexAngle {
+    pub mode: AngleMode,
+    pub value: Num,
+}
+
+/// Machining region (spec 02 §2.1): toolpaths do not cut below `floor_z`
+/// (in W).
+#[derive(Clone, PartialEq, Debug)]
+pub struct Region {
+    pub floor_z: Num,
+}
+
+/// A Setup as stored: `None` fields are inherited from `based_on` or take
+/// their defaults (spec 03 §3.9.4).
 #[derive(Clone, PartialEq, Debug)]
 pub struct Setup {
     pub id: String,
     pub name: String,
-    pub kind: SetupKind,
+    pub based_on: Option<String>,
+    pub kind: Option<SetupKind>,
     pub machine: Option<String>,
     pub material: Option<String>,
     pub work_offset: Option<String>,
-    /// Body ids; `None` = every body of every source.
-    pub bodies: Option<Vec<String>>,
+    pub geometry: Option<GeometrySel>,
     pub orientation: Option<Orientation>,
+    pub index_angle: Option<IndexAngle>,
     pub stock: Option<StockSpec>,
     pub zero: Option<ZeroSpec>,
+    pub region: Option<Region>,
     pub clearance: Option<ClearanceSpec>,
     pub toolpaths: Vec<Toolpath>,
 }
@@ -321,21 +500,24 @@ impl Setup {
         Setup {
             id: id.to_owned(),
             name: name.to_owned(),
-            kind: SetupKind::ThreeAxis,
+            based_on: None,
+            kind: None,
             machine: None,
             material: None,
             work_offset: None,
-            bodies: None,
+            geometry: None,
             orientation: None,
+            index_angle: None,
             stock: None,
             zero: None,
+            region: None,
             clearance: None,
             toolpaths: Vec::new(),
         }
     }
 
-    pub fn work_offset(&self) -> &str {
-        self.work_offset.as_deref().unwrap_or("G54")
+    pub fn toolpath(&self, id: &str) -> Option<&Toolpath> {
+        self.toolpaths.iter().find(|t| t.id == id)
     }
 }
 
@@ -343,7 +525,9 @@ impl Setup {
 pub struct Toolpath {
     pub id: String,
     pub name: String,
-    /// `library#tool` (spec 02 §2.1).
+    /// `library#tool` or `library@version#tool` (spec 02 §2.1). Empty
+    /// until a tool is chosen (the key is then not written); validation
+    /// reports it.
     pub tool: String,
     pub enabled: Option<bool>,
     pub template: Option<String>,
@@ -369,10 +553,9 @@ impl Toolpath {
     pub fn is_enabled(&self) -> bool {
         self.enabled.unwrap_or(true)
     }
-}
 
-impl fmt::Display for SetupKind {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
+    /// The tool reference, or `""` when none is set.
+    pub fn tool_ref(&self) -> &str {
+        &self.tool
     }
 }

@@ -58,7 +58,7 @@ fn parse_u32(s: &str) -> Option<u32> {
 }
 
 /// Which versions a reference accepts (D06 §4.2).
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum VersionReq {
     /// `id`: the highest version available.
     Latest,
@@ -178,6 +178,10 @@ impl MemStore {
 
     pub fn insert(&mut self, def: Def) {
         self.defs.push(Arc::new(def));
+    }
+
+    pub fn insert_arc(&mut self, def: Arc<Def>) {
+        self.defs.push(def);
     }
 
     pub fn insert_toml(&mut self, src: &str) -> Result<(), DefError> {

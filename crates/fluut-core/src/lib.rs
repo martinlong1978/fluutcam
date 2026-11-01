@@ -3,17 +3,21 @@
 //! The FluutCAM session (design D01 §4–§5): the model store, Setup frames,
 //! the invalidation graph, and calculation and post jobs.
 //!
-//! M3 runs jobs in one process, one after another. The result cache is in
-//! memory; the disk sidecar (D06 §7.5) is M4.
+//! Jobs run in one process, one after another. Results are cached in
+//! memory and, when enabled, in the disk sidecar (D06 §7.5).
 
+pub mod cache;
 pub mod frame;
 pub mod graph;
+pub mod reimport;
 pub mod session;
 pub mod store;
 
 pub use frame::SetupFrame;
 pub use graph::{Graph, NodeId};
-pub use session::{JobReport, JobState, PostOptions, Session, Targets};
+pub use session::{
+    JobReport, JobState, OpenOptions, PostOptions, Session, Targets, builtin_library,
+};
 pub use store::{LoadedSource, ModelStore};
 
 /// Version of the calculation code, part of every result hash (D01 §4).

@@ -8,7 +8,8 @@
 //! result.
 
 use crate::params::Class;
-use crate::project::{Project, Setup, Toolpath, write};
+use crate::project::{Project, Toolpath, write};
+use crate::setup::ResolvedSetup;
 use crate::tools::Tool;
 use sha2::{Digest, Sha256};
 use std::fmt::Write;
@@ -68,7 +69,7 @@ pub fn toolpath_r_text(tp: &Toolpath, tool: Option<&Tool>, material: Option<&str
     format!(
         "type = {}\ntool = {}\n{}{}",
         tp.kind(),
-        tp.tool,
+        tp.tool_ref(),
         tool_r_text(tool, material),
         tp.params.class_text(Class::R)
     )
@@ -85,11 +86,13 @@ pub fn toolpath_p_text(tp: &Toolpath, tool: Option<&Tool>, material: Option<&str
     )
 }
 
-/// Every Setup field (all class R), without its toolpaths.
-pub fn setup_text(s: &Setup) -> String {
+/// Every resolved Setup field (all class R), without its toolpaths. The
+/// resolved form makes a parent edit change every child's hash.
+pub fn setup_text(s: &ResolvedSetup) -> String {
+    let mut s = s.to_setup();
+    // The name is display only (class N).
+    s.name.clear();
     let mut p = Project::new("");
-    let mut s = s.clone();
-    s.toolpaths.clear();
-    p.setups.push(s);
+    p.setups.push(std::sync::Arc::new(s));
     write(&p)
 }

@@ -61,7 +61,11 @@ pub fn validate(tp: &Toolpath, cx: &ValidateCx) -> Vec<Diagnostic> {
         out.push(
             Diagnostic::error(
                 "param.tool.missing",
-                format!("tool `{}` is not in any loaded tool library", tp.tool),
+                if tp.tool.is_empty() {
+                    "the toolpath has no tool".to_owned()
+                } else {
+                    format!("tool `{}` is not in any loaded tool library", tp.tool)
+                },
             )
             .at("tool"),
         );

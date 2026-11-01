@@ -6,7 +6,8 @@
 use crate::ALGORITHM_VERSION;
 use crate::store::ModelStore;
 use fluut_model::hash::{setup_text, sha256_hex, toolpath_p_text, toolpath_r_text};
-use fluut_model::project::{Project, Setup};
+use fluut_model::project::Project;
+use fluut_model::setup::{ResolvedSetup, resolve_all};
 use fluut_model::tools::ToolStore;
 use std::collections::BTreeMap;
 
@@ -35,10 +36,10 @@ pub struct Graph {
 
 /// Sources holding the Setup's bodies (all sources when the Setup names
 /// none), by id.
-fn setup_sources<'a>(s: &Setup, p: &'a Project, store: &ModelStore) -> Vec<&'a str> {
+fn setup_sources<'a>(s: &ResolvedSetup, p: &'a Project, store: &ModelStore) -> Vec<&'a str> {
     p.geometry
         .iter()
-        .filter(|g| match &s.bodies {
+        .filter(|g| match &s.geometry.bodies {
             None => true,
             Some(ids) => store
                 .source(&g.id)
@@ -63,9 +64,15 @@ impl Graph {
                 },
             );
         }
-        for s in &p.setups {
-            let srcs = setup_sources(s, p, store);
-            let mut text = format!("{ALGORITHM_VERSION}\n{}", setup_text(s));
+        for (s, r) in p.setups.iter().zip(resolve_all(p)) {
+            // A Setup whose chain is broken hashes its error, so it is
+            // stale until fixed.
+            let (srcs, body) = match &r {
+                Ok(r) => (setup_sources(r, p, store), setup_text(r)),
+                Err(d) => (Vec::new(), format!("error = {}\n", d.code)),
+            };
+            let material = r.as_ref().ok().and_then(|r| r.material.clone());
+            let mut text = format!("{ALGORITHM_VERSION}\n{body}");
             let mut deps = Vec::new();
             for id in srcs {
                 let d = NodeId::Geometry(id.to_owned());
@@ -82,8 +89,8 @@ impl Graph {
                 },
             );
             for t in &s.toolpaths {
-                let tool = tools.get(&t.tool);
-                let m = s.material.as_deref();
+                let tool = tools.get(t.tool_ref());
+                let m = material.as_deref();
                 let r =
                     sha256_hex(format!("{setup_hash}\n{}", toolpath_r_text(t, tool, m)).as_bytes());
                 let rid = NodeId::Result(t.id.clone());
