@@ -191,4 +191,40 @@ mod tests {
         let d = Diagnostic::error("param.passes.stepover.max", "stepover 7 mm > 6 mm");
         assert_eq!(diagnostic(&d), "stepover 7 mm > 6 mm");
     }
+
+    #[test]
+    fn diagnostic_without_values_uses_its_fluent_message() {
+        let d = Diagnostic::error("param.geometry.drive.empty", "model text");
+        assert_eq!(diagnostic(&d), "select drive curves or drive faces");
+        set_lang(Lang::Pseudo);
+        let s = diagnostic(&d);
+        set_lang(Lang::English);
+        assert!(s.starts_with('⟦') && !s.contains("model text"), "{s}");
+    }
+
+    /// The `.ftl` text of a diagnostic must equal the message that
+    /// `fluut-model` writes, so the English fallback and the catalog agree.
+    #[test]
+    fn diagnostic_messages_match_validate_rs() {
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../fluut-model/src/validate.rs");
+        let src = std::fs::read_to_string(path).unwrap();
+        let ftl = include_str!("../../fluut-i18n/locales/en/diagnostics.ftl");
+        let mut n = 0;
+        for line in ftl.lines().filter(|l| l.starts_with("param-")) {
+            let (id, text) = line.split_once(" = ").unwrap();
+            // `param-a-b_c-d` → candidates for `param.a.b_c.d`.
+            let code = id.replace('-', ".");
+            let at = src
+                .find(&format!("\"{code}\""))
+                .unwrap_or_else(|| panic!("no code {code} in validate.rs"));
+            // The message literal follows the code within a few lines.
+            let end = (at + 300).min(src.len());
+            let window = &src[at..src.ceil_char_boundary(end)];
+            let literal = format!("\"{}\"", text.replace('"', "\\\""));
+            assert!(window.contains(&literal), "{code}: {text:?} not found");
+            n += 1;
+        }
+        assert_eq!(n, 20);
+    }
 }
