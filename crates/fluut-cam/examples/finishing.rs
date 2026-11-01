@@ -4,7 +4,8 @@
 //! corpus.
 //!
 //! `cargo run -p fluut-cam --example finishing --release` with
-//! `FLUUT_STEP_CORPUS=<dir>`; `FLUUT_TYPES=contour,spiral` picks types.
+//! `FLUUT_STEP_CORPUS=<dir>`; `FLUUT_TYPES=contour,spiral` picks types and
+//! `FLUUT_STEP_DOWN` sets the waterline step-down (default 2 mm).
 //! Ø6 ball (Ø6 flat for `horizontal`), every face a drive face, tolerance
 //! 0.01 mm, one thread. Reports the time per output CL point.
 
@@ -105,16 +106,16 @@ fn main() {
         selection: None,
     };
     let pick = std::env::var("FLUUT_TYPES").unwrap_or_default();
+    // `FLUUT_STEP_DOWN` sets the waterline step-down (default 2 mm).
+    let sd = std::env::var("FLUUT_STEP_DOWN").unwrap_or_else(|_| "2".into());
+    let contour = format!("step_down = {sd}");
+    let sns = format!("steep = {{ step_down = {sd} }}\nshallow = {{ stepover = 2 }}");
     let cases = [
-        ("contour", "b6", "step_down = 2"),
+        ("contour", "b6", contour.as_str()),
         ("horizontal", "f6", "stepover = 3"),
         ("spiral", "b6", "stepover = 2"),
         ("scallop", "b6", "stepover = 2"),
-        (
-            "steep_and_shallow",
-            "b6",
-            "steep = { step_down = 2 }\nshallow = { stepover = 2 }",
-        ),
+        ("steep_and_shallow", "b6", sns.as_str()),
     ];
     for (ty, tl, passes) in cases {
         if !pick.is_empty() && !pick.split(',').any(|p| p == ty) {

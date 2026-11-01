@@ -441,10 +441,13 @@ impl<'a> Waterline<'a> {
                 }
                 return (pts, Some(End::Region));
             }
-            // Back at the seed: close.
+            // Back at the seed, heading the same way: close. A lap that
+            // misses the seed by a little (drop noise on free-form faces)
+            // still closes; without that it ran on to the length limit.
             if pts.len() >= 3
                 && travelled > 4.0 * self.tol
-                && seg_dist(seed.p, cur.p, nxt.p) <= 0.5 * self.tol
+                && seg_dist(seed.p, cur.p, nxt.p) <= (0.5 * self.tol).max(0.25 * len)
+                && seed.n.dot(nxt.n) > 0.5
             {
                 pts.push(seed);
                 return (pts, None);
