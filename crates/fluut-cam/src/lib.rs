@@ -4,6 +4,7 @@
 //! D07–D09).
 
 pub mod chain;
+pub mod cutter;
 pub mod drive;
 pub mod geometry;
 pub mod layout;

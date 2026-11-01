@@ -406,6 +406,42 @@ fn cube_pcurves_are_projected() {
 }
 
 #[test]
+fn closed_bspline_edge_spans_the_curve() {
+    let mut s = Step::default();
+    let pts: Vec<u64> = [
+        [0.0, 0.0],
+        [10.0, 0.0],
+        [10.0, 10.0],
+        [0.0, 10.0],
+        [0.0, 0.0],
+    ]
+    .iter()
+    .map(|p| s.point([p[0], p[1], 0.0]))
+    .collect();
+    let list = pts
+        .iter()
+        .map(|i| format!("#{i}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    let c = s.add(&format!(
+        "B_SPLINE_CURVE_WITH_KNOTS('',3,({list}),.UNSPECIFIED.,.T.,.F.,(4,1,4),(0.,0.5,1.),.UNSPECIFIED.)"
+    ));
+    let v = s.add(&format!("VERTEX_POINT('',#{})", pts[0]));
+    let e = s.add(&format!("EDGE_CURVE('',#{v},#{v},#{c},.T.)"));
+    let oe = s.add(&format!("ORIENTED_EDGE('',*,*,#{e},.T.)"));
+    let lp = s.add(&format!("EDGE_LOOP('',(#{oe}))"));
+    let fb = s.add(&format!("FACE_OUTER_BOUND('',#{lp},.T.)"));
+    let ax = s.placement([0.0; 3], [0.0, 0.0, 1.0], [1.0, 0.0, 0.0]);
+    let pl = s.add(&format!("PLANE('',#{ax})"));
+    let f = s.add(&format!("ADVANCED_FACE('',(#{fb}),#{pl},.T.)"));
+    let sh = s.add(&format!("OPEN_SHELL('',(#{f}))"));
+    s.add(&format!("SHELL_BASED_SURFACE_MODEL('',(#{sh}))"));
+    let b = map_one(&s.file(MM));
+    let r = b.body.edges[0].range;
+    assert_eq!((r.lo, r.hi), (0.0, 1.0));
+}
+
+#[test]
 fn unsupported_surface_skips_face() {
     let src = cube_step(10.0).file(MM);
     let i = src.find("PLANE('',").unwrap();

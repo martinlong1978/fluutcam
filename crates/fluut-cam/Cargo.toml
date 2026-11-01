@@ -18,5 +18,5 @@ libm.workspace = true
 workspace = true
 
 [dev-dependencies]
-proptest.workspace = true
 fluut-io-step.workspace = true
+proptest.workspace = true

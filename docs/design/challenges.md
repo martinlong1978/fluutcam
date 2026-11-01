@@ -138,6 +138,8 @@ offsets; check whether contact-based sampling + fitting is fast enough there.
 
 **S1 (2026-10-31).** Belongs to S2 (cutter queries); S1 provides the bodies and face BVH it needs.
 
+**S2 (2026-11-01).** Confirmed for drop queries: no offset surface is built for any face. The contact condition (D07 §4.3) handles concave faces without folds: a radius-5 bowl under a radius-3 ball, and the concave torus fillets of the corpus, match the brute-force reference. Waterline (D07 §7) was not built, so the "Revisit" item stays open ([S2 report](../plan/spikes/s2-cutter-queries.md) §4).
+
 ### CH-05 Silhouette outline robustness for free-form faces
 
 **Problem.** The drive-face outline needs silhouette curves (n·z = 0) of free-form faces and a
@@ -191,6 +193,7 @@ this fails are excluded and reported.
 **S1 (2026-10-31).** All 33 NIST corpus files omit p-curves, so projection runs on every face, not on a minority. The failure rate is still unmeasured; it is the first task of the M4 importer ([S1 report](../plan/spikes/s1-kernel-step.md) §5).
 
 **Resolution (2026-11-01).** The workaround is implemented in `fluut_topo::pcurve` and measured ([report](../plan/spikes/step-pcurves-fuzz.md) §1). Exact p-curves where the image is known (34 288 coedges), otherwise sampled closest points with continuity, coordinates at poles and apexes taken from neighbours, and a C¹ cubic fit to `tol_model / 2` (3 915 coedges). Each face's p-curves are shifted by whole periods to join across seams. On the corpus, 99.74 % of 38 203 coedges are within `tol_model` and 99.92 % within the file's declared uncertainty, in 0.64 s. All 101 failures are edges that lie off their surface, not projection failures. Left open, reported as failures when they occur (none in the corpus): an edge crossing the seam of a closed, non-periodic B-spline surface, which must be split. Faces bounded only by edges through poles get p-curves in some period window; the trim cache (D03 §3.1) chooses the face's window.
+**S2 (2026-11-01).** S2 needs trims for contact tests, so it projects every face loop into (u, v): closest point, then Gauss–Newton along the loop, unwrapping across seams, filling in at poles and closing through a pole. All 7 902 corpus faces get a trim, after a mapper fix for closed B-spline edges. Accuracy is the polyline chord: contacts up to about `chord × slope` outside a face are accepted (1e-3 mm chord gave differences up to 1e-3 mm against the reference). This does not test p-curve projection near B-spline seams, which the corpus barely has ([S2 report](../plan/spikes/s2-cutter-queries.md) §1, §4).
 
 ### CH-09 DXF reader coverage
 
@@ -244,6 +247,8 @@ correctness.
 arithmetic on patches for guaranteed bounds if misses occur.
 
 **S1 (2026-10-31).** Belongs to S2; S1 provides the bodies (176 B-spline faces in the corpus).
+
+**S2 (2026-11-01).** Measured. The final seeding: targets in the footprint projected vertically onto the surface, starts from closed-form closest points (analytic) or a 4 × 4 patch sample (B-spline), and 3 Newton starts ranked by τ. It has no misses on 600 synthetic reference points. On 7 560 corpus points the remaining differences are at most 3.2e-5 mm: trim polylines and a verified model gap, plus five 1e-6 mm cases beside model gaps that were not traced. Four seeding bugs found by the corpus gave misses of 0.3–30 mm before they were fixed. One Newton start misses by up to 1.4 mm. About half of all Newton runs do not converge because the primitive has no interior contact, so non-convergence cannot signal a failure; D07's `NoConvergence` rule is suspended. Interval bounds were not needed. Stays deferred: the guard is the reference test plus the hard points kept as tests ([S2 report](../plan/spikes/s2-cutter-queries.md) §3).
 
 ### CH-13 B-spline boundaries through a lines-and-arcs offset library
 
@@ -436,3 +441,5 @@ measured requirements.
 bounds are tight before seeding; seed from the previous query point (drop-cutter queries are
 spatially coherent); cache Bézier-form patches to skip knot-span work. Set the target from the
 S2 cost model rather than D02 §8's estimate.
+
+**S2 (2026-11-01).** The drop never calls B-spline closest point in its inner loop: seeds come from vertical projection (2-D Newton), so CH-25's 99 µs does not set the drop cost. A B-spline patch solve costs 40 µs, and a dense free-form model needs about 5 per drop, giving 210–320 µs median against D07 §8's 20 µs. Warm starts from the previous drop and tighter patch bounds come first ([S2 report](../plan/spikes/s2-cutter-queries.md) §2, §5). Closest point itself remains as measured in M1.

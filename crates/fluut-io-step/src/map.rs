@@ -826,7 +826,14 @@ impl<'a> Mapper<'a> {
                     // A closed B-spline used whole: both ends map to one parameter.
                     (t0, t1) = (nat.lo, nat.hi);
                 }
-                Interval::new(t0.min(t1), t0.max(t1))
+                let closed = curve.eval(nat.lo).distance(curve.eval(nat.hi)) <= self.tol.model;
+                if !periodic && v0 == v1 && closed {
+                    // A closed B-spline edge runs over the whole curve; the
+                    // vertex projects to either end.
+                    Some(nat)
+                } else {
+                    Interval::new(t0.min(t1), t0.max(t1))
+                }
             }
             None => {
                 let big = Interval { lo: -1e9, hi: 1e9 };
