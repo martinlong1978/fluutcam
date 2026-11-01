@@ -1,0 +1,20 @@
+[package]
+name = "s4-egui"
+description = "Spike S4: egui prototype of the FluutCAM window (not part of FluutCAM)"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "MIT OR Apache-2.0"
+
+# Not a member of the FluutCAM workspace.
+[workspace]
+
+[dependencies]
+s4-common = { path = "../s4-common" }
+eframe = { version = "0.36", default-features = false, features = ["accesskit", "default_fonts", "wgpu", "wayland", "x11"] }
+egui_dock = "0.21"
+
+[profile.release]
+debug = false
+lto = "thin"
+codegen-units = 1
