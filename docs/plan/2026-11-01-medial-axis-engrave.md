@@ -72,13 +72,13 @@ Tracing costs O(n) per edge with a uniform grid of sites, so O(n · E) at worst 
 
 **Files:** Create `crates/fluut-cam/src/region/medial.rs`, `crates/fluut-cam/src/region/medial/site.rs`, `crates/fluut-cam/src/region/medial/tests.rs`; one `mod` line in `region.rs`.
 
-- [ ] **Step 1:** Tests: sites of a polygon with reflex vertices and of loops with arcs; the bisector point at a parameter for each pair of kinds, checked against both distances; the conic kind of each pair; three-site vertices for line, arc and point triples, with known answers (incircles, arc centres).
-- [ ] **Step 2:** Implement; pass.
+- [x] **Step 1:** Tests: sites of a polygon with reflex vertices and of loops with arcs; the bisector point at a parameter for each pair of kinds, checked against both distances; the conic kind of each pair; three-site vertices for line, arc and point triples, with known answers (incircles, arc centres).
+- [x] **Step 2:** Implement; pass.
 
 ### Task 3: Tracing
 
-- [ ] **Step 1:** Tests: rectangle, square, triangle, L-shape, disc, annulus (concentric and not), rectangle with a round hole, stadium, rounded rectangle, a hole touching the outer loop, two squares touching at a corner, a nearly square rectangle, nearly tangent joints, lettering-like shapes with many arcs. Property tests (proptest) on random polygons and on random arc shapes: clearance, equidistance, completeness, E − V + 1 = holes. Bit-pinned vertices and edges.
-- [ ] **Step 2:** Implement; pass. Commit.
+- [x] **Step 1:** Tests: rectangle, square, triangle, L-shape, disc, annulus (concentric and not), rectangle with a round hole, stadium, rounded rectangle, a hole touching the outer loop, two squares touching at a corner, a nearly square rectangle, nearly tangent joints, lettering-like shapes with many arcs. Property tests (proptest) on random polygons and on random arc shapes: clearance, equidistance, completeness, E − V + 1 = holes. Bit-pinned vertices and edges.
+- [x] **Step 2:** Implement; pass. Commit.
 
 ### Task 4: `engrave`
 
