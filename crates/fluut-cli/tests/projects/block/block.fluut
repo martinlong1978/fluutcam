@@ -1,0 +1,82 @@
+format = "fluut.project/1"
+name   = "Block"
+units  = "mm"
+
+[[geometry]]
+id   = "g1"
+path = "block.step"
+kind = "step"
+
+  [[geometry.body]]
+  id   = "b-494"
+  name = "pocket_block"
+
+[[setup]]
+id       = "s1"
+name     = "Top"
+kind     = "three_axis"
+material = "MDF"
+stock    = { kind = "block", margin = [5, 5, 0] }
+zero     = { method = "stock_top_corner", corner = "front_left" }
+
+  [[setup.toolpath]]
+  id   = "t1"
+  name = "Pocket"
+  type = "pocket_2d"
+  tool = "shop#flat-6"
+
+    [setup.toolpath.tool_params]
+    coolant = "flood"
+
+    [setup.toolpath.geometry]
+    drive_faces = [{ face = "f-494.10" }]
+
+    [setup.toolpath.passes]
+    stepover             = 2.4
+    step_down            = 4.0
+    stock_to_leave       = 0.2
+    stock_to_leave_axial = 0.1
+
+    [setup.toolpath.linking]
+    ramp = { kind = "helix", angle_deg = 3, radius = 2.5 }
+
+  [[setup.toolpath]]
+  id   = "t2"
+  name = "Pocket floor raster"
+  type = "pocket_2d"
+  tool = "shop#flat-6"
+
+    [setup.toolpath.geometry]
+    drive_faces = [{ face = "f-494.10" }]
+
+    [setup.toolpath.heights]
+    top = { ref = "selection", offset = 0.1 }
+
+    [setup.toolpath.passes]
+    pattern        = "raster"
+    stepover       = 3.0
+    pass_angle_deg = 45
+
+    [setup.toolpath.linking]
+    retract = "stay_down"
+    ramp    = { kind = "zigzag" }
+
+  [[setup.toolpath]]
+  id   = "t3"
+  name = "Cut out"
+  type = "contour_2d"
+  tool = "shop#flat-6"
+
+    [setup.toolpath.geometry]
+    drive_faces = [{ face = "f-494.0" }, { face = "f-494.1" }, { face = "f-494.2" }, { face = "f-494.3" }]
+
+    [setup.toolpath.heights]
+    bottom = { ref = "stock_bottom", offset = -0.2 }
+
+    [setup.toolpath.passes]
+    step_down = 5.0
+    tabs      = { mode = "count", count = 4, width = 6, height = 3 }
+
+    [setup.toolpath.linking]
+    lead_in = { kind = "arc", radius = 4, length = 2 }
+    ramp    = { kind = "profile", angle_deg = 5 }

@@ -387,6 +387,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "fluut-cli"
+version = "0.1.0"
+dependencies = [
+ "fluut-core",
+ "fluut-geom",
+ "fluut-model",
+ "fluut-path",
+ "fluut-post",
+]
+
+[[package]]
 name = "fluut-core"
 version = "0.1.0"
 dependencies = [
