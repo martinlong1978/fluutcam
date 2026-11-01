@@ -8,12 +8,13 @@
 //! Number, enum and bool fields are edited here; heights, selections and
 //! points are shown read-only until their pickers exist.
 
-use super::entry::{EntryUnit, evaluate};
+use super::entry::{EntryUnit, dimension, evaluate, length_unit};
 use super::visible::visible;
 use super::{Selection, fmt_num};
 use crate::jobs::Edit;
 use crate::session::Snapshot;
 use crate::text::{data, diagnostic, field_label, tr, tr_args};
+use fluut_i18n::{display_scale, unit_symbol};
 use fluut_model::params::{ConstVal, DefaultRule};
 use fluut_model::project::{AxisX, DisplayUnit, StockSpec, Toolpath, ZeroSpec};
 use fluut_model::setup::ResolvedSetup;
@@ -104,14 +105,9 @@ pub enum InspectorVm {
 
 /// Display unit symbol and scale of a field kind.
 fn display(kind: FieldKind, unit: DisplayUnit) -> (Option<&'static str>, f64) {
-    let inch = unit == DisplayUnit::Inch;
-    match kind {
-        FieldKind::Length => (Some(if inch { "in" } else { "mm" }), unit.mm()),
-        FieldKind::Feed => (Some(if inch { "in/min" } else { "mm/min" }), unit.mm()),
-        FieldKind::Speed => (Some("rpm"), 1.0),
-        FieldKind::Angle => (Some("°"), 1.0),
-        _ => (None, 1.0),
-    }
+    let (dim, unit) = (dimension(kind), length_unit(unit));
+    let sym = unit_symbol(dim, unit);
+    ((!sym.is_empty()).then_some(sym), display_scale(dim, unit))
 }
 
 fn num_text(v: f64, kind: FieldKind, unit: DisplayUnit) -> String {

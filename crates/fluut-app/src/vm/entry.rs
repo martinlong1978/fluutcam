@@ -7,35 +7,52 @@
 //! `tool.corner_radius` and `tool.flute_length` (mm). It is evaluated once,
 //! at entry, and the number is stored (D13 §4). Promoted from the S4 spike.
 //!
-//! Units, for lengths and feeds: at most one factor of a product carries a
-//! unit (`mm`, `in` or `"`), and it applies to the whole product, so `1/4in`
-//! is a quarter inch and `tool.diameter*0.4` is in mm. A product without a
-//! unit is in the project unit. `,` is accepted as the decimal separator.
+//! Units, for lengths, feeds and angles: at most one factor of a product
+//! carries a unit (`mm`, `in` or `"`; `mm/min` or `in/min` for feeds; `°` for
+//! angles), and it applies to the whole product, so `1/4in` is a quarter inch
+//! and `tool.diameter*0.4` is in mm. A product without a unit is in the
+//! project unit. `,` is accepted as the decimal separator. Numbers and units
+//! are read by `fluut-i18n` (D13 §4); the grammar is here.
 
+use fluut_i18n::{Dimension, LengthUnit, display_scale, scan_number, scan_unit};
 use fluut_model::FieldKind;
 use fluut_model::project::DisplayUnit;
 use fluut_model::tools::Tool;
+
+/// The `fluut-i18n` length unit of a project display unit.
+pub fn length_unit(unit: DisplayUnit) -> LengthUnit {
+    match unit {
+        DisplayUnit::Mm => LengthUnit::Mm,
+        DisplayUnit::Inch => LengthUnit::Inch,
+    }
+}
+
+/// What a field of this kind measures.
+pub fn dimension(kind: FieldKind) -> Dimension {
+    match kind {
+        FieldKind::Length => Dimension::Length,
+        FieldKind::Feed => Dimension::Feed,
+        FieldKind::Angle => Dimension::Angle,
+        FieldKind::Speed => Dimension::Speed,
+        _ => Dimension::Plain,
+    }
+}
 
 /// How entries of a field kind scale to the stored unit.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct EntryUnit {
     /// Stored units per entered unit when the entry has no unit.
     pub scale: f64,
-    /// Whether `mm`, `in` and `"` are allowed (lengths and feeds).
-    pub units: bool,
+    /// Which explicit units the entry may carry.
+    pub dim: Dimension,
 }
 
 impl EntryUnit {
     pub fn of(kind: FieldKind, unit: DisplayUnit) -> EntryUnit {
-        match kind {
-            FieldKind::Length | FieldKind::Feed => EntryUnit {
-                scale: unit.mm(),
-                units: true,
-            },
-            _ => EntryUnit {
-                scale: 1.0,
-                units: false,
-            },
+        let dim = dimension(kind);
+        EntryUnit {
+            scale: display_scale(dim, length_unit(unit)),
+            dim,
         }
     }
 }
@@ -170,33 +187,17 @@ impl Parser<'_> {
             let v = v.ok_or_else(|| format!("`{name}` is not set for this tool"))?;
             return Ok((v, Some(1.0)));
         }
-        let start = self.i;
-        while self
-            .peek()
-            .is_some_and(|c| c.is_ascii_digit() || c == '.' || c == ',')
-        {
-            self.i += 1;
-        }
-        if start == self.i {
+        let Some((v, used)) = scan_number(&self.s[self.i..]).map_err(|e| e.to_string())? else {
             return Err("expected a number".into());
+        };
+        self.i += used;
+        let at = self.i;
+        self.ws();
+        if let Some((u, n)) = scan_unit(&self.s[self.i..], self.unit.dim) {
+            self.i += n;
+            return Ok((v, Some(u.factor())));
         }
-        let text: String = self.s[start..self.i].iter().collect();
-        let v: f64 = text
-            .replace(',', ".")
-            .parse()
-            .map_err(|_| format!("`{text}` is not a number"))?;
-        if self.unit.units {
-            let at = self.i;
-            self.ws();
-            let rest: String = self.s[self.i..].iter().collect();
-            for (suffix, scale) in [("mm", 1.0), ("in", 25.4), ("\"", 25.4)] {
-                if rest.starts_with(suffix) {
-                    self.i += suffix.chars().count();
-                    return Ok((v, Some(scale)));
-                }
-            }
-            self.i = at;
-        }
+        self.i = at;
         Ok((v, None))
     }
 }
@@ -243,6 +244,22 @@ flute_length = 20
     }
 
     #[test]
+    fn angles_and_feeds() {
+        let angle = EntryUnit::of(FieldKind::Angle, DisplayUnit::Inch);
+        assert_eq!(evaluate("45°", angle, None), Ok(45.0));
+        assert_eq!(evaluate("90/2 deg", angle, None), Ok(45.0));
+        let feed = |e: &str, u| evaluate(e, EntryUnit::of(FieldKind::Feed, u), None);
+        assert_eq!(feed("1200", DisplayUnit::Mm), Ok(1200.0));
+        assert_eq!(feed("40", DisplayUnit::Inch), Ok(1016.0));
+        assert_eq!(feed("40in/min", DisplayUnit::Mm), Ok(1016.0));
+        assert_eq!(feed("1200mm/min", DisplayUnit::Inch), Ok(1200.0));
+        assert_eq!(feed("2*500 mm/min", DisplayUnit::Inch), Ok(1000.0));
+        let rpm = EntryUnit::of(FieldKind::Speed, DisplayUnit::Inch);
+        assert_eq!(evaluate("8000", rpm, None), Ok(8000.0));
+        assert!(evaluate("8000mm", rpm, None).is_err());
+    }
+
+    #[test]
     fn tool_names_are_mm_in_any_unit() {
         let v = len("tool.diameter*0.4", DisplayUnit::Inch).unwrap();
         assert!((v - 2.4).abs() < 1e-12);
@@ -259,6 +276,8 @@ flute_length = 20
         let angle = EntryUnit::of(FieldKind::Angle, DisplayUnit::Inch);
         assert_eq!(evaluate("45", angle, None), Ok(45.0));
         assert!(evaluate("45in", angle, None).is_err());
+        assert!(len("6index", DisplayUnit::Mm).is_err());
+        assert!(len("1.2.3", DisplayUnit::Mm).is_err());
         assert!(evaluate("tool.diameter", angle, None).is_err());
     }
 }
