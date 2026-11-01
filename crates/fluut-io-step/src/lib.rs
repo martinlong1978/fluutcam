@@ -7,5 +7,7 @@ pub mod parse;
 pub mod schema;
 
 pub use map::{FaceRef, MapError, MappedBody, OuterChange, OuterStats, map_bodies};
-pub use parse::{KwId, Param, ParseError, Pos, RawEntity, RawModel, parse};
+pub use parse::{
+    KwId, Param, ParseError, Pos, RawEntity, RawModel, parse, parse_chunked, parse_serial,
+};
 pub use schema::{Census, Schema, Units, census, schema, units};

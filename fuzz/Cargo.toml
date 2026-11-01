@@ -32,3 +32,10 @@ bench = false
 
 [profile.release]
 debug = 1
+
+[[bin]]
+name = "parse_parallel"
+path = "fuzz_targets/parse_parallel.rs"
+test = false
+doc = false
+bench = false

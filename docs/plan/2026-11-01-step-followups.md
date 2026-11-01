@@ -65,10 +65,10 @@ All S1 and p-curve follow-up Global Constraints apply. In addition:
 - **Why a wrong guess cannot be accepted:** each chunk is parsed by the serial parser's instance loop, starting from the chunk's absolute position (so lines and columns are absolute) and stopping at the chunk end. The first chunk starts where the serial parser is between instances. If the serial parser is between instances at a chunk's end, the chunk parses as it would serially; if not, the chunk ends inside an instance, string or comment and its parse fails. By induction, all chunks succeed only when every cut is a real entity boundary. Any failure falls back to `parse_serial`.
 - **Merge** in file order: each chunk's keywords are interned into the model's table in the chunk's first-seen order (equal to the serial order) and its keyword ids remapped; entities are appended; the index is built from sorted `(id, slot)` pairs. A duplicate id falls back to `parse_serial` for its error.
 - Line numbers at chunk starts: newlines counted per chunk in parallel, then summed.
-- [ ] **Step 1:** Tests: `parse_chunked` with chunk sizes from 1 byte up equals `parse_serial` on the fixtures and on snippets with `;#` inside strings, comments and binaries, several DATA sections, complex instances, typed values; errors (unterminated string at the end, duplicate id across chunks, bad token in a late chunk, nesting too deep) equal the serial ones, positions included.
-- [ ] **Step 2:** Fail, implement, pass.
+- [x] **Step 1:** Tests: `parse_chunked` with chunk sizes from 1 byte up equals `parse_serial` on the fixtures and on snippets with `;#` inside strings, comments and binaries, several DATA sections, complex instances, typed values; errors (unterminated string at the end, duplicate id across chunks, bad token in a late chunk, nesting too deep) equal the serial ones, positions included.
+- [x] **Step 2:** Fail, implement, pass.
 - [ ] **Step 3:** Fuzz target `parse_parallel`: `parse_chunked` with a chunk size from the first input byte must equal `parse_serial`, `Ok` or `Err`. Run it, and the `parse` target, for a while; record executions, coverage and findings.
-- [ ] **Step 4:** Example `parse_speed`: MB/s on the corpus with 1, 2, 4 and all threads (a `rayon` pool per run), serial for reference, and a check that every file gives the serial `RawModel`.
+- [x] **Step 4:** Example `parse_speed`: MB/s on the corpus with 1, 2, 4 and all threads (a `rayon` pool per run), serial for reference, and a check that every file gives the serial `RawModel`.
 
 ### Task 4: Report and design updates
 
