@@ -154,7 +154,9 @@ impl SetupGeometry {
     }
 }
 
-/// The body moved by `a`. Faces flip sense when `a` mirrors.
+/// The body moved by `a`. Faces flip sense when `a` mirrors. Edge ranges
+/// follow their curves' parameter maps. P-curves are dropped: surface and
+/// edge parameters both change, and nothing downstream reads them yet.
 fn transform_brep(b: &BrepBody, a: &Affine) -> Option<BrepBody> {
     let mut out = b.clone();
     let mut flips = Vec::with_capacity(b.surfaces.len());
@@ -165,6 +167,12 @@ fn transform_brep(b: &BrepBody, a: &Affine) -> Option<BrepBody> {
     for (c, o) in b.curves.iter().zip(out.curves.iter_mut()) {
         *o = c.transformed(a)?;
     }
+    for e in &mut out.edges {
+        if let Some(c) = e.curve {
+            e.range = b.curves[c as usize].transformed_range(a, e.range);
+        }
+    }
+    out.pcurves.clear();
     for v in &mut out.vertices {
         v.p = a.apply_point(v.p);
     }
@@ -231,5 +239,25 @@ mod tests {
         let bb = g.bounds(1.0);
         assert_eq!(bb.max.z(), 4.0, "{bb:?}");
         assert_eq!(bb.max.x(), 10.0);
+    }
+
+    #[test]
+    fn scaled_edges_end_at_their_vertices() {
+        // A plane patch has four line edges; a scale changes their
+        // lengths, so their ranges must change with them.
+        let mut b = Builder::new("p");
+        b.patch(
+            Surface::plane(Frame::world_xy()),
+            UvBox::new(Interval { lo: 0.0, hi: 4.0 }, Interval { lo: 0.0, hi: 2.0 }),
+        );
+        let a = Affine::scale(2.5, 2.5, 2.5);
+        let t = transform_brep(&b.build(), &a).unwrap();
+        for e in &t.edges {
+            let c = &t.curves[e.curve.unwrap() as usize];
+            let (p0, p1) = (t.vertices[e.v0 as usize].p, t.vertices[e.v1 as usize].p);
+            assert!(c.eval(e.range.lo).distance(p0) < 1e-12, "{e:?}");
+            assert!(c.eval(e.range.hi).distance(p1) < 1e-12, "{e:?}");
+        }
+        assert!(t.pcurves.is_empty());
     }
 }
