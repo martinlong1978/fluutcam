@@ -1,0 +1,20 @@
+format = "fluut.tools/1"
+id     = "shop"
+name   = "Test shop"
+
+[[tool]]
+id             = "v-90"
+name           = "90° V bit"
+number         = 1
+shape          = "v"
+diameter       = 12.0
+half_angle_deg = 45
+tip_diameter   = 0.2
+flute_length   = 10
+
+  [[tool.preset]]
+  material  = "MDF"
+  rpm       = 18000
+  feed      = 1500
+  plunge    = 500
+  step_down = 2
