@@ -77,8 +77,8 @@ All earlier Global Constraints apply. In addition:
   - A wrong TOML type or an enum value that is not in the list is an error.
   - An unknown key in `passes`, or a group key the type does not declare, is an error.
   - An unknown key in the other groups is a warning.
-- [ ] **Step 1:** Tests: every kind parses and rejects a wrong type; unknown keys; undeclared common key (`boundary` on `contour_2d`); int/float kept.
-- [ ] **Step 2:** Implement; pass; commit.
+- [x] **Step 1:** Tests: every kind parses and rejects a wrong type; unknown keys; undeclared common key (`boundary` on `contour_2d`); int/float kept.
+- [x] **Step 2:** Implement; pass; commit.
 
 ### Task 3: Project document, tool library, load and save (`fluut-model`)
 
