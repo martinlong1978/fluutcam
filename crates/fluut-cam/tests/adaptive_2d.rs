@@ -125,6 +125,30 @@ fn clears_the_plate_pocket() {
             end(s)
         );
     }
+    // Nor does any move between them at the floor: a straight entry into a
+    // pass or a sliver move can cut across the island (within the
+    // machining tolerance, for chords of the path around it).
+    let reach = pocket_shape.offset(-3.0 + 0.01);
+    for s in r.result.segments() {
+        if s.motion().is_none_or(|m| m.motion == Motion::Rapid)
+            || (start(s).z() - 12.0).abs() > 1e-9
+            || (end(s).z() - 12.0).abs() > 1e-9
+        {
+            continue;
+        }
+        for l in fluut_path::linearize(s, 1e-4) {
+            let (a, b) = (xy(start(&l)), xy(end(&l)));
+            let n = (a.distance(b) / 0.05).ceil().max(1.0) as usize;
+            for k in 0..=n {
+                let q = a + (b - a) * (k as f64 / n as f64);
+                assert!(
+                    reach.contains(q) != fluut_cam::Inside::Out,
+                    "{q:?} on {a:?} -> {b:?} ({:?})",
+                    s.motion()
+                );
+            }
+        }
+    }
 }
 
 #[test]

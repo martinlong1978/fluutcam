@@ -101,6 +101,7 @@ pub fn clear(
     p: &Params,
 ) -> Cleared {
     let cen = Indexed::new(centres);
+    let reach = within_reach(centres);
     let mut stats = Stats {
         stop: "max passes",
         ..Stats::default()
@@ -157,9 +158,10 @@ pub fn clear(
             }
             continue;
         }
-        // Enter where the whole tool is in cleared material.
+        // Enter where the whole tool is in cleared material, along a
+        // straight move that keeps the tool centre in `centres`.
         let safe = shrink(&k, p.r - 1e-6);
-        let entry = nearest_on(&safe, start).unwrap_or(start);
+        let entry = entry_towards(&safe, start, &reach).unwrap_or(start);
         let mut pts = Vec::with_capacity(path.len() + 1);
         if entry.distance(start) > 1e-9 {
             pts.push(entry);
@@ -235,18 +237,33 @@ fn offset_in(r: &Region2, d: f64) -> Region2 {
     o
 }
 
-/// The point of the boundary of `r` nearest to `q`, or `q` when it is
-/// inside `r`; `None` for an empty region.
-fn nearest_on(r: &Region2, q: Point2) -> Option<Point2> {
-    if r.is_empty() {
+/// `centres` grown by a hair, for [`entry_towards`]: the shrunk cleared
+/// region can lie a rounding error outside the tool-centre region.
+pub(crate) fn within_reach(centres: &Region2) -> Region2 {
+    centres.offset(1e-4)
+}
+
+/// The point of `from` nearest to `q` from which the straight move to `q`
+/// stays in `within`; `q` itself when it is inside `from`. `None` when no
+/// candidate does: the nearest point of each boundary segment of `from`.
+/// `within` need not be convex (an island), so the nearest point of `from`
+/// alone can give a move that cuts across it.
+pub(crate) fn entry_towards(from: &Region2, q: Point2, within: &Region2) -> Option<Point2> {
+    if from.is_empty() {
         return None;
     }
-    if r.contains(q) == Inside::In {
+    if from.contains(q) == Inside::In {
         return Some(q);
     }
-    r.segs()
+    let mut cands: Vec<Point2> = from
+        .segs()
         .map(|s| s.point_at(crate::path2::seg_closest(&s, q)))
-        .min_by(|a, b| a.distance(q).total_cmp(&b.distance(q)))
+        .collect();
+    // Stable: equal distances keep boundary order.
+    cands.sort_by(|a, b| a.distance(q).total_cmp(&b.distance(q)));
+    cands
+        .into_iter()
+        .find(|&c| crate::link::segment_inside(within, c, q))
 }
 
 /// A region with its boundary indexed and its segment geometry cached,

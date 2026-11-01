@@ -4,7 +4,7 @@
 //! bosses, with an even pitch that ends exactly at the bottom.
 
 use crate::holes::{find, shortest_order};
-use crate::link::{LinkCx, Turn, lead_in_path, lead_out_path, link_height};
+use crate::link::{LinkCx, Turn, lead_in_path, lead_out_path, link_height, rapid_floor};
 use crate::moves::{Mv, Out, finish};
 use crate::path2::Path2;
 use crate::region::{Region2, Seg2};
@@ -164,7 +164,10 @@ impl ToolpathType for Bore {
                     out.line(Point3::new(entry.x(), entry.y(), z), Mv::Rapid);
                 }
             }
-            out.line(Point3::new(entry.x(), entry.y(), h.feed), Mv::Rapid);
+            let floor = rapid_floor(&link_cx);
+            if out.cur().is_some_and(|q| q.z() > floor) {
+                out.line(Point3::new(entry.x(), entry.y(), floor), Mv::Rapid);
+            }
             out.pass(PassKind::Link, None);
             out.line(Point3::new(entry.x(), entry.y(), h.top), Mv::Plunge);
             out.pass(PassKind::Ramp, None);
