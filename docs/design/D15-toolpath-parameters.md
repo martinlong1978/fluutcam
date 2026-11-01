@@ -432,7 +432,7 @@ All `contour_2d` fields are class **R**.
     finishing_pass_count = 1
     finishing_stepover   = 0.3
     stock_to_leave       = 0
-    tabs = { mode = "count", count = 4, width = 8, height = 1.5, ramp_angle_deg = 45 }
+    tabs                 = { mode = "count", count = 4, width = 8, height = 1.5, ramp_angle_deg = 45 }
 
     [setup.toolpath.linking]
     lead_in = { kind = "arc", radius = 3, length = 2 }

@@ -9,7 +9,7 @@
 
 mod meta;
 mod tables;
-mod value;
+pub(crate) mod value;
 
 #[cfg(test)]
 mod tests;
