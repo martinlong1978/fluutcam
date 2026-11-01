@@ -4,7 +4,8 @@
 //!
 //! - `FLUUT_BENCH=<n>`: orbit the camera a fixed step every frame, redraw
 //!   continuously, print frame-interval statistics over `n` frames after a
-//!   warm-up, then exit.
+//!   warm-up, then exit. With a project, it is opened and calculated first,
+//!   and timing starts once its toolpaths show.
 //! - `FLUUT_STARTUP=1`: print the time from process start to the start of
 //!   the second frame (the first one has been presented by then), then exit.
 
@@ -53,6 +54,12 @@ impl Bench {
         }
     }
 
+    /// Whether frames are being timed (`FLUUT_BENCH`).
+    #[must_use]
+    pub fn timing_frames(&self) -> bool {
+        matches!(self.mode, Mode::Frames(_))
+    }
+
     /// Whether the app must redraw continuously.
     #[must_use]
     pub fn continuous(&self) -> bool {
@@ -84,6 +91,8 @@ impl Bench {
                 self.last = Some(now);
                 if self.samples.len() >= n {
                     println!("{}", summary(&mut self.samples));
+                    // Print once; the window closes after this frame.
+                    self.mode = Mode::Interactive;
                     true
                 } else {
                     false

@@ -15,7 +15,7 @@ mod viewport;
 
 use crate::bench::Bench;
 use crate::brand::{self, Palette, c};
-use crate::jobs::{Edit, Jobs};
+use crate::jobs::{CalcTargets, Edit, JobKind, Jobs, Outcome};
 use crate::text::{diagnostic, tr};
 use crate::vm::Selection;
 use crate::vm::status::StatusVm;
@@ -84,6 +84,8 @@ pub struct FluutApp {
     dock: DockState<Tab>,
     render: Option<egui_wgpu::RenderState>,
     bench: Bench,
+    /// Bench mode: the project has been calculated.
+    bench_ready: bool,
     /// Snapshot revision the selection was last checked against.
     seen: u64,
 }
@@ -131,6 +133,7 @@ impl FluutApp {
             dock: default_dock(),
             render,
             bench: Bench::from_env(t0),
+            bench_ready: false,
             seen: 0,
         }
     }
@@ -187,7 +190,17 @@ impl FluutApp {
         if self.jobs.poll() {
             self.on_snapshot();
         }
-        if self.bench.frame(&mut self.view.camera) {
+        if self.bench.timing_frames() && !self.bench_ready && !self.jobs.is_busy() {
+            // Time frames with the toolpaths on screen: calculate first.
+            match &self.jobs.last {
+                Some((JobKind::Open, Outcome::Opened { .. })) => {
+                    self.jobs.calculate(CalcTargets::All);
+                }
+                _ => self.bench_ready = true,
+            }
+        }
+        let timing = !self.bench.timing_frames() || self.bench_ready;
+        if timing && self.bench.frame(&mut self.view.camera) {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
         }
         if self.bench.continuous() || self.jobs.is_busy() {
