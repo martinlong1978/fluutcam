@@ -610,20 +610,22 @@ fn newton_flat(
 }
 
 /// Newton on `S_xy(u, v) = (x, y)`: the surface point vertically above or
-/// below a target.
+/// below a target. The flag says whether it converged; otherwise the point
+/// is where Newton stopped (stuck on the parameter box: the target is off
+/// the face, or the start was at a spot where `S_xy` does not move).
 fn vertical_project(
     s: &Surface,
     x: f64,
     y: f64,
     start: (f64, f64),
     bounds: UvBox,
-) -> Option<(f64, f64)> {
+) -> Option<(f64, f64, bool)> {
     let (mut u, mut v) = start;
     for _ in 0..12 {
         let d = s.derivs(u, v);
         let r = [x - d.p.x(), y - d.p.y()];
         if libm::hypot(r[0], r[1]) < 1e-6 {
-            return Some((u, v));
+            return Some((u, v, true));
         }
         let j = [[d.su.x(), d.sv.x()], [d.su.y(), d.sv.y()]];
         let step = solve2(j, r)?;
@@ -633,12 +635,11 @@ fn vertical_project(
         let k = (scale * 2.0 / len.max(1e-300)).min(1.0);
         let (nu, nv) = bounds.clamp(u + k * step[0], v + k * step[1]);
         if (d.su * (nu - u) + d.sv * (nv - v)).length() < 1e-9 {
-            // Stuck on the parameter box: the target is off the face.
-            return Some((u, v));
+            return Some((u, v, false));
         }
         (u, v) = (nu, nv);
     }
-    Some((u, v))
+    Some((u, v, false))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -692,27 +693,41 @@ fn numeric(
         if tx < bx.min.x() || tx > bx.max.x() || ty < bx.min.y() || ty > bx.max.y() {
             continue;
         }
-        let start = if analytic {
-            // Closed-form closest point to the target at the top of the
-            // box (so the upper layer of a surface wins), moved into the
-            // face's parameter box by whole periods.
-            let (mut u, mut v) = analytic_uv(s, Point3::new(tx, ty, ztop));
-            let (pu, pv) = s.periodicity();
-            if let Some(p) = pu {
-                u += p * ((q.uv.u.at(0.5) - u) / p).round();
+        if analytic {
+            // Closed-form closest points to the target at the top of the
+            // box (so the upper layer of a surface wins), then lower down,
+            // moved into the face's parameter box by whole periods. A start
+            // on a spot where S_xy does not move (the side of a torus tube)
+            // gets stuck, so the next start is tried.
+            let mut last = None;
+            for z in [ztop, 0.5 * (ztop + bx.min.z()), bx.min.z()] {
+                let (mut u, mut v) = analytic_uv(s, Point3::new(tx, ty, z));
+                let (pu, pv) = s.periodicity();
+                if let Some(p) = pu {
+                    u += p * ((q.uv.u.at(0.5) - u) / p).round();
+                }
+                if let Some(p) = pv {
+                    v += p * ((q.uv.v.at(0.5) - v) / p).round();
+                }
+                if let Some((u, v, ok)) = vertical_project(s, tx, ty, (u, v), q.uv) {
+                    last = Some((u, v));
+                    if ok {
+                        break;
+                    }
+                }
             }
-            if let Some(p) = pv {
-                v += p * ((q.uv.v.at(0.5) - v) / p).round();
+            if let Some((u, v)) = last {
+                seeds.push((estimate(s.eval(u, v)), u, v));
             }
-            (u, v)
         } else {
             let top = Point3::new(tx, ty, ztop);
-            grid.iter()
+            let start = grid
+                .iter()
                 .min_by(|a, b| a.0.distance(top).total_cmp(&b.0.distance(top)))
-                .map(|g| (g.1, g.2))?
-        };
-        if let Some((u, v)) = vertical_project(s, tx, ty, start, q.uv) {
-            seeds.push((estimate(s.eval(u, v)), u, v));
+                .map(|g| (g.1, g.2))?;
+            if let Some((u, v, _)) = vertical_project(s, tx, ty, start, q.uv) {
+                seeds.push((estimate(s.eval(u, v)), u, v));
+            }
         }
     }
     seeds.sort_by(|a, b| b.0.total_cmp(&a.0));

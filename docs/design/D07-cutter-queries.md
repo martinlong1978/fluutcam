@@ -102,7 +102,7 @@ return best
 
 Most queries touch one or two primitives after sorting, so cost is dominated by one solve.
 
-**S2 (2026-10-31).** Implemented as a best-first search over the BVH nodes themselves (a heap
+**S2 (2026-11-01).** Implemented as a best-first search over the BVH nodes themselves (a heap
 ordered by the same bound), not a cylinder query followed by a sort: nodes whose bound cannot
 beat the best contact are never opened. The bound needs only conservative boxes: line and arc
 boxes are exact, B-spline curves and patches use their poles, analytic patches a sample grid
@@ -131,7 +131,7 @@ Maximise `f(t) = C(t)·a − h(d(C(t)))` over the edge's parameter range clipped
 Endpoints of the range are vertices (covered by §4.1), so the solver only reports interior
 maxima.
 
-**S2 (2026-10-31).** On a line, f is concave for flat, ball and bull tools (`h` convex and
+**S2 (2026-11-01).** On a line, f is concave for flat, ball and bull tools (`h` convex and
 non-decreasing, `d(t)` convex), so one Brent maximisation on the exactly clipped range is
 enough; no closed form was needed. Curves are sampled at most R/4 apart on the pieces whose
 box reaches the footprint; local minima of `d` within a sample spacing of the rim are refined
@@ -170,7 +170,7 @@ trim. If no seed converges for a candidate whose bound exceeds the current best,
 `QueryError::NoConvergence { face, q }`: the caller reports it at the location rather than
 emitting a gouging point [S 04 §4.2.4].
 
-**S2 (2026-10-31): what was built and what changed.**
+**S2 (2026-11-01): what was built and what changed.**
 
 - *Contact map.* For a vertical axis the two equations are `G(u,v) = q_xy` with
   `G = S_xy + (R − r)·n̂_xy + r·n_xy`, n the upward unit normal and `n̂_xy` its unit horizontal
@@ -195,7 +195,7 @@ emitting a gouging point [S 04 §4.2.4].
   therefore cannot raise `NoConvergence`; the rule is suspended until a test separating "no
   interior contact" from "missed contact" exists (CH-12).
 
-**Trim classification without p-curves (S2).** The corpus has none (S1), so each face's loops are
+**Trim classification without p-curves (S2, 2026-11-01).** The corpus has none (S1), so each face's loops are
 projected into (u,v) once: closest point for the first edge point, then Gauss–Newton along the
 loop, unwrapped across seams, filled in at poles and apexes (free parameter taken from the
 neighbours), and closed through a pole when an odd number of loops wrap around the surface

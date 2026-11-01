@@ -94,6 +94,10 @@ struct Misses {
     misses: usize,
     worst: f64,
     over: usize,
+    /// Misses that remain with 1e-6 mm trim polylines (the rest come from
+    /// the trim chord), and the worst of them.
+    real: usize,
+    real_worst: f64,
 }
 
 fn misses(g: &QueryGeometry, c: &Cutter, seeding: Seeding, n: usize, seed: u64) -> Misses {
@@ -104,6 +108,7 @@ fn misses(g: &QueryGeometry, c: &Cutter, seeding: Seeding, n: usize, seed: u64) 
         ..Default::default()
     };
     let mut m = Misses::default();
+    let mut fine: Option<QueryGeometry> = None;
     let dens = Density {
         face: 40,
         edge: 300,
@@ -120,10 +125,25 @@ fn misses(g: &QueryGeometry, c: &Cutter, seeding: Seeding, n: usize, seed: u64) 
             if tau < w - 1e-7 {
                 m.misses += 1;
                 m.worst = m.worst.max(w - tau);
-                println!(
-                    "    miss: {} {c:?} at ({x}, {y}): {tau} < {w}: {got:?}",
-                    g.body.name
-                );
+                let f = fine.get_or_insert_with(|| {
+                    QueryGeometry::new(
+                        g.body,
+                        &BuildOptions {
+                            trim_chord: 1e-6,
+                            ..Default::default()
+                        },
+                    )
+                });
+                let ft = drop(f, c, x, y, &o, &mut st).map_or(f64::NEG_INFINITY, |r| r.tau);
+                let fw = reference(f, c, Axis { x, y }, dens).unwrap_or(f64::NEG_INFINITY);
+                if ft < fw - 1e-7 {
+                    m.real += 1;
+                    m.real_worst = m.real_worst.max(fw - ft);
+                    println!(
+                        "    miss: {} {c:?} at ({x}, {y}): {ft} < {fw} with fine trims",
+                        g.body.name
+                    );
+                }
             }
             if tau > w + 1e-5 {
                 m.over += 1;
@@ -135,8 +155,8 @@ fn misses(g: &QueryGeometry, c: &Cutter, seeding: Seeding, n: usize, seed: u64) 
 
 fn print_misses(label: &str, m: &Misses) {
     println!(
-        "  {label}: {} / {} points miss the reference by > 1e-7 (worst {:.2e} mm); {} above it by > 1e-5",
-        m.misses, m.points, m.worst, m.over
+        "  {label}: {} / {} points miss the reference by > 1e-7 (worst {:.2e} mm), {} with 1e-6 mm trims (worst {:.2e} mm); {} above it by > 1e-5",
+        m.misses, m.points, m.worst, m.real, m.real_worst, m.over
     );
 }
 
@@ -195,14 +215,15 @@ fn seeding_study(name: &str, body: &BrepBody, n: usize) {
             let run = raster(&g, &c, &o, 100, 25);
             let m = misses(&g, &c, seeding, n, 5);
             println!(
-                "  grid {} rings {} starts {} {label}: median {:.1} µs, {} / {} misses (worst {:.2e} mm)",
+                "  grid {} rings {} starts {} {label}: median {:.1} µs, {} / {} misses (worst {:.2e} mm), {} with fine trims",
                 seeding.grid,
                 seeding.rings,
                 seeding.starts,
                 pct(&run.times_us, 0.5),
                 m.misses,
                 m.points,
-                m.worst
+                m.worst,
+                m.real
             );
         }
     }
@@ -364,6 +385,8 @@ fn corpus(dir: &str) {
             tot.misses += m.misses;
             tot.over += m.over;
             tot.worst = tot.worst.max(m.worst);
+            tot.real += m.real;
+            tot.real_worst = tot.real_worst.max(m.real_worst);
         }
         times.sort_by(f64::total_cmp);
         all.push((
