@@ -10,6 +10,7 @@
 //! - `persist`, `journal`: atomic save and the edit journal (D06 §7).
 //! - `params`: toolpath parameter metadata and values (D06 §3, D15).
 //! - `project`: the project document, read and written (D06 §1, §7.2).
+//! - `template`, `expr`: toolpath and Setup templates (D06 §4.4).
 //! - `setup`: Setup inheritance (`based_on`, D06 §2).
 //! - `tools`: tool libraries (spec 02 §2.4).
 //! - `resolve`, `validate`, `hash`: defaults, validation codes and the
@@ -19,6 +20,7 @@ pub mod defs;
 pub mod diag;
 pub mod document;
 pub mod edit;
+pub mod expr;
 pub mod hash;
 pub mod journal;
 pub mod library;
@@ -28,6 +30,7 @@ pub mod persist;
 pub mod project;
 pub mod resolve;
 pub mod setup;
+pub mod template;
 pub mod tools;
 pub mod validate;
 

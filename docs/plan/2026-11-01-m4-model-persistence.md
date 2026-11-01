@@ -99,8 +99,8 @@ All earlier Global Constraints apply. In addition:
 - Toolpath template: `[toolpath]` with `type` and the five groups; string values in number fields are expressions over `tool.diameter`, `tool.radius`, `tool.corner_radius` and `tool.flute_length` (D15 §1.6), evaluated at apply time.
 - Setup template: Setup fields without `geometry`, and `[[toolpath]]` entries, each either inline or `{ template = "ref" }`.
 - `instantiate_toolpath(...) -> Toolpath` with `template` set; `apply_template(...) -> Edit::Group`.
-- [ ] **Step 1:** Tests: the D06 §4.4 form (with an M3 type); `extends` overrides a parent's pass value; expressions; a type mismatch between the template and its parent is an error; Setup template creates its toolpaths in order; later template edits do not change existing toolpaths.
-- [ ] **Step 2:** Implement; pass; commit.
+- [x] **Step 1:** Tests: the D06 §4.4 form (with an M3 type); `extends` overrides a parent's pass value; expressions; a type mismatch between the template and its parent is an error; Setup template creates its toolpaths in order; later template edits do not change existing toolpaths.
+- [x] **Step 2:** Implement; pass; commit.
 
 ### Task 6: Edits, undo and save (`fluut-model`)
 
