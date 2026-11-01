@@ -21,6 +21,8 @@ fluut-io-step = { path = "crates/fluut-io-step", version = "0.1.0" }
 fluut-model = { path = "crates/fluut-model", version = "0.1.0" }
 fluut-post = { path = "crates/fluut-post", version = "0.1.0" }
 fluut-sim = { path = "crates/fluut-sim", version = "0.1.0" }
+fluut-cam = { path = "crates/fluut-cam", version = "0.1.0" }
+fluut-core = { path = "crates/fluut-core", version = "0.1.0" }
 cavalier_contours = "0.9"
 glam = "0.34"
 libm = "0.2"
