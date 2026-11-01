@@ -251,6 +251,19 @@ impl Session {
         Ok(out)
     }
 
+    /// Opens an edit group: the edits until [`Session::end_group`] are one
+    /// undo step (a script run, D12 §3.4).
+    pub fn begin_group(&mut self, label: &str) {
+        self.sync_doc();
+        self.doc.begin_group(label);
+    }
+
+    /// Closes the group; its undo step, if it changed anything.
+    pub fn end_group(&mut self) -> Option<Outcome> {
+        self.sync_doc();
+        self.doc.end_group()
+    }
+
     pub fn undo(&mut self) -> Option<Outcome> {
         self.sync_doc();
         let out = self.doc.undo()?;

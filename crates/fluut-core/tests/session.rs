@@ -380,3 +380,20 @@ fn machines_and_posts_come_from_the_library() {
     assert_eq!(s.warnings[0].code, "setup.machine.missing");
     assert!(!s.warnings[0].is_error());
 }
+
+#[test]
+fn an_edit_group_is_one_undo_step() {
+    use fluut_model::edit::Edit;
+    let mut s = open("group");
+    let before = s.project.clone();
+    s.begin_group("Script job.rhai");
+    s.apply(Edit::SetName("A".into())).unwrap();
+    s.apply(Edit::set_toolpath_field("t1", "name", Some("\"B\"")))
+        .unwrap();
+    assert_eq!(s.project.name, "A");
+    let out = s.end_group().unwrap();
+    assert_eq!(out.label, "Script job.rhai");
+    assert_eq!(s.undo().unwrap().label, "Script job.rhai");
+    assert_eq!(s.project, before);
+    assert!(s.undo().is_none());
+}
