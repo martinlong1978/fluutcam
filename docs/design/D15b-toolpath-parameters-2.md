@@ -672,7 +672,7 @@ does not read.
 Both types clear the stock in Z levels against the 3-D model (D09 §4.1, §4.2). At each level z:
 
 - machinable(z) = the region minus the section of the bodies at z − `stock_to_leave_axial`,
-  offset by R + `stock_to_leave` (D08 §7.1);
+  offset by R, plus `stock_to_leave` on drive faces (D08 §7.1);
 - clear(z) = machinable(z) ∩ the starting stock at z (§1.10), grown by R.
 
 The region is the stock outline, cut by `boundary` if set. The sections are taken through the
@@ -804,3 +804,291 @@ use a ramp where clear(z) cannot be reached from outside the stock (D09 §4.1).
 ```
 
 **In-process stock:** updates; reads always (§1.10).
+
+## 5. 3-D finishing types
+
+All five are finishing types that follow the surface. They share these common-field rules,
+the same as `parallel` (D15 §5):
+
+**Common fields used:** item keys; all of `tool_params`; `drive_faces`, `check_faces`,
+`excluded_faces`, `boundary`; all heights; `machining_tolerance`, `max_segment_length`,
+`output_arcs`, `stock_to_leave` (uniform normal offset); `retract`, `safety_distance`,
+`transitions`, `lead_in`, `lead_out`. **Not used:** `drive_curves`, `rest_from`, `ramp`.
+`stock_to_leave_axial` is used by `horizontal` only; `pass_layout` and `order` as each type
+says.
+
+**Type defaults for common fields:** `heights.top = { ref = "model_top" }`,
+`heights.bottom = { ref = "model_bottom" }`, `lead_in.kind = "none"` †. CL points below
+`bottom` are raised to `bottom`; portions above `top` are not cut and are linked over.
+
+**In-process stock (all five):** do not update (CH-14); do not read.
+
+### 5.1 `contour`
+
+Constant-Z (waterline) passes for steep walls (D09 §4.4, [S 04 §4.5]).
+
+Also uses `linking.order` (`by_level` | `by_area`). **Not used:** `pass_layout` (levels are
+even).
+
+#### Fields (`passes`)
+
+| Key | Type | Range | Default | Expr | Depends on | Class |
+|---|---|---|---|---|---|---|
+| `step_down` | Length | > 0 | `0.1 · tool.diameter` † | yes | tool | R |
+| `scallop_height` | Length | (0, r) | absent | yes | tool corner radius | R |
+| `min_slope_deg` | Angle | [0, 90] | `0` | yes | `max_slope_deg` | R |
+| `max_slope_deg` | Angle | [0, 90] | `90` | yes | `min_slope_deg` | R |
+| `direction` | Enum `climb` \| `conventional` | | `climb` | — | — | R |
+
+- **Levels.** `layout(top, bottom, step_down)` in even mode, plus the Z of every horizontal
+  planar face [S 04 §4.5]. `step_down` is the largest gap between levels.
+- **Scallop-adaptive levels.** With `scallop_height` set, levels are added between two levels
+  wherever a wall between them has slope β (from horizontal) with gap Δz > sin β · √(8·r·h),
+  r = tool corner radius, until no gap exceeds it. Added levels cut only on the shallow-enough
+  parts of the walls that needed them.
+- **Slope.** As `parallel` (D15 §5.1): only contacts with slope in [`min_slope_deg`,
+  `max_slope_deg`] are cut; cut-off points are exact.
+- **Direction.** The material is on the right of the tool for climb (spindle M3); closed loops
+  are oriented accordingly.
+
+#### Validation
+
+| Code | Sev | Rule |
+|---|---|---|
+| `param.contour.scallop.radius` | E | `scallop_height` set and the tool has no corner radius |
+| `param.contour.scallop.range` | E | `scallop_height` ≥ corner radius |
+| `param.contour.slope.order` | E | `min_slope_deg` ≥ `max_slope_deg` |
+| `param.contour.slope.range` | E | a slope limit outside [0, 90] |
+| `param.passes.step_down.flute` | W | `step_down` > flute length |
+| `cam.contour.loop_open` | W | a contour ends at a limit inside the region (linked over) |
+
+#### Example
+
+```toml
+  [[setup.toolpath]]
+  id   = "t14"
+  name = "Waterline walls"
+  type = "contour"
+  tool = "user/router-bits#ball-6"
+
+    [setup.toolpath.passes]
+    step_down      = 0.5
+    scallop_height = 0.01
+    min_slope_deg  = 30
+```
+
+### 5.2 `horizontal`
+
+Finishes flat faces only. Flats are planar faces whose normal is within the angle tolerance of
++Z, found exactly from the B-rep (D09 §4.5).
+
+Also uses `stock_to_leave_axial` (on flats), `pass_layout` (raster). `stock_to_leave` is the
+gap kept from walls. **Not used:** `order`.
+
+#### Fields (`passes`)
+
+| Key | Type | Range | Default | Expr | Depends on | Class |
+|---|---|---|---|---|---|---|
+| `pattern` | Enum `offset` \| `raster` | | `offset` | — | — | R |
+| `stepover` | Length | (0, D] | preset `stepover` | yes | tool, material | R |
+| `pass_angle_deg` | Angle | any; used mod 180 | `0` | yes | `pattern` = `raster` | R |
+| `direction` | Enum `climb` \| `conventional` | | `climb` | — | — | R |
+
+- **Flats** are the planar horizontal faces among the drive faces with Z in [`bottom`, `top`].
+  Flats at equal Z are cleared together.
+- **Area per flat:** the face region offset by −R (the tool stays on the flat), minus the
+  walls: the section just above the flat offset by R + `stock_to_leave`. Cut at Z = flat +
+  `stock_to_leave_axial`.
+- **Patterns** as `pocket_2d` (D15 §4.1), with offset order fixed to `outside_in`: the boundary
+  ring goes first, so walls are finished at once.
+- The tool descends onto each flat at feed rate from `feed` height; no ramp (the material above
+  was roughed).
+
+#### Validation
+
+| Code | Sev | Rule |
+|---|---|---|
+| `param.horizontal.tool_shape` | W | tool is not `flat` or `bull` |
+| `param.passes.stepover.max` | E | `stepover` > tool diameter |
+| `param.passes.stepover.flat_width` | W | `stepover` > D − 2·corner radius |
+| `cam.horizontal.no_flats` | W | no flat faces in the selection between bottom and top |
+| `param.horizontal.drive_faces.mesh` | W | mesh drive faces: flats are found by the mesh heuristic [S 04 §4.4] |
+
+#### Example
+
+```toml
+  [[setup.toolpath]]
+  id   = "t15"
+  name = "Finish flats"
+  type = "horizontal"
+  tool = "user/router-bits#flat-6"
+
+    [setup.toolpath.passes]
+    pattern              = "offset"
+    stepover             = 3
+    stock_to_leave       = 0.05
+    stock_to_leave_axial = 0
+```
+
+### 5.3 `spiral`
+
+An Archimedean spiral from a centre point, clipped to the region, following the surface in Z
+(D09 §4.6).
+
+**Not used** besides the shared list: `pass_layout` (the pitch is made even), `order`.
+
+#### Fields (`passes`)
+
+| Key | Type | Range | Default | Expr | Depends on | Class |
+|---|---|---|---|---|---|---|
+| `centre` | Point | | absent = centroid of the region | — | — | R |
+| `stepover` | Length | (0, D] | preset `stepover` | yes | tool, material; not with `scallop_height` | R |
+| `scallop_height` | Length | (0, r) | absent | yes | tool shape | R |
+| `direction` | Enum `inside_out` \| `outside_in` | | `inside_out` † | — | — | R |
+| `rotation` | Enum `ccw` \| `cw` | | `ccw` † (seen from +Z of W) | — | — | R |
+| `machine_corners` | Bool | | `false` † | — | — | R |
+
+- **Region:** the silhouette of the drive faces, cut by `boundary`.
+- **Spiral:** r = s'·φ/2π from 0 to r_max, the largest distance from the centre to the region
+  boundary; s' = r_max / ceil(r_max / s), so the last turn reaches r_max exactly. The spiral is
+  a G1 biarc chain within tol/4 (D09 §4.6), clipped exactly by the region.
+- `centre` is a model-frame point; only its XY in W is used.
+- `machine_corners` adds a contour pass along the region boundary after the spiral.
+
+#### Validation
+
+| Code | Sev | Rule |
+|---|---|---|
+| `param.spiral.stepover_and_scallop` | E | `stepover` and `scallop_height` both set locally |
+| `param.spiral.scallop.radius` | E | `scallop_height` set and the tool has no corner radius |
+| `param.spiral.scallop.range` | E | `scallop_height` ≥ corner radius |
+| `param.passes.stepover.max` | E | given or computed stepover > tool diameter |
+| `cam.spiral.centre_outside` | W | `centre` is outside the region (the inner turns are linked over) |
+
+#### Example
+
+```toml
+  [[setup.toolpath]]
+  id   = "t16"
+  name = "Spiral dome"
+  type = "spiral"
+  tool = "user/router-bits#ball-6"
+
+    [setup.toolpath.passes]
+    centre         = [0, 0, 0]
+    scallop_height = 0.005
+    direction      = "outside_in"
+```
+
+### 5.4 `scallop`
+
+Passes offset inward from the region boundary over the surface at constant 3-D stepover
+(D09 §4.7, [S 04 §4.3.4]).
+
+**Not used** besides the shared list: `pass_layout`, `order`.
+
+#### Fields (`passes`)
+
+| Key | Type | Range | Default | Expr | Depends on | Class |
+|---|---|---|---|---|---|---|
+| `stepover` | Length | (0, D] | preset `stepover` | yes | tool, material; not with `scallop_height` | R |
+| `scallop_height` | Length | (0, r) | absent | yes | tool shape | R |
+| `direction` | Enum `outside_in` \| `inside_out` | | `outside_in` | — | — | R |
+| `cut_direction` | Enum `climb` \| `conventional` | | `climb` | — | — | R |
+| `continuous` | Bool | | `false` | — | — | R |
+| `min_slope_deg` | Angle | [0, 90] | `0` | yes | `max_slope_deg` | R |
+| `max_slope_deg` | Angle | [0, 90] | `90` | yes | `min_slope_deg` | R |
+
+- **Stepover** is measured along the surface. Pass 0 is the region boundary dropped onto the
+  surface; pass k+1 is pass k offset in XY by s·cos(slope), conservatively by the smallest such
+  value over the pass, with extra passes where the 3-D gap still exceeds s (CH-18).
+- `direction` sets the order of the loops; `inside_out` cuts the same loops in reverse order.
+- `cut_direction` sets the travel direction along each loop (climb: the uncut side on the
+  right, spindle M3).
+- `continuous` joins consecutive loops into one spiral by blending over one step, with no
+  retracts.
+- Slope limits as `parallel` (D15 §5.1).
+
+#### Validation
+
+| Code | Sev | Rule |
+|---|---|---|
+| `param.scallop.stepover_and_scallop` | E | `stepover` and `scallop_height` both set locally |
+| `param.scallop.scallop.radius` | E | `scallop_height` set and the tool has no corner radius |
+| `param.scallop.scallop.range` | E | `scallop_height` ≥ corner radius |
+| `param.scallop.slope.order` | E | `min_slope_deg` ≥ `max_slope_deg` |
+| `param.scallop.slope.range` | E | a slope limit outside [0, 90] |
+| `param.passes.stepover.max` | E | given or computed stepover > tool diameter |
+| `cam.scallop.extra_passes` | W | passes were inserted to keep the 3-D stepover (informational, CH-18) |
+
+#### Example
+
+```toml
+  [[setup.toolpath]]
+  id   = "t17"
+  name = "Scallop finish"
+  type = "scallop"
+  tool = "user/router-bits#ball-3"
+
+    [setup.toolpath.passes]
+    stepover   = 0.3
+    continuous = true
+```
+
+### 5.5 `steep_and_shallow`
+
+Contour passes on steep areas and parallel or scallop passes on shallow areas, split by a
+slope threshold (D09 §4.8).
+
+Also uses `pass_layout` (shallow parallel passes) and `order` (steep levels). The steep and
+shallow settings are inline tables; each key is optional on its own.
+
+#### Fields (`passes`)
+
+| Key | Type | Range | Default | Expr | Depends on | Class |
+|---|---|---|---|---|---|---|
+| `threshold_deg` | Angle | (0, 90) | `45` † | yes | — | R |
+| `overlap` | Length | ≥ 0 | `0.2 · tool.diameter` † | yes | tool | R |
+| `region_order` | Enum `steep_first` \| `shallow_first` | | `steep_first` | — | — | R |
+| `steep.step_down` | Length | > 0 | `0.1 · tool.diameter` † | yes | tool | R |
+| `steep.scallop_height` | Length | (0, r) | absent | yes | tool shape | R |
+| `steep.direction` | Enum `climb` \| `conventional` | | `climb` | — | — | R |
+| `shallow.pattern` | Enum `parallel` \| `scallop` | | `parallel` † | — | — | R |
+| `shallow.stepover` | Length | (0, D] | preset `stepover` | yes | tool, material; not with `shallow.scallop_height` | R |
+| `shallow.scallop_height` | Length | (0, r) | absent | yes | tool shape | R |
+| `shallow.pass_angle_deg` | Angle | any; used mod 180 | `0` | yes | `shallow.pattern` = `parallel` | R |
+| `shallow.direction` | Enum `zigzag` \| `climb` \| `conventional` | | `zigzag` (parallel), `climb` (scallop) | — | `shallow.pattern` | R |
+
+- **Split.** A contact is steep when its slope (D15 §5.1) is ≥ `threshold_deg`. Steep parts are
+  cut as `contour` (§5.1) with slope limits [`threshold_deg`, 90]. The shallow region is the
+  XY projection of the shallow parts, grown by `overlap`, and cut as `parallel` (D15 §5) or
+  `scallop` (§5.4) inside it.
+- `steep.*` and `shallow.*` keys mean what the matching keys of those types mean.
+- `region_order` sets which part runs first.
+
+#### Validation
+
+| Code | Sev | Rule |
+|---|---|---|
+| `param.steep_and_shallow.threshold.range` | E | `threshold_deg` outside (0, 90) |
+| `param.steep_and_shallow.shallow.stepover_and_scallop` | E | `shallow.stepover` and `shallow.scallop_height` both set locally |
+| `param.steep_and_shallow.scallop.radius` | E | a scallop height set and the tool has no corner radius |
+| `param.steep_and_shallow.scallop.range` | E | a scallop height ≥ corner radius |
+| `param.steep_and_shallow.shallow.direction` | E | `shallow.direction = "zigzag"` with `shallow.pattern = "scallop"` |
+| `param.passes.stepover.max` | E | given or computed shallow stepover > tool diameter |
+
+#### Example
+
+```toml
+  [[setup.toolpath]]
+  id   = "t18"
+  name = "Steep and shallow"
+  type = "steep_and_shallow"
+  tool = "user/router-bits#ball-6"
+
+    [setup.toolpath.passes]
+    threshold_deg = 40
+    overlap       = 1
+    steep         = { step_down = 0.4 }
+    shallow       = { pattern = "parallel", scallop_height = 0.01, pass_angle_deg = 45 }
+```
