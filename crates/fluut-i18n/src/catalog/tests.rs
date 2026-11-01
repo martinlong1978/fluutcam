@@ -141,3 +141,14 @@ fn message_ids_skip_comments_and_blank_lines() {
     let ids = message_ids("# c\n\na = A\nb-c = B { $x }\n");
     assert_eq!(ids, vec!["a".to_owned(), "b-c".to_owned()]);
 }
+
+#[test]
+fn fallback_text_is_used_only_without_a_message() {
+    let c = cat("a = A
+");
+    assert_eq!(c.get_or("a", "other"), "A");
+    assert_eq!(c.get_or("b", "other"), "other");
+    let p = Catalog::pseudo();
+    let s = p.get_or("no-such-id", "other");
+    assert!(s.starts_with('⟦') && s.contains("other"), "{s}");
+}

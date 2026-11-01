@@ -1457,6 +1457,7 @@ dependencies = [
  "fluut-cam",
  "fluut-core",
  "fluut-geom",
+ "fluut-i18n",
  "fluut-model",
  "fluut-path",
  "fluut-post",

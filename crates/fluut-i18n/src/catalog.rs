@@ -145,6 +145,16 @@ impl Catalog {
         self.format(id, &[])
     }
 
+    /// The message `id`, or `fallback` when no bundle has it. In the
+    /// pseudo-locale the fallback is wrapped too.
+    pub fn get_or(&self, id: &str, fallback: &str) -> String {
+        if self.has(id) {
+            self.get(id)
+        } else {
+            self.finish(fallback.to_owned())
+        }
+    }
+
     /// The message `id` with `{ $name }` placeholders filled.
     pub fn format(&self, id: &str, args: &[(&str, &str)]) -> String {
         let mut fa = FluentArgs::new();
@@ -163,6 +173,12 @@ impl Catalog {
                 )
             })
             .unwrap_or_else(|| id.to_owned());
+        self.finish(text)
+    }
+
+    /// Applies the catalog's decoration (the pseudo-locale's wrapping) to
+    /// finished text.
+    pub fn finish(&self, text: String) -> String {
         if self.pseudo { pad(&text) } else { text }
     }
 }
