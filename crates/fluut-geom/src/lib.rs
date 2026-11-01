@@ -12,6 +12,7 @@
 pub mod bounds;
 pub mod bspline;
 pub mod curve;
+pub mod curve2;
 pub mod fit;
 pub mod frame;
 pub mod roots;
@@ -23,6 +24,7 @@ pub mod types;
 pub use bounds::{Aabb3, Interval};
 pub use bspline::{BSplineCurve3, BSplineError};
 pub use curve::Curve3;
+pub use curve2::{BSplineCurve2, Curve2};
 pub use fit::{FitSeg, biarc_fit, fit_points};
 pub use frame::Frame;
 pub use surface::{

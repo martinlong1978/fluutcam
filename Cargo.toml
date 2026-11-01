@@ -1,10 +1,11 @@
 [workspace]
 resolver = "3"
 members = ["crates/*", "xtask"]
-# Spike crates with their own dependencies; never part of the product.
+# Spike crates and the fuzz targets have their own dependencies; never part
+# of the product.
 # Vendored crates are used through [patch.crates-io] below; excluding them
 # keeps them out of workspace lints and lets their own tests run in place.
-exclude = ["spikes", "third_party"]
+exclude = ["spikes", "third_party", "fuzz"]
 
 [workspace.package]
 version = "0.1.0"

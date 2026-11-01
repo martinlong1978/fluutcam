@@ -200,4 +200,4 @@ gaps in files that declare more than 0.01 mm (report §6).
 ## 11. Challenges
 
 - CH-07 Reference results for STEP corpus without a C++ kernel (deferred).
-- CH-08 P-curve computation on B-spline faces near seams and singularities (deferred).
+- CH-08 P-curve computation on B-spline faces near seams and singularities (resolved 2026-11-01: [report](../plan/spikes/step-pcurves-fuzz.md)).

@@ -136,3 +136,15 @@ fn several_data_sections() {
     let m = parse(src.as_bytes()).unwrap();
     assert_eq!(m.entities.len(), 2);
 }
+
+#[test]
+fn escape_end_overlapping_its_start_is_an_error() {
+    // Found by fuzzing: in `\X2\X0\` the end marker `\X0\` shares its
+    // backslash with `\X2\`, which made the body slice run backwards.
+    for s in ["\\X2\\X0\\", "\\X4\\X0\\"] {
+        let e = err(&format!("#1=A('{s}');"));
+        assert!(e.msg.contains("bad escape"), "{e:?}");
+    }
+    let raw = b"ISO-10303-21;HEADER;LE_H_N(('110.096&217:\xe3`/\\X4\\X0\\'\xa8D-I";
+    assert!(parse(raw).is_err());
+}

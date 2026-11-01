@@ -402,6 +402,7 @@ version = "0.1.0"
 dependencies = [
  "fluut-geom",
  "fluut-topo",
+ "libm",
  "memchr",
  "thiserror",
 ]
@@ -458,6 +459,7 @@ name = "fluut-topo"
 version = "0.1.0"
 dependencies = [
  "fluut-geom",
+ "libm",
 ]
 
 [[package]]

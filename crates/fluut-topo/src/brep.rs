@@ -3,9 +3,9 @@
 //! B-rep body storage (design D03 §1).
 //!
 //! Bodies are immutable after import, so plain vectors indexed by `u32`
-//! replace the slot maps of D03 §1; p-curves and trim caches come later.
+//! replace the slot maps of D03 §1; trim caches come later.
 
-use fluut_geom::{Aabb3, Curve3, Interval, Point3, Surface};
+use fluut_geom::{Aabb3, Curve2, Curve3, Interval, Point3, Surface};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Vertex {
@@ -62,6 +62,11 @@ pub struct BrepBody {
     pub loops: Vec<Loop>,
     pub faces: Vec<Face>,
     pub shells: Vec<Shell>,
+    /// P-curve of each coedge in its face's (u, v) plane, indexed like
+    /// `coedges`; empty until computed (see [`crate::pcurve`]). A p-curve
+    /// uses the parameter of its edge's 3-D curve over `Edge::range`, so
+    /// `S(pc(t)) = C(t)`. `None` where it could not be computed.
+    pub pcurves: Vec<Option<Curve2>>,
 }
 
 impl BrepBody {

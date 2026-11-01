@@ -42,6 +42,12 @@ fn main() {
     let (mut shells, mut shells_ok, mut shells_ok_loose, mut closed, mut closed_ok) =
         (0, 0, 0, 0, 0);
     let (mut files_ok, mut map_secs) = (0, 0.0);
+    // P-curves: totals, failures by surface kind (all, off-surface), time.
+    let mut pc = fluut_topo::pcurve::Stats::default();
+    let (mut pc_rejected, mut pc_declared) = (0, 0);
+    let mut pc_fail = std::collections::BTreeMap::<String, (usize, usize)>::new();
+    let mut pc_kinds = std::collections::BTreeMap::<String, usize>::new();
+    let (mut pc_secs, mut pc_worst) = (0.0, Vec::<(f64, String)>::new());
     for f in &files {
         let src = std::fs::read(f).expect("read");
         let t = Instant::now();
@@ -69,6 +75,42 @@ fn main() {
                         continue;
                     };
                     n_faces += mb.body.faces.len();
+                    let st = &mb.pcurves;
+                    pc.coedges += st.coedges;
+                    pc.given += st.given;
+                    pc.exact += st.exact;
+                    pc.sampled += st.sampled;
+                    pc.within_tol += st.within_tol;
+                    pc.max_dev = pc.max_dev.max(st.max_dev);
+                    pc_rejected += mb.pcurves_rejected;
+                    for f in &mb.body.faces {
+                        let k = format!("{:?}", mb.body.surfaces[f.surface as usize].kind());
+                        for &l in &f.loops {
+                            *pc_kinds.entry(k.clone()).or_default() +=
+                                mb.body.loops[l as usize].coedges.len();
+                        }
+                    }
+                    for f in &st.failures {
+                        if mb.units.uncertainty_mm.is_some_and(|u| f.dev <= u) {
+                            pc_declared += 1;
+                        }
+                        let e = pc_fail.entry(format!("{:?}", f.kind)).or_default();
+                        e.0 += 1;
+                        e.1 += f.off_surface as usize;
+                        pc_worst.push((
+                            f.dev,
+                            format!(
+                                "{name} coedge {} {:?} off_surface={}",
+                                f.coedge, f.kind, f.off_surface
+                            ),
+                        ));
+                    }
+                    // Time the projection alone on a copy without p-curves.
+                    let mut copy = mb.body.clone();
+                    copy.pcurves.clear();
+                    let t = Instant::now();
+                    let _ = fluut_topo::pcurve::compute(&mut copy);
+                    pc_secs += t.elapsed().as_secs_f64();
                     n_skipped += mb.skipped.len();
                     for e in &mb.skipped {
                         *skips.entry(e.msg.clone()).or_default() += 1;
@@ -146,6 +188,28 @@ fn main() {
         "validity: {shells_ok}/{shells} shells clean at tol_model (uncertainty clamped to [1e-7, 1e-2] mm), {shells_ok_declared} at the declared uncertainty, {shells_ok_loose} at 1e-3 mm; closed shells {closed_ok}/{closed}"
     );
     println!("issues at tol_model: {issues:?}");
+    println!(
+        "p-curves: {} coedges, {} from the file ({pc_rejected} rejected), {} exact, {} sampled; {} within tol_model ({:.2} %), worst {:.3e} mm; projection {:.3} s",
+        pc.coedges,
+        pc.given,
+        pc.exact,
+        pc.sampled,
+        pc.within_tol,
+        100.0 * pc.within_tol as f64 / pc.coedges.max(1) as f64,
+        pc.max_dev,
+        pc_secs
+    );
+    println!(
+        "p-curves within the file's declared uncertainty: {} ({:.2} %)",
+        pc.within_tol + pc_declared,
+        100.0 * (pc.within_tol + pc_declared) as f64 / pc.coedges.max(1) as f64
+    );
+    println!("p-curve coedges by surface kind: {pc_kinds:?}");
+    println!("p-curve failures by surface kind (all, edge off the surface): {pc_fail:?}");
+    pc_worst.sort_by(|a, b| b.0.total_cmp(&a.0));
+    for (d, w) in pc_worst.iter().take(10) {
+        println!("  {d:.3e} mm: {w}");
+    }
     println!("skipped faces: {skips:?}");
     println!("schemas: {schemas:?}");
     println!("supported entity kinds in bodies:");

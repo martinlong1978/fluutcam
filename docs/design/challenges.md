@@ -16,7 +16,7 @@ Problems found during detailed design. Each has a status:
 | CH-05 | Silhouette outline robustness for free-form faces | D03 §5.3 | deferred |
 | CH-06 | Mesh region grouping for selection | D03 §1.2 | deferred |
 | CH-07 | Reference results for the STEP test corpus | D04 §10 | resolved |
-| CH-08 | P-curves on B-spline faces near seams and singularities | D04 §5.2 | deferred |
+| CH-08 | P-curves on B-spline faces near seams and singularities | D04 §5.2 | resolved |
 | CH-09 | DXF reader coverage | D05 §3 | deferred |
 | CH-10 | EPS import dropped from v1 (design assumption) | D05 §4 | resolved |
 | CH-11 | Definition version scheme | D06 §4.2 | resolved |
@@ -189,6 +189,8 @@ this fails are excluded and reported.
 **Revisit.** Measure the failure rate on the corpus during the OQ-01 spike.
 
 **S1 (2026-10-31).** All 33 NIST corpus files omit p-curves, so projection runs on every face, not on a minority. The failure rate is still unmeasured; it is the first task of the M4 importer ([S1 report](../plan/spikes/s1-kernel-step.md) §5).
+
+**Resolution (2026-11-01).** The workaround is implemented in `fluut_topo::pcurve` and measured ([report](../plan/spikes/step-pcurves-fuzz.md) §1). Exact p-curves where the image is known (34 288 coedges), otherwise sampled closest points with continuity, coordinates at poles and apexes taken from neighbours, and a C¹ cubic fit to `tol_model / 2` (3 915 coedges). Each face's p-curves are shifted by whole periods to join across seams. On the corpus, 99.74 % of 38 203 coedges are within `tol_model` and 99.92 % within the file's declared uncertainty, in 0.64 s. All 101 failures are edges that lie off their surface, not projection failures. Left open, reported as failures when they occur (none in the corpus): an edge crossing the seam of a closed, non-periodic B-spline surface, which must be split. Faces bounded only by edges through poles get p-curves in some period window; the trim cache (D03 §3.1) chooses the face's window.
 
 ### CH-09 DXF reader coverage
 
