@@ -364,7 +364,7 @@ fn corpus(dir: &str) {
     );
     println!("  face kinds (count, without trim): {kinds:?}");
     // Drops on every body.
-    let n_ref = if quick() { 5 } else { 30 };
+    let n_ref = if quick() { 5 } else { 40 };
     let mut all: Vec<(&str, Run, Misses)> = Vec::new();
     for (label, c) in cutters() {
         let mut times = Vec::new();
