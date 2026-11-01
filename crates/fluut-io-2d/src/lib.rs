@@ -8,6 +8,8 @@
 pub mod conic;
 pub mod dxf;
 pub mod report;
+pub mod svg;
 
 pub use dxf::read_dxf;
 pub use report::{Import2D, ImportReport, Limits, Options, ReadError, Unit};
+pub use svg::read_svg;
