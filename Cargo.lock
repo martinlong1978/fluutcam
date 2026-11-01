@@ -456,6 +456,7 @@ dependencies = [
  "fluut-topo",
  "libm",
  "memchr",
+ "rayon",
  "thiserror",
 ]
 

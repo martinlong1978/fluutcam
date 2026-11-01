@@ -148,3 +148,111 @@ fn escape_end_overlapping_its_start_is_an_error() {
     let raw = b"ISO-10303-21;HEADER;LE_H_N(('110.096&217:\xe3`/\\X4\\X0\\'\xa8D-I";
     assert!(parse(raw).is_err());
 }
+
+/// A DATA section of `n` varied instances: simple and complex ones, typed
+/// values, strings, comments and binaries, some of them holding `;` and
+/// `#n=` so that a cut may land inside them.
+fn varied(n: usize) -> String {
+    let mut s = String::new();
+    for i in 1..=n {
+        let id = 3 * i + 7;
+        let line = match i % 9 {
+            0 => format!("#{id}=CARTESIAN_POINT('p{i}',(1.5,-2.,3.E-2));"),
+            1 => format!("#{id}=(NAMED_UNIT(*) LENGTH_UNIT() SI_UNIT(.MILLI.,.METRE.));"),
+            2 => format!("#{id}=A_{}('x;\n#{}=B();',#{});", i % 5, id + 1, id + 3),
+            3 => format!(
+                "/* a comment;\n#{}=C(); */ #{id}=MEASURE(LENGTH_MEASURE({i}.5),$,*);",
+                id + 1
+            ),
+            4 => format!("#{id}=BIN(\"0;#{}=\",.T.);", id + 1),
+            5 => format!("  #{id} = SPACED ( 'a''b' , ( 1 , ( 2 ) ) ) ;"),
+            6 => format!("#{id}=K{}(#1,#2,(#3,#4));", i % 31),
+            7 => format!(r"#{id}=STR('\X2\00E9\X0\;#9=');"),
+            _ => format!("#{id}=EMPTY();"),
+        };
+        s.push_str(&line);
+        s.push('\n');
+    }
+    s
+}
+
+fn chunked_matches_serial(src: &[u8], sizes: impl Iterator<Item = usize>) {
+    let serial = parse_serial(src);
+    for c in sizes {
+        assert_eq!(parse_chunked(src, c), serial, "chunk size {c}");
+    }
+}
+
+#[test]
+fn chunked_parse_equals_serial() {
+    let f = file(&varied(120));
+    let m = parse_serial(f.as_bytes()).unwrap();
+    assert_eq!(m.entities.len(), 120);
+    chunked_matches_serial(f.as_bytes(), (1..300).chain([1000, 4000, 1 << 20]));
+    assert_eq!(parse(f.as_bytes()), Ok(m));
+}
+
+#[test]
+fn chunked_parse_splits_clean_files() {
+    let data: String = (1..=500)
+        .map(|i| format!("#{i}=CARTESIAN_POINT('',({i}.,0.,1.));\n"))
+        .collect();
+    let f = file(&data);
+    let (r, info) = parse_with(f.as_bytes(), Split::Bytes(512));
+    assert_eq!(r, parse_serial(f.as_bytes()));
+    assert!(info.chunks > 10, "{info:?}");
+    assert!(!info.retried, "{info:?}");
+}
+
+#[test]
+fn cut_inside_a_string_is_retried_serially() {
+    // The only `;` followed by `#` after the first entity is inside a string.
+    let f = file("#1=A();\n#2=B('xxxxxxxx;\n#3=C();');\n#4=D();");
+    let (r, info) = parse_with(f.as_bytes(), Split::Bytes(12));
+    assert!(info.retried, "{info:?}");
+    let m = r.unwrap();
+    assert_eq!(m, parse_serial(f.as_bytes()).unwrap());
+    assert!(m.get(3).is_none());
+}
+
+#[test]
+fn chunked_parse_of_several_data_sections() {
+    let src = format!(
+        "ISO-10303-21;HEADER;FILE_SCHEMA(('X'));ENDSEC;DATA('a',('X'));\n{}ENDSEC;\nDATA;\n{}ENDSEC;END-ISO-10303-21;",
+        varied(40),
+        varied(80).replace("#", "#9")
+    );
+    chunked_matches_serial(src.as_bytes(), 1..200);
+}
+
+#[test]
+fn chunked_errors_equal_serial_errors() {
+    let body = varied(60);
+    let cases = [
+        format!("{body}#1=A('abc);"),
+        format!("#5=A();\n{body}#5=B();"),
+        format!("{body}#1000=A(1,2;\n#1001=B();"),
+        format!("{body}#1000=A({}1{});", "(".repeat(70), ")".repeat(70)),
+        format!("{body}#1000=A(/* x);"),
+        format!("{body}#1000=();"),
+        format!("{body}#1000=A();ENDSEC"),
+    ];
+    for data in &cases {
+        let f = file(data);
+        let e = parse_serial(f.as_bytes()).unwrap_err();
+        assert!(e.pos.line > 60, "{e}");
+        chunked_matches_serial(f.as_bytes(), (1..120).step_by(7).chain([4000]));
+    }
+    // Truncated anywhere.
+    let f = file(&varied(30));
+    for n in (0..f.len()).step_by(3) {
+        chunked_matches_serial(&f.as_bytes()[..n], [5, 64].into_iter());
+    }
+}
+
+#[test]
+fn binary_across_lines_keeps_line_numbers() {
+    // Line 7: the binary opens; line 8: it closes; line 9: the error.
+    let e = err("#1=A(\"0F\n0F\");\n#2=B(1,2;");
+    assert_eq!(e.pos.line, 9, "{e}");
+}
