@@ -93,35 +93,87 @@ All earlier Global Constraints apply. In addition:
 
 ### Task 1: Plan
 
-- [ ] **Step 1:** This plan; README table row. Commit.
+- [x] **Step 1:** This plan; README table row. Commit.
 
 ### Task 2: In-process stock
 
 **Files:** `fluut-cam/src/stock.rs`; `fluut-cam/src/toolpath.rs`; `fluut-core/src/session.rs`, `graph.rs`; `fluut-model/src/params/meta.rs`.
 
-- [ ] **Step 1:** Tests: initial planar and cylindrical stock; `ensure_level` copies the slab above; a cut at z clears only the slabs above z; swept regions of lines, arcs, helices and cycles; ball and drill tools apply their cut above the tip; the result of `pocket_2d` removes its pocket; hashes change with earlier toolpaths only for readers.
-- [ ] **Step 2:** Implement; pass. Commit.
+- [x] **Step 1:** Tests: initial planar and cylindrical stock; `ensure_level` copies the slab above; a cut at z clears only the slabs above z; swept regions of lines, arcs, helices and cycles; ball and drill tools apply their cut above the tip; the result of `pocket_2d` removes its pocket; hashes change with earlier toolpaths only for readers.
+- [x] **Step 2:** Implement; pass. Commit.
 
 ### Task 3: `rest_from` in `pocket_2d` and `adaptive_2d`
 
-- [ ] **Step 1:** Tests: `param.geometry.rest_from.unsupported` is gone; a rest pocket after a larger pocket cuts only the ring left; a repeated roughing cuts nothing; adaptive rest enters from cleared material.
-- [ ] **Step 2:** Implement. Commit.
+- [x] **Step 1:** Tests: `param.geometry.rest_from.unsupported` is gone; a rest pocket after a larger pocket cuts only the ring left; a repeated roughing cuts nothing; adaptive rest enters from cleared material.
+- [x] **Step 2:** Implement. Commit.
 
 ### Task 4: Sections and `pocket_3d`, `adaptive_3d`
 
-- [ ] **Step 1:** Tests: sections of a block, a pocket, a boss, a cylinder; flat levels; each D15b §4 code passes and fails; the §4 examples round-trip; no CL point inside the part grown by R + stock to leave; rest from a previous roughing.
-- [ ] **Step 2:** Implement; reference project with both types; golden; translation invariance. Commit.
+- [x] **Step 1:** Tests: sections of a block, a pocket, a boss, a cylinder; flat levels; each D15b §4 code passes and fails; the §4 examples round-trip; no CL point inside the part grown by R + stock to leave; rest from a previous roughing.
+- [x] **Step 2:** Implement; reference project with both types; golden; translation invariance. Commit.
 
 ### Task 5: Rotary frame and rotary types
 
-- [ ] **Step 1:** Tests: rotary frame from a face axis; radii; radial drop on a cylinder and a box; each D15b §1.3, §1.4 and §6 code passes and fails; §6 examples round-trip; around-A sweeps on a coaxial cylinder are one rotary segment; the spiral ends at `x_end`; `rotary_rough` keeps clear of the part.
-- [ ] **Step 2:** Implement; reference project posted with a 4-axis post; golden; invariance under moving the part along X. Commit.
+- [x] **Step 1:** Tests: rotary frame from a face axis; radii; radial drop on a cylinder and a box; each D15b §1.3, §1.4 and §6 code passes and fails; §6 examples round-trip; around-A sweeps on a coaxial cylinder are one rotary segment; the spiral ends at `x_end`; `rotary_rough` keeps clear of the part.
+- [x] **Step 2:** Implement; reference project posted with a 4-axis post; golden; invariance under moving the part along X. Commit.
 
 ### Task 6: `manual_nc`
 
-- [ ] **Step 1:** Tests: example round trip; each code; markers in G-code with no tool change.
-- [ ] **Step 2:** Implement; add to a reference project. Commit.
+- [x] **Step 1:** Tests: example round trip; each code; markers in G-code with no tool change.
+- [x] **Step 2:** Implement; add to a reference project. Commit.
 
 ### Task 7: Close
 
-- [ ] **Step 1:** Mark this plan done with deviations; README rows. Push.
+- [x] **Step 1:** Mark this plan done with deviations; README rows. Push.
+
+**Done.** All parts are built, with one gap (stock carried into child Setups, below):
+- **In-process stock.** `LayeredStock` is planar or cylindrical. Every type that updates stock does so from its result. The session carries the stock through a Setup, and the result hash of a `rest_from` toolpath depends on the earlier stock-updating toolpaths.
+- **`rest_from = "previous"`** works in `pocket_2d`, `adaptive_2d`, `adaptive_3d`, `pocket_3d` and `rotary_rough`. `param.geometry.rest_from.unsupported` is gone.
+- **3-D roughing.** `adaptive_3d` and `pocket_3d` cut Z levels on exact plane sections, with flat levels and `adaptive_3d` fine levels.
+- **Rotary.** Rotary Setups have a frame in `fluut-core`. The four rotary types emit A moves, which go through the post engine.
+- **`manual_nc`.**
+
+Reference projects:
+- `rough3d`: `adaptive_3d`, then a rest `pocket_3d` from the in-process stock, posted with `fluut/linuxcnc`. It is translation-invariant: the G-code is identical and every coordinate is within 1e-6 mm.
+- `shaft`: all four rotary types and a `manual_nc` stop, in a rotary Setup. It is posted with a project post (`fluut/linuxcnc` plus `fluut/mixin/rotary-a`) for a project machine with a continuous A axis. Moving the part 7.123457 mm along the axis gives the same G-code.
+
+Every D15b §4, §6 and §7 example round-trips byte for byte. Every D15b code of these types has a passing and a failing case, except `cam.rotary_rough.unrolled_offset` (below). In release builds in a Linux container, `fluut calc` takes 0.93 s for `rough3d` and 0.31 s for `shaft`.
+
+Deviations from this plan and from the design:
+- **Not done: stock carried into child Setups.** A `from_previous` child still starts from the parent's stock box or cylinder. The in-process stock is not carried over, and it is not re-sliced for an indexed child (D08 §7 `reframed`, CH-15). Indexed Setups still report `setup.kind.unsupported`.
+- **Rest material.** The stock at a level is cut to the region to clear and shrunk by twice the machining tolerance. This drops the slivers the conservative stock update leaves along every cut, and material already reached to within the tolerance. Without it, a repeated roughing re-traces every wall.
+- **`order = "by_area"` with rest machining**, and always in 3-D roughing, is treated as `by_level`, because the areas change from level to level.
+- **Sections.**
+  - Excluded faces still close the section loops, so only horizontal excluded faces (caps) are left out in effect.
+  - Section vertices are snapped to a 1e-9 mm grid. Without this, rounding in the work-frame transform changes the adaptive path search, and the G-code is not translation-invariant.
+- **3-D roughing.**
+  - Entries in `pocket_3d` use the linking ramp even where an area reaches outside the stock.
+  - The `stock_to_leave` lower bound is −R, as for 2-D types: the method is 2-D on sections.
+  - `cam.pocket_3d.region.unreachable` is raised when material that should go holds a disc of R/4 outside the tool's reach. Inside corners do not count.
+- **Adaptive leftovers.** `cam.adaptive_*.incomplete` counts only material at least twice the tolerance inside the tool's reach. The adaptive engine still leaves cusps up to about 0.1 mm thick in channels a few tool radii wide, and then reports `incomplete`. This happens beside the island of the pocket block, and on the ridge with stock to leave.
+- **`cavalier_contours` assertions.**
+  - `Region2` booleans and offsets catch the library's assertion failures and retry: the second operand moved by a nanometre, or both cleaned of near-collinear vertices. A failed shrink gives an empty region.
+  - Swept regions are cleaned of vertices within 1e-7 mm of the chord between their neighbours.
+  - This changed the `adaptive_2d` path, so the `plate2d` golden file was re-blessed.
+- **Radial drops.** These turn the bodies about X and use the vertical S2 drop. Samples lie on an angle grid from spec 04 §4.7.4. Where the drop at the mid-angle leaves the chord by more than the tolerance, a turned query is built for that one angle. Without that refinement, kinks where the contact moves from a face to an edge were gouged by 0.03 mm. Along X, a drop off a wall becomes a step at the higher radius.
+- **`rotary_rough`** uses radial drops, not cylinder sections offset in unrolled space. The true tool shape is used, so there is no CH-19 error and `cam.rotary_rough.unrolled_offset` is never raised. The θ ends of each sweep lie on the angle grid.
+- **Senses.** Climb turns A positively in `rotary_around_a`, `rotary_rough` and `rotary_spiral`, and moves towards +X in `rotary_along_x`. Conventional is the reverse.
+- **Scallop height** in rotary finishing gives the stepover for a flat surface, s = 2√(h(2r − h)).
+- **Machine and X-range rules.** `param.rotary.machine_axis`, `param.rotary.limits`, `param.rotary_around_a.direction.unwind` and `param.geometry.x_range.*` run at calculation start in `fluut-cam`, where the X range and the machine are known. The machine rules apply only when the Setup names a machine.
+- **Rotary frame.**
+  - A model-axis pick is a line through the model origin.
+  - A `cylinder` stock is centred on the bodies' X extent.
+  - A plane clearance in a rotary Setup is the stock radius plus its offset.
+  - `model_top` and `model_bottom` come from edge samples over the whole Setup, not per X range. Planes normal to the axis are left out, and planes parallel to it add their distance to the axis.
+- **`manual_nc`.**
+  - Its text is stored in `PValue::Enum`, so `fluut-app`'s exhaustive match on `PValue` needs no change. A new `FieldKind::Text` says how it is read and written.
+  - A toolpath of markers only emits just its markers: no tool change, spindle or toolpath blocks. The `markers` emitter test was updated to match.
+  - `param.manual_nc.post` is checked in `fluut-core` at post time.
+- **Signed-off-by lines.** `main` now has a DCO check for pull requests. The commits on this branch have no `Signed-off-by` lines.
+- **† constants** were not tuned: there were no real cuts in this session.
+
+Follow-ups:
+- Carry the in-process stock into `from_previous` child Setups, re-sliced for indexed children (CH-15).
+- A cusp-free stop rule for the adaptive engine in narrow channels (CH-16).
+- Leave non-horizontal excluded faces out of 3-D sections, and enter `pocket_3d` from outside the stock where possible.
+- Faster radial drops: turn the query instead of the bodies, or cache turned geometry across toolpaths.
