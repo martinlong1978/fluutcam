@@ -193,6 +193,16 @@ impl ParamMap {
         Ok(ParamMap { entries })
     }
 
+    /// Calls `f` on every value, inside inline tables too.
+    pub(crate) fn visit_mut(&mut self, f: &mut dyn FnMut(&mut PValue)) {
+        for (_, v) in &mut self.entries {
+            if let PValue::Table(t) = v {
+                t.visit_mut(f);
+            }
+            f(v);
+        }
+    }
+
     /// `{ k = v, … }` for an inline table.
     pub(crate) fn inline(&self) -> String {
         if self.entries.is_empty() {
@@ -215,7 +225,7 @@ impl ParamMap {
     }
 }
 
-fn convert(
+pub(crate) fn convert(
     m: &FieldMeta,
     v: &toml::Value,
     path: &str,

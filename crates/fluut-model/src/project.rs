@@ -18,6 +18,11 @@ mod tests;
 pub use read::{LoadError, Loaded, read};
 pub use write::write;
 
+pub(crate) use read::{Cx, SETUP_KEYS, TOOLPATH_KEYS, check_ids};
+pub(crate) use write::{
+    setup as write_setup, setup_value, source as write_source, toolpath as write_toolpath,
+};
+
 use crate::params::{Num, Params, ToolpathTypeId};
 use std::fmt;
 use std::sync::Arc;

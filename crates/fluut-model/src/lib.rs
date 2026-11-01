@@ -6,6 +6,8 @@
 //!   templates; D06 §4).
 //! - `library`: the layered definition library (built-in, user, project).
 //! - `machine`: machine definitions (spec 02 §2.3).
+//! - `edit`, `document`: edits, undo and redo (D06 §6).
+//! - `persist`, `journal`: atomic save and the edit journal (D06 §7).
 //! - `params`: toolpath parameter metadata and values (D06 §3, D15).
 //! - `project`: the project document, read and written (D06 §1, §7.2).
 //! - `setup`: Setup inheritance (`based_on`, D06 §2).
@@ -15,10 +17,14 @@
 
 pub mod defs;
 pub mod diag;
+pub mod document;
+pub mod edit;
 pub mod hash;
+pub mod journal;
 pub mod library;
 pub mod machine;
 pub mod params;
+pub mod persist;
 pub mod project;
 pub mod resolve;
 pub mod setup;

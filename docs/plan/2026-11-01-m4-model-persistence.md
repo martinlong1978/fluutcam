@@ -110,8 +110,8 @@ All earlier Global Constraints apply. In addition:
 - `apply(&Project, &Edit) -> Result<(Project, Changed), EditError>`: validates ids, kinds and value forms, and the Setup order rule.
 - `Document`: `apply`, `apply_at(edit, ms)` (coalescing), `undo`, `redo`, `can_undo`; 256 MB cap estimated from the written size of changed Setups.
 - `persist::save(path, &Project)`: write `name.fluut.tmp`, `sync_all`, rename the current file to `.bak`, rename the temp file into place. `persist::load(path)`.
-- [ ] **Step 1:** Tests: property test of random edit sequences: undo all equals the original, redo all equals the final state; each edit's error cases; coalescing; the cap drops the oldest entries; save then load is byte-identical, with `.bak` holding the previous file.
-- [ ] **Step 2:** Implement; pass; commit.
+- [x] **Step 1:** Tests: property test of random edit sequences: undo all equals the original, redo all equals the final state; each edit's error cases; coalescing; the cap drops the oldest entries; save then load is byte-identical, with `.bak` holding the previous file.
+- [x] **Step 2:** Implement; pass; commit.
 
 ### Task 7: Journal (`fluut-model`)
 
@@ -120,8 +120,8 @@ All earlier Global Constraints apply. In addition:
 - Header: `FLUJ`, `u16` version, 32-byte SHA-256 of the project file. Records: `u32` length (LE), postcard of `Record::{Edit, Undo, Redo}`, `u32` crc32 (LE).
 - `Journal::create(path, file_hash)`, `append(&Record)`, `sync_if_due(now)` (at most once per second), `sync()`; `recover(path, file_hash) -> Option<Vec<Record>>` up to the first bad record; `reset(file_hash)` after a save.
 - `Document::with_journal` writes every apply, undo and redo.
-- [ ] **Step 1:** Tests: truncate the journal at every byte offset; each recovers a prefix and replays to a valid document; a flipped byte stops at that record; a header for another file hash is not offered.
-- [ ] **Step 2:** Implement; pass; commit.
+- [x] **Step 1:** Tests: truncate the journal at every byte offset; each recovers a prefix and replays to a valid document; a flipped byte stops at that record; a header for another file hash is not offered.
+- [x] **Step 2:** Implement; pass; commit.
 
 ### Task 8: Result cache sidecar (`fluut-core`)
 

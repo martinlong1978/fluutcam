@@ -633,4 +633,23 @@ impl<'a> Cx<'a> {
             params,
         })
     }
+
+    /// Sets (`Some`) or clears (`None`) a toolpath item key (`name`, `tool`,
+    /// `enabled`, `template`).
+    pub(crate) fn toolpath_key(&mut self, tp: &mut Toolpath, k: &str, v: Option<&Value>) -> R<()> {
+        match (k, v) {
+            ("name", None) => tp.name.clear(),
+            ("name", Some(v)) => tp.name = self.str_of(k, v)?,
+            ("tool", v) => {
+                tp.tool = v
+                    .map(|v| self.str_of(k, v))
+                    .transpose()?
+                    .unwrap_or_default()
+            }
+            ("enabled", v) => tp.enabled = v.map(|v| self.bool_of(k, v)).transpose()?,
+            ("template", v) => tp.template = v.map(|v| self.str_of(k, v)).transpose()?,
+            _ => return err(format!("`{}` is not a toolpath field", self.key(k))),
+        }
+        Ok(())
+    }
 }
