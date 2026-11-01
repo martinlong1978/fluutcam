@@ -1,24 +1,71 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! Development tasks. Run with `cargo xtask <task>`.
+//! Development and release tasks. Run with `cargo xtask <task>`.
 //!
 //! - `check-layers`: enforce the crate layering of design D01 §1.
+//! - `icons <out-dir>`: render the app icons from `assets/` (D14 §5.2).
+//! - `version`: print the workspace version.
+//! - `package`, `checksums`, `manifest`: release files (D14 §5.2, §5.3).
+//! - `rustflags`, `repro-check`: reproducible builds (D14 §5.4).
+
+mod archive;
+mod icons;
+mod manifest;
+mod package;
+mod repro;
+mod util;
 
 use std::collections::BTreeMap;
 use std::process::{Command, ExitCode};
 
+const USAGE: &str = "usage: cargo xtask <task>
+  check-layers
+  icons <out-dir>
+  version
+  package --platform <windows-x86_64|linux-x86_64|macos-universal> --bin-dir D --icons D --out D [--version V]
+  checksums <dir>
+  manifest --dist D --base-url U --out F [--version V] [--date YYYY-MM-DD] [--channel C] [--previous F]
+  rustflags
+  repro-check";
+
+fn run(task: &str, args: Vec<String>) -> Result<(), String> {
+    match task {
+        "check-layers" => check_layers(),
+        "icons" => {
+            let out = args.first().ok_or("usage: cargo xtask icons <out-dir>")?;
+            let files = icons::generate(&util::workspace_root().join("assets"), out.as_ref())?;
+            println!("icons: {} files under {out}", files.len());
+            Ok(())
+        }
+        "version" => {
+            let t = std::fs::read_to_string(util::workspace_root().join("Cargo.toml"))
+                .map_err(|e| e.to_string())?;
+            println!("{}", util::workspace_version(&t)?);
+            Ok(())
+        }
+        "package" => package::run(args),
+        "checksums" => {
+            let dir = args.first().ok_or("usage: cargo xtask checksums <dir>")?;
+            println!(
+                "checksums: {}",
+                package::write_checksums(dir.as_ref())?.display()
+            );
+            Ok(())
+        }
+        "manifest" => manifest::run(args),
+        "rustflags" => repro::print_rustflags(),
+        "repro-check" => repro::repro_check(),
+        _ => Err(USAGE.into()),
+    }
+}
+
 fn main() -> ExitCode {
-    let task = std::env::args().nth(1);
-    match task.as_deref() {
-        Some("check-layers") => match check_layers() {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(msg) => {
-                eprintln!("{msg}");
-                ExitCode::FAILURE
-            }
-        },
-        _ => {
-            eprintln!("usage: cargo xtask check-layers");
+    let mut args = std::env::args().skip(1);
+    let task = args.next().unwrap_or_default();
+    match run(&task, args.collect()) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(msg) => {
+            eprintln!("{msg}");
             ExitCode::FAILURE
         }
     }
