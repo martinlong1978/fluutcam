@@ -20,9 +20,11 @@ fn tool() -> Tool {
 fn sample(kind: FieldKind) -> PValue {
     match kind {
         FieldKind::Count => PValue::Num(Num::int(7)),
-        FieldKind::Length | FieldKind::Feed | FieldKind::Speed | FieldKind::Angle => {
-            PValue::Num(Num::float(7.25))
-        }
+        FieldKind::Length
+        | FieldKind::Feed
+        | FieldKind::Speed
+        | FieldKind::Angle
+        | FieldKind::Duration => PValue::Num(Num::float(7.25)),
         FieldKind::Bool => PValue::Bool(false),
         FieldKind::Enum(e) => PValue::Enum(e[e.len() - 1].to_owned()),
         FieldKind::Height => PValue::Height(HeightSpec::new("work_zero", 1.5)),
@@ -88,6 +90,11 @@ fn item_keys_and_tool_data() {
         |t: &mut Tool| t.presets[0].step_down = Some(1.0),
         |t: &mut Tool| t.presets[0].stepover = Some(1.0),
         |t: &mut Tool| t.flute_length = Some(1.0),
+        |t: &mut Tool| t.half_angle_deg = Some(30.0),
+        |t: &mut Tool| t.tip_diameter = Some(0.2),
+        |t: &mut Tool| t.point_angle_deg = Some(135.0),
+        |t: &mut Tool| t.pitch = Some(0.8),
+        |t: &mut Tool| t.presets[0].optimal_load = Some(0.4),
     ] {
         let mut t2 = t.clone();
         change(&mut t2);

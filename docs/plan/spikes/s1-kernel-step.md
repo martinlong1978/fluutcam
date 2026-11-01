@@ -100,3 +100,76 @@ The own reader met the spike's exit criterion on this corpus:
 2. **Outer loop by trim classification** (D03 §3.1), replacing the "widest loop" rule.
 3. **Second corpus.** STEP exports from FreeCAD, Onshape, Fusion, SolidWorks and Inventor, with free-form parts and assemblies. This needs files from the product owner or downloads under clear terms.
 4. **Parallel parsing** toward 300 MB/s, once larger files exist in the corpus.
+
+## Follow-ups (2026-11-01)
+
+Plan: [`../2026-11-01-step-followups.md`](../2026-11-01-step-followups.md). Items 2 and 4 of §6; item 1 waits for a product decision and item 3 for files.
+All numbers: release build, Linux, 4 cores, same 33-file corpus.
+
+### Outer loop by trim classification (§6 item 2)
+
+Code: `fluut_topo::trim` (UV polylines of loops, winding numbers, `outer_loop`); in `fluut-io-step`, `MappedBody::outer`. D03 §3.1 now describes the rule.
+
+For each face without a `FACE_OUTER_BOUND`, the mapper first takes the widest loop in 3-D. Once the p-curves are known, it decides in the parameter plane:
+- **Containment:** the one loop that contains most points of every other loop. Points are moved by whole periods into the loop's window, so a hole across a seam counts.
+- **Band:** a loop that ends a whole period from its start (not across a pole) wraps round the surface and contains nothing. The widest wrapping loop is outer.
+- **Undecided:** the widest loop is kept.
+
+The face's p-curves are re-aligned when the outer loop changes.
+
+| Faces bounded only by `FACE_BOUND` | Count |
+|---|---|
+| All | 1 202 |
+| One loop (nothing to choose) | 522 |
+| Several loops | **680** |
+| … decided by containment | 171 |
+| … bands | 509 |
+| … undecided | **0** |
+| … different from the widest-loop rule | **0** |
+
+- **No disagreements.** On this corpus the spike's rule was right every time. The new rule matters for cases the corpus lacks, such as a sphere face whose hole is wider in 3-D than its outer loop. That case has a unit test.
+- **One bug found on the way.** The first run left 5 B-spline faces in `ctc_02` undecided. Their surfaces are closed but not periodic. To stay inside the domain, the p-curve of a loop round such a surface jumps back by the domain length where it crosses the seam. The polyline now undoes such jumps, and a regression test (a square tube) covers it. These p-curves cross the seam, which the [p-curve report](step-pcurves-fuzz.md) said never happens in the corpus. Sampled at 1 000 points, one of them is exact to 1e-12 mm, because the jump falls on the seam. Another is 0.0105 mm from its edge between the 17 check points, although the check found it within `tol_model` (0.01 mm) at those points. So the p-curve check can miss small excesses between its points.
+- **`FACE_OUTER_BOUND` is not always right.** The same classification was also run on the 530 faces that declare an outer loop and have more than one loop:
+  - in `nist_stc_06_asme1_ap242-e3.stp`, 23 planar faces declare the hole as the outer bound. For example, an r = 5.08 mm circle is declared outer to a concentric r = 22.2 mm circle;
+  - in 4 torus bands, the declared outer loop is the narrower one. That is a convention, not an error.
+
+  The mapper still trusts `FACE_OUTER_BOUND` (out of scope here). D03 §3.1 now says that the trim cache decides the outer loop for every face, and reports disagreements with the file.
+
+### Parallel parsing (§6 item 4, D04 §2)
+
+Code: `fluut_io_step::parse` (parallel), `parse_serial`, `parse_chunked`; `--example parse_speed`; fuzz target `parse_parallel`. D04 §3 now describes the method.
+
+- **Cuts.** Each DATA section is cut about every max(128 KiB, size / (4 × threads)) bytes, after a `;` that is followed by white space and `#`. The chunks are parsed with `rayon`.
+- **Why a wrong cut is never accepted.** No pass looks for strings and comments first, so a cut may land inside one. Each chunk runs the serial parser from its absolute position, with the chunk end as end of input. A chunk that does not end between two instances therefore fails. Any failure, or a repeated id, re-parses the file serially. So errors, positions and limits are always the serial ones.
+- **Merge.** Chunks are merged in file order, with keywords interned in first-seen order, so the `RawModel` equals the serial one.
+
+`--example parse_speed`, whole corpus (54.3 MB) held in memory. Each figure is the best of 5 parses, and the table gives the median of three such runs. Models are dropped outside the timing. Every parallel result was checked equal to the serial one.
+
+| Threads | Corpus | Largest file (6.1 MB) |
+|---|---|---|
+| serial (`parse_serial`) | 154 MB/s | — |
+| 1 | 150 MB/s | 202 MB/s |
+| 2 | 240 MB/s | 353 MB/s |
+| 4 (= N here) | **338 MB/s** | **529 MB/s** |
+
+So the D04 §2 target of 300 MB/s is reached on four cores. Smaller files gain less: each file pays a fixed cost to merge chunks and build the index on one thread. The S1 figure of 100 MB/s came from Windows.
+
+**Changes on the serial path:**
+- Line numbers after a binary that spans lines were one short per line break (bug, now tested).
+- Keywords are interned without allocating, ids are parsed directly, and parameter lists are allocated once, at their size. Together these make the serial path about 4 % faster.
+
+**Fuzzing** (`-max_len=16384 -timeout=10 -rss_limit_mb=2048`, seeds and corpora as in the p-curve report, both targets running at once on four cores):
+
+| Target | Time | Executions | Coverage (edges) | Result |
+|---|---|---|---|---|
+| `parse_parallel` (3 workers; chunk sizes 1–256 bytes) | 25 min | 1.83 M | 2 417 | no difference from serial, no crash |
+| `parse` | 25 min | 14.4 M | 1 615 | no crash |
+
+Tiny chunks make cuts inside strings, comments and binaries common, so the retry path got heavy use.
+
+### What stays open
+
+- `FACE_OUTER_BOUND` is still trusted on import; the trim cache should decide the outer loop for every face (D03 §3.1).
+- Faces on a sphere or torus with several holes and no loop round the surface (a sphere with two holes) have no containing loop. None are in the corpus without a `FACE_OUTER_BOUND`. They would fall back to the widest loop.
+- The p-curve check uses 17 points per edge and can miss small excesses between them (see above).
+- Item 1 (model tolerance from the file) and item 3 (second corpus) as in §6.

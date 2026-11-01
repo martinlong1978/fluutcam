@@ -6,12 +6,12 @@
 |---|---|
 | FluutCAM licence | Open source, **MIT OR Apache-2.0** (dual, the Rust ecosystem default) |
 | Licence enforcement | None. No licence keys, activation or online checks |
-| Dependency licences | Permissive licences allowed (MIT, Apache-2.0, BSD, ISC, Zlib, Unicode); MPL-2.0 allowed (file-level copyleft). GPL/LGPL/AGPL dependencies are not allowed in shipped binaries, so the dual permissive licence stays usable. Enforced by `cargo-deny` in CI. |
+| Dependency licences | Permissive licences allowed (MIT, Apache-2.0, BSD, ISC, Zlib, Unicode, BSL-1.0; OFL-1.1 for bundled fonts); MPL-2.0 allowed (file-level copyleft). GPL/LGPL/AGPL dependencies are not allowed in shipped binaries, so the dual permissive licence stays usable. Enforced by `cargo-deny` in CI. |
 | Third-party definitions | Imported posts and tool libraries keep their own licences; FluutCAM ships none unless their licence allows it (02 §2.5) |
 
 Consequence for the UI toolkit choice (08 §8.11): `slint` is offered under GPL-3, a
-royalty-free licence with conditions, or a commercial licence. Its terms must be checked against
-an MIT/Apache project whose downstream users may redistribute it. `egui` is MIT/Apache.
+royalty-free licence with conditions, or a commercial licence; none keeps the shipped binary
+open source and permissive. `egui` is MIT/Apache and was chosen (OQ-09).
 
 ## 6.2 Distribution and updates
 

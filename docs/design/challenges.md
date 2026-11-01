@@ -317,6 +317,13 @@ trochoidal slotting in necks, offset-pattern fallback with feed reduction).
 
 **S3 follow-up (2026-10-31).** The region booleans now use a spatial index and a junction rule and stay consistent on every union of the adaptive runs. Sweeps and unions take under 1 % of a level, so speed now depends only on the engagement fixes of §5. The prototype's statistics move by a few degrees of RMS error depending on where loops start, because start points are sampled along K's loops; M6 should choose start points in a way that does not depend on that ([S3 report](../plan/spikes/s3-region-2d.md#follow-ups-2026-10-31)).
 
+**M6 (2026-11-01).** `adaptive_2d` is built on the spike ([plan](../plan/2026-11-01-m6-2d-holes.md)). A level on the S3 shapes takes 0.65–1.04 s, against a target under 1 s. Three findings:
+- The spike's bisection could step into walls. Steps now follow the tool-centre region's edge, which raises the engagement RMS error to 18–25°.
+- Thin slivers (up to about 0.4 mm) stay between passes. A rest phase at lower engagement and one short move per remaining sliver take them.
+- `cavalier_contours` can return only empty loops when it offsets a region with tiny holes, and one long swept loop failed at R − 1e-6 although it offset at R. Cleared-region offsets therefore go loop by loop, with a retry up to 0.01 mm less deep.
+
+Still open: fewer passes and links, and arc-fitted output.
+
 ### CH-17 Exact medial axis for lines and arcs
 
 **Problem.** V-carving needs the medial axis of regions bounded by lines and arcs. Available Rust
@@ -331,6 +338,8 @@ interior. Bisector types: line–line (line), line–arc (parabola), arc–arc (
 the medial axis is too costly.
 
 **S3 (2026-10-31).** `cavalier_contours` offers nothing here; own implementation stands, estimated 3–5 weeks.
+
+**M6 (2026-11-01).** `engrave` has its parameters and validation; `generate` reports `cam.type.unavailable` until the medial axis exists ([plan](../plan/2026-11-01-m6-2d-holes.md)).
 
 ### CH-18 Scallop variable-distance offsetting
 

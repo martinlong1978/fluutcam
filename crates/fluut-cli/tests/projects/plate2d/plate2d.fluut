@@ -1,0 +1,79 @@
+format = "fluut.project/1"
+name   = "Plate"
+units  = "mm"
+
+[[geometry]]
+id   = "g1"
+path = "plate2d.step"
+kind = "step"
+
+  [[geometry.body]]
+  id   = "b-588"
+  name = "plate"
+
+[[setup]]
+id       = "s1"
+name     = "Top"
+kind     = "three_axis"
+material = "MDF"
+stock    = { kind = "block", margin = [5, 5, 1] }
+zero     = { method = "stock_top_corner", corner = "front_left" }
+
+  [[setup.toolpath]]
+  id   = "t1"
+  name = "Face top"
+  type = "face"
+  tool = "shop#flat-20"
+
+    [setup.toolpath.passes]
+    step_down       = 0.6
+    final_step_down = 0.2
+    overlap         = 12
+
+  [[setup.toolpath]]
+  id   = "t4"
+  name = "Adaptive pocket"
+  type = "adaptive_2d"
+  tool = "shop#flat-6"
+
+    [setup.toolpath.geometry]
+    drive_faces = [{ face = "f-588.14" }]
+
+    [setup.toolpath.heights]
+    top = { ref = "model_top" }
+
+    [setup.toolpath.passes]
+    optimal_load = 1.5
+    step_down    = 8
+
+  [[setup.toolpath]]
+  id   = "t2"
+  name = "Score around the pocket"
+  type = "trace"
+  tool = "shop#v-90"
+
+    [setup.toolpath.geometry]
+    drive_curves = [{ edge = "e-588.16" }, { edge = "e-588.17" }, { edge = "e-588.18" }, { edge = "e-588.19" }, { edge = "e-588.20" }, { edge = "e-588.21" }, { edge = "e-588.22" }, { edge = "e-588.23" }]
+
+    [setup.toolpath.heights]
+    bottom = { ref = "model_top", offset = -0.8 }
+
+    [setup.toolpath.passes]
+    side_offset = 3
+
+  [[setup.toolpath]]
+  id   = "t3"
+  name = "Chamfer outer edge"
+  type = "chamfer_2d"
+  tool = "shop#v-90"
+
+    [setup.toolpath.geometry]
+    drive_faces = [{ face = "f-588.0" }, { face = "f-588.1" }, { face = "f-588.2" }, { face = "f-588.3" }]
+
+    [setup.toolpath.passes]
+    chamfer_width = 1.5
+    tip_offset    = 0.3
+    side          = "outside"
+
+    [setup.toolpath.linking]
+    lead_in = { kind = "arc", radius = 2, length = 1 }

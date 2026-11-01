@@ -12,6 +12,7 @@ use fluut_geom::{
     Surface, Tol, UnitVec3, Vec2, Vec3,
 };
 use fluut_topo::pcurve::{self, Stats};
+use fluut_topo::trim::{self, Outer};
 use fluut_topo::{BrepBody, Coedge, Edge, Face, Loop, Shell, Vertex};
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -45,6 +46,44 @@ pub struct MappedBody {
     /// Coedges whose file p-curves were all unusable (unsupported, or off
     /// the 3-D edge by more than `tol_model`) and were projected instead.
     pub pcurves_rejected: usize,
+    /// Outer loops of faces bounded only by `FACE_BOUND`.
+    pub outer: OuterStats,
+}
+
+/// How the outer loops of faces with no `FACE_OUTER_BOUND` (allowed in
+/// AP203) were chosen. The mapper first takes the loop that is widest in
+/// 3-D; once the p-curves are known, [`trim::outer_loop`] decides in the
+/// parameter plane and the widest loop stays only where it cannot.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct OuterStats {
+    /// Faces with no `FACE_OUTER_BOUND`.
+    pub faces: usize,
+    /// Of those, faces with one loop: nothing to choose.
+    pub single: usize,
+    /// Decided by containment in the parameter plane.
+    pub contains: usize,
+    /// Decided among loops that wrap round the surface (bands).
+    pub wraps: usize,
+    /// Undecided faces, where the widest loop was kept.
+    pub fallback: Vec<FaceRef>,
+    /// Faces where the choice differs from the widest loop.
+    pub changed: Vec<OuterChange>,
+}
+
+/// A face of a mapped body: its index in `BrepBody::faces` and its STEP id.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FaceRef {
+    pub face: u32,
+    pub id: u64,
+}
+
+/// A face whose outer loop is not its widest one. Loops are indices into
+/// `Face::loops`, which follow the order of the face's bounds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OuterChange {
+    pub face: FaceRef,
+    pub widest: usize,
+    pub chosen: usize,
 }
 
 /// Maps every body root in the file.
@@ -67,7 +106,9 @@ pub fn map_bodies(m: &RawModel) -> Vec<R<MappedBody>> {
             for (c, pc) in std::mem::take(&mut mp.file_pcurves) {
                 mp.b.pcurves[c as usize] = Some(pc);
             }
+            let given: Vec<bool> = mp.b.pcurves.iter().map(Option::is_some).collect();
             let pcurves = pcurve::compute(&mut mp.b);
+            let outer = mp.choose_outer(&given);
             MappedBody {
                 id,
                 kind: kind.to_owned(),
@@ -76,6 +117,7 @@ pub fn map_bodies(m: &RawModel) -> Vec<R<MappedBody>> {
                 skipped: mp.skipped,
                 pcurves,
                 pcurves_rejected: mp.pcurves_rejected,
+                outer,
             }
         }));
     }
@@ -182,6 +224,8 @@ struct Mapper<'a> {
     /// Coedge → usable file p-curve.
     file_pcurves: BTreeMap<u32, Curve2>,
     pcurves_rejected: usize,
+    /// Faces with no `FACE_OUTER_BOUND`, with their STEP ids.
+    no_outer: Vec<(u32, u64)>,
 }
 
 impl<'a> Mapper<'a> {
@@ -205,6 +249,7 @@ impl<'a> Mapper<'a> {
             edge_pcurves: BTreeMap::new(),
             file_pcurves: BTreeMap::new(),
             pcurves_rejected: 0,
+            no_outer: Vec::new(),
         }
     }
 
@@ -938,21 +983,6 @@ impl<'a> Mapper<'a> {
         })
     }
 
-    /// Diagonal of the bounding box of a loop's edges.
-    fn loop_size(&self, l: &Loop) -> f64 {
-        let mut b = fluut_geom::Aabb3::empty();
-        for &c in &l.coedges {
-            for p in self.b.edge_points(self.b.coedges[c as usize].edge, 1.0) {
-                b = b.with_point(p);
-            }
-        }
-        if b.is_empty() {
-            0.0
-        } else {
-            b.max.distance(b.min)
-        }
-    }
-
     fn face(&mut self, id: u64) -> R<u32> {
         let (name, p) = self.simple(id)?;
         if name != "ADVANCED_FACE" && name != "FACE_SURFACE" {
@@ -963,13 +993,13 @@ impl<'a> Mapper<'a> {
             loops.push(self.bound(b)?);
         }
         // AP203 allows faces whose bounds are all FACE_BOUND. One of them
-        // is then the outer one: the only one, else the widest. (Spike rule;
-        // the trim cache of D03 §3.1 decides this in the parameter plane.)
-        if !loops.iter().any(|l| l.outer) {
-            let widest = (0..loops.len()).max_by(|&i, &j| {
-                self.loop_size(&loops[i])
-                    .total_cmp(&self.loop_size(&loops[j]))
-            });
+        // is then the outer one: for now the widest in 3-D; `choose_outer`
+        // decides in the parameter plane once the p-curves are known.
+        let no_outer = !loops.iter().any(|l| l.outer);
+        if no_outer {
+            let width = |l: &Loop| trim::loop_width(&self.b, &l.coedges);
+            let widest =
+                (0..loops.len()).max_by(|&i, &j| width(&loops[i]).total_cmp(&width(&loops[j])));
             if let Some(i) = widest {
                 loops[i].outer = true;
             }
@@ -988,7 +1018,57 @@ impl<'a> Mapper<'a> {
             same_sense,
             loops: lids,
         });
-        Ok(self.b.faces.len() as u32 - 1)
+        let fi = self.b.faces.len() as u32 - 1;
+        if no_outer {
+            self.no_outer.push((fi, id));
+        }
+        Ok(fi)
+    }
+
+    /// Chooses the outer loop of each face with no `FACE_OUTER_BOUND` in
+    /// its parameter plane, and re-aligns the p-curves of a face whose
+    /// outer loop changes (alignment starts from the outer loop). `given`
+    /// marks the p-curves read from the file.
+    fn choose_outer(&mut self, given: &[bool]) -> OuterStats {
+        let mut st = OuterStats::default();
+        for (f, id) in std::mem::take(&mut self.no_outer) {
+            st.faces += 1;
+            let lids = self.b.faces[f as usize].loops.clone();
+            if lids.len() <= 1 {
+                st.single += 1;
+                continue;
+            }
+            let widest = lids
+                .iter()
+                .position(|&l| self.b.loops[l as usize].outer)
+                .unwrap_or(0);
+            let chosen = match trim::outer_loop(&self.b, f) {
+                Outer::Contains(i) => {
+                    st.contains += 1;
+                    i
+                }
+                Outer::Wraps(i) => {
+                    st.wraps += 1;
+                    i
+                }
+                Outer::Undecided => {
+                    st.fallback.push(FaceRef { face: f, id });
+                    continue;
+                }
+            };
+            if chosen != widest {
+                for (k, &l) in lids.iter().enumerate() {
+                    self.b.loops[l as usize].outer = k == chosen;
+                }
+                pcurve::align_face(&mut self.b, f, given);
+                st.changed.push(OuterChange {
+                    face: FaceRef { face: f, id },
+                    widest,
+                    chosen,
+                });
+            }
+        }
+        st
     }
 
     fn shell(&mut self, id: u64) -> R<()> {

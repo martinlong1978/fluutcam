@@ -116,6 +116,7 @@ pub fn input<'a>(g: &'a SetupGeometry, t: &'a Toolpath, tool: &'a Tool) -> Strat
         setup_kind: SetupKind::ThreeAxis,
         env: env(g),
         to_work: Affine::identity(),
+        stock: None,
         machine: None,
         post: None,
     }

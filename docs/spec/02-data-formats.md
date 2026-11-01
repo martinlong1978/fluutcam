@@ -55,8 +55,8 @@ material    = "MDF"                            # selects tool cutting-data prese
 work_offset = "G54"
 geometry    = { bodies = ["b-7f3a…"], scale = [1, 1, 1], mirror = [false, false, false] }
 orientation = { rotary_axis = { face = "f-12" }, a_zero_toward = "+Z" }   # 03 §3.9.3
-zero        = { x = "stock_left" }             # Y, Z fixed on rotary axis for rotary/indexed
 stock       = { kind = "cylinder", radius = 26, length = 120 }
+zero        = { x = "stock_left" }             # Y, Z fixed on rotary axis for rotary/indexed
 clearance   = { kind = "cylinder", radius = 35 }
 
   [[setup.toolpath]]
@@ -126,8 +126,8 @@ zero point (03 §3.9.3):
 
 ```toml
 orientation = { tool_axis = { face = "f-3" }, x_axis = "+X" }
-zero        = { method = "stock_top_corner", corner = "front_left" }
 stock       = { kind = "block", margin = [2, 2, 1] }
+zero        = { method = "stock_top_corner", corner = "front_left" }
 region      = { floor_z = -20 }
 ```
 
@@ -246,6 +246,8 @@ corner_radius = 0.0
 flute_length  = 22
 centre_cutting = true                         # can plunge straight down; default true
 # point_angle_deg = 118                       # drill shape only; default 118
+# half_angle_deg = 45                        # v and taper shapes: half the included angle
+# tip_diameter   = 0.2                        # v and taper shapes: tip diameter; default 0
 # pitch          = 1.0                        # taps only: thread pitch, mm
 overall_length = 60
 shank_diameter = 6.0

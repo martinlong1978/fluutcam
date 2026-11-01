@@ -69,6 +69,11 @@ fn step_inputs_match_the_writer() {
         &step::pocket_block([0.0; 3]),
     );
     check_file(&here("projects/ridge/ridge.step"), &step::ridge([0.0; 3]));
+    check_file(
+        &here("projects/plate2d/plate2d.step"),
+        &step::plate([0.0; 3]),
+    );
+    check_file(&here("projects/holes/holes.step"), &step::holes([0.0; 3]));
     check_file(&here("projects/dome/dome.step"), &step::dome([0.0; 3]));
 }
 
@@ -79,6 +84,8 @@ fn projects_are_canonical() {
         "projects/block/block.fluut",
         "projects/ridge/ridge.fluut",
         "projects/plate/plate.fluut",
+        "projects/plate2d/plate2d.fluut",
+        "projects/holes/holes.fluut",
         "projects/dome/dome.fluut",
     ] {
         let text = std::fs::read_to_string(here(p)).unwrap();
@@ -197,6 +204,90 @@ fn golden_dxf_outline() {
 }
 
 #[test]
+fn golden_2d_types() {
+    golden(
+        "projects/plate2d/plate2d.fluut",
+        "fluut/linuxcnc",
+        "plate2d-linuxcnc.ngc",
+        &[],
+    );
+}
+
+#[test]
+fn golden_hole_types() {
+    // LinuxCNC has a native peck cycle; Grbl has no cycles, so the drill
+    // toolpath is expanded into moves (D10 §5).
+    golden(
+        "projects/holes/holes.fluut",
+        "fluut/linuxcnc",
+        "holes-linuxcnc.ngc",
+        &[],
+    );
+    golden(
+        "projects/holes/holes.fluut",
+        "fluut/grbl",
+        "holes-grbl.gcode",
+        &["param.drill.cycle.expanded"],
+    );
+}
+
+/// A post that extends `fluut/gcode` with a tap cycle.
+const TAP_POST: &str = r#"format  = "fluut.post/1"
+id      = "test/tap"
+version = "1.0"
+name    = "Tap test"
+extends = "fluut/gcode@1"
+
+[cycles]
+enabled   = true
+supported = ["drill", "tap"]
+
+[blocks.cycle_start]
+lines = [{ when = "cycle.kind == 'tap'", line = "G84 [X] [Y] Z[CYCLE_Z] R[CYCLE_R] [F]" }]
+"#;
+
+#[test]
+fn taps_feed_at_rpm_times_pitch() {
+    let d = tmp("tap");
+    std::fs::create_dir_all(d.join("tools")).unwrap();
+    std::fs::copy(here("projects/holes/holes.step"), d.join("holes.step")).unwrap();
+    let tools = std::fs::read_to_string(here("projects/holes/tools/shop.toml"))
+        .unwrap()
+        .replace(
+            "shape         = \"drill\"",
+            "shape         = \"drill\"\npitch         = 0.8",
+        );
+    std::fs::write(d.join("tools/shop.toml"), tools).unwrap();
+    let text = std::fs::read_to_string(here("projects/holes/holes.fluut")).unwrap();
+    let text = text
+        .replace("cycle        = \"peck\"", "cycle        = \"tap\"")
+        .replace("type = \"bore\"", "type = \"bore\"\n  enabled = false");
+    std::fs::write(d.join("holes.fluut"), text).unwrap();
+    let mut s = Session::open(&d.join("holes.fluut"), &[]).unwrap();
+    let mut store = fluut_post::builtin::builtin_store();
+    store.insert_toml(TAP_POST).unwrap();
+    let opts = PostOptions {
+        date: "2026-11-01".into(),
+        time: "12:00:00".into(),
+        notes: String::new(),
+    };
+    let (out, _) = s.post("test/tap", &store, &opts).unwrap();
+    let g = out.files.concat();
+    // 3000 rev/min × 0.8 mm.
+    let tap = g.lines().find(|l| l.starts_with("G84")).unwrap();
+    assert!(tap.ends_with("F2400"), "{tap}");
+    // A post without a tap cycle cannot post it.
+    let e = s
+        .post(
+            "fluut/linuxcnc",
+            &fluut_post::builtin::builtin_store(),
+            &opts,
+        )
+        .unwrap_err();
+    assert!(e.iter().any(|d| d.code == "param.drill.tap.post"), "{e:?}");
+}
+
+#[test]
 fn calc_reports_each_toolpath() {
     let o = fluut(&["calc", here("projects/block/block.fluut").to_str().unwrap()]);
     let out = String::from_utf8_lossy(&o.stdout);
@@ -261,6 +352,20 @@ const BLOCK: Reference = Reference {
     part: step::pocket_block,
     toolpaths: &["t1", "t2", "t3"],
     zero: [10.0, 5.0, 20.0],
+};
+
+const PLATE: Reference = Reference {
+    name: "plate2d",
+    part: step::plate,
+    toolpaths: &["t1", "t4", "t2", "t3"],
+    zero: [-5.0, -5.0, 21.0],
+};
+
+const HOLES: Reference = Reference {
+    name: "holes",
+    part: step::holes,
+    toolpaths: &["t1", "t2"],
+    zero: [0.0, 0.0, 15.0],
 };
 
 /// The stock top is 1 above the crest of the ridge (stock margin).
@@ -332,7 +437,7 @@ fn translation_invariance() {
     // together moves no toolpath coordinate by more than ε_s, and the
     // G-code is the same.
     let shift = [0.123457, -0.987651, 0.31];
-    for r in [&BLOCK, &RIDGE, &DOME] {
+    for r in [&BLOCK, &RIDGE, &PLATE, &HOLES, &DOME] {
         for point in [true, false] {
             let n = r.name;
             let a = shifted(r, &tmp(&format!("inv-{n}-a-{point}")), [0.0; 3], point);

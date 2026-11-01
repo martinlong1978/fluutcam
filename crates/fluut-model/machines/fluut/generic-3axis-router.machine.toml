@@ -1,0 +1,21 @@
+# A generic 3-axis router: a base for user machines (spec 02 §2.3).
+format  = "fluut.machine/1"
+id      = "fluut/generic-3axis-router"
+version = "1.0"
+name    = "Generic 3-axis router"
+post    = "fluut/gcode@1"
+
+[travel]
+x = [0, 1000]
+y = [0, 1000]
+z = [-150, 0]
+
+[spindle]
+rpm = [6000, 24000]
+
+[feed]
+max_cut   = 10000
+max_rapid = 15000
+
+[tool_changer]
+kind = "manual"

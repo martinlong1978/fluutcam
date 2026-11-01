@@ -4,9 +4,10 @@
 
 use crate::geometry::SetupGeometry;
 use crate::strategy::{
-    Contour, Contour2d, Horizontal, Parallel, Pocket2d, Scallop, Spiral, SteepAndShallow,
+    Adaptive2d, Bore, Chamfer2d, Contour, Contour2d, Drill, Engrave, Face, Horizontal, Parallel,
+    Pocket2d, Scallop, Spiral, SteepAndShallow, Trace,
 };
-use fluut_geom::{Affine, Point2, Point3};
+use fluut_geom::{Aabb3, Affine, Point2, Point3};
 use fluut_model::params::{FieldMeta, ToolpathTypeId};
 use fluut_model::project::{SetupKind, Toolpath};
 use fluut_model::resolve::{HeightEnv, ResolvedHeights, ResolvedParams, resolve};
@@ -36,6 +37,8 @@ pub struct StrategyInput<'a> {
     pub setup_kind: SetupKind,
     /// Height references of the Setup; `selection` is filled by the type.
     pub env: HeightEnv,
+    /// The Setup stock in W, when the Setup has one.
+    pub stock: Option<Aabb3>,
     /// Model frame M → work frame W, for points stored in M.
     pub to_work: Affine,
     pub machine: Option<MachineLimits>,
@@ -111,15 +114,29 @@ pub trait ToolpathType: Send + Sync + fmt::Debug {
 static CONTOUR_2D: Contour2d = Contour2d;
 static POCKET_2D: Pocket2d = Pocket2d;
 static PARALLEL: Parallel = Parallel;
+static FACE: Face = Face;
+static TRACE: Trace = Trace;
+static CHAMFER_2D: Chamfer2d = Chamfer2d;
+static BORE: Bore = Bore;
+static DRILL: Drill = Drill;
+static ADAPTIVE_2D: Adaptive2d = Adaptive2d;
+static ENGRAVE: Engrave = Engrave;
 static CONTOUR: Contour = Contour;
 static HORIZONTAL: Horizontal = Horizontal;
 static SPIRAL: Spiral = Spiral;
 static SCALLOP: Scallop = Scallop;
 static STEEP_AND_SHALLOW: SteepAndShallow = SteepAndShallow;
-static REGISTRY: [&dyn ToolpathType; 8] = [
+static REGISTRY: [&dyn ToolpathType; 15] = [
     &CONTOUR_2D,
     &POCKET_2D,
     &PARALLEL,
+    &FACE,
+    &TRACE,
+    &CHAMFER_2D,
+    &BORE,
+    &DRILL,
+    &ADAPTIVE_2D,
+    &ENGRAVE,
     &CONTOUR,
     &HORIZONTAL,
     &SPIRAL,
@@ -137,6 +154,13 @@ pub fn find(id: ToolpathTypeId) -> &'static dyn ToolpathType {
         ToolpathTypeId::Contour2d => &CONTOUR_2D,
         ToolpathTypeId::Pocket2d => &POCKET_2D,
         ToolpathTypeId::Parallel => &PARALLEL,
+        ToolpathTypeId::Face => &FACE,
+        ToolpathTypeId::Trace => &TRACE,
+        ToolpathTypeId::Chamfer2d => &CHAMFER_2D,
+        ToolpathTypeId::Bore => &BORE,
+        ToolpathTypeId::Drill => &DRILL,
+        ToolpathTypeId::Adaptive2d => &ADAPTIVE_2D,
+        ToolpathTypeId::Engrave => &ENGRAVE,
         ToolpathTypeId::Contour => &CONTOUR,
         ToolpathTypeId::Horizontal => &HORIZONTAL,
         ToolpathTypeId::Spiral => &SPIRAL,

@@ -2,5 +2,6 @@
 
 //! Test support shared by the integration tests.
 
+pub mod cam;
 pub mod finish;
 pub mod step;

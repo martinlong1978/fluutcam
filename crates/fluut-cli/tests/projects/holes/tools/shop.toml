@@ -1,0 +1,33 @@
+format = "fluut.tools/1"
+id     = "shop"
+name   = "Test shop"
+
+[[tool]]
+id            = "flat-12"
+name          = "12 mm flat"
+number        = 1
+shape         = "flat"
+diameter      = 12.0
+flute_length  = 30
+
+  [[tool.preset]]
+  material  = "MDF"
+  rpm       = 16000
+  feed      = 2400
+  plunge    = 700
+  stepover  = 5
+  step_down = 4
+
+[[tool]]
+id            = "drill-5"
+name          = "5 mm drill"
+number        = 2
+shape         = "drill"
+diameter      = 5.0
+flute_length  = 40
+
+  [[tool.preset]]
+  material  = "MDF"
+  rpm       = 3000
+  feed      = 300
+  plunge    = 250

@@ -35,7 +35,9 @@ Tokens: `#123` entity refs, keywords (`ADVANCED_FACE`), strings `'...'` with `''
 `\X2\…\X0\` Unicode escapes, integers, reals (`1.E-3`), enums `.T.`, `$` (unset), `*`
 (derived), binaries `"…"`, punctuation ` , = ;`, comments `/* … */`.
 
-- Uses `memchr` to skip to delimiters; target ≥ 300 MB/s.
+- Uses `memchr` to skip to delimiters; target ≥ 300 MB/s with parallel parsing (§3). Measured
+  (2026-11-01, 4 cores): about 150 MB/s on one thread, about 340 MB/s on four over the corpus, over
+  500 MB/s on its largest file ([report](../plan/spikes/s1-kernel-step.md#follow-ups-2026-11-01)).
 - Positions (line, column) kept per entity start for error messages [S 02 §2.6.1].
 - Limits (untrusted input, [S 06 §6.3]): file size ≤ 2 GB (configurable), string length
   ≤ 1 MB, nesting depth of parameter lists ≤ 64.
@@ -45,8 +47,8 @@ Tokens: `#123` entity refs, keywords (`ADVANCED_FACE`), strings `'...'` with `''
 ```rust
 pub struct RawModel {
     pub header: Header,                        // FILE_SCHEMA, FILE_NAME, …
-    pub entities: Vec<RawEntity>,              // dense
-    pub index: HashMap<u64, u32>,              // #id → slot
+    pub entities: Vec<RawEntity>,              // dense, in file order
+    pub index: BTreeMap<u64, u32>,             // #id → slot
 }
 
 pub enum RawEntity {
@@ -59,9 +61,18 @@ pub enum Param { Ref(u64), Int(i64), Real(f64), Str(Box<str>), Enum(KwId), List(
 ```
 
 - Keywords are interned (`KwId`), so mapping code compares integers.
-- Parsing is two-pass: first pass splits the DATA section into entity spans (fast scan for
-  `#n=` and `;` outside strings) and is parallelised over chunks; second pass parses spans in
-  parallel with `rayon`. Entity order does not matter in Part 21.
+- Parsing is parallel with `rayon` (`parse`; `parse_serial` is the reference):
+  - each DATA section, up to its `ENDSEC`, is cut into chunks of at least 128 KiB, about four per
+    thread, just after a `;` that is followed by white space and `#`. No scan for strings or
+    comments is made first, so a cut may fall inside one;
+  - each chunk is parsed by the serial code from its absolute position (lines and columns stay
+    absolute) with the chunk end as end of input. A wrong cut leaves a chunk ending inside an
+    instance, string or comment, so its parse fails; any failure, or an id defined twice, makes
+    the file be parsed again serially. Errors and their positions are therefore always the serial
+    ones, and limits apply as in the serial parser;
+  - chunks are merged in file order: keywords are interned in first-seen order and the chunks'
+    keyword ids remapped, entities appended, the index built from sorted `(id, slot)` pairs. The
+    `RawModel` equals the serial one; a differential fuzz target (`fuzz/parse_parallel`) checks it.
 - Dangling references are recorded and reported when dereferenced, not at parse time.
 - Cycle detection: mapping keeps a "visiting" set per resolution path; a cycle is an error
   located at the entity (untrusted input).

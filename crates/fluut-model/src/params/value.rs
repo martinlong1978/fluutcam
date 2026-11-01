@@ -193,6 +193,16 @@ impl ParamMap {
         Ok(ParamMap { entries })
     }
 
+    /// Calls `f` on every value, inside inline tables too.
+    pub(crate) fn visit_mut(&mut self, f: &mut dyn FnMut(&mut PValue)) {
+        for (_, v) in &mut self.entries {
+            if let PValue::Table(t) = v {
+                t.visit_mut(f);
+            }
+            f(v);
+        }
+    }
+
     /// `{ k = v, … }` for an inline table.
     pub(crate) fn inline(&self) -> String {
         if self.entries.is_empty() {
@@ -215,7 +225,7 @@ impl ParamMap {
     }
 }
 
-fn convert(
+pub(crate) fn convert(
     m: &FieldMeta,
     v: &toml::Value,
     path: &str,
@@ -225,9 +235,11 @@ fn convert(
     use toml::Value as V;
     let found = || format!("found {}", v.type_str());
     Ok(match m.kind {
-        FieldKind::Length | FieldKind::Feed | FieldKind::Speed | FieldKind::Angle => {
-            PValue::Num(Num::from_toml(v)?)
-        }
+        FieldKind::Length
+        | FieldKind::Feed
+        | FieldKind::Speed
+        | FieldKind::Angle
+        | FieldKind::Duration => PValue::Num(Num::from_toml(v)?),
         FieldKind::Count => match v {
             V::Integer(i) => PValue::Num(Num::int(*i)),
             _ => return Err(format!("expected an integer, {}", found())),

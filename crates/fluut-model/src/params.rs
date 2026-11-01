@@ -128,6 +128,46 @@ impl Params {
         }
     }
 
+    /// Sets or clears the value at `path` from its file form. Unknown keys
+    /// inside an inline table are errors here.
+    pub fn set_toml(&mut self, path: &str, value: Option<&toml::Value>) -> Result<(), String> {
+        let meta = Params::meta(self.kind, path)
+            .ok_or_else(|| format!("`{path}` is not a field of {}", self.kind))?;
+        let v = match value {
+            None => None,
+            Some(v) => {
+                let mut w = Vec::new();
+                Some(
+                    value::convert(meta, v, path, Unknown::Error, &mut w)
+                        .map_err(|e| format!("`{path}`: {e}"))?,
+                )
+            }
+        };
+        self.set(path, v)
+    }
+
+    /// Calls `f` on every selected entity; `f` may change its id.
+    pub fn map_selections(&mut self, f: &mut dyn FnMut(&mut Sel)) {
+        for g in &mut self.groups {
+            g.visit_mut(&mut |v| {
+                if let PValue::Selection(items) = v {
+                    items.iter_mut().for_each(&mut *f);
+                }
+            });
+        }
+    }
+
+    /// Every selected entity, in field order.
+    pub fn selections(&self) -> Vec<(String, Sel)> {
+        let mut out = Vec::new();
+        for (path, _) in Params::leaf_fields(self.kind) {
+            if let Some(PValue::Selection(items)) = self.get(&path) {
+                out.extend(items.iter().map(|s| (path.clone(), s.clone())));
+            }
+        }
+        out
+    }
+
     /// Reads the group tables of a toolpath table. Other keys of `tp` are
     /// left to the caller.
     pub fn from_toml(
@@ -195,7 +235,11 @@ impl Params {
 fn fits(kind: FieldKind, v: &PValue) -> bool {
     match (kind, v) {
         (
-            FieldKind::Length | FieldKind::Feed | FieldKind::Speed | FieldKind::Angle,
+            FieldKind::Length
+            | FieldKind::Feed
+            | FieldKind::Speed
+            | FieldKind::Angle
+            | FieldKind::Duration,
             PValue::Num(_),
         ) => true,
         (FieldKind::Count, PValue::Num(n)) => n.int,

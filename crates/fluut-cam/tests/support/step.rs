@@ -71,33 +71,36 @@ impl Profile {
     }
 }
 
+/// Start, end and [`tags`] of an edge.
+type EdgeKey = ([u64; 3], [u64; 3], [u64; 4]);
+
 pub struct Writer {
     text: String,
     next: u64,
     shift: [f64; 3],
     verts: BTreeMap<[u64; 3], u64>,
-    /// Edges by end points and, for planar arcs, centre and sense: two
-    /// arcs between the same points (the halves of a circle) differ.
     edges: BTreeMap<EdgeKey, u64>,
     faces: Vec<u64>,
 }
-
-/// Start, end and arc part ([`arc_key`]) of an edge.
-type EdgeKey = ([u64; 3], [u64; 3], [u64; 3]);
 
 fn key(p: [f64; 3]) -> [u64; 3] {
     p.map(|x| (x + 0.0).to_bits())
 }
 
-/// The arc part of an edge key; `reversed` for the same arc walked back.
-fn arc_key(kind: Kind, reversed: bool) -> [u64; 3] {
-    match kind {
-        Kind::Arc { centre, ccw } => [
-            (centre[0] + 0.0).to_bits(),
-            (centre[1] + 0.0).to_bits(),
-            u64::from(ccw != reversed) + 1,
-        ],
-        Kind::Line | Kind::Arc3 { .. } => [0; 3],
+/// What tells edges with the same ends apart (two half circles), and the
+/// same for the edge run backwards.
+fn tags(k: Kind) -> ([u64; 4], [u64; 4]) {
+    let b = |x: f64| (x + 0.0).to_bits();
+    match k {
+        Kind::Line => ([0; 4], [0; 4]),
+        Kind::Arc { centre, ccw } => {
+            let t = |c: bool| [b(centre[0]), b(centre[1]), 0, 1 + u64::from(c)];
+            (t(ccw), t(!ccw))
+        }
+        Kind::Arc3 { centre, .. } => {
+            let t = [b(centre[0]), b(centre[1]), b(centre[2]), 3];
+            (t, t)
+        }
     }
 }
 
@@ -152,7 +155,8 @@ impl Writer {
     /// An oriented edge from `a` to `b`; an edge already made from `b` to
     /// `a` is reused reversed.
     fn oriented(&mut self, a: [f64; 3], b: [f64; 3], kind: Kind) -> u64 {
-        if let Some(&e) = self.edges.get(&(key(b), key(a), arc_key(kind, true))) {
+        let (tag, back) = tags(kind);
+        if let Some(&e) = self.edges.get(&(key(b), key(a), back)) {
             return self.add(&format!("ORIENTED_EDGE('',*,*,#{e},.F.)"));
         }
         let (va, vb) = (self.vertex(a), self.vertex(b));
@@ -187,7 +191,7 @@ impl Writer {
                 self.add(&format!("EDGE_CURVE('',#{va},#{vb},#{ci},.T.)"))
             }
         };
-        self.edges.insert((key(a), key(b), arc_key(kind, false)), e);
+        self.edges.insert((key(a), key(b), tag), e);
         self.add(&format!("ORIENTED_EDGE('',*,*,#{e},.T.)"))
     }
 
@@ -462,6 +466,73 @@ pub fn ridge(shift: [f64; 3]) -> String {
         RIDGE_RADIUS,
     );
     w.finish("ridge")
+}
+
+impl Profile {
+    /// A full circle as two counter-clockwise half arcs, starting at
+    /// `(cx + r, cy)`.
+    pub fn circle(cx: f64, cy: f64, r: f64) -> Profile {
+        let arc = Kind::Arc {
+            centre: [cx, cy],
+            ccw: true,
+        };
+        Profile {
+            pts: vec![[cx + r, cy], [cx - r, cy]],
+            kinds: vec![arc, arc],
+        }
+    }
+}
+
+/// A 100 × 70 × 20 plate with a 50 × 40 pocket (corner radius 6, floor at
+/// Z 12) around a Ø12 island at (40, 35). Faces: 0–3 outer walls, 4
+/// bottom, 5 top, 6–13 pocket walls, 14 pocket floor, 15–16 island walls,
+/// 17 island top.
+pub fn plate(shift: [f64; 3]) -> String {
+    let mut w = Writer::new(shift);
+    let outer = Profile::rect(0.0, 0.0, 100.0, 70.0);
+    let pocket = Profile::rounded_rect(15.0, 15.0, 65.0, 55.0, 6.0);
+    let island = Profile::circle(40.0, 35.0, 6.0);
+    w.walls(&outer, 0.0, 20.0, true);
+    w.cap(&outer, &[], 0.0, false);
+    w.cap(&outer, std::slice::from_ref(&pocket), 20.0, true);
+    w.walls(&pocket, 12.0, 20.0, false);
+    w.cap(&pocket, std::slice::from_ref(&island), 12.0, true);
+    w.walls(&island, 12.0, 20.0, true);
+    w.cap(&island, &[], 20.0, true);
+    w.finish("plate")
+}
+
+/// An 80 × 50 × 15 block with holes. Faces: 0–3 outer walls, 4 bottom, 5
+/// top; then, two faces per cylinder:
+/// - 6–7: Ø5 through hole at (15, 15);
+/// - 8–9: Ø5 through hole at (15, 35);
+/// - 10–11: Ø10 counterbore at (40, 25), Z 12–15, 12 its floor (a ring),
+///   13–14: Ø5 through hole below it;
+/// - 15–16: Ø22 blind hole at (62, 25), Z 7–15, 17 its floor.
+pub fn holes(shift: [f64; 3]) -> String {
+    let mut w = Writer::new(shift);
+    let outer = Profile::rect(0.0, 0.0, 80.0, 50.0);
+    let a = Profile::circle(15.0, 15.0, 2.5);
+    let b = Profile::circle(15.0, 35.0, 2.5);
+    let cb = Profile::circle(40.0, 25.0, 5.0);
+    let cs = Profile::circle(40.0, 25.0, 2.5);
+    let blind = Profile::circle(62.0, 25.0, 11.0);
+    w.walls(&outer, 0.0, 15.0, true);
+    w.cap(&outer, &[a.clone(), b.clone(), cs.clone()], 0.0, false);
+    w.cap(
+        &outer,
+        &[a.clone(), b.clone(), cb.clone(), blind.clone()],
+        15.0,
+        true,
+    );
+    w.walls(&a, 0.0, 15.0, false);
+    w.walls(&b, 0.0, 15.0, false);
+    w.walls(&cb, 12.0, 15.0, false);
+    w.cap(&cb, std::slice::from_ref(&cs), 12.0, true);
+    w.walls(&cs, 0.0, 12.0, false);
+    w.walls(&blind, 7.0, 15.0, false);
+    w.cap(&blind, &[], 7.0, true);
+    w.finish("holes")
 }
 
 /// Centre (XY) and radius of the [`dome`] boss.

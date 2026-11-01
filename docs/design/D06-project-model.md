@@ -61,7 +61,7 @@ pub struct Toolpath {
 
 ### 1.1 Setup fields of a `three_axis` Setup (M3)
 
-M3 reads these Setup keys. The other kinds, `based_on` and `region` follow in M4.
+M3 read these Setup keys; §1.2 lists the forms M4 added.
 
 | Key | Form | Meaning |
 |---|---|---|
@@ -71,8 +71,31 @@ M3 reads these Setup keys. The other kinds, `based_on` and `region` follow in M4
 | `zero` | `{ method = "stock_top_corner" \| "stock_bottom_corner", corner = "front_left" … }`, `{ method = "stock_top_centre" }`, `{ method = "point", at = [x, y, z] }` | work zero; front is −Y, left is −X; `point` is in M |
 | `clearance` | `{ kind = "plane", offset = 10 }` | Setup clearance plane `offset` above the stock top (default 10 mm) |
 
-Entity ids until re-import matching (M4): body `b-<step id>`, its faces `f-<step id>.<i>` and
-edges `e-<step id>.<i>`, by index in the body. WireBody curves use the edge form.
+Entity ids: body `b-<step id>`, its faces `f-<step id>.<i>` and edges `e-<step id>.<i>`, by
+index in the body. WireBody curves use the edge form. Re-import matches them across file
+versions (§5.1).
+
+### 1.2 Setup fields added in M4
+
+Every key is optional; an absent key is inherited (§2). Canonical order: `id`, `name`,
+`based_on`, `kind`, `machine`, `material`, `work_offset`, `geometry`, `orientation`,
+`index_angle`, `stock`, `zero`, `region`, `clearance`.
+
+| Key | Forms added |
+|---|---|
+| `geometry` | `scale = [x, y, z]`, `mirror = [bool, bool, bool]`; applied before orientation |
+| `orientation` | each axis is `"+X"`…, `{ face = id }` (plane normal, cylinder or cone axis) or `{ edge = id }` (line); X is projected normal to the tool axis. Rotary: `{ rotary_axis = pick, a_zero_toward = pick }` |
+| `index_angle` | `{ mode = "absolute" \| "relative", value = degrees }` |
+| `stock` | `{ kind = "block", size = [x, y, z] }` (centred in XY on the model, on the model bottom); `{ kind = "cylinder", radius, length }`; `{ kind = "body", body = id }`; `{ kind = "from_previous" }` |
+| `zero` | rotary and indexed: `{ x = "stock_left" \| "stock_right" \| number }` |
+| `region` | `{ floor_z = z }` (read and inherited; not yet used by the strategies) |
+| `clearance` | `{ kind = "plane" }` (offset 10), `{ kind = "cylinder", radius }` |
+
+Defaults without a parent: `three_axis`, orientation +Z/+X (rotary: axis +X), zero
+`stock_top_corner` `front_left` (rotary: `x = "stock_left"`), block stock with no margin and a
+plane clearance for `three_axis`; rotary and indexed roots need a stock
+(`setup.stock.missing`). A toolpath's `tool` may be absent (no tool chosen yet); validation
+reports `param.tool.missing`.
 
 ## 2. Setup inheritance
 
@@ -223,11 +246,37 @@ pub struct ModelStore {
 
 On open, each `GeometrySource` is loaded: if a body cache file `<hash>.bodies` exists in the
 sidecar and matches the file hash and importer version, it is used; otherwise the file is
-re-imported. A missing or changed file triggers the re-import flow [S 02 §2.6.3].
+re-imported. A missing or changed file triggers the re-import flow [S 02 §2.6.3]. (M4: no body
+cache yet; bodies are imported on every open.)
+
+### 5.1 Re-import matching (M4)
+
+`Session::reimport(source)` loads the file again and matches old to new:
+
+- bodies by id, then by a unique STEP name, then by the most faces and edges in common;
+- faces and edges by persistent id with an equal signature, then by signature (kind,
+  parameters and bounds within the modelling tolerance), then by a unique surface (or curve)
+  match. The STEP reader gives no AP242 persistent ids or face names yet, so the persistent id
+  is the id above.
+
+Signatures: plane normal (with face sense) and offset; cylinder and torus axis line and radii;
+cone axis, origin, radius and angle; sphere centre and radius; line and conic curves by their
+axis and size; bounds from the loop edges. Matched ids are rewritten (`RemapIds`) with the new
+hash and body list in one edit group. Selections of unmatched entities stay in the project and
+are reported (`model.reimport.unmatched`).
 
 ## 6. Edits and undo
 
 ### 6.1 Edits
+
+As built (M4), payloads are in file syntax: a Setup, toolpath or source as its `[[…]]` text, a
+field value as its inline TOML value. The project reader checks them, and the journal needs no
+serde on the model types. The variants are `SetName`, `SetUnits`, `AddGeometry`, `SetGeometry`,
+`RemoveGeometry`, `AddSetup { at }`, `SetSetupField`, `MoveSetup`, `RemoveSetup`,
+`AddToolpath { at }`, `SetToolpathField` (item key or parameter path), `MoveToolpath`,
+`RemoveToolpath`, `DuplicateAs`, `RemapIds` (re-import) and `Group`. Templates are expanded when
+applied (`Library::apply_template` returns a `Group`), so replaying a journal needs no library.
+An edit that leaves a `based_on` chain broken is refused. The design sketch:
 
 ```rust
 pub enum Edit {
@@ -291,6 +340,7 @@ header:  magic "FLUJ", version, hash of the project file at journal start
 records: [u32 length][postcard(Edit)][u32 crc32]   appended after every apply
 ```
 
+- Records are `Edit`, `Undo` or `Redo` (as built), so recovery restores the undo state too.
 - `fsync` at most once per second (batched).
 - On open: if a journal exists whose header hash equals the current project file hash, offer
   recovery; replay records up to the first bad CRC. After a successful save the journal is
@@ -310,6 +360,14 @@ the same host is treated as stale and taken over.
 
 Lookup by node hash (D01 §4). On save, cache files not referenced by the current project and
 not used in the last 7 days are deleted.
+
+As built (M4): `<hex>.tpr` = `FLUT` | schema `u16` | postcard of `{ version, hash, passes,
+diagnostics }` (mirror types, so `fluut-path` needs no serde) | crc32. "Used" is the file time;
+a hit refreshes it. Decoding rebuilds `ToolpathResult::new`, so a damaged file is a miss. A
+result that cannot be stored bit for bit (spline segments, or an arc normal that is not
+unchanged by `UnitVec3::new`) is not cached. The session uses the cache and the journal only
+when `OpenOptions` asks for them; the CLI does not, so it writes nothing beside a project. The
+hash stays SHA-256 (D01 §4).
 
 ## 8. Tests
 

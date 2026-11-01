@@ -489,3 +489,79 @@ fn closed_bspline_edge_spans_its_domain() {
     assert_eq!((r.lo, r.hi), (0.0, 1.0));
     assert_eq!(b.pcurves.within_tol, 1, "{:?}", b.pcurves);
 }
+
+/// A sphere face bounded only by `FACE_BOUND`s: a small circle round the
+/// pole (the outer loop) and a hole on the equator that is wider in 3-D,
+/// listed first.
+fn sphere_bounds_step() -> Step {
+    let r = 10.0f64;
+    let (lat, ang) = (80f64.to_radians(), 30f64.to_radians());
+    let mut s = Step::default();
+    let circle = |s: &mut Step, o: [f64; 3], z: [f64; 3], x: [f64; 3], rad: f64| {
+        let pl = s.placement(o, z, x);
+        let c = s.add(&format!("CIRCLE('',#{pl},{rad:?})"));
+        let start = [o[0] + rad * x[0], o[1] + rad * x[1], o[2] + rad * x[2]];
+        let p = s.point(start);
+        let v = s.add(&format!("VERTEX_POINT('',#{p})"));
+        let ec = s.add(&format!("EDGE_CURVE('',#{v},#{v},#{c},.T.)"));
+        let oe = s.add(&format!("ORIENTED_EDGE('',*,*,#{ec},.F.)"));
+        let lp = s.add(&format!("EDGE_LOOP('',(#{oe}))"));
+        s.add(&format!("FACE_BOUND('',#{lp},.T.)"))
+    };
+    let hole = circle(
+        &mut s,
+        [r * libm::cos(ang), 0.0, 0.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        r * libm::sin(ang),
+    );
+    let top = circle(
+        &mut s,
+        [0.0, 0.0, r * libm::sin(lat)],
+        [0.0, 0.0, 1.0],
+        [1.0, 0.0, 0.0],
+        r * libm::cos(lat),
+    );
+    let pl = s.placement([0.0; 3], [0.0, 0.0, 1.0], [1.0, 0.0, 0.0]);
+    let sph = s.add(&format!("SPHERICAL_SURFACE('',#{pl},{r:?})"));
+    let f = s.add(&format!("ADVANCED_FACE('',(#{hole},#{top}),#{sph},.T.)"));
+    let sh = s.add(&format!("OPEN_SHELL('',(#{f}))"));
+    s.add(&format!("SHELL_BASED_SURFACE_MODEL('cap',(#{sh}))"));
+    s
+}
+
+#[test]
+fn face_bound_outer_loop_is_chosen_in_the_parameter_plane() {
+    let s = sphere_bounds_step();
+    let mb = map_one(&s.file(MM));
+    let b = &mb.body;
+    assert_eq!(b.faces.len(), 1);
+    let flags: Vec<bool> = b.faces[0]
+        .loops
+        .iter()
+        .map(|&l| b.loops[l as usize].outer)
+        .collect();
+    assert_eq!(flags, [false, true]);
+    assert_eq!(mb.outer.faces, 1);
+    assert_eq!(mb.outer.wraps, 1);
+    let face_id = s.next - 2;
+    let face = FaceRef {
+        face: 0,
+        id: face_id,
+    };
+    assert_eq!(
+        mb.outer.changed,
+        [OuterChange {
+            face,
+            widest: 0,
+            chosen: 1
+        }]
+    );
+    assert!(mb.pcurves.failures.is_empty(), "{:?}", mb.pcurves.failures);
+}
+
+#[test]
+fn face_outer_bound_is_kept() {
+    let mb = map_one(&cube_step(1.0).file(MM));
+    assert_eq!(mb.outer, OuterStats::default());
+}

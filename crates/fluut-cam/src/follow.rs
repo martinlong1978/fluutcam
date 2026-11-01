@@ -112,7 +112,7 @@ pub fn setup<'a>(input: &StrategyInput<'a>, ty: &str) -> Result<Setup<'a>, CamEr
         ToolShape::Flat | ToolShape::Ball | ToolShape::Bull => {
             Cutter::new(tool.diameter, tool.corner_radius())
         }
-        ToolShape::V | ToolShape::Taper => None,
+        ToolShape::V | ToolShape::Taper | ToolShape::Drill => None,
     };
     let Some(cutter) = cutter else {
         diags.push(

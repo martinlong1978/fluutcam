@@ -48,6 +48,17 @@ fn main() {
     let mut pc_fail = std::collections::BTreeMap::<String, (usize, usize)>::new();
     let mut pc_kinds = std::collections::BTreeMap::<String, usize>::new();
     let (mut pc_secs, mut pc_worst) = (0.0, Vec::<(f64, String)>::new());
+    // Outer loops of faces bounded only by FACE_BOUND.
+    let mut outer = fluut_io_step::OuterStats::default();
+    let mut outer_kinds = std::collections::BTreeMap::<String, [usize; 2]>::new();
+    let mut outer_lines = Vec::new();
+    // The same classification on every face with several loops. Faces
+    // bounded only by FACE_BOUND agree by construction, so disagreements
+    // are with a FACE_OUTER_BOUND: declared outer loop contained in another
+    // (per file), or a band whose declared outer loop is not the widest
+    // (ties excluded).
+    let (mut declared_faces, mut declared_bands) = (0, 0);
+    let mut declared_wrong = std::collections::BTreeMap::<String, usize>::new();
     for f in &files {
         let src = std::fs::read(f).expect("read");
         let t = Instant::now();
@@ -83,6 +94,65 @@ fn main() {
                     pc.within_tol += st.within_tol;
                     pc.max_dev = pc.max_dev.max(st.max_dev);
                     pc_rejected += mb.pcurves_rejected;
+                    let o = &mb.outer;
+                    outer.faces += o.faces;
+                    outer.single += o.single;
+                    outer.contains += o.contains;
+                    outer.wraps += o.wraps;
+                    let kind = |f: u32| {
+                        let s = mb.body.faces[f as usize].surface;
+                        format!("{:?}", mb.body.surfaces[s as usize].kind())
+                    };
+                    for r in &o.fallback {
+                        outer_kinds.entry(kind(r.face)).or_default()[0] += 1;
+                        let n = mb.body.faces[r.face as usize].loops.len();
+                        outer_lines.push(format!(
+                            "  undecided: {name} #{} {} ({n} loops)",
+                            r.id,
+                            kind(r.face)
+                        ));
+                    }
+                    for c in &o.changed {
+                        outer_kinds.entry(kind(c.face.face)).or_default()[1] += 1;
+                        let n = mb.body.faces[c.face.face as usize].loops.len();
+                        outer_lines.push(format!(
+                            "  changed: {name} #{} {} ({n} loops): bound {} instead of {}",
+                            c.face.id,
+                            kind(c.face.face),
+                            c.chosen,
+                            c.widest
+                        ));
+                    }
+                    for (fi, face) in mb.body.faces.iter().enumerate() {
+                        if face.loops.len() < 2 {
+                            continue;
+                        }
+                        let b = &mb.body;
+                        let flagged = face.loops.iter().position(|&l| b.loops[l as usize].outer);
+                        let w = |i: usize| {
+                            fluut_topo::trim::loop_width(
+                                b,
+                                &b.loops[face.loops[i] as usize].coedges,
+                            )
+                        };
+                        match fluut_topo::trim::outer_loop(b, fi as u32) {
+                            fluut_topo::trim::Outer::Contains(i) => {
+                                declared_faces += 1;
+                                if Some(i) != flagged {
+                                    *declared_wrong.entry(name.to_string()).or_default() += 1;
+                                }
+                            }
+                            fluut_topo::trim::Outer::Wraps(i) => {
+                                declared_faces += 1;
+                                let tie =
+                                    flagged.is_some_and(|j| (w(i) - w(j)).abs() <= 1e-9 * w(i));
+                                declared_bands += (Some(i) != flagged && !tie) as usize;
+                            }
+                            fluut_topo::trim::Outer::Undecided => {}
+                        }
+                    }
+                    outer.fallback.extend_from_slice(&o.fallback);
+                    outer.changed.extend_from_slice(&o.changed);
                     for f in &mb.body.faces {
                         let k = format!("{:?}", mb.body.surfaces[f.surface as usize].kind());
                         for &l in &f.loops {
@@ -209,6 +279,22 @@ fn main() {
     pc_worst.sort_by(|a, b| b.0.total_cmp(&a.0));
     for (d, w) in pc_worst.iter().take(10) {
         println!("  {d:.3e} mm: {w}");
+    }
+    println!(
+        "outer loops of FACE_BOUND-only faces: {} faces, {} with one loop, {} by containment, {} bands, {} undecided (widest kept), {} differ from the widest loop",
+        outer.faces,
+        outer.single,
+        outer.contains,
+        outer.wraps,
+        outer.fallback.len(),
+        outer.changed.len()
+    );
+    println!("outer loops by surface kind (undecided, changed): {outer_kinds:?}");
+    println!(
+        "faces with several loops decided in (u, v): {declared_faces}; FACE_OUTER_BOUND inside another loop, by file: {declared_wrong:?}; bands whose FACE_OUTER_BOUND is not the widest loop: {declared_bands}"
+    );
+    for l in &outer_lines {
+        println!("{l}");
     }
     println!("skipped faces: {skips:?}");
     println!("schemas: {schemas:?}");
