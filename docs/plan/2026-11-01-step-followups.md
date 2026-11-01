@@ -51,10 +51,10 @@ All S1 and p-curve follow-up Global Constraints apply. In addition:
   - **Contains:** the one closed loop that contains points of every other loop. A test point is shifted by whole periods into the candidate's window, so a hole across the seam still counts. Each other loop is judged by a majority of its polyline points, so points on or near the boundary do not decide.
   - **Wraps:** a face with wrapping loops (a band) has no loop that contains the others; one of the wrapping loops is the outer one, and the widest of those in 3-D is taken.
   - **Undecided:** missing p-curves, or no or several candidates. The mapper keeps the widest-loop choice.
-- [ ] **Step 1:** Tests: a square with two holes, listed hole first; a cylinder face with a seam and a round hole across the seam; a cylinder band with two wrapping circles; a sphere face whose outer loop is a small circle around the pole and whose hole is wider in 3-D (so the widest 3-D loop is not the outer one); a face with a missing p-curve is undecided.
-- [ ] **Step 2:** Fail, implement, pass.
-- [ ] **Step 3:** Mapper: faces without `FACE_OUTER_BOUND` are decided by `outer_loop` after `pcurve::compute`; on a change, `pcurve::align_face` runs again with the new outer loop first. `MappedBody::outer` gives faces decided by containment, by wrapping and by the fallback, and the faces where the choice differs from the widest loop (with their STEP ids). Test on a hand-written STEP face bounded by two `FACE_BOUND`s, the hole listed first and its 3-D box wider.
-- [ ] **Step 4:** Corpus: the `s1` example prints the counts and every disagreement with the old rule. Investigate each disagreement.
+- [x] **Step 1:** Tests: a square with two holes, listed hole first; a cylinder face with a seam and a round hole across the seam; a cylinder band with two wrapping circles; a sphere face whose outer loop is a small circle around the pole and whose hole is wider in 3-D (so the widest 3-D loop is not the outer one); a face with a missing p-curve is undecided.
+- [x] **Step 2:** Fail, implement, pass.
+- [x] **Step 3:** Mapper: faces without `FACE_OUTER_BOUND` are decided by `outer_loop` after `pcurve::compute`; on a change, `pcurve::align_face` runs again with the new outer loop first. `MappedBody::outer` gives faces decided by containment, by wrapping and by the fallback, and the faces where the choice differs from the widest loop (with their STEP ids). Test on a hand-written STEP face bounded by two `FACE_BOUND`s, the hole listed first and its 3-D box wider.
+- [x] **Step 4:** Corpus: the `s1` example prints the counts and every disagreement with the old rule. Investigate each disagreement.
 
 ### Task 3: Parallel parsing
 

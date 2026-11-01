@@ -7,6 +7,7 @@ pub mod brep;
 pub mod bvh;
 pub mod check;
 pub mod pcurve;
+pub mod trim;
 pub mod wire;
 
 pub use brep::{BrepBody, Coedge, Edge, Face, Loop, Shell, Vertex};
