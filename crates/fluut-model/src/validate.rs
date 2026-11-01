@@ -126,6 +126,7 @@ pub fn validate(tp: &Toolpath, cx: &ValidateCx) -> Vec<Diagnostic> {
         ToolpathTypeId::Parallel => v.parallel(),
         ToolpathTypeId::Face => v.face(),
         ToolpathTypeId::Trace => v.trace(),
+        ToolpathTypeId::Chamfer2d => v.chamfer(),
     }
     tag(out, tp)
 }
@@ -265,7 +266,10 @@ impl V<'_, '_> {
         let g = &self.r.geometry;
         let two_d = matches!(
             self.r.kind,
-            ToolpathTypeId::Contour2d | ToolpathTypeId::Pocket2d | ToolpathTypeId::Trace
+            ToolpathTypeId::Contour2d
+                | ToolpathTypeId::Pocket2d
+                | ToolpathTypeId::Trace
+                | ToolpathTypeId::Chamfer2d
         );
         if two_d && g.drive_curves.is_empty() && g.drive_faces.is_empty() {
             self.e(
@@ -318,7 +322,11 @@ impl V<'_, '_> {
             .r
             .trace()
             .is_some_and(|t| t.depth_mode == crate::resolve::DepthMode::Curve);
-        let top_ok = if self.r.kind == ToolpathTypeId::Parallel || curve_mode {
+        // Types without `bottom` check clearance ≥ retract ≥ feed ≥ top only.
+        let has_bottom = Params::meta(self.r.kind, "heights.bottom").is_some();
+        let top_ok = if !has_bottom {
+            true
+        } else if self.r.kind == ToolpathTypeId::Parallel || curve_mode {
             z.top >= z.bottom
         } else {
             z.top > z.bottom
@@ -344,6 +352,7 @@ impl V<'_, '_> {
             );
         }
         if let Some(sb) = self.cx.stock_bottom
+            && has_bottom
             && z.bottom < sb
         {
             self.w(
@@ -698,6 +707,66 @@ impl V<'_, '_> {
                 "param.face.tool_shape",
                 "tool",
                 "the tool is not flat or bull nosed: the face will be scalloped".into(),
+            );
+        }
+    }
+
+    /// The V tool of `engrave` and `chamfer_2d`: half-angle and tip radius,
+    /// or `param.<type>.tool_shape` (D15b §1.9).
+    fn v_tool(&mut self) -> Option<(f64, f64)> {
+        let a = self.tool.v_angle();
+        if a.is_none() {
+            self.e(
+                &format!("param.{}.tool_shape", self.ty()),
+                "tool",
+                format!(
+                    "{} needs a V tool (shape v or taper with a half_angle_deg)",
+                    self.ty()
+                ),
+            );
+        }
+        Some((a?, self.tool.tip_radius()))
+    }
+
+    fn chamfer(&mut self) {
+        let Some(c) = self.r.chamfer().cloned() else {
+            return;
+        };
+        self.range(
+            "chamfer_2d",
+            "passes.chamfer_width",
+            c.chamfer_width > 0.0,
+            "above 0",
+        );
+        self.range(
+            "chamfer_2d",
+            "passes.tip_offset",
+            c.tip_offset >= 0.0,
+            "0 or more",
+        );
+        let Some((alpha, rt)) = self.v_tool() else {
+            return;
+        };
+        let (d, o) = c.depth_and_offset(alpha, rt);
+        let r = self.tool.radius();
+        if o + c.chamfer_width > r {
+            self.e(
+                "param.chamfer_2d.width.tool",
+                "passes.chamfer_width",
+                format!(
+                    "the chamfer needs {} mm of cone from the tool axis, more than the tool \
+                     radius {r}",
+                    o + c.chamfer_width
+                ),
+            );
+        }
+        if let Some(fl) = self.tool.flute_length
+            && d > fl
+        {
+            self.w(
+                "param.chamfer_2d.depth.flute",
+                "passes.chamfer_width",
+                format!("the tip depth {d} is more than the flute length {fl}"),
             );
         }
     }

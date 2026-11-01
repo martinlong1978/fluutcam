@@ -557,6 +557,47 @@ pub(crate) const TRACE: &[FieldMeta] = &[
     ORDER,
 ];
 
+// ── chamfer_2d (D15b §2.5) ───────────────────────────────────────────
+
+pub(crate) const CHAMFER_2D: &[FieldMeta] = &[
+    SPINDLE_RPM,
+    FEEDS,
+    COOLANT,
+    DRIVE_FACES,
+    DRIVE_CURVES,
+    CLEARANCE,
+    RETRACT_H,
+    FEED_H,
+    top("selection"),
+    MACHINING_TOLERANCE,
+    MAX_SEGMENT_LENGTH,
+    OUTPUT_ARCS,
+    f("chamfer_width", Passes, Length, num(1.0), R, true),
+    f("tip_offset", Passes, Length, num(0.5), R, true),
+    f(
+        "side",
+        Passes,
+        Enum(&["inside", "outside", "left", "right"]),
+        Computed("outside (closed chains) or right (open chains)"),
+        R,
+        false,
+    ),
+    f(
+        "direction",
+        Passes,
+        Enum(CLIMB_CONVENTIONAL),
+        text("climb"),
+        R,
+        false,
+    ),
+    RETRACT,
+    SAFETY_DISTANCE,
+    TRANSITIONS,
+    lead_in(LEAD_ARC),
+    lead_out(LEAD_ARC),
+    f("ramp", Linking, Table(CONTOUR_RAMP), NoDefault, R, false),
+];
+
 /// Whether `key` is a field of `group` for some type. Used to tell an
 /// undeclared common field (an error, spec 03 §3.10.3) from an unknown key.
 pub fn known_in_any_type(group: Group, key: &str) -> bool {

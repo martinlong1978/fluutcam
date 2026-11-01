@@ -236,7 +236,7 @@ const BLOCK: Reference = Reference {
 const PLATE: Reference = Reference {
     name: "plate",
     part: step::plate,
-    toolpaths: &["t1", "t2"],
+    toolpaths: &["t1", "t2", "t3"],
     zero: [-5.0, -5.0, 21.0],
 };
 

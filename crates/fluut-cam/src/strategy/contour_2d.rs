@@ -289,7 +289,12 @@ fn side_of(c: &Params, ch: &Chain) -> Side {
 /// Tool-centre paths for one chain at offset `d` to `side`, oriented for
 /// `dir` (spindle M3: climb keeps the material on the right of travel), each
 /// with the side the tool is on.
-fn offset_chain(ch: &Chain, side: Side, d: f64, dir: CutDirection) -> Vec<(Path2, Turn)> {
+pub(crate) fn offset_chain(
+    ch: &Chain,
+    side: Side,
+    d: f64,
+    dir: CutDirection,
+) -> Vec<(Path2, Turn)> {
     let climb = dir == CutDirection::Climb;
     let turn = if climb || side == Side::On {
         Turn::Left

@@ -44,3 +44,20 @@ zero     = { method = "stock_top_corner", corner = "front_left" }
 
     [setup.toolpath.passes]
     side_offset = 3
+
+  [[setup.toolpath]]
+  id   = "t3"
+  name = "Chamfer outer edge"
+  type = "chamfer_2d"
+  tool = "shop#v-90"
+
+    [setup.toolpath.geometry]
+    drive_faces = [{ face = "f-588.0" }, { face = "f-588.1" }, { face = "f-588.2" }, { face = "f-588.3" }]
+
+    [setup.toolpath.passes]
+    chamfer_width = 1.5
+    tip_offset    = 0.3
+    side          = "outside"
+
+    [setup.toolpath.linking]
+    lead_in = { kind = "arc", radius = 2, length = 1 }

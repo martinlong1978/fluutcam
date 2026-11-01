@@ -4,12 +4,14 @@
 //! `parallel`, and the M6 2-D and hole types.
 
 pub(crate) mod boundary;
+mod chamfer_2d;
 mod contour_2d;
 mod face;
 mod parallel;
 mod pocket_2d;
 mod trace;
 
+pub use chamfer_2d::Chamfer2d;
 pub use contour_2d::Contour2d;
 pub use face::Face;
 pub use parallel::Parallel;

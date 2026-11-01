@@ -359,6 +359,28 @@ pub struct Trace {
     pub direction: TraceDirection,
 }
 
+/// `chamfer_2d` (D15b §2.5).
+#[derive(Clone, PartialEq, Debug)]
+pub struct Chamfer2d {
+    pub chamfer_width: f64,
+    pub tip_offset: f64,
+    /// `None`: `outside` for closed chains, `right` for open ones.
+    pub side: Option<Side>,
+    pub direction: CutDirection,
+}
+
+impl Chamfer2d {
+    /// Tip depth d below `top` and tool-axis offset o from the edge for a
+    /// V tool of half-angle `alpha` and tip radius `rt` (D15b §2.5).
+    pub fn depth_and_offset(&self, alpha: f64, rt: f64) -> (f64, f64) {
+        let tan = libm::tan(alpha);
+        (
+            self.chamfer_width / tan + self.tip_offset,
+            rt + self.tip_offset * tan,
+        )
+    }
+}
+
 #[derive(Clone, PartialEq, Debug)]
 pub enum TypeParams {
     Contour2d(Contour2d),
@@ -366,6 +388,7 @@ pub enum TypeParams {
     Parallel(Parallel),
     Face(Face),
     Trace(Trace),
+    Chamfer2d(Chamfer2d),
 }
 
 /// Every parameter of a toolpath with defaults applied.
@@ -416,6 +439,13 @@ impl ResolvedParams {
         }
     }
 
+    pub fn chamfer(&self) -> Option<&Chamfer2d> {
+        match &self.ty {
+            TypeParams::Chamfer2d(c) => Some(c),
+            _ => None,
+        }
+    }
+
     /// Step-down of the type, if it has one.
     pub fn step_down(&self) -> Option<f64> {
         match &self.ty {
@@ -423,7 +453,7 @@ impl ResolvedParams {
             TypeParams::Pocket2d(p) => p.step_down,
             TypeParams::Face(p) => p.step_down,
             TypeParams::Trace(p) => p.step_down,
-            TypeParams::Parallel(_) => None,
+            TypeParams::Parallel(_) | TypeParams::Chamfer2d(_) => None,
         }
     }
 
@@ -433,7 +463,7 @@ impl ResolvedParams {
             TypeParams::Pocket2d(p) => p.stepover,
             TypeParams::Parallel(p) => p.stepover,
             TypeParams::Face(p) => p.stepover,
-            TypeParams::Contour2d(_) | TypeParams::Trace(_) => None,
+            TypeParams::Contour2d(_) | TypeParams::Trace(_) | TypeParams::Chamfer2d(_) => None,
         }
     }
 }
@@ -549,6 +579,19 @@ fn lead_kind(s: &str) -> LeadKind {
     }
 }
 
+fn side(v: Option<&PValue>) -> Option<Side> {
+    match v {
+        Some(PValue::Enum(s)) => Some(match s.as_str() {
+            "inside" => Side::Inside,
+            "left" => Side::Left,
+            "right" => Side::Right,
+            "on" => Side::On,
+            _ => Side::Outside,
+        }),
+        _ => None,
+    }
+}
+
 fn parallel_direction(s: &str) -> ParallelDirection {
     match s {
         "climb" => ParallelDirection::Climb,
@@ -659,16 +702,7 @@ pub fn resolve(p: &Params, tool: &Tool, material: Option<&str>) -> ResolvedParam
     };
     let ty = match p.kind() {
         ToolpathTypeId::Contour2d => TypeParams::Contour2d(Contour2d {
-            side: match g.p.get("passes.side") {
-                Some(PValue::Enum(s)) => Some(match s.as_str() {
-                    "inside" => Side::Inside,
-                    "left" => Side::Left,
-                    "right" => Side::Right,
-                    "on" => Side::On,
-                    _ => Side::Outside,
-                }),
-                _ => None,
-            },
+            side: side(g.p.get("passes.side")),
             direction: direction(g.text("passes.direction")),
             compensation: match g.text("passes.compensation") {
                 "control" => Compensation::Control,
@@ -726,6 +760,12 @@ pub fn resolve(p: &Params, tool: &Tool, material: Option<&str>) -> ResolvedParam
             overlap: g.num_or("passes.overlap", 0.6 * d),
             step_down: g.or_preset("passes.step_down", "step_down"),
             final_step_down: g.num("passes.final_step_down"),
+        }),
+        ToolpathTypeId::Chamfer2d => TypeParams::Chamfer2d(Chamfer2d {
+            chamfer_width: g.num_or("passes.chamfer_width", 1.0),
+            tip_offset: g.num_or("passes.tip_offset", 0.5),
+            side: side(g.p.get("passes.side")),
+            direction: direction(g.text("passes.direction")),
         }),
         ToolpathTypeId::Trace => TypeParams::Trace(Trace {
             depth_mode: match g.text("passes.depth_mode") {

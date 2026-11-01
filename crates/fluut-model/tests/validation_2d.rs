@@ -202,3 +202,36 @@ fn trace_codes() {
     );
     case("param.geometry.drive.empty", "trace", "v-90", CURVES, "");
 }
+
+#[test]
+fn chamfer_2d_codes() {
+    clean("chamfer_2d", "v-90", CURVES);
+    case_with(
+        "param.chamfer_2d.tool_shape",
+        ("chamfer_2d", "v-90", CURVES, None),
+        ("chamfer_2d", "flat-6", CURVES, None),
+    );
+    // Rt = 0.1: o + w = 0.1 + t + w must stay within R = 6.
+    case(
+        "param.chamfer_2d.width.tool",
+        "chamfer_2d",
+        "v-90",
+        &format!("{CURVES}[passes]\nchamfer_width = 4\ntip_offset = 1.9\n"),
+        &format!("{CURVES}[passes]\nchamfer_width = 4\ntip_offset = 2\n"),
+    );
+    // Flute length 8: d = w + t.
+    case(
+        "param.chamfer_2d.depth.flute",
+        "chamfer_2d",
+        "v-90",
+        &format!("{CURVES}[passes]\nchamfer_width = 4\ntip_offset = 4\n"),
+        &format!("{CURVES}[passes]\nchamfer_width = 4\ntip_offset = 4.1\n"),
+    );
+    case(
+        "param.geometry.drive.empty",
+        "chamfer_2d",
+        "v-90",
+        CURVES,
+        "",
+    );
+}
