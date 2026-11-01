@@ -69,6 +69,7 @@ fn step_inputs_match_the_writer() {
     );
     check_file(&here("projects/ridge/ridge.step"), &step::ridge([0.0; 3]));
     check_file(&here("projects/plate/plate.step"), &step::plate([0.0; 3]));
+    check_file(&here("projects/holes/holes.step"), &step::holes([0.0; 3]));
 }
 
 #[test]
@@ -78,6 +79,7 @@ fn projects_are_canonical() {
         "projects/block/block.fluut",
         "projects/ridge/ridge.fluut",
         "projects/plate/plate.fluut",
+        "projects/holes/holes.fluut",
     ] {
         let text = std::fs::read_to_string(here(p)).unwrap();
         let l = fluut_model::project::read(&text).unwrap();
@@ -167,6 +169,16 @@ fn golden_2d_types() {
 }
 
 #[test]
+fn golden_hole_types() {
+    golden(
+        "projects/holes/holes.fluut",
+        "fluut/linuxcnc",
+        "holes-linuxcnc.ngc",
+        &[],
+    );
+}
+
+#[test]
 fn calc_reports_each_toolpath() {
     let o = fluut(&["calc", here("projects/block/block.fluut").to_str().unwrap()]);
     let out = String::from_utf8_lossy(&o.stdout);
@@ -240,6 +252,13 @@ const PLATE: Reference = Reference {
     zero: [-5.0, -5.0, 21.0],
 };
 
+const HOLES: Reference = Reference {
+    name: "holes",
+    part: step::holes,
+    toolpaths: &["t1"],
+    zero: [0.0, 0.0, 15.0],
+};
+
 /// The stock top is 1 above the crest of the ridge (stock margin).
 const RIDGE: Reference = Reference {
     name: "ridge",
@@ -301,7 +320,7 @@ fn translation_invariance() {
     // together moves no toolpath coordinate by more than ε_s, and the
     // G-code is the same.
     let shift = [0.123457, -0.987651, 0.31];
-    for r in [&BLOCK, &RIDGE, &PLATE] {
+    for r in [&BLOCK, &RIDGE, &PLATE, &HOLES] {
         for point in [true, false] {
             let n = r.name;
             let a = shifted(r, &tmp(&format!("inv-{n}-a-{point}")), [0.0; 3], point);

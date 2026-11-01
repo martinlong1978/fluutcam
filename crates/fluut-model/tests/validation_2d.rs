@@ -7,7 +7,7 @@
 use fluut_model::project::{SetupKind, Toolpath, read};
 use fluut_model::resolve::ResolvedHeights;
 use fluut_model::tools::{Tool, ToolLibrary};
-use fluut_model::validate::{PostCaps, ValidateCx, validate};
+use fluut_model::validate::{CycleSet, PostCaps, ValidateCx, validate};
 
 const LIB: &str = r#"
 format = "fluut.tools/1"
@@ -102,6 +102,16 @@ const HEIGHTS: ResolvedHeights = ResolvedHeights {
     top: 20.0,
     bottom: 0.0,
 };
+
+/// Post capabilities: helices, and the canned cycles named.
+fn post(helix: bool, cycles: &[&str]) -> PostCaps {
+    PostCaps {
+        cutter_comp: true,
+        coolant: true,
+        helix,
+        cycles: CycleSet::of(cycles),
+    }
+}
 
 fn codes(t: &Toolpath, tool_id: &str, post: Option<PostCaps>) -> Vec<String> {
     let tool = tool(tool_id);
@@ -233,5 +243,33 @@ fn chamfer_2d_codes() {
         "v-90",
         CURVES,
         "",
+    );
+}
+
+const HOLES: &str = "[geometry]\nhole_diameter = { min = 21.9, max = 22.1 }\n";
+
+#[test]
+fn bore_codes() {
+    clean("bore", "flat-6", HOLES);
+    clean("bore", "flat-6", CURVES);
+    case(
+        "param.bore.finishing_stepover.max",
+        "bore",
+        "flat-6",
+        &format!("{HOLES}[passes]\nfinishing_pass = true\nfinishing_stepover = 6\n"),
+        &format!("{HOLES}[passes]\nfinishing_pass = true\nfinishing_stepover = 6.5\n"),
+    );
+    case_with(
+        "param.bore.helix.post",
+        ("bore", "flat-6", HOLES, Some(post(true, &[]))),
+        ("bore", "flat-6", HOLES, Some(post(false, &[]))),
+    );
+    case("param.geometry.drive.empty", "bore", "flat-6", HOLES, "");
+    case(
+        "param.geometry.hole_diameter.range",
+        "bore",
+        "flat-6",
+        "[geometry]\nhole_diameter = { min = 5 }\n",
+        "[geometry]\nhole_diameter = { min = 5, max = 4 }\n",
     );
 }

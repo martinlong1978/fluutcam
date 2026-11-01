@@ -255,3 +255,31 @@ pub fn wire(pts: &[[f64; 3]]) -> SetupGeometry {
         }],
     }
 }
+
+/// A wire body `b-w` with one full circle of radius `r` about `(x, y)` at
+/// `z`.
+pub fn wire_circle(x: f64, y: f64, z: f64, r: f64) -> SetupGeometry {
+    use fluut_geom::{Curve3, Frame, Interval, Vec3};
+    let f = Frame::new(
+        Point3::new(x, y, z),
+        Vec3::new(0.0, 0.0, 1.0),
+        Vec3::new(1.0, 0.0, 0.0),
+    )
+    .unwrap();
+    SetupGeometry {
+        bodies: vec![SetupBody {
+            id: "b-w".into(),
+            geom: BodyGeom::Wire(fluut_topo::WireBody {
+                name: "w".into(),
+                tol_model: 1e-6,
+                curves: vec![fluut_topo::WireCurve {
+                    curve: Curve3::circle(f, r).unwrap(),
+                    range: Interval {
+                        lo: 0.0,
+                        hi: std::f64::consts::TAU,
+                    },
+                }],
+            }),
+        }],
+    }
+}

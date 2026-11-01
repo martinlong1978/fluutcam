@@ -127,6 +127,7 @@ pub fn validate(tp: &Toolpath, cx: &ValidateCx) -> Vec<Diagnostic> {
         ToolpathTypeId::Face => v.face(),
         ToolpathTypeId::Trace => v.trace(),
         ToolpathTypeId::Chamfer2d => v.chamfer(),
+        ToolpathTypeId::Bore => v.bore(),
     }
     tag(out, tp)
 }
@@ -270,8 +271,14 @@ impl V<'_, '_> {
                 | ToolpathTypeId::Pocket2d
                 | ToolpathTypeId::Trace
                 | ToolpathTypeId::Chamfer2d
+                | ToolpathTypeId::Bore
         );
-        if two_d && g.drive_curves.is_empty() && g.drive_faces.is_empty() {
+        // A hole filter selects holes by itself (D15b §1.5).
+        if two_d
+            && g.drive_curves.is_empty()
+            && g.drive_faces.is_empty()
+            && g.hole_diameter.is_none()
+        {
             self.e(
                 "param.geometry.drive.empty",
                 "geometry.drive_curves",
@@ -295,6 +302,12 @@ impl V<'_, '_> {
                 }
             }
         }
+        if let Some((lo, hi)) = g.hole_diameter {
+            let ok = lo.is_none_or(|v| v >= 0.0)
+                && hi.is_none_or(|v| v >= 0.0)
+                && !matches!((lo, hi), (Some(a), Some(b)) if a > b);
+            self.range("geometry", "geometry.hole_diameter", ok, "0 ≤ min ≤ max");
+        }
         if g.rest_previous {
             self.e(
                 "param.geometry.rest_from.unsupported",
@@ -307,7 +320,11 @@ impl V<'_, '_> {
     fn heights(&mut self) {
         let h = &self.r.heights;
         let g = &self.r.geometry;
-        if h.uses_selection() && g.drive_curves.is_empty() && g.drive_faces.is_empty() {
+        if h.uses_selection()
+            && g.drive_curves.is_empty()
+            && g.drive_faces.is_empty()
+            && g.hole_diameter.is_none()
+        {
             self.e(
                 "param.heights.reference.empty",
                 "heights",
@@ -767,6 +784,41 @@ impl V<'_, '_> {
                 "param.chamfer_2d.depth.flute",
                 "passes.chamfer_width",
                 format!("the tip depth {d} is more than the flute length {fl}"),
+            );
+        }
+    }
+
+    fn bore(&mut self) {
+        let Some(b) = self.r.bore().cloned() else {
+            return;
+        };
+        let d = self.tool.diameter;
+        self.range("bore", "passes.pitch", b.pitch > 0.0, "above 0");
+        if b.finishing_pass {
+            if b.finishing_stepover > d {
+                self.e(
+                    "param.bore.finishing_stepover.max",
+                    "passes.finishing_stepover",
+                    format!(
+                        "finishing stepover {} is more than the tool diameter {d}",
+                        b.finishing_stepover
+                    ),
+                );
+            }
+            self.range(
+                "bore",
+                "passes.finishing_stepover",
+                b.finishing_stepover > 0.0,
+                "above 0",
+            );
+        }
+        if let Some(post) = self.cx.post
+            && !post.helix
+        {
+            self.w(
+                "param.bore.helix.post",
+                "passes.pitch",
+                "the post has no helix support: the helices are posted as lines".into(),
             );
         }
     }

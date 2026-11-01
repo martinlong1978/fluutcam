@@ -7,6 +7,7 @@ pub mod chain;
 pub mod cutter;
 pub mod drive;
 pub mod geometry;
+pub mod holes;
 pub mod layout;
 pub mod link;
 pub mod moves;

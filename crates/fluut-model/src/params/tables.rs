@@ -598,6 +598,79 @@ pub(crate) const CHAMFER_2D: &[FieldMeta] = &[
     f("ramp", Linking, Table(CONTOUR_RAMP), NoDefault, R, false),
 ];
 
+// ── Hole filter (D15b §1.5) ─────────────────────────────────────────
+
+const HOLE_DIAMETER_FIELDS: &[FieldMeta] = &[
+    f("min", Geometry, Length, NoDefault, R, true),
+    f("max", Geometry, Length, NoDefault, R, true),
+];
+const HOLE_DIAMETER: FieldMeta = f(
+    "hole_diameter",
+    Geometry,
+    Table(HOLE_DIAMETER_FIELDS),
+    NoDefault,
+    R,
+    false,
+);
+
+// ── bore (D15b §2.6) ─────────────────────────────────────────────────
+
+pub(crate) const BORE: &[FieldMeta] = &[
+    SPINDLE_RPM,
+    FEEDS,
+    COOLANT,
+    DRIVE_FACES,
+    DRIVE_CURVES,
+    HOLE_DIAMETER,
+    CLEARANCE,
+    RETRACT_H,
+    FEED_H,
+    top("selection"),
+    bottom("selection"),
+    MACHINING_TOLERANCE,
+    OUTPUT_ARCS,
+    f(
+        "feature",
+        Passes,
+        Enum(&["hole", "boss"]),
+        text("hole"),
+        R,
+        false,
+    ),
+    f(
+        "pitch",
+        Passes,
+        Length,
+        Computed("0.1 * tool.diameter"),
+        R,
+        true,
+    ),
+    f(
+        "direction",
+        Passes,
+        Enum(CLIMB_CONVENTIONAL),
+        text("climb"),
+        R,
+        false,
+    ),
+    f("finishing_pass", Passes, Bool, flag(false), R, false),
+    f(
+        "finishing_stepover",
+        Passes,
+        Length,
+        Computed("0.1 * tool.diameter"),
+        R,
+        true,
+    ),
+    f("bottom_circle", Passes, Bool, flag(true), R, false),
+    STOCK_TO_LEAVE,
+    STOCK_TO_LEAVE_AXIAL,
+    RETRACT,
+    SAFETY_DISTANCE,
+    lead_in(LEAD_ARC),
+    lead_out(LEAD_ARC),
+];
+
 /// Whether `key` is a field of `group` for some type. Used to tell an
 /// undeclared common field (an error, spec 03 §3.10.3) from an unknown key.
 pub fn known_in_any_type(group: Group, key: &str) -> bool {

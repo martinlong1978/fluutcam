@@ -342,8 +342,7 @@ impl Session {
                     ..ValidateCx::new(self.tools.get(&t.tool))
                 };
                 for d in validate(t, &cx) {
-                    let post_rule = d.code == "param.contour_2d.compensation.post"
-                        || d.code == "param.tool_params.coolant.unsupported";
+                    let post_rule = POST_RULES.contains(&d.code.as_str());
                     if post_rule && !rep.diagnostics.contains(&d) {
                         rep.diagnostics.push(d);
                     }
@@ -445,6 +444,14 @@ impl Session {
         }
     }
 }
+
+/// Validation codes that depend on the post. They are checked again at
+/// post time for toolpaths taken from the cache.
+const POST_RULES: &[&str] = &[
+    "param.contour_2d.compensation.post",
+    "param.tool_params.coolant.unsupported",
+    "param.bore.helix.post",
+];
 
 /// The spec 05 §5.5 name of a post cycle.
 fn cycle_name(c: fluut_post::post::CycleName) -> &'static str {

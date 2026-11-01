@@ -62,6 +62,8 @@ pub struct GeometryGroup {
     pub excluded_faces: Vec<Sel>,
     pub boundary: Option<Boundary>,
     pub rest_previous: bool,
+    /// `hole_diameter` (D15b §1.5): `(min, max)`, each side optional.
+    pub hole_diameter: Option<(Option<f64>, Option<f64>)>,
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -381,6 +383,23 @@ impl Chamfer2d {
     }
 }
 
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum BoreFeature {
+    Hole,
+    Boss,
+}
+
+/// `bore` (D15b §2.6).
+#[derive(Clone, PartialEq, Debug)]
+pub struct Bore {
+    pub feature: BoreFeature,
+    pub pitch: f64,
+    pub direction: CutDirection,
+    pub finishing_pass: bool,
+    pub finishing_stepover: f64,
+    pub bottom_circle: bool,
+}
+
 #[derive(Clone, PartialEq, Debug)]
 pub enum TypeParams {
     Contour2d(Contour2d),
@@ -389,6 +408,7 @@ pub enum TypeParams {
     Face(Face),
     Trace(Trace),
     Chamfer2d(Chamfer2d),
+    Bore(Bore),
 }
 
 /// Every parameter of a toolpath with defaults applied.
@@ -446,6 +466,13 @@ impl ResolvedParams {
         }
     }
 
+    pub fn bore(&self) -> Option<&Bore> {
+        match &self.ty {
+            TypeParams::Bore(c) => Some(c),
+            _ => None,
+        }
+    }
+
     /// Step-down of the type, if it has one.
     pub fn step_down(&self) -> Option<f64> {
         match &self.ty {
@@ -453,7 +480,7 @@ impl ResolvedParams {
             TypeParams::Pocket2d(p) => p.step_down,
             TypeParams::Face(p) => p.step_down,
             TypeParams::Trace(p) => p.step_down,
-            TypeParams::Parallel(_) | TypeParams::Chamfer2d(_) => None,
+            TypeParams::Parallel(_) | TypeParams::Chamfer2d(_) | TypeParams::Bore(_) => None,
         }
     }
 
@@ -463,7 +490,10 @@ impl ResolvedParams {
             TypeParams::Pocket2d(p) => p.stepover,
             TypeParams::Parallel(p) => p.stepover,
             TypeParams::Face(p) => p.stepover,
-            TypeParams::Contour2d(_) | TypeParams::Trace(_) | TypeParams::Chamfer2d(_) => None,
+            TypeParams::Contour2d(_)
+            | TypeParams::Trace(_)
+            | TypeParams::Chamfer2d(_)
+            | TypeParams::Bore(_) => None,
         }
     }
 }
@@ -646,6 +676,12 @@ pub fn resolve(p: &Params, tool: &Tool, material: Option<&str>) -> ResolvedParam
         excluded_faces: g.sel("geometry.excluded_faces").unwrap_or_default(),
         boundary,
         rest_previous: g.text("geometry.rest_from") == "previous",
+        hole_diameter: g.p.get("geometry.hole_diameter").map(|_| {
+            (
+                g.num("geometry.hole_diameter.min"),
+                g.num("geometry.hole_diameter.max"),
+            )
+        }),
     };
     let heights = HeightsGroup {
         clearance: g.height("heights.clearance"),
@@ -760,6 +796,17 @@ pub fn resolve(p: &Params, tool: &Tool, material: Option<&str>) -> ResolvedParam
             overlap: g.num_or("passes.overlap", 0.6 * d),
             step_down: g.or_preset("passes.step_down", "step_down"),
             final_step_down: g.num("passes.final_step_down"),
+        }),
+        ToolpathTypeId::Bore => TypeParams::Bore(Bore {
+            feature: match g.text("passes.feature") {
+                "boss" => BoreFeature::Boss,
+                _ => BoreFeature::Hole,
+            },
+            pitch: g.num_or("passes.pitch", 0.1 * d),
+            direction: direction(g.text("passes.direction")),
+            finishing_pass: g.flag("passes.finishing_pass", false),
+            finishing_stepover: g.num_or("passes.finishing_stepover", 0.1 * d),
+            bottom_circle: g.flag("passes.bottom_circle", true),
         }),
         ToolpathTypeId::Chamfer2d => TypeParams::Chamfer2d(Chamfer2d {
             chamfer_width: g.num_or("passes.chamfer_width", 1.0),
