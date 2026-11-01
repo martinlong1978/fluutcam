@@ -6,6 +6,7 @@
 use crate::cache::DiskCache;
 use crate::frame::SetupFrame;
 use crate::graph::{Graph, NodeId};
+use crate::reimport::{ReimportReport, Unmatched, belongs, match_bodies, references};
 use crate::store::ModelStore;
 use fluut_cam::StrategyInput;
 use fluut_cam::geometry::SetupBody;
@@ -14,7 +15,7 @@ use fluut_model::edit::{Edit, EditError};
 use fluut_model::journal::{Journal, file_hash, journal_path, recover};
 use fluut_model::library::{DefKind, LayerKind, Library};
 use fluut_model::machine::{BUILTIN_MACHINES, Machine};
-use fluut_model::project::{Project, read};
+use fluut_model::project::{BodyEntry, Project, read};
 use fluut_model::resolve::{Coolant, resolve};
 use fluut_model::setup::{ResolvedSetup, resolve_all};
 use fluut_model::tools::ToolStore;
@@ -311,6 +312,100 @@ impl Session {
                 .map_err(|e| Diagnostic::warning("model.cache.gc", e.to_string()))?;
         }
         Ok(())
+    }
+
+    /// Re-reads geometry source `id` from its file and matches its
+    /// entities to the ones loaded before (spec 03 §3.5). Matched
+    /// selections are rewritten and the source's hash and body list
+    /// updated, as one undo step. Unmatched selections are kept and
+    /// reported.
+    pub fn reimport(&mut self, id: &str) -> Result<ReimportReport, Vec<Diagnostic>> {
+        let g = self.project.source(id).cloned().ok_or_else(|| {
+            vec![Diagnostic::error(
+                "model.geometry.missing",
+                format!("geometry `{id}` is not in the project"),
+            )]
+        })?;
+        let old = self
+            .store
+            .source(id)
+            .map(|s| s.bodies.clone())
+            .unwrap_or_default();
+        let mut fresh = ModelStore::new();
+        let mut diagnostics: Vec<Diagnostic> = fresh
+            .load(&g, &self.dir)
+            .into_iter()
+            .filter(|d| {
+                d.code != "model.geometry.changed" && d.code != "model.geometry.body_missing"
+            })
+            .collect();
+        let Some(new) = fresh.source(id).cloned() else {
+            return Err(diagnostics);
+        };
+        let matching = match_bodies(&old, &new.bodies);
+        let unmatched: Vec<Unmatched> = references(&self.project)
+            .into_iter()
+            .filter(|r| belongs(&r.id, &old) && matching.new_id(&r.id).is_none())
+            .collect();
+        for u in &unmatched {
+            let d = Diagnostic::warning(
+                "model.reimport.unmatched",
+                format!(
+                    "`{}` ({} of `{}`) is not in the new {}; the selection is kept",
+                    u.id, u.field, u.owner, g.path
+                ),
+            )
+            .at(&u.field);
+            let is_tp = self.project.toolpath(&u.owner).is_some();
+            diagnostics.push(if is_tp { d.on(&u.owner) } else { d });
+        }
+        let mut ng = g.clone();
+        ng.hash = Some(new.hash.clone());
+        ng.bodies = new
+            .bodies
+            .iter()
+            .map(|b| {
+                let name = match &b.geom {
+                    fluut_cam::geometry::BodyGeom::Brep(x) => x.name.clone(),
+                    fluut_cam::geometry::BodyGeom::Wire(w) => w.name.clone(),
+                };
+                let old_name = g
+                    .bodies
+                    .iter()
+                    .find(|e| matching.new_id(&e.id) == Some(&b.id))
+                    .and_then(|e| e.name.clone());
+                BodyEntry {
+                    id: b.id.clone(),
+                    name: if name.is_empty() {
+                        old_name
+                    } else {
+                        Some(name)
+                    },
+                }
+            })
+            .collect();
+        let edit = Edit::Group {
+            label: format!("Re-import {}", g.path),
+            edits: vec![
+                Edit::set_geometry(&ng),
+                Edit::RemapIds {
+                    map: matching.renames(),
+                },
+            ],
+        };
+        self.apply(edit).map_err(|e| {
+            vec![Diagnostic::error(
+                "model.reimport.apply",
+                format!("geometry `{id}`: {e}"),
+            )]
+        })?;
+        self.store.insert(id, new);
+        Ok(ReimportReport {
+            source: id.to_owned(),
+            matching,
+            unmatched,
+            diagnostics,
+        })
     }
 
     /// Every machine the Setups name, resolved, by reference.

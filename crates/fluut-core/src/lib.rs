@@ -9,6 +9,7 @@
 pub mod cache;
 pub mod frame;
 pub mod graph;
+pub mod reimport;
 pub mod session;
 pub mod store;
 

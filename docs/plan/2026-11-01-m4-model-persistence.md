@@ -140,8 +140,8 @@ All earlier Global Constraints apply. In addition:
 - Signatures: plane (normal, offset), cylinder, cone, sphere, torus (axis line, radii), others by kind; face bounds from loop edges. Edges: curve kind and end points.
 - Matching per source: bodies by id, then by name, then by most faces matched. Faces and edges: id with equal signature, then equal signature with bounds, then a unique surface match. Tolerance is the body's modelling tolerance (at least 1e-6 mm).
 - `Session::reimport(source) -> ReimportReport { faces, edges, bodies, unmatched }`, applied as one edit group: rewritten selections and Setup bodies, the new hash and body list. Unmatched selections are kept and reported.
-- [ ] **Step 1:** Tests: the boss with every entity number shifted and its top raised: the walls and the bottom match, the top is reported for the toolpath that selects it, and the other selections are rewritten; an unchanged file maps every id to itself; undo restores the old selections.
-- [ ] **Step 2:** Implement; pass; commit.
+- [x] **Step 1:** Tests: the boss with every entity number shifted and its top raised: the walls and the bottom match, the top is reported for the toolpath that selects it, and the other selections are rewritten; an unchanged file maps every id to itself; undo restores the old selections.
+- [x] **Step 2:** Implement; pass; commit.
 
 ### Task 10: Close
 
