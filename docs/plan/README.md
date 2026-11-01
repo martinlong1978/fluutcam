@@ -69,3 +69,4 @@ These must be written before the milestone that needs them:
 | [2026-11-01-step-pcurves-fuzz.md](2026-11-01-step-pcurves-fuzz.md) | S1 follow-up | Done: [report](spikes/step-pcurves-fuzz.md); p-curves for every coedge, 99.74 % of the corpus within `tol_model` (all failures are edges off their surface); fuzzing found one parser panic, fixed |
 | [2026-11-01-m3-vertical-slice.md](2026-11-01-m3-vertical-slice.md) | M3 | Done except `parallel` (after S2): `fluut calc`/`post` from STEP + TOML to G-code; translation invariance holds to 1e-6 mm with identical G-code |
 | [2026-10-31-s2-cutter-queries.md](2026-10-31-s2-cutter-queries.md) | S2 | Done: [report](spikes/s2-cutter-queries.md); exact drop 12 µs median on 5 967 corpus faces, 210–320 µs on dense B-spline; "no grids" holds, no fallback; speed work listed |
+| [2026-11-01-m7-io-2d-mesh.md](2026-11-01-m7-io-2d-mesh.md) | M7 | In progress: `fluut-io-2d` (DXF, SVG) and `fluut-io-mesh` (STL) |
