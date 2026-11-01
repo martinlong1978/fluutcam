@@ -157,7 +157,7 @@ fn minimal_program() {
         out.files[0],
         format!(
             "(FluutCAM {v})\n(Post: c)\n%\nG21 G90\nT1 M6\nM3 S12000\n(Pocket)\n\
-             G0 X0 Y0 Z5\nG1 Z-1 F300\nG1 X10 F1000\nG1 Y5\nG0 Z5\nM5\nM30\n%\n"
+             G0 X0 Y0 Z10\nG0 Z5\nG1 Z-1 F300\nG1 X10 F1000\nG1 Y5\nG0 Z5\nM5\nM30\n%\n"
         )
     );
 }
@@ -177,7 +177,12 @@ fn line_with_only_suppressed_words_and_current_motion_code_dropped() {
     let out = post(&job(vec![toolpath("R", 1, r)]), &c).unwrap();
     let l = lines(&out);
     let i = l.iter().position(|x| *x == "G0 X0 Y0").unwrap();
-    assert_eq!(&l[i..i + 5], ["G0 X0 Y0", "G0 Z5", "M7", "G0 X10", "M7"]);
+    // The first rapid goes to the toolpath start (Z10), then Z5 changes
+    // only Z, and the move to X10 changes only X.
+    assert_eq!(
+        &l[i..i + 7],
+        ["G0 X0 Y0", "G0 Z10", "M7", "G0 Z5", "M7", "G0 X10", "M7"]
+    );
 }
 
 #[test]
@@ -194,11 +199,11 @@ fn tool_change_only_on_change_and_axes_rewritten_after() {
     assert_eq!(l[t2 - 1], "M5");
     assert_eq!(l[t2 + 1], "M3 S12000");
     // After the tool change every axis is written again.
-    assert_eq!(l[t2 + 3], "G0 X0 Y0 Z5");
+    assert_eq!(l[t2 + 3], "G0 X0 Y0 Z10");
     // Toolpath B starts at the same place as A ended, but `([TOOLPATH_NAME])`
     // is a non-motion block, so its first move is written in full too.
     let b = l.iter().position(|x| *x == "(B)").unwrap();
-    assert_eq!(l[b + 1], "G0 X0 Y0 Z5");
+    assert_eq!(l[b + 1], "G0 X0 Y0 Z10");
 }
 
 #[test]
@@ -342,42 +347,42 @@ fn quarter_arcs_in_each_plane() {
             [0.0, 10.0, 0.0],
             [0.0, 0.0, 1.0],
             Q,
-            "G3 X0 Y10 Z0 I-10 J0 F1000",
+            "G3 X0 Y10 I-10 J0 F1000",
         ),
         (
             [10.0, 0.0, 0.0],
             [0.0, -10.0, 0.0],
             [0.0, 0.0, -1.0],
             Q,
-            "G2 X0 Y-10 Z0 I-10 J0 F1000",
+            "G2 X0 Y-10 I-10 J0 F1000",
         ),
         (
             [10.0, 0.0, 0.0],
             [0.0, 10.0, 0.0],
             [0.0, 0.0, -1.0],
             -Q,
-            "G3 X0 Y10 Z0 I-10 J0 F1000",
+            "G3 X0 Y10 I-10 J0 F1000",
         ),
         (
             [10.0, 0.0, 0.0],
             [0.0, 0.0, -10.0],
             [0.0, 1.0, 0.0],
             Q,
-            "G3 X0 Y0 Z-10 I-10 K0 F1000",
+            "G3 X0 Z-10 I-10 K0 F1000",
         ),
         (
             [0.0, 10.0, 0.0],
             [0.0, 0.0, 10.0],
             [1.0, 0.0, 0.0],
             Q,
-            "G3 X0 Y0 Z10 J-10 K0 F1000",
+            "G3 Y0 Z10 J-10 K0 F1000",
         ),
         (
             [0.0, 10.0, 0.0],
             [0.0, 0.0, -10.0],
             [-1.0, 0.0, 0.0],
             Q,
-            "G2 X0 Y0 Z-10 J-10 K0 F1000",
+            "G2 Y0 Z-10 J-10 K0 F1000",
         ),
     ];
     for (a, b, n, sw, want) in cases {
@@ -389,10 +394,10 @@ fn quarter_arcs_in_each_plane() {
 fn full_circle_by_max_sweep() {
     let a = [10.0, 0.0, 0.0];
     let r = || arc_result(a, a, [0.0; 3], [0.0, 0.0, 1.0], 4.0 * Q, false);
-    assert_eq!(motion_lines("", r()), ["G3 X10 Y0 Z0 I-10 J0 F1000"]);
+    assert_eq!(motion_lines("", r()), ["G3 X10 Y0 I-10 J0 F1000"]);
     assert_eq!(
         motion_lines("[arcs]\nmax_sweep_deg = 180", r()),
-        ["G3 X-10 Y0 Z0 I-10 J0 F1000", "G3 X10 Y0 I10 J0"]
+        ["G3 X-10 Y0 I-10 J0 F1000", "G3 X10 Y0 I10 J0"]
     );
 }
 
@@ -587,8 +592,8 @@ fn rotary_feed_methods() {
     let deg = all_lines(&[ROTARY], half_turn_then_line());
     // 180° split at 90° per line; F = 1000 / 10 · 180/π deg/min.
     assert_eq!(
-        &after(&deg, "(A)")[..3],
-        ["G1 X0 A90 F5730", "G1 A180", "G1 X5 Y0 Z10 F1000"]
+        &after(&deg, "G0 X0 Y0 Z10")[..3],
+        ["G1 A90 F5730", "G1 A180", "G1 X5 F1000"]
     );
 
     let inv = all_lines(
@@ -597,21 +602,18 @@ fn rotary_feed_methods() {
     );
     // Each 90° piece is 5π mm long: F = 1000 / 15.708 per minute.
     assert_eq!(
-        &after(&inv, "(A)")[..5],
-        [
-            "G93",
-            "G1 X0 A90 F64",
-            "G1 A180 F64",
-            "G94",
-            "G1 X5 Y0 Z10 F1000"
-        ]
+        &after(&inv, "G0 X0 Y0 Z10")[..5],
+        ["G93", "G1 A90 F64", "G1 A180 F64", "G94", "G1 X5 F1000"]
     );
 
     let lin = all_lines(
         &[ROTARY, "[feed]\nrotary_method = 'linear_only'"],
         half_turn_then_line(),
     );
-    assert_eq!(&after(&lin, "(A)")[..2], ["G1 X0 A90 F1000", "G1 A180"]);
+    assert_eq!(
+        &after(&lin, "G0 X0 Y0 Z10")[..2],
+        ["G1 A90 F1000", "G1 A180"]
+    );
 
     let r = post(
         &job(vec![toolpath("A", 1, half_turn_then_line())]),
@@ -695,7 +697,7 @@ fn holes(kind: CycleKind, peck: Option<f64>) -> Arc<ToolpathResult> {
 fn native_cycles_hold_back_links() {
     let l = all_lines(&[DRILL], holes(CycleKind::Drill, None));
     assert_eq!(
-        &after(&l, "G0 X0 Y0 Z2")[..5],
+        &after(&l, "G0 Z2")[..5],
         ["G81 Z-5 R2 F300", "X10", "X20", "G80", "G0 X20 Y0 Z10"]
     );
 }
@@ -703,13 +705,10 @@ fn native_cycles_hold_back_links() {
 #[test]
 fn expanded_cycles() {
     let l = all_lines(&[], holes(CycleKind::Drill, None));
-    assert_eq!(
-        &after(&l, "G0 X0 Y0 Z2")[..3],
-        ["G1 Z-5 F300", "G0 Z2", "G0 X10"]
-    );
+    assert_eq!(&after(&l, "G0 Z2")[..3], ["G1 Z-5 F300", "G0 Z2", "G0 X10"]);
     let l = all_lines(&[], holes(CycleKind::Peck, Some(2.0)));
     assert_eq!(
-        &after(&l, "G0 X0 Y0 Z2")[..9],
+        &after(&l, "G0 Z2")[..9],
         [
             "G1 Z-2 F300",
             "G0 Z2",
@@ -764,7 +763,8 @@ fn cutter_comp_around_pass() {
         &["[blocks.cutter_comp_left]\nlines=['G41 D[T]']\n[blocks.cutter_comp_off]\nlines=['G40']"],
         Arc::new(res),
     );
-    assert_eq!(after(&l, "(A)")[0], "G41 D1");
+    // The rapid to the start comes before compensation is switched on.
+    assert_eq!(&after(&l, "(A)")[..2], ["G0 X0 Y0 Z10", "G41 D1"]);
     let g40 = l.iter().position(|x| x == "G40").unwrap();
     assert_eq!(l[g40 - 1], "G0 Z5");
 }

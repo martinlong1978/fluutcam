@@ -157,6 +157,10 @@ resolved).
 - Streamed to a buffered writer; split into numbered files when `output.max_file_size` is
   exceeded (split at a safe point: after a retract, never inside a pass).
 - Provenance comment block first [S 05 §5.9].
+- Each toolpath starts with a rapid to the start of its first segment (the result begins
+  where the tool must be, at the toolpath's clearance height; D08 §8.2). Without it the first
+  move would run from wherever the tool change or the previous toolpath left the tool. Words
+  already at that value are suppressed as usual (M3).
 - A line map `Vec<(line_range, setup, toolpath, pass, segment)>` is produced for the Post-tab
   preview: clicking a G-code line highlights the segment in the viewport [S 08 §8.3].
 
