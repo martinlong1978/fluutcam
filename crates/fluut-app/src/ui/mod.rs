@@ -11,6 +11,7 @@ mod about;
 mod browser;
 mod inspector;
 mod ribbon;
+mod simulation;
 mod viewport;
 
 use crate::bench::Bench;
@@ -18,6 +19,7 @@ use crate::brand::{self, Palette, c};
 use crate::jobs::{CalcTargets, Edit, JobKind, Jobs, Outcome};
 use crate::text::{diagnostic, tr};
 use crate::vm::Selection;
+use crate::vm::playback::Playback;
 use crate::vm::status::StatusVm;
 use eframe::egui::{self, Color32, CornerRadius, Stroke};
 use eframe::egui_wgpu;
@@ -35,6 +37,7 @@ pub enum Tab {
     Viewport,
     Inspector,
     Messages,
+    Simulation,
 }
 
 /// UI state that is not part of the document (D13 §2 `UiState`).
@@ -57,6 +60,12 @@ pub struct UiState {
     pub entry_error: Option<(String, String)>,
     /// Date and time for the post header; tests pin it.
     pub clock: fn() -> (String, String),
+    /// Simulation playhead.
+    pub playback: Playback,
+    /// Show the simulated stock instead of the faces.
+    pub show_stock: bool,
+    /// The finding looked at, in the work frame.
+    pub focus: Option<[f32; 3]>,
 }
 
 impl Default for UiState {
@@ -72,6 +81,9 @@ impl Default for UiState {
             entries: BTreeMap::new(),
             entry_error: None,
             clock: crate::session::now_utc,
+            playback: Playback::default(),
+            show_stock: true,
+            focus: None,
         }
     }
 }
@@ -105,7 +117,7 @@ fn default_dock() -> DockState<Tab> {
     let tree = dock.main_surface_mut();
     let [rest, _] = tree.split_left(NodeIndex::root(), 0.2, vec![Tab::Browser]);
     let [rest, _] = tree.split_right(rest, 0.72, vec![Tab::Inspector]);
-    tree.split_below(rest, 0.8, vec![Tab::Messages]);
+    tree.split_below(rest, 0.8, vec![Tab::Messages, Tab::Simulation]);
     dock
 }
 
@@ -199,6 +211,7 @@ impl FluutApp {
                 _ => self.bench_ready = true,
             }
         }
+        self.playback(ui.ctx());
         let timing = !self.bench.timing_frames() || self.bench_ready;
         if timing && self.bench.frame(&mut self.view.camera) {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
@@ -232,6 +245,32 @@ impl FluutApp {
                     .show_inside(ui, &mut tabs);
             });
         about::show(ui.ctx(), &mut self.ui);
+    }
+
+    /// Moves the playhead while playing, and asks the worker for the stock
+    /// at the playhead when it has none waiting (D11 §4).
+    fn playback(&mut self, ctx: &egui::Context) {
+        let Some(s) = self.jobs.snapshot.clone() else {
+            return;
+        };
+        let Some(setup) = viewport::shown_setup(&s, &self.ui.selection) else {
+            return;
+        };
+        let Some(v) = s.sims.get(&setup) else {
+            return;
+        };
+        let pb = &mut self.ui.playback;
+        if pb.setup.as_deref() != Some(&setup) || pb.duration != v.duration {
+            pb.reset(&setup, v.duration);
+            self.ui.focus = None;
+        }
+        if pb.tick(f64::from(ctx.input(|i| i.stable_dt)), v.duration) || pb.playing {
+            ctx.request_repaint();
+        }
+        if let Some(t) = pb.wanted(self.jobs.scrubbing > 0) {
+            pb.sent = Some(t);
+            self.jobs.scrub(&setup, t);
+        }
     }
 
     fn title_bar(&mut self, ui: &mut egui::Ui, p: &Palette) {
@@ -319,6 +358,7 @@ impl TabViewer for Tabs<'_> {
             Tab::Viewport => "tab-viewport",
             Tab::Inspector => "tab-inspector",
             Tab::Messages => "tab-messages",
+            Tab::Simulation => "tab-simulation",
         })
         .into()
     }
@@ -329,6 +369,7 @@ impl TabViewer for Tabs<'_> {
             Tab::Viewport => viewport::show(ui, self.jobs, self.ui, self.view, self.render),
             Tab::Inspector => inspector::show(ui, self.jobs, self.ui),
             Tab::Messages => messages(ui, self.jobs, self.ui),
+            Tab::Simulation => simulation::show(ui, self.jobs, self.ui, self.view),
         }
     }
 }

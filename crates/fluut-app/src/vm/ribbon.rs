@@ -11,14 +11,16 @@ pub enum Command {
     Open,
     Calculate,
     Post,
+    Simulate,
     Cancel,
 }
 
 impl Command {
-    pub const ALL: [Command; 4] = [
+    pub const ALL: [Command; 5] = [
         Command::Open,
         Command::Calculate,
         Command::Post,
+        Command::Simulate,
         Command::Cancel,
     ];
 
@@ -28,6 +30,7 @@ impl Command {
             Command::Open => "project.open",
             Command::Calculate => "toolpath.calculate_all",
             Command::Post => "post.all",
+            Command::Simulate => "simulation.run",
             Command::Cancel => "job.cancel",
         }
     }
@@ -37,6 +40,7 @@ impl Command {
             Command::Open => "ribbon-open",
             Command::Calculate => "ribbon-calculate-all",
             Command::Post => "ribbon-post",
+            Command::Simulate => "ribbon-simulate",
             Command::Cancel => "ribbon-cancel",
         })
     }
@@ -66,7 +70,7 @@ impl RibbonVm {
                     label: c.label(),
                     enabled: match c {
                         Command::Open => !busy,
-                        Command::Calculate | Command::Post => open && !busy,
+                        Command::Calculate | Command::Post | Command::Simulate => open && !busy,
                         Command::Cancel => busy,
                     },
                 })
@@ -96,10 +100,12 @@ mod tests {
         let mut j = opened("boss");
         let r = RibbonVm::new(&j);
         assert!(r.enabled(Command::Calculate) && r.enabled(Command::Post));
+        assert!(r.enabled(Command::Simulate));
         j.calculate(CalcTargets::All);
         let r = RibbonVm::new(&j);
         assert!(r.enabled(Command::Cancel));
         assert!(!r.enabled(Command::Open) && !r.enabled(Command::Calculate));
+        assert!(!r.enabled(Command::Simulate));
         j.wait();
         assert!(RibbonVm::new(&j).enabled(Command::Post));
     }

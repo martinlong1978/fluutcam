@@ -12,6 +12,7 @@ use super::camera::Camera;
 use crate::brand::{self, Rgb};
 use crate::scene::{Bounds, Lines, Mesh};
 use bytemuck::{Pod, Zeroable};
+use fluut_core::fluut_sim::StockMesh;
 use wgpu::util::DeviceExt;
 
 /// Colour format of the output texture. The shader writes sRGB-encoded values.
@@ -38,6 +39,9 @@ pub enum Pick {
     /// Toolpath by its index in the drawn list.
     Toolpath(u32),
 }
+
+/// Face index of stock vertices: never a picked face.
+const STOCK_FACE: u32 = 0x0FFF_FFFE;
 
 const FACE_LAYER: u32 = 0x1000_0000;
 const TOOLPATH_LAYER: u32 = 0x2000_0000;
@@ -174,6 +178,8 @@ pub struct Renderer {
     draw_capacity: u64,
     targets: Option<Targets>,
     mesh: Option<GpuMesh>,
+    /// The simulated stock; drawn instead of the faces while set.
+    stock: Option<GpuMesh>,
     edges: Option<GpuLines>,
     toolpaths: Vec<Option<GpuLines>>,
 }
@@ -368,6 +374,7 @@ impl Renderer {
             draw_capacity,
             targets: None,
             mesh: None,
+            stock: None,
             edges: None,
             toolpaths: Vec::new(),
         }
@@ -404,6 +411,31 @@ impl Renderer {
             1 => TAG_WIRE,
             2 => TAG_STOCK,
             _ => TAG_EDGE,
+        });
+    }
+
+    /// Uploads the simulated stock (D11 §4), shown instead of the faces;
+    /// `None` shows the faces again. The stock is not pickable.
+    pub fn set_stock(&mut self, device: &wgpu::Device, mesh: Option<&StockMesh>) {
+        self.stock = mesh.filter(|m| !m.positions.is_empty()).map(|m| {
+            let verts: Vec<MeshVertex> = m
+                .positions
+                .iter()
+                .zip(&m.normals)
+                .map(|(&pos, &normal)| MeshVertex {
+                    pos,
+                    normal,
+                    face: STOCK_FACE,
+                })
+                .collect();
+            GpuMesh {
+                buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("fluut stock"),
+                    contents: bytemuck::cast_slice(&verts),
+                    usage: wgpu::BufferUsages::VERTEX,
+                }),
+                count: verts.len() as u32,
+            }
         });
     }
 
@@ -540,7 +572,12 @@ impl Renderer {
     fn draw_scene(&self, pass: &mut wgpu::RenderPass<'_>, pick: bool) {
         pass.set_bind_group(0, &self.globals, &[]);
         pass.set_bind_group(1, &self.draw_group, &[0]);
-        if let Some(m) = &self.mesh {
+        let mesh = match &self.stock {
+            Some(_) if pick => None,
+            Some(s) => Some(s),
+            None => self.mesh.as_ref(),
+        };
+        if let Some(m) = mesh {
             pass.set_pipeline(if pick {
                 &self.mesh_pick
             } else {

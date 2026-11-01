@@ -14,6 +14,8 @@ ribbon-post = Post
 ribbon-post-processor = Post processor
 ribbon-post-output = Output file
 ribbon-cancel = Cancel
+ribbon-simulate = Simulate
+ribbon-group-simulation = Simulation
 ribbon-group-file = File
 ribbon-group-toolpaths = Toolpaths
 ribbon-group-output = Output
@@ -29,6 +31,20 @@ tab-browser = Browser
 tab-viewport = Viewport
 tab-inspector = Inspector
 tab-messages = Messages
+tab-simulation = Simulation
+sim-none = Simulate the Setup to see its stock and findings.
+sim-play = Play
+sim-pause = Pause
+sim-time = { $now } / { $total }
+sim-show-stock = Show stock
+sim-summary = Rays { $res } mm · rest on the part { $rest } mm³, up to { $max } mm
+sim-findings = Findings
+sim-no-findings = No findings.
+sim-finding-gouge = Gouge { $depth } mm: { $name }, segment { $segment }
+sim-finding-rapid = Rapid through stock: { $name }, segment { $segment }
+sim-finding-holder = Holder touches the stock: { $name }, segment { $segment }
+sim-finding-shank = Shank touches the stock: { $name }, segment { $segment }
+sim-finding-flute = Cuts above the flute length: { $name }, segment { $segment }
 
 # Browser
 browser-model = Model
@@ -94,6 +110,8 @@ job-posted = Wrote { $files }
 job-failed = Failed: { $reason }
 job-open-failed = Cannot open the project
 job-post-failed = Cannot post the project
+job-simulating = Simulating { $setup }
+job-simulated = Simulated: { $count } findings
 
 # Messages tab
 messages-empty = No messages.

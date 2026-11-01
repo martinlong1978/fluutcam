@@ -56,5 +56,18 @@ mod tests {
         );
         assert_eq!(r.pick(&device, &queue, &f, 0, 0), Pick::None);
         assert_eq!(r.pick(&device, &queue, &f, w + 5, 0), Pick::None);
+        // With the simulated stock shown the faces are hidden and not
+        // pickable; the toolpath still is.
+        j.simulate("s1");
+        j.wait();
+        while j.frame.is_none() {
+            assert!(j.wait_event());
+        }
+        let mesh = j.frame.clone().unwrap().mesh.clone().unwrap();
+        r.set_stock(&device, Some(&mesh));
+        r.render(&device, &queue, &f);
+        let centre = r.pick(&device, &queue, &f, w / 2, h / 2);
+        assert!(!matches!(centre, Pick::Face(_)), "{centre:?}");
+        r.set_stock(&device, None);
     }
 }
