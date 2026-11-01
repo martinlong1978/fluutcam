@@ -184,10 +184,13 @@ pub fn reference<'a>(g: &'a SetupGeometry, tl: &Tool, stock: f64) -> SurfaceQuer
     SurfaceQuery::new(g, &FaceSets::default(), c, stock).unwrap()
 }
 
-/// Dense drops along every segment: the tool is never below the surface by
-/// more than `tol` (D08 §11 gouge check). On a horizontal move (a
-/// waterline) or a vertical one (along a wall) the error is sideways, so a
-/// point may instead be within `tol` sideways of where the tool clears.
+/// Dense drops along every segment: the tool is never into the surface by
+/// more than `tol` (D08 §11 gouge check), measured along the contact
+/// normal: (τ − z)·cos β for a contact of slope β, so a steep chord whose
+/// vertical error is large but whose normal error is small passes. On a
+/// horizontal move (a waterline) or a vertical one (along a wall) the
+/// error is sideways, so a point may instead be within `tol` sideways of
+/// where the tool clears.
 pub fn assert_no_gouge(g: &SetupGeometry, r: &Generated, tl: &Tool, stock: f64, tol: f64) {
     let q = reference(g, tl, stock);
     for s in r.result.segments() {
@@ -204,9 +207,10 @@ pub fn assert_no_gouge(g: &SetupGeometry, r: &Generated, tl: &Tool, stock: f64, 
                             let y = x - Vec3::new(pr.toward.x(), pr.toward.y(), 0.0) * tol;
                             q.drop(y.x(), y.y()).is_none_or(|h| h.tip <= x.z() + 1e-6)
                         });
+                    let depth = (h.tip - x.z()) * libm::cos(h.slope);
                     assert!(
-                        x.z() >= h.tip - tol || sideways,
-                        "gouge {:.6} at {x:?} ({:?})",
+                        depth <= tol || x.z() >= h.tip - tol || sideways,
+                        "gouge {:.6} (normal {depth:.6}) at {x:?} ({:?})",
                         h.tip - x.z(),
                         s.motion()
                     );

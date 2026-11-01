@@ -13,7 +13,7 @@ use crate::cutter::{BuildOptions, Cutter, QueryGeometry};
 use crate::drive::{curve_pieces, faces, nest};
 use crate::geometry::{BodyGeom, face_z_range};
 use crate::moves::{Mv, Out};
-use crate::region::{Inside, Region2};
+use crate::region::{Inside, Loop2, Region2, Seg2};
 use crate::scallop::{FaceCurvature, face_curvature, is_mesh, scallop_stepover};
 use crate::surface::{FaceSets, Hit, SurfaceQuery};
 use crate::toolpath::{CamError, StrategyInput, prepare, tag};
@@ -280,6 +280,10 @@ pub trait Drive {
     fn sagitta(&self, _ta: f64, _tb: f64) -> f64 {
         0.0
     }
+    /// Parameters where the curve has a corner: always samples.
+    fn breaks(&self) -> Vec<f64> {
+        Vec::new()
+    }
 }
 
 /// The line `o + t·u`, `u` a unit vector: `t` is the length.
@@ -297,6 +301,69 @@ impl Drive for LineDrive {
     fn len(&self, ta: f64, tb: f64) -> f64 {
         tb - ta
     }
+}
+
+/// A closed loop of lines and arcs, by length from its first vertex.
+#[derive(Clone, Debug)]
+pub struct LoopDrive {
+    segs: Vec<Seg2>,
+    /// Length at the start of each segment, and the total at the end.
+    cum: Vec<f64>,
+}
+
+impl LoopDrive {
+    pub fn new(l: &Loop2) -> LoopDrive {
+        let segs: Vec<Seg2> = l.segs().collect();
+        let mut cum = vec![0.0];
+        for sg in &segs {
+            cum.push(cum[cum.len() - 1] + sg.length());
+        }
+        LoopDrive { segs, cum }
+    }
+
+    pub fn length(&self) -> f64 {
+        self.cum[self.cum.len() - 1]
+    }
+}
+
+impl Drive for LoopDrive {
+    fn at(&self, t: f64) -> Point2 {
+        let n = self.segs.len();
+        if n == 0 {
+            return Point2::new(0.0, 0.0);
+        }
+        let i = self.cum[1..n].partition_point(|&c| c <= t).min(n - 1);
+        let sg = &self.segs[i];
+        let len = self.cum[i + 1] - self.cum[i];
+        if len <= 0.0 {
+            return sg.a;
+        }
+        // Segment ends exactly at the vertices.
+        if t >= self.cum[i + 1] {
+            return sg.b;
+        }
+        sg.point_at(((t - self.cum[i]) / len).clamp(0.0, 1.0))
+    }
+
+    fn len(&self, ta: f64, tb: f64) -> f64 {
+        tb - ta
+    }
+
+    fn sagitta(&self, ta: f64, tb: f64) -> f64 {
+        curve_sagitta(self, ta, tb)
+    }
+
+    fn breaks(&self) -> Vec<f64> {
+        self.cum[1..self.cum.len() - 1].to_vec()
+    }
+}
+
+/// Distance of the curve's middle point from the chord's middle: the
+/// sagitta for arcs and smooth curves.
+pub fn curve_sagitta(d: &impl Drive, ta: f64, tb: f64) -> f64 {
+    let (a, b) = (d.at(ta), d.at(tb));
+    let m = d.at(0.5 * (ta + tb));
+    (m - (a + (b - a) * 0.5)).length()
 }
 
 /// A cut stretch: CL points in travel order.
@@ -356,9 +423,32 @@ impl Sampler<'_> {
     }
 
     /// Samples of `d` over `[t0, t1]` in order: chords within `tol/4` of
-    /// the drop (and of the curve in XY) and at most `max_step` long, with
+    /// the drop (and of a curved drive in XY, and not below the drop at
+    /// their middle by more than `tol/4`) and at most `max_step` long, with
     /// the cut-off points between cut and uncut stretches to [`CUTOFF`].
     pub fn samples(&self, d: &impl Drive, t0: f64, t1: f64) -> Vec<Sample> {
+        let bs: Vec<f64> = d
+            .breaks()
+            .into_iter()
+            .filter(|&b| d.len(t0, b) > CUTOFF && d.len(b, t1) > CUTOFF)
+            .collect();
+        if bs.is_empty() {
+            return self.samples_on(d, t0, t1);
+        }
+        let mut out: Vec<Sample> = Vec::new();
+        let mut a = t0;
+        for b in bs.into_iter().chain(std::iter::once(t1)) {
+            let mut s = self.samples_on(d, a, b);
+            if !out.is_empty() {
+                s.remove(0);
+            }
+            out.extend(s);
+            a = b;
+        }
+        out
+    }
+
+    fn samples_on(&self, d: &impl Drive, t0: f64, t1: f64) -> Vec<Sample> {
         let a = self.sample(d, t0);
         let b = self.sample(d, t1);
         let mut out = vec![a];
@@ -386,11 +476,22 @@ impl Sampler<'_> {
             }
             let m = self.sample(d, 0.5 * (a.t + b.t));
             let dev = (m.z - 0.5 * (a.z + b.z)).abs();
+            // A curved drive: the chord leaves the curve sideways, so the
+            // pattern error is the sagitta and the gouge is the drop at the
+            // chord's middle above the chord.
+            let curved = || {
+                let sag = d.sagitta(a.t, b.t);
+                sag > 0.25 * self.tol
+                    || (sag > 0.0 && {
+                        let cm = d.at(a.t) + (d.at(b.t) - d.at(a.t)) * 0.5;
+                        self.cl(cm).0 - 0.5 * (a.z + b.z) > 0.25 * self.tol
+                    })
+            };
             // Stop splitting a vertical step (a flat tool over a wall).
             let split = long
                 || m.cut != a.cut
                 || (dev > 0.25 * self.tol && len > 1e-6)
-                || d.sagitta(a.t, b.t) > 0.125 * self.tol;
+                || (len > 1e-6 && curved());
             if split {
                 stack.push((m, b));
                 stack.push((a, m));
@@ -431,8 +532,14 @@ impl Sampler<'_> {
         if !cur.is_empty() {
             runs.push(cur);
         }
+        // A closed run (a loop drive cut all round) starts where it ends.
+        let closed = |r: &Vec<Point3>| {
+            let (a, b) = (r[0], r[r.len() - 1]);
+            libm::hypot(a.x() - b.x(), a.y() - b.y()) < 1e-9
+                && r.windows(2).map(|w| (w[1] - w[0]).length()).sum::<f64>() > self.tol
+        };
         runs.into_iter()
-            .filter(|r| r.len() >= 2 && (r[r.len() - 1] - r[0]).length() > self.tol)
+            .filter(|r| r.len() >= 2 && ((r[r.len() - 1] - r[0]).length() > self.tol || closed(r)))
             .map(|r| merge(r, 0.25 * self.tol))
             .collect()
     }
