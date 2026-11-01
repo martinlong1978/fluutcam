@@ -4,6 +4,7 @@ Implements: [S 02 §2.1], [S 03 §3.3, §3.10], [S 04 §4.3.4, §4.12.4, §4.13.
 §8.10a]. Builds on D06 §3 (parameter storage and field metadata), D08 (framework) and D09 §2.2,
 §2.4, §4.3, §7 (strategies). Covers the common parameters and the first three types needed by
 M3: `contour_2d`, `pocket_2d`, `parallel`. The other v1 types follow in M6 in the same form.
+The other 19 v1 types are in [D15b](D15b-toolpath-parameters-2.md).
 
 ## 1. Conventions
 

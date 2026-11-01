@@ -1396,3 +1396,43 @@ Passes fields (`machining_tolerance` included: there is no geometry).
 ```
 
 **In-process stock:** does not update; does not read.
+
+## 8. Implementation notes
+
+- D15 §6 applies: field tables as data in `fluut-model::params`, one function and one test per
+  validation code, `visible_if` from the Depends on column, range codes
+  `param.<type>.<key>.range` where no code is listed.
+- New metadata: `FieldKind::Duration` (§1.1); the height resolver takes the Setup kind and
+  resolves radii in `rotary` Setups (§1.3) and per hole for `drill` and `bore` (§1.6).
+- Inline tables in `passes` (`steep`, `shallow`, `hole_diameter` in `geometry`) follow the
+  `tabs` and `feed` rule: each sub-key is optional on its own.
+- Tests as D15 §6: every example parses, resolves and re-serialises byte-identically; every
+  code has a passing and a failing case; P fields leave the result hash unchanged and R fields
+  change it.
+
+## 9. Open questions
+
+Provisional choices are used in the tables above; † marks the provisional defaults.
+
+| # | Question | Provisional choice |
+|---|---|---|
+| 1 | Default `optimal_load` (`adaptive_2d`, `adaptive_3d`): a constant, or a new preset key? | `0.1 · tool.diameter` †; add `optimal_load` to `[[tool.preset]]` [S 02 §2.4] later |
+| 2 | Rotary height references (§1.3): `stock_bottom` and `work_zero` both resolve to the axis | As §1.3 |
+| 3 | The tool format has no drill shape and no point angle (`drill`, `depth_to`) | Add `shape = "drill"` and `point_angle_deg` (default `118` †) to [S 02 §2.4]. Until then `param.drill.tool_shape` warns only when `centre_cutting = false`, and `full_diameter` uses 118° |
+| 4 | Tap `pitch`: on the toolpath or on the tool? | On the toolpath in v1 |
+| 5 | Starting stock of 3-D and rotary roughing with `rest_from = "off"` | The Setup stock, including stock carried from a parent Setup (§1.10) |
+| 6 | Stock to leave on check faces in 3-D roughing | None (§4); a separate check-face allowance later |
+| 7 | `face` with drive faces inside the stock outline (a boss top in a pocket) | The area always includes the stock outline; no ramped entries in v1 |
+| 8 | `rotary_rough` pattern: D09 §5.1 allows passes along X or around A | Around A only in v1 (matches the [S 02 §2.1] key `stepover_x`); along X later |
+| 9 | `engrave` flat-area boundary: how does a later toolpath select it? | A command creates a WireBody from it; no live link to the `engrave` result in v1 |
+| 10 | Gouge checks for `trace`, `engrave`, `chamfer_2d` | None in v1, as D15 §7 decision 5, except `cam.chamfer_2d.tip_gouge` |
+| 11 | `trace` default `depth_mode` | `heights` † (flat curves from DXF are the common case) |
+| 12 | Finishing step-downs: `contour` and `steep.step_down` default | `0.1 · tool.diameter` † (the preset `step_down` is a roughing value) |
+| 13 | `bore` default `pitch` | `0.1 · tool.diameter` † |
+| 14 | `horizontal` offset order | Fixed `outside_in`; no `offset_order` field |
+| 15 | `steep_and_shallow` keys: inline tables or flat keys (`steep_step_down`)? | Inline tables `steep` and `shallow` |
+| 16 | `manual_nc` has no tool. Does the next toolpath see the earlier tool as current? | Yes: `manual_nc` never changes or emits a tool |
+| 17 | Rotary scallop height: the angular step is taken at the largest radius | Yes (conservative, §6) |
+| 18 | `spiral` defaults: `direction`, `rotation`, `machine_corners` | `inside_out` †, `ccw` †, `false` † |
+| 19 | `drill` default `retract_mode` | `retract` (G98) †: safer over clamps |
+| 20 | Rotary direction defaults (`rotary_rough`, `rotary_along_x`: `zigzag`; `rotary_around_a`: `climb`) | As the tables †; `rotary_around_a` needs a continuous axis for `climb` |
