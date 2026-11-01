@@ -67,12 +67,18 @@ All S1 and p-curve follow-up Global Constraints apply. In addition:
 - Line numbers at chunk starts: newlines counted per chunk in parallel, then summed.
 - [x] **Step 1:** Tests: `parse_chunked` with chunk sizes from 1 byte up equals `parse_serial` on the fixtures and on snippets with `;#` inside strings, comments and binaries, several DATA sections, complex instances, typed values; errors (unterminated string at the end, duplicate id across chunks, bad token in a late chunk, nesting too deep) equal the serial ones, positions included.
 - [x] **Step 2:** Fail, implement, pass.
-- [ ] **Step 3:** Fuzz target `parse_parallel`: `parse_chunked` with a chunk size from the first input byte must equal `parse_serial`, `Ok` or `Err`. Run it, and the `parse` target, for a while; record executions, coverage and findings.
+- [x] **Step 3:** Fuzz target `parse_parallel`: `parse_chunked` with a chunk size from the first input byte must equal `parse_serial`, `Ok` or `Err`. Run it, and the `parse` target, for a while; record executions, coverage and findings.
 - [x] **Step 4:** Example `parse_speed`: MB/s on the corpus with 1, 2, 4 and all threads (a `rayon` pool per run), serial for reference, and a check that every file gives the serial `RawModel`.
 
 ### Task 4: Report and design updates
 
 **Files:** Modify `docs/plan/spikes/s1-kernel-step.md` (dated "Follow-ups" section), `docs/design/D03-topology-bvh.md` §3.1, `docs/design/D04-step-reader.md` §2–§3, `docs/plan/README.md`.
 
-- [ ] **Step 1:** Report: outer-loop counts and disagreements; parse speed per thread count; fuzzing.
-- [ ] **Step 2:** Update D03 §3.1 and D04 §2–§3 where the findings change them; mark this plan done.
+- [x] **Step 1:** Report: outer-loop counts and disagreements; parse speed per thread count; fuzzing.
+- [x] **Step 2:** Update D03 §3.1 and D04 §2–§3 where the findings change them; mark this plan done.
+
+**Done.** Findings in [`spikes/s1-kernel-step.md`](spikes/s1-kernel-step.md#follow-ups-2026-11-01). Deviations from this plan:
+- Chunks are merged in file order, not id order: that keeps `entities` in the serial order, so the `RawModel` is the same bit for bit; the index is a `BTreeMap` either way.
+- `MIN_CHUNK` is 128 KiB, not 256 KiB as first written: measured faster on the corpus.
+- `trim::loop_polyline` takes the face as well as the loop, and `trim::loop_width` takes the coedges; the mapper's own loop-width code was replaced by it.
+- Added beyond the plan: undoing p-curve jumps across the seam of closed B-splines (found on the corpus); a cross-check of declared `FACE_OUTER_BOUND`s in the `s1` example, which found 23 wrong ones in one file (recorded, not corrected); a line-number fix after binaries that span lines; small speed-ups on the serial path.
