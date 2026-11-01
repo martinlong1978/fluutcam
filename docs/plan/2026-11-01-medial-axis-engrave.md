@@ -84,8 +84,8 @@ Tracing costs O(n) per edge with a uniform grid of sites, so O(n · E) at worst 
 
 **Files:** `crates/fluut-cam/src/strategy/engrave.rs`, `crates/fluut-cam/tests/engrave.rs`.
 
-- [ ] **Step 1:** Tests: depth from ρ, α and Rt along a known axis; a narrow stroke at constant depth; the ring and `cam.engrave.flat_area` on a wide shape; corner sharpening on and off; step-down levels; every D15b code passes and fails; no point of the path deeper than `max_depth` or with a cone that cuts outside the region.
-- [ ] **Step 2:** Implement; pass. Commit.
+- [x] **Step 1:** Tests: depth from ρ, α and Rt along a known axis; a narrow stroke at constant depth; the ring and `cam.engrave.flat_area` on a wide shape; corner sharpening on and off; step-down levels; every D15b code passes and fails; no point of the path deeper than `max_depth` or with a cone that cuts outside the region.
+- [x] **Step 2:** Implement; pass. Commit.
 
 ### Task 5: Reference project
 

@@ -779,3 +779,13 @@ proptest! {
         check(&r, 1, 1);
     }
 }
+
+#[test]
+fn s3_shapes() {
+    for (name, r) in crate::spike::shapes::all() {
+        let holes = r.loops.iter().filter(|l| !l.is_ccw()).count();
+        let areas = r.loops.len() - holes;
+        let m = check(&r, holes, areas);
+        assert!(!m.edges.is_empty(), "{name}");
+    }
+}
