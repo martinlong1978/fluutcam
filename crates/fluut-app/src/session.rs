@@ -43,7 +43,7 @@ pub enum ToolpathStatus {
 
 /// The document and its results as of one moment. Immutable; the worker
 /// sends a new one after every change.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Snapshot {
     /// Increases with every snapshot of a session.
     pub revision: u64,
@@ -469,4 +469,4 @@ pub fn now_utc() -> (String, String) {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

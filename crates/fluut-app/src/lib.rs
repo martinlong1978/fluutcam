@@ -16,3 +16,4 @@ pub mod jobs;
 pub mod scene;
 pub mod session;
 pub mod text;
+pub mod vm;
