@@ -3,6 +3,7 @@ name: CI
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
@@ -57,3 +58,26 @@ jobs:
       - uses: actions/checkout@v4
       - run: rustup show
       - run: cargo test --workspace --locked
+
+  # API docs build (D14 §3). Three rustdoc link warnings are known (see the
+  # M8 plan), so warnings do not fail the job yet; errors do.
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show
+      - run: cargo doc --workspace --no-deps --locked
+
+  # Reproducible builds (D14 §5.4): build the CLI twice from scratch with the
+  # release flags and compare the hashes. Two full release builds are slow, so
+  # this runs on main, on tags and on request, not on every pull request.
+  repro:
+    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show
+      - name: Build twice and compare
+        run: |
+          export SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)
+          cargo xtask repro-check

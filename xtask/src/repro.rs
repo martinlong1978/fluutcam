@@ -14,6 +14,10 @@ use std::process::Command;
 /// Where the checkout appears in a remapped build.
 const BUILD_DIR: &str = "/build";
 const CARGO_DIR: &str = "/cargo";
+/// Seed for `const-random`, which `ahash` (through `rhai`) uses to draw
+/// constants at compile time. Without a seed every build gets new constants
+/// and the binaries differ. The release workflow sets the same value.
+pub const CONST_RANDOM_SEED: &str = "fluutcam-release";
 /// Used when `SOURCE_DATE_EPOCH` is unset.
 const FALLBACK_EPOCH: u64 = 0;
 
@@ -69,8 +73,10 @@ pub fn compare(a: &[u8], b: &[u8]) -> Result<String, String> {
     if ha == hb {
         Ok(ha)
     } else {
+        let first = a.iter().zip(b).position(|(x, y)| x != y);
+        let count = a.iter().zip(b).filter(|(x, y)| x != y).count();
         Err(format!(
-            "builds differ ({} and {} bytes)\n  first : {ha}\n  second: {hb}",
+            "builds differ ({} and {} bytes, {count} bytes differ, first at offset {first:?})\n  first : {ha}\n  second: {hb}",
             a.len(),
             b.len()
         ))
@@ -84,6 +90,7 @@ fn build_once(root: &Path, target: &Path, epoch: u64, flags: &[String]) -> Resul
         .current_dir(root)
         .env("CARGO_TARGET_DIR", target)
         .env("SOURCE_DATE_EPOCH", epoch.to_string())
+        .env("CONST_RANDOM_SEED", CONST_RANDOM_SEED)
         .env("CARGO_ENCODED_RUSTFLAGS", flags.join("\x1f"))
         .env_remove("RUSTFLAGS")
         .status()
@@ -107,7 +114,11 @@ pub fn repro_check() -> Result<(), String> {
     let target = root.join("target").join("repro");
     let first = build_once(&root, &target, epoch, &flags)?;
     let second = build_once(&root, &target, epoch, &flags)?;
-    let hash = compare(&first, &second)?;
+    let hash = compare(&first, &second).inspect_err(|_| {
+        // Keep both for a binary diff.
+        let _ = std::fs::write(root.join("target/repro-first.bin"), &first);
+        let _ = std::fs::write(root.join("target/repro-second.bin"), &second);
+    })?;
     println!("repro-check: two builds of fluut are identical (sha256 {hash})");
     Ok(())
 }
@@ -141,6 +152,14 @@ mod tests {
                 .iter()
                 .any(|f| f.contains("guard"))
         );
+    }
+
+    #[test]
+    fn release_workflow_uses_the_same_const_random_seed() {
+        let wf =
+            std::fs::read_to_string(util::workspace_root().join(".github/workflows/release.yml"))
+                .unwrap();
+        assert!(wf.contains(&format!("CONST_RANDOM_SEED: {CONST_RANDOM_SEED}")));
     }
 
     #[test]
