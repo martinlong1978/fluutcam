@@ -17,6 +17,11 @@ allow = [
     # egui (S4): clipboard-win on Windows, and bundled OFL UI fonts.
     "BSL-1.0",
     "OFL-1.1",
+    # rhai (M7): smartstring is MPL-2.0 (file-level copyleft, allowed by
+    # spec 06 §6.1); tiny-keccak, a build-time dependency of its hash seed,
+    # is CC0-1.0 (public domain).
+    "MPL-2.0",
+    "CC0-1.0",
 ]
 confidence-threshold = 0.9
 
@@ -30,3 +35,8 @@ unknown-git = "deny"
 
 [advisories]
 yanked = "deny"
+ignore = [
+    # smartstring is unmaintained (not a vulnerability). rhai 1.27, the
+    # latest, still requires it; revisit when rhai moves to compact_str.
+    { id = "RUSTSEC-2026-0249", reason = "unmaintained only; required by rhai (M7 scripting)" },
+]

@@ -144,7 +144,7 @@ the whole `linking.ramp` back (one edit).
 | `calculate()` | `map` | calculates this toolpath (a session job); the report below |
 | `state` | `string` | `"not_calculated"`, `"done"`, `"stale"` or `"error"` |
 | `result_summary` | `map` or `()` | `cut_length`, `rapid_length` (mm), `min_z`, `max_z` (W), `min`, `max` (`[x, y, z]`); `()` unless `state == "done"`. † No time estimate until the machine model gives one (D11) |
-| `diagnostics` | `array` of `map` | from the last calculation: `code`, `severity` (`"error"`, `"warning"`, `"info"`), `message`, `field` |
+| `diagnostics` | `array` of `map` | from the last calculation: `code`, `severity` (`"error"` or `"warning"`), `message`, `field` |
 | `remove()` | `()` | *E* (`RemoveToolpath`) |
 
 A report is `#{ toolpath: id, state: "calculated" | "up_to_date" | "failed" | "disabled",
@@ -228,8 +228,9 @@ Limits (D12 §1), all configurable per run; defaults never hit by normal jobs:
 | string length | 1 MiB |
 | array length | 1 Mi elements (nested arrays counted) |
 | map size | 64 Ki entries |
-| variables in scope | 10 000 † |
+| variables in scope | 10 000 † (rhai checks it where a variable is not resolved at compile time; others are bounded by the script's length and the call depth) |
 | imported modules | 64 † |
+| memory of all variables | 16 Mi cells † (an array element or map entry is a cell, 16 bytes of string a cell); checked every few variable reads, because rhai checks a value's size only when it is passed or assigned whole |
 | script time | 300 s †, counting only time in script code, not in calculation or post jobs |
 
 A limit, a cancellation or `fluut.exit` ends the run; none can be caught.
