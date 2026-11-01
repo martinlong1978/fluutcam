@@ -27,7 +27,7 @@ byte:
 
 ```bash
 mkdir -p corpus/parse_parallel
-for f in seeds/*.stp; do (printf ''; cat "$f") > "corpus/parse_parallel/$(basename "$f")"; done
+for f in seeds/*.stp; do (printf '\x07'; cat "$f") > "corpus/parse_parallel/$(basename "$f")"; done
 ```
 
 The 2-D and mesh seeds are hand-written files in
