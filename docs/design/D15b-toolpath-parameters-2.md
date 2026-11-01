@@ -572,3 +572,97 @@ heights (per hole, §1.6); `machining_tolerance`, `output_arcs`, `stock_to_leave
 ```
 
 **In-process stock:** updates; does not read.
+
+## 3. Hole types
+
+### 3.1 `drill`
+
+Drills holes with canned cycles: drill, spot, dwell, peck, chip-break, tap, ream, bore (D09
+§3.1). Holes come from cylindrical faces, with axis and depth exact from the B-rep (DC-01), or
+from circles. Hole type; the post emits `cycle_start`, `cycle_point`, `cycle_end`
+[S 05 §5.4.1].
+
+**Common fields used:** item keys; all of `tool_params`; `drive_faces` (cylindrical faces; a
+coaxial stack is one hole), `drive_curves` (full circles: their centres), `hole_diameter`
+(§1.5), `boundary` (keeps holes whose axis is inside); `clearance`, `retract`, `feed`, `top`,
+`bottom` (per hole, §1.6); `machining_tolerance` (to match coaxial faces and circles into one
+hole). **Not used:** `check_faces`, `excluded_faces`, `rest_from`, `max_segment_length`,
+`output_arcs`, `pass_layout`, `stock_to_leave`, `stock_to_leave_axial`; all of `linking`
+(moves between holes follow `retract_mode`; they are still checked against model and stock and
+raised if blocked [S 04 §4.14]).
+
+**Type defaults for common fields:** `heights.top = { ref = "selection" }`,
+`heights.bottom = { ref = "selection" }`. `heights.feed` is the cycle's R plane; `heights.retract`
+is its initial plane.
+
+#### Fields (`passes`)
+
+| Key | Type | Range | Default | Expr | Depends on | Class |
+|---|---|---|---|---|---|---|
+| `cycle` | Enum `drill` \| `spot` \| `dwell` \| `peck` \| `chip_break` \| `tap` \| `ream` \| `bore` | | `drill` | — | — | R |
+| `peck_depth` | Length | > 0 | `tool.diameter` † | yes | `cycle` ∈ {`peck`, `chip_break`} | R |
+| `chip_break_retract` | Length | > 0 | `0.5` † | yes | `cycle` = `chip_break` | R |
+| `dwell_s` | Duration | ≥ 0 | `0.5` † for `dwell`, `spot`, `bore`; else `0` | yes | `cycle` | R |
+| `pitch` | Length | > 0 | — (required for `tap`) | yes | `cycle` = `tap` | R |
+| `depth_to` | Enum `tip` \| `full_diameter` | | `tip` | — | tool point angle | R |
+| `to_cone_tip` | Bool | | `false` | — | holes with a cone bottom | R |
+| `retract_mode` | Enum `retract` \| `feed` | | `retract` † | — | — | R |
+| `hole_order` | Enum `shortest` \| `selection` | | `shortest` | — | — | R |
+
+- **Holes.** A hole is an axis, a top Z, a bottom Z and a diameter. A coaxial stack of
+  cylinders (a counterbore) is one hole whose bottom is the deepest cylinder whose diameter is
+  at least the tool diameter. Circles take `top` and `bottom` from the heights.
+- **Depth.** `bottom` is the end of the cylinder. With `to_cone_tip` and a cone bottom face,
+  it is the cone tip. With `depth_to = "full_diameter"` the depth is extended by
+  (D/2) / tan(point angle / 2), so the full diameter reaches `bottom` (D09 §3.1).
+- **Cycles.** `peck` retracts to the R plane after each `peck_depth`; `chip_break` retracts by
+  `chip_break_retract` only. `dwell_s` waits at the bottom. `tap` feeds at
+  `spindle_rpm × pitch`; `feed.cut` is not used for it (the feed is set at post time, class P
+  as D15 §2.2). `ream` and `bore` feed out; `bore` dwells and stops the spindle as the post's
+  cycle says.
+- **Retract mode.** `retract` returns to `heights.retract` between holes (G98); `feed` returns
+  to `heights.feed` (G99). A move between holes at the R plane that is blocked by the model is
+  raised to the retract height.
+- **Order.** `shortest`: nearest neighbour then 2-opt from the point nearest the previous
+  position (D08 §8.1). `selection`: the order of the drive selection.
+- **Expansion.** If the post has `cycles.enabled = false`, or the cycle is not in
+  `cycles.supported`, the post expands it into rapid, feed and dwell moves [S 05 §5.5].
+
+#### Validation
+
+| Code | Sev | Rule |
+|---|---|---|
+| `param.drill.tool_shape` | W | tool is not a drill (§9, question 3); `flat` tools also warn when `centre_cutting = false` |
+| `param.drill.pitch.required` | E | `cycle = "tap"` and no `pitch` |
+| `param.drill.tap.post` | E | `cycle = "tap"` and the resolved post cannot emit a tap cycle (taps cannot be expanded) |
+| `param.drill.cycle.expanded` | W | the post does not support the cycle; it is expanded |
+| `param.drill.peck_depth.deep` | W | `peck_depth` > flute length |
+| `cam.drill.diameter_mismatch` | W | a hole's diameter differs from the tool diameter by more than 5 % (not for `spot`) (D09 §3.1) |
+| `cam.drill.axis` | W | a hole is not parallel to the tool axis; it is skipped |
+| `cam.drill.not_circle` | E | a drive curve is not a full circle |
+| `cam.drill.depth.flute` | W | a hole is deeper than the flute length |
+
+#### Example
+
+```toml
+  [[setup.toolpath]]
+  id   = "t11"
+  name = "Drill 5 mm"
+  type = "drill"
+  tool = "user/drills#drill-5"
+
+    [setup.toolpath.geometry]
+    hole_diameter = { min = 4.9, max = 5.1 }
+
+    [setup.toolpath.heights]
+    feed = { ref = "selection", offset = 2 }
+
+    [setup.toolpath.passes]
+    cycle        = "peck"
+    peck_depth   = 4
+    depth_to     = "full_diameter"
+    retract_mode = "feed"
+```
+
+**In-process stock:** updates (a disc of tool radius at each level down to the hole bottom);
+does not read.
