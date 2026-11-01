@@ -63,4 +63,4 @@ These must be written before the milestone that needs them:
 | [2026-10-31-m2-post-engine.md](2026-10-31-m2-post-engine.md) | M2 | Done |
 | [2026-10-31-s3-region-2d.md](2026-10-31-s3-region-2d.md) | S3 | Done: [report](spikes/s3-region-2d.md); `cavalier_contours` kept with a `libm` patch, adaptive viable but needs speed work |
 | [2026-10-31-s1-kernel-step.md](2026-10-31-s1-kernel-step.md) | S1 | Done: [report](spikes/s1-kernel-step.md); own reader 33/33 files, 61/63 shells clean; no `truck` crates |
-| [2026-10-31-s2-cutter-queries.md](2026-10-31-s2-cutter-queries.md) | S2 | In progress |
+| [2026-10-31-s2-cutter-queries.md](2026-10-31-s2-cutter-queries.md) | S2 | Done: [report](spikes/s2-cutter-queries.md); exact drop 12 µs median on 5 967 corpus faces, 210–320 µs on dense B-spline; "no grids" holds, no fallback; speed work listed |

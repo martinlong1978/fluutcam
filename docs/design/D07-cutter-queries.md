@@ -187,13 +187,14 @@ emitting a gouging point [S 04 §4.2.4].
 - *Seeding (replaces 1 and 2 above).* Targets in the footprint (the axis point and two rings of
   8) are projected vertically onto the surface (Newton on `S_xy = target`). Starts: for
   analytic faces the closed-form closest point to the target at the top of the primitive's box,
-  retried from mid and bottom height when the projection gets stuck; for B-spline patches the
-  nearest of a 4 × 4 sample. Newton runs from the 3 candidates (projections and samples) with
-  the highest `τ`, points outside the footprint ranked down. Three seeding bugs found on the
-  corpus show where this is fragile: a sample of the whole face misses small tools on large
-  faces; a start at mid height lands on the underside of a horizontal cone; a start on the
-  vertical side of a torus fillet is a singular spot for the projection. Each gave misses of
-  1–30 mm before it was fixed ([S2 report](../plan/spikes/s2-cutter-queries.md) §3).
+  retried from mid and bottom height if the projection does not converge; for B-spline patches
+  the nearest of a 4 × 4 sample. Projections that do not converge are dropped. Newton runs from
+  the 3 candidates (projections and samples) with the highest `τ`, points outside the footprint
+  ranked down. Four seeding bugs found on the corpus show where this is fragile: a sample of the
+  whole face misses small tools on large faces; a start at mid height lands on the underside of
+  a horizontal cone; a start on the vertical side of a torus fillet is singular for the
+  projection; a projection stuck on a face edge outranks the good seeds. Each gave misses of
+  0.3–30 mm before it was fixed ([S2 report](../plan/spikes/s2-cutter-queries.md) §3).
 - *Non-convergence is normal.* About half of all Newton runs do not converge, because most
   candidate primitives have no interior contact (it is on an edge). Non-convergence alone
   therefore cannot raise `NoConvergence`; the rule is suspended until a test separating "no
@@ -281,6 +282,12 @@ contact). The waterline tracer in D09 uses predictor–corrector on `level_resid
 | Drop, bull, B-spline faces | ≤ 20 µs median |
 | Drop, mesh 1 M triangles | ≤ 5 µs median |
 | Holder check (3 parts) | ≤ 3× drop |
+
+**S2 (2026-11-01), measured** (median, one thread):
+- ball on the NIST corpus parts: 4.6 µs over all 63 bodies, 12.3 µs on a 5 967-face array;
+- bull-nose on a dense synthetic B-spline model: 321 µs.
+
+The targets are 2.3× and 16× away. The cost model is about 2 primitive solves per drop on analytic parts and about 8 on dense free-form geometry, with 40 µs per B-spline patch solve. The speed work and the decision to keep "no grids" are in the [S2 report](../plan/spikes/s2-cutter-queries.md) §5. Mesh and holder targets are not measured yet.
 
 ## 9. Tests
 
