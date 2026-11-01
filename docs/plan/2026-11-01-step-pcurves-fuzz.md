@@ -42,8 +42,8 @@ All S1 Global Constraints apply. In addition:
 
 - `Curve2::{Line { origin, dir }, Ellipse { centre, a, b }, BSpline(Arc<BSplineCurve2>)}` with `eval`, `deriv`, `translated`. `Line` is `origin + t·dir` (`dir` need not be unit); `Ellipse` is `centre + cos t·a + sin t·b`, which also holds circles of either sense.
 - `BrepBody::pcurves`, empty when no p-curves were computed, else one entry per coedge.
-- [ ] **Step 1:** Tests: evaluation and derivative of each kind against finite differences; a 2-D B-spline equals the 3-D one it wraps.
-- [ ] **Step 2:** Fail, implement, pass.
+- [x] **Step 1:** Tests: evaluation and derivative of each kind against finite differences; a 2-D B-spline equals the 3-D one it wraps.
+- [x] **Step 2:** Fail, implement, pass.
 
 ### Task 3: Projection
 
@@ -53,8 +53,8 @@ All S1 Global Constraints apply. In addition:
 - **Otherwise sampled:** closest point per sample (closed form on analytic surfaces, `Surface::closest` on others), unwrapped against the previous sample across periods, with `u` (or `v`) taken from the neighbours where the surface is degenerate in that direction. Tangents `(u′, v′)` come from `C′ = Su·u′ + Sv·v′`. The fit is a C¹ cubic B-spline (Hermite pieces); a piece is split until its midpoint maps within `tol_model / 2` of the projected point. Sample count is capped.
 - **Seams:** per loop, each p-curve is shifted by whole periods so that it starts where the previous coedge ended. A joint at a degenerate point (pole, apex) does not fix the shift; such a coedge is aligned to the next one instead. Loops after the first are shifted next to the first loop. Seam coedges come out one period apart.
 - **Check:** `|S(pc(t)) − C(t)|` at 16 points per edge and at the fit samples. The report gives coedges within `tol_model`, the worst deviation, failures by surface kind, and whether the 3-D edge itself lies off the surface.
-- [ ] **Step 1:** Tests: cylinder with seam (two seam p-curves 2π apart, circles along `u`), sphere cap bounded by a latitude circle near the pole, sphere lune with meridians through both poles, tilted circle around a sphere's pole (sampled, `u` winds 2π), cone with an apex vertex, B-spline patch with a B-spline edge across it, plane with a B-spline edge.
-- [ ] **Step 2:** Fail, implement, pass.
+- [x] **Step 1:** Tests: cylinder with seam (two seam p-curves 2π apart, circles along `u`), sphere cap bounded by a latitude circle near the pole, sphere lune with meridians through both poles, tilted circle around a sphere's pole (sampled, `u` winds 2π), cone with an apex vertex, B-spline patch with a B-spline edge across it, plane with a B-spline edge.
+- [x] **Step 2:** Fail, implement, pass.
 
 ### Task 4: P-curves in the STEP mapper
 
@@ -62,22 +62,22 @@ All S1 Global Constraints apply. In addition:
 
 - `SURFACE_CURVE` and `SEAM_CURVE` keep their `PCURVE`s per surface. A coedge on a face whose surface has a file p-curve for its edge uses it if it passes the check (after an affine change of parameter where the file's parameter differs from ours); otherwise it is projected and counted as rejected. A seam edge's two file p-curves go to its two coedges by loop continuity.
 - Parameter units: p-curve coordinates are scaled per surface kind (lengths by the length unit, angles by the angle unit).
-- `MappedBody` gets a `pcurves: PcurveStats` summary.
-- [ ] **Step 1:** Tests: a plane face and a cylinder face with file p-curves (`LINE` in `DEFINITIONAL_REPRESENTATION`), seam included; a wrong file p-curve is rejected and replaced; the cube and cylinder fixtures without p-curves get projected ones within `tol_model`.
-- [ ] **Step 2:** Fail, implement, pass.
-- [ ] **Step 3:** Corpus run: `FLUUT_STEP_CORPUS=… cargo run -p fluut-io-step --example s1 --release` prints p-curve counts, failures by surface kind and time.
+- `MappedBody` gets `pcurves: fluut_topo::pcurve::Stats` and `pcurves_rejected`.
+- [x] **Step 1:** Tests: a plane face and a cylinder face with file p-curves (`LINE` in `DEFINITIONAL_REPRESENTATION`), seam included; a wrong file p-curve is rejected and replaced; the cube and cylinder fixtures without p-curves get projected ones within `tol_model`.
+- [x] **Step 2:** Fail, implement, pass.
+- [x] **Step 3:** Corpus run: `FLUUT_STEP_CORPUS=… cargo run -p fluut-io-step --example s1 --release` prints p-curve counts, failures by surface kind and time.
 
 ### Task 5: Fuzzing
 
 **Files:** Create `fuzz/Cargo.toml`, `fuzz/fuzz_targets/{parse.rs, map.rs}`, `fuzz/README.md`; modify `Cargo.toml` (exclude), parser and mapper where crashes show up, with regression tests in `parse/tests.rs` and `map/tests.rs`.
 
 - `parse`: any bytes into `parse`. `map`: bytes into `parse`, then `map_bodies` (with p-curves) on success; seeded with small valid files (the test fixtures) so it reaches the mapper.
-- [ ] **Step 1:** Run each target for a fixed time; record executions and coverage.
-- [ ] **Step 2:** For each panic, hang or large allocation: add the input as a test, fail, fix, pass.
+- [x] **Step 1:** Run each target for a fixed time; record executions and coverage.
+- [x] **Step 2:** For each panic, hang or large allocation: add the input as a test, fail, fix, pass.
 
 ### Task 6: Report and design updates
 
 **Files:** Create `docs/plan/spikes/step-pcurves-fuzz.md`; modify `docs/design/challenges.md` (CH-08), `docs/plan/README.md`.
 
-- [ ] **Step 1:** Report: p-curve results on the corpus, fuzzing runs and fixes, what stays open.
-- [ ] **Step 2:** Update CH-08; mark this plan done.
+- [x] **Step 1:** Report: p-curve results on the corpus, fuzzing runs and fixes, what stays open.
+- [x] **Step 2:** Update CH-08; mark this plan done.
