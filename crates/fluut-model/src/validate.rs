@@ -129,6 +129,7 @@ pub fn validate(tp: &Toolpath, cx: &ValidateCx) -> Vec<Diagnostic> {
         ToolpathTypeId::Chamfer2d => v.chamfer(),
         ToolpathTypeId::Bore => v.bore(),
         ToolpathTypeId::Drill => v.drill(),
+        ToolpathTypeId::Adaptive2d => v.adaptive(),
     }
     tag(out, tp)
 }
@@ -270,6 +271,7 @@ impl V<'_, '_> {
             self.r.kind,
             ToolpathTypeId::Contour2d
                 | ToolpathTypeId::Pocket2d
+                | ToolpathTypeId::Adaptive2d
                 | ToolpathTypeId::Trace
                 | ToolpathTypeId::Chamfer2d
                 | ToolpathTypeId::Bore
@@ -903,6 +905,46 @@ impl V<'_, '_> {
             );
         }
         self.range("drill", "passes.dwell_s", dr.dwell_s >= 0.0, "0 or more");
+    }
+
+    fn adaptive(&mut self) {
+        let Some(a) = self.r.adaptive().cloned() else {
+            return;
+        };
+        self.required("passes.step_down", a.step_down);
+        let d = self.tool.diameter;
+        let load = a.optimal_load;
+        if load <= 0.0 || load > 0.5 * d {
+            self.e(
+                "param.adaptive_2d.optimal_load.range",
+                "passes.optimal_load",
+                format!("optimal load {load} must be above 0 and at most half the tool diameter"),
+            );
+        } else if load > 0.3 * d {
+            self.w(
+                "param.adaptive_2d.optimal_load.high",
+                "passes.optimal_load",
+                format!("optimal load {load} is more than 30 % of the tool diameter"),
+            );
+        }
+        if a.min_cutting_radius < 0.0 {
+            self.range(
+                "adaptive_2d",
+                "passes.min_cutting_radius",
+                false,
+                "0 or more",
+            );
+        } else if a.min_cutting_radius > self.tool.radius() {
+            self.w(
+                "param.adaptive_2d.min_cutting_radius.large",
+                "passes.min_cutting_radius",
+                format!(
+                    "min cutting radius {} is more than the tool radius: narrow parts may be \
+                     left uncut",
+                    a.min_cutting_radius
+                ),
+            );
+        }
     }
 
     fn trace(&mut self) {

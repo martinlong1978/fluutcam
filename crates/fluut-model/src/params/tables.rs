@@ -756,6 +756,63 @@ pub(crate) const DRILL: &[FieldMeta] = &[
     ),
 ];
 
+// ── adaptive_2d (D15b §2.2) ──────────────────────────────────────────
+
+const ADAPTIVE_RAMP: &[FieldMeta] = &ramp_fields(&["helix", "plunge"], "helix");
+
+pub(crate) const ADAPTIVE_2D: &[FieldMeta] = &[
+    SPINDLE_RPM,
+    FEEDS,
+    COOLANT,
+    DRIVE_FACES,
+    DRIVE_CURVES,
+    EXCLUDED_FACES,
+    BOUNDARY,
+    REST_FROM,
+    CLEARANCE,
+    RETRACT_H,
+    FEED_H,
+    top("stock_top"),
+    bottom("selection"),
+    MACHINING_TOLERANCE,
+    MAX_SEGMENT_LENGTH,
+    OUTPUT_ARCS,
+    f(
+        "optimal_load",
+        Passes,
+        Length,
+        FromTool("optimal_load"),
+        R,
+        true,
+    ),
+    f("step_down", Passes, Length, FromTool("step_down"), R, true),
+    f(
+        "min_cutting_radius",
+        Passes,
+        Length,
+        Computed("0.1 * tool.diameter"),
+        R,
+        true,
+    ),
+    f(
+        "direction",
+        Passes,
+        Enum(CLIMB_CONVENTIONAL),
+        text("climb"),
+        R,
+        false,
+    ),
+    STOCK_TO_LEAVE,
+    STOCK_TO_LEAVE_AXIAL,
+    RETRACT,
+    SAFETY_DISTANCE,
+    TRANSITIONS,
+    lead_in(LEAD_NONE),
+    lead_out(LEAD_NONE),
+    f("ramp", Linking, Table(ADAPTIVE_RAMP), NoDefault, R, false),
+    ORDER,
+];
+
 /// Whether `key` is a field of `group` for some type. Used to tell an
 /// undeclared common field (an error, spec 03 §3.10.3) from an unknown key.
 pub fn known_in_any_type(group: Group, key: &str) -> bool {

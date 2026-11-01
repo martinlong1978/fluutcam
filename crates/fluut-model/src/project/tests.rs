@@ -104,7 +104,17 @@ fn every_d15b_example_round_trips() {
         assert!(loaded.warnings.is_empty(), "{h}: {:?}", loaded.warnings);
         assert_eq!(write(&loaded.project), src, "{h}");
     }
-    assert_eq!(seen, ["face", "trace", "chamfer_2d", "bore", "drill"]);
+    assert_eq!(
+        seen,
+        [
+            "face",
+            "adaptive_2d",
+            "trace",
+            "chamfer_2d",
+            "bore",
+            "drill"
+        ]
+    );
 }
 
 const FULL: &str = r#"format = "fluut.project/1"

@@ -31,6 +31,22 @@ zero     = { method = "stock_top_corner", corner = "front_left" }
     overlap         = 12
 
   [[setup.toolpath]]
+  id   = "t4"
+  name = "Adaptive pocket"
+  type = "adaptive_2d"
+  tool = "shop#flat-6"
+
+    [setup.toolpath.geometry]
+    drive_faces = [{ face = "f-588.14" }]
+
+    [setup.toolpath.heights]
+    top = { ref = "model_top" }
+
+    [setup.toolpath.passes]
+    optimal_load = 1.5
+    step_down    = 8
+
+  [[setup.toolpath]]
   id   = "t2"
   name = "Score around the pocket"
   type = "trace"
