@@ -73,8 +73,8 @@ pub fn top_error(
 ) -> ErrorStats {
     let g = &d.grids[2];
     let top = |i: usize, j: usize| -> Option<f64> {
-        g.rays
-            .get(j * g.nu + i)
+        (i < g.nu && j < g.nv)
+            .then(|| g.ray(i, j))
             .and_then(|r| r.last())
             .map(|s| f64::from(s.hi))
     };

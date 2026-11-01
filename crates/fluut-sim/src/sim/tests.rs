@@ -36,9 +36,7 @@ fn run(stock: Stock, tool: Tool, rotary: bool, res: f64, segs: &[Segment]) -> Tr
 /// Top of the material on Z ray `(i, j)`, in stock coordinates.
 fn top(d: &TriDexel, i: usize, j: usize) -> Option<f64> {
     let g = &d.grids[2];
-    g.rays[j * g.nu + i]
-        .last()
-        .map(|s| d.origin.z + f64::from(s.hi))
+    g.ray(i, j).last().map(|s| d.origin.z + f64::from(s.hi))
 }
 
 #[test]
@@ -66,9 +64,9 @@ fn ball_slot_leaves_round_profile() {
     // X rays inside the slot's cross-section are empty.
     let gx = &d.grids[0];
     let (iy, kz) = (50, 85); // y = 5.05, z = 8.55
-    assert!(gx.rays[kz * gx.nu + iy].is_empty());
+    assert!(gx.ray(iy, kz).is_empty());
     let (iy, kz) = (50, 60); // z = 6.05, below the slot
-    assert_eq!(gx.rays[kz * gx.nu + iy].len(), 1);
+    assert_eq!(gx.ray(iy, kz).len(), 1);
 }
 
 #[test]
@@ -139,7 +137,7 @@ fn full_rotary_turn_cuts_a_ring() {
         let g = &d.grids[k];
         // Ray (100, 100): x = 10.05 and 0.05 off the axis (family 1 has
         // u = z, v = x; family 2 has u = x, v = y).
-        let spans = &g.rays[100 * g.nu + 100];
+        let spans = g.ray(100, 100);
         assert_eq!(spans.len(), 1, "family {k}: {spans:?}");
         let (lo, hi) = (f64::from(spans[0].lo) - 10.0, f64::from(spans[0].hi) - 10.0);
         let r = 8.0 + 1.0 - (1.0 - 0.05 * 0.05_f64).sqrt();
@@ -151,8 +149,8 @@ fn full_rotary_turn_cuts_a_ring() {
     }
     // Outside the ring the cylinder is untouched.
     let g = &d.grids[2];
-    assert_eq!(g.rays[100 * g.nu + 20].len(), 1);
-    let s = g.rays[100 * g.nu + 20][0];
+    assert_eq!(g.ray(20, 100).len(), 1);
+    let s = g.ray(20, 100)[0];
     assert!(f64::from(s.hi - s.lo) > 19.9);
 }
 
@@ -256,7 +254,7 @@ fn narrow_band_raster_matches_probe_on_any_thread_count() {
             for i in (0..g.nu).step_by(17) {
                 let p = g.ray_origin(&d, i, j);
                 let want = crate::spike::probe::probe(&stock, &chords, p, k);
-                assert_eq!(g.rays[j * g.nu + i], want, "family {k} ({i}, {j})");
+                assert_eq!(*g.ray(i, j), want, "family {k} ({i}, {j})");
             }
         }
     }
