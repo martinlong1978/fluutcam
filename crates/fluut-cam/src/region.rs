@@ -500,6 +500,7 @@ pub fn seg_distance(s: &Seg2, p: Point2) -> f64 {
 }
 
 pub(crate) mod boolean;
+pub mod medial;
 
 #[cfg(test)]
 mod tests;

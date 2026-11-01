@@ -25,7 +25,7 @@ Problems found during detailed design. Each has a status:
 | CH-14 | 3-D finishing toolpaths do not update in-process stock | D08 §7 | deferred |
 | CH-15 | Reframing layered stock between indexed Setups | D08 §7 | deferred |
 | CH-16 | Adaptive clearing: robustness and speed | D09 §2.3 | deferred |
-| CH-17 | Exact medial axis for lines and arcs | D09 §2.6 | deferred |
+| CH-17 | Exact medial axis for lines and arcs | D09 §2.6 | resolved (M6) |
 | CH-18 | Scallop variable-distance offsetting | D09 §4.7 | deferred |
 | CH-19 | Offsets in unrolled rotary coordinates | D09 §5.1 | deferred |
 | CH-20 | Cutter-compensation events missing from the spec | D10 §4.6 | resolved |
@@ -340,6 +340,26 @@ the medial axis is too costly.
 **S3 (2026-10-31).** `cavalier_contours` offers nothing here; own implementation stands, estimated 3–5 weeks.
 
 **M6 (2026-11-01).** `engrave` has its parameters and validation; `generate` reports `cam.type.unavailable` until the medial axis exists ([plan](../plan/2026-11-01-m6-2d-holes.md)).
+
+**Resolved (2026-11-01).** `fluut-cam::region::medial` traces the axis edge by edge instead of building a full Voronoi diagram ([plan](../plan/2026-11-01-medial-axis-engrave.md)):
+- Sites are lines and circles (arcs, and reflex vertices as circles of radius 0). An edge is stored as two sites and a parameter range, and evaluated exactly: for each parameter the clearance radius solves a linear equation.
+- Vertices solve three signed-distance equations in closed form (Apollonius' problem: two linear equations and one quadratic), polished by Newton steps.
+- Every vertex is built from the angular gaps between its touching feet. So squares, arc centres, discs and annuli need no special case.
+- Property tests on fixed and random shapes (polygons, arcs, holes): every axis point is at its clearance from the boundary, with two feet; the largest empty disc found from random interior points lies on the axis; E − V + areas = holes. The output of the S3 shapes is pinned bit for bit.
+
+Time, best of 5 runs on one thread (`cargo run -p fluut-cam --example medial_axis --release`, Linux container):
+
+| Shape | Segments (arcs) | Edges | Time |
+|---|---|---|---|
+| S3 A plate | 6 (2) | 11 | 0.03 ms |
+| S3 B rooms | 12 (0) | 17 | 0.08 ms |
+| S3 C slotted disc | 6 (3) | 6 | 0.02 ms |
+| Text, 1 group of 3 letters | 24 (12) | 39 | 0.24 ms |
+| Text, 40 groups (120 letters) | 960 (480) | 1 560 | 24 ms |
+| Scalloped badge | 300 (300) | 551 | 14 ms |
+| Scalloped badge | 1 500 (1 500) | 2 751 | 278 ms |
+
+Text grows linearly. The badge grows faster, because its sites are dense and many lie near each empty disc. The edges are exact. Only `engrave` samples them, within `machining_tolerance / 4` in X, Y and depth.
 
 ### CH-18 Scallop variable-distance offsetting
 
