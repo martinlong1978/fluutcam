@@ -30,9 +30,9 @@ pub struct Contact {
 /// Seeds for the numeric face solver (CH-12). Candidates are a `grid ×
 /// grid` sample of the primitive's parameter box, and target points in the
 /// tool's footprint (the centre and `rings` rings of 8) projected vertically
-/// onto the surface from the nearest sample. Newton runs from the `starts`
-/// best candidates: converged projections first, then by `τ` (points
-/// outside the footprint ranked down by their distance).
+/// onto the surface from the nearest sample (projections that do not
+/// converge are dropped). Newton runs from the `starts` candidates with the
+/// highest `τ` (points outside the footprint ranked down by their distance).
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub struct Seeding {
     pub grid: usize,
@@ -688,11 +688,7 @@ fn numeric(
         let d = ax.lateral(p);
         p.z() - c.h(d.min(rad)) - 10.0 * (d - rad).max(0.0)
     };
-    // (projection converged, τ estimate, u, v).
-    let mut seeds: Vec<(bool, f64, f64, f64)> = grid
-        .iter()
-        .map(|g| (false, estimate(g.0), g.1, g.2))
-        .collect();
+    let mut seeds: Vec<(f64, f64, f64)> = grid.iter().map(|g| (estimate(g.0), g.1, g.2)).collect();
     for (tx, ty) in targets {
         if tx < bx.min.x() || tx > bx.max.x() || ty < bx.min.y() || ty > bx.max.y() {
             continue;
@@ -703,7 +699,6 @@ fn numeric(
             // moved into the face's parameter box by whole periods. A start
             // on a spot where S_xy does not move (the side of a torus tube)
             // gets stuck, so the next start is tried.
-            let mut last = None;
             for z in [ztop, 0.5 * (ztop + bx.min.z()), bx.min.z()] {
                 let (mut u, mut v) = analytic_uv(s, Point3::new(tx, ty, z));
                 let (pu, pv) = s.periodicity();
@@ -713,15 +708,10 @@ fn numeric(
                 if let Some(p) = pv {
                     v += p * ((q.uv.v.at(0.5) - v) / p).round();
                 }
-                if let Some((u, v, ok)) = vertical_project(s, tx, ty, (u, v), q.uv) {
-                    last = Some((ok, u, v));
-                    if ok {
-                        break;
-                    }
+                if let Some((u, v, true)) = vertical_project(s, tx, ty, (u, v), q.uv) {
+                    seeds.push((estimate(s.eval(u, v)), u, v));
+                    break;
                 }
-            }
-            if let Some((ok, u, v)) = last {
-                seeds.push((ok, estimate(s.eval(u, v)), u, v));
             }
         } else {
             let top = Point3::new(tx, ty, ztop);
@@ -729,14 +719,12 @@ fn numeric(
                 .iter()
                 .min_by(|a, b| a.0.distance(top).total_cmp(&b.0.distance(top)))
                 .map(|g| (g.1, g.2))?;
-            if let Some((u, v, ok)) = vertical_project(s, tx, ty, start, q.uv) {
-                seeds.push((ok, estimate(s.eval(u, v)), u, v));
+            if let Some((u, v, true)) = vertical_project(s, tx, ty, start, q.uv) {
+                seeds.push((estimate(s.eval(u, v)), u, v));
             }
         }
     }
-    // Converged projections first: a projection stuck on the face edge can
-    // score well but is a poor Newton start (the side of a torus tube).
-    seeds.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.total_cmp(&a.1)));
+    seeds.sort_by(|a, b| b.0.total_cmp(&a.0));
     let tol = 1e-8;
     let mut best: Option<Contact> = None;
     let mut consider = |u: f64, v: f64, flat: bool| {
@@ -756,7 +744,7 @@ fn numeric(
             on: ContactOn::Face { face, u, v },
         });
     };
-    for &(_, _, u, v) in seeds.iter().take(seeding.starts) {
+    for &(_, u, v) in seeds.iter().take(seeding.starts) {
         stats.newton_runs += 1;
         if let Some((u, v)) = newton_contact(s, c, ax, (u, v), q.uv, tol) {
             stats.newton_converged += 1;

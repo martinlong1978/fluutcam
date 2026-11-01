@@ -303,3 +303,29 @@ fn freeform_tile_against_reference() {
         },
     );
 }
+
+/// Points where earlier seeding missed free-form contacts (S2 report §3).
+#[test]
+fn freeform_tiles_hard_points() {
+    let body = tiled(6, true);
+    let g = QueryGeometry::new(&body, &BuildOptions::default());
+    for (x, y, corner) in [
+        (21.049039427582667, 51.53632464093423, 0.0),
+        (21.049039427582667, 51.53632464093423, 1.0),
+        (10.645306821387255, 19.145782717923947, 3.0),
+        (15.596900133816447, 9.802168317858154, 3.0),
+        (16.799139513553097, 9.88248325492302, 3.0),
+        (10.794356826497541, 17.828900485874012, 3.0),
+        (0.47305581221192505, 5.21424032411868, 0.0),
+    ] {
+        let c = Cutter::new(6.0, corner).unwrap();
+        let mut st = SolveStats::default();
+        let got = drop(&g, &c, x, y, &DropOptions::default(), &mut st).unwrap();
+        let want = reference(&g, &c, Axis { x, y }, DENSE).unwrap();
+        assert!(
+            got.tau >= want - 1e-7,
+            "({x}, {y}) {c:?}: {} < {want}",
+            got.tau
+        );
+    }
+}
