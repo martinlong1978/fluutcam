@@ -15,7 +15,7 @@ pub(crate) mod value;
 mod tests;
 
 pub use meta::{Class, ConstVal, DefaultRule, FieldKind, FieldMeta, Group, ToolpathTypeId};
-pub use tables::HEIGHT_REFS;
+pub use tables::{HEIGHT_REFS, X_REFS};
 pub use value::{HeightSpec, Num, PValue, ParamMap, Sel};
 
 use std::fmt::Write;
@@ -252,6 +252,7 @@ fn fits(kind: FieldKind, v: &PValue) -> bool {
         (FieldKind::Bool, PValue::Bool(_)) => true,
         (FieldKind::Enum(allowed), PValue::Enum(s)) => allowed.contains(&s.as_str()),
         (FieldKind::Height, PValue::Height(h)) => HEIGHT_REFS.contains(&h.reference.as_str()),
+        (FieldKind::XPos, PValue::Height(h)) => X_REFS.contains(&h.reference.as_str()),
         (FieldKind::Selection, PValue::Selection(_)) => true,
         (FieldKind::Point, PValue::Point(_)) => true,
         (FieldKind::Points, PValue::Points(_)) => true,

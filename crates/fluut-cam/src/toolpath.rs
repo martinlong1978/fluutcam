@@ -6,7 +6,7 @@ use crate::geometry::SetupGeometry;
 use crate::stock::LayeredStock;
 use crate::strategy::{
     Adaptive2d, Adaptive3d, Bore, Chamfer2d, Contour2d, Drill, Engrave, Face, Parallel, Pocket2d,
-    Pocket3d, Trace,
+    Pocket3d, RotaryAlongX, RotaryAroundA, RotaryRough, RotarySpiral, Trace,
 };
 use fluut_geom::{Aabb3, Affine, Point2, Point3};
 use fluut_model::params::{FieldMeta, ToolpathTypeId};
@@ -61,8 +61,9 @@ pub struct RotaryInfo {
     pub stock_x: (f64, f64),
     /// X extent of the Setup's bodies.
     pub model_x: (f64, f64),
-    /// The machine's rotary axis; `None` when it has none.
-    pub axis: Option<RotaryAxisInfo>,
+    /// The machine's rotary axis: `None` when the Setup names no machine,
+    /// `Some(None)` when its machine has no rotary axis.
+    pub machine_axis: Option<Option<RotaryAxisInfo>>,
 }
 
 /// The machine's A axis (spec 02 §2.3).
@@ -151,7 +152,11 @@ static ADAPTIVE_2D: Adaptive2d = Adaptive2d;
 static ENGRAVE: Engrave = Engrave;
 static ADAPTIVE_3D: Adaptive3d = Adaptive3d;
 static POCKET_3D: Pocket3d = Pocket3d;
-static REGISTRY: [&dyn ToolpathType; 12] = [
+static ROTARY_ROUGH: RotaryRough = RotaryRough;
+static ROTARY_ALONG_X: RotaryAlongX = RotaryAlongX;
+static ROTARY_AROUND_A: RotaryAroundA = RotaryAroundA;
+static ROTARY_SPIRAL: RotarySpiral = RotarySpiral;
+static REGISTRY: [&dyn ToolpathType; 16] = [
     &CONTOUR_2D,
     &POCKET_2D,
     &PARALLEL,
@@ -164,6 +169,10 @@ static REGISTRY: [&dyn ToolpathType; 12] = [
     &ENGRAVE,
     &ADAPTIVE_3D,
     &POCKET_3D,
+    &ROTARY_ROUGH,
+    &ROTARY_ALONG_X,
+    &ROTARY_AROUND_A,
+    &ROTARY_SPIRAL,
 ];
 
 /// Every type of this build (D09 §1).
@@ -185,6 +194,10 @@ pub fn find(id: ToolpathTypeId) -> &'static dyn ToolpathType {
         ToolpathTypeId::Engrave => &ENGRAVE,
         ToolpathTypeId::Adaptive3d => &ADAPTIVE_3D,
         ToolpathTypeId::Pocket3d => &POCKET_3D,
+        ToolpathTypeId::RotaryRough => &ROTARY_ROUGH,
+        ToolpathTypeId::RotaryAlongX => &ROTARY_ALONG_X,
+        ToolpathTypeId::RotaryAroundA => &ROTARY_AROUND_A,
+        ToolpathTypeId::RotarySpiral => &ROTARY_SPIRAL,
     }
 }
 

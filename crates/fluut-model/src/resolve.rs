@@ -64,6 +64,30 @@ pub struct GeometryGroup {
     pub rest_previous: bool,
     /// `hole_diameter` (D15b §1.5): `(min, max)`, each side optional.
     pub hole_diameter: Option<(Option<f64>, Option<f64>)>,
+    /// `x_start`, `x_end` of rotary types (D15b §1.4).
+    pub x_range: Option<(HeightSpec, HeightSpec)>,
+}
+
+/// What X references resolve to, in W (D15b §1.4).
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub struct XEnv {
+    pub stock: (f64, f64),
+    /// X extent of the drive faces, or of the Setup's bodies.
+    pub model: (f64, f64),
+}
+
+impl XEnv {
+    /// The X of `h`.
+    pub fn resolve(&self, h: &HeightSpec) -> f64 {
+        let base = match h.reference.as_str() {
+            "stock_left" => self.stock.0,
+            "stock_right" => self.stock.1,
+            "model_left" => self.model.0,
+            "model_right" => self.model.1,
+            _ => 0.0,
+        };
+        base + h.offset()
+    }
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -502,6 +526,51 @@ pub struct Pocket3d {
     pub flat_detection: bool,
 }
 
+/// `rotary_rough` (D15b §6.1).
+#[derive(Clone, PartialEq, Debug)]
+pub struct RotaryRough {
+    pub radial_step_down: Option<f64>,
+    pub stepover_x: Option<f64>,
+    pub direction: ParallelDirection,
+}
+
+/// `rotary_along_x` (D15b §6.2).
+#[derive(Clone, PartialEq, Debug)]
+pub struct RotaryAlongX {
+    /// `None`: from the preset stepover at the top radius, or from the
+    /// scallop height.
+    pub stepover_deg: Option<f64>,
+    pub scallop_height: Option<f64>,
+    pub a_start_deg: f64,
+    pub a_end_deg: f64,
+    pub direction: ParallelDirection,
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum RingLink {
+    Step,
+    Helical,
+}
+
+/// `rotary_around_a` (D15b §6.3).
+#[derive(Clone, PartialEq, Debug)]
+pub struct RotaryAroundA {
+    pub stepover_x: Option<f64>,
+    pub scallop_height: Option<f64>,
+    pub direction: ParallelDirection,
+    pub ring_link: RingLink,
+}
+
+/// `rotary_spiral` (D15b §6.4).
+#[derive(Clone, PartialEq, Debug)]
+pub struct RotarySpiral {
+    pub advance: Option<f64>,
+    pub scallop_height: Option<f64>,
+    pub direction: CutDirection,
+    /// Starts at `x_end` (else at `x_start`).
+    pub from_end: bool,
+}
+
 #[derive(Clone, PartialEq, Debug)]
 pub enum TypeParams {
     Contour2d(Contour2d),
@@ -516,6 +585,10 @@ pub enum TypeParams {
     Engrave(Engrave),
     Adaptive3d(Adaptive3d),
     Pocket3d(Pocket3d),
+    RotaryRough(RotaryRough),
+    RotaryAlongX(RotaryAlongX),
+    RotaryAroundA(RotaryAroundA),
+    RotarySpiral(RotarySpiral),
 }
 
 /// Every parameter of a toolpath with defaults applied.
@@ -615,6 +688,34 @@ impl ResolvedParams {
         }
     }
 
+    pub fn rotary_rough(&self) -> Option<&RotaryRough> {
+        match &self.ty {
+            TypeParams::RotaryRough(c) => Some(c),
+            _ => None,
+        }
+    }
+
+    pub fn rotary_along_x(&self) -> Option<&RotaryAlongX> {
+        match &self.ty {
+            TypeParams::RotaryAlongX(c) => Some(c),
+            _ => None,
+        }
+    }
+
+    pub fn rotary_around_a(&self) -> Option<&RotaryAroundA> {
+        match &self.ty {
+            TypeParams::RotaryAroundA(c) => Some(c),
+            _ => None,
+        }
+    }
+
+    pub fn rotary_spiral(&self) -> Option<&RotarySpiral> {
+        match &self.ty {
+            TypeParams::RotarySpiral(c) => Some(c),
+            _ => None,
+        }
+    }
+
     /// Step-down of the type, if it has one.
     pub fn step_down(&self) -> Option<f64> {
         match &self.ty {
@@ -626,6 +727,10 @@ impl ResolvedParams {
             TypeParams::Engrave(p) => p.step_down,
             TypeParams::Adaptive3d(p) => p.step_down,
             TypeParams::Pocket3d(p) => p.pocket.step_down,
+            TypeParams::RotaryRough(p) => p.radial_step_down,
+            TypeParams::RotaryAlongX(_)
+            | TypeParams::RotaryAroundA(_)
+            | TypeParams::RotarySpiral(_) => None,
             TypeParams::Parallel(_)
             | TypeParams::Chamfer2d(_)
             | TypeParams::Bore(_)
@@ -640,7 +745,10 @@ impl ResolvedParams {
             TypeParams::Parallel(p) => p.stepover,
             TypeParams::Face(p) => p.stepover,
             TypeParams::Pocket3d(p) => p.pocket.stepover,
-            TypeParams::Adaptive3d(_) => None,
+            TypeParams::Adaptive3d(_) | TypeParams::RotaryAlongX(_) => None,
+            TypeParams::RotaryRough(p) => p.stepover_x,
+            TypeParams::RotaryAroundA(p) => p.stepover_x,
+            TypeParams::RotarySpiral(p) => p.advance,
             TypeParams::Contour2d(_)
             | TypeParams::Trace(_)
             | TypeParams::Chamfer2d(_)
@@ -854,6 +962,8 @@ pub fn resolve(p: &Params, tool: &Tool, material: Option<&str>) -> ResolvedParam
                 g.num("geometry.hole_diameter.max"),
             )
         }),
+        x_range: Params::meta(p.kind(), "geometry.x_start")
+            .map(|_| (g.height("geometry.x_start"), g.height("geometry.x_end"))),
     };
     let heights = HeightsGroup {
         clearance: g.height("heights.clearance"),
@@ -940,6 +1050,44 @@ pub fn resolve(p: &Params, tool: &Tool, material: Option<&str>) -> ResolvedParam
             },
         }),
         ToolpathTypeId::Pocket2d => TypeParams::Pocket2d(pocket(&g)),
+        ToolpathTypeId::RotaryRough => TypeParams::RotaryRough(RotaryRough {
+            radial_step_down: g.or_preset("passes.radial_step_down", "step_down"),
+            stepover_x: g.or_preset("passes.stepover_x", "stepover"),
+            direction: parallel_direction(g.text("passes.direction")),
+        }),
+        ToolpathTypeId::RotaryAlongX => {
+            let a0 = g.num_or("passes.a_start_deg", 0.0);
+            TypeParams::RotaryAlongX(RotaryAlongX {
+                stepover_deg: g.num("passes.stepover_deg"),
+                scallop_height: g.num("passes.scallop_height"),
+                a_start_deg: a0,
+                a_end_deg: g.num_or("passes.a_end_deg", a0 + 360.0),
+                direction: parallel_direction(g.text("passes.direction")),
+            })
+        }
+        ToolpathTypeId::RotaryAroundA => TypeParams::RotaryAroundA(RotaryAroundA {
+            stepover_x: if g.p.is_set("passes.scallop_height") {
+                g.num("passes.stepover_x")
+            } else {
+                g.or_preset("passes.stepover_x", "stepover")
+            },
+            scallop_height: g.num("passes.scallop_height"),
+            direction: parallel_direction(g.text("passes.direction")),
+            ring_link: match g.text("passes.ring_link") {
+                "helical" => RingLink::Helical,
+                _ => RingLink::Step,
+            },
+        }),
+        ToolpathTypeId::RotarySpiral => TypeParams::RotarySpiral(RotarySpiral {
+            advance: if g.p.is_set("passes.scallop_height") {
+                g.num("passes.advance")
+            } else {
+                g.or_preset("passes.advance", "stepover")
+            },
+            scallop_height: g.num("passes.scallop_height"),
+            direction: direction(g.text("passes.direction")),
+            from_end: g.text("passes.start") == "x_end",
+        }),
         ToolpathTypeId::Pocket3d => TypeParams::Pocket3d(Pocket3d {
             pocket: pocket(&g),
             flat_detection: g.flag("passes.flat_detection", true),

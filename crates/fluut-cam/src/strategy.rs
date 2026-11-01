@@ -16,6 +16,7 @@ mod face;
 mod parallel;
 mod pocket_2d;
 mod pocket_3d;
+mod rotary;
 mod rough3d;
 mod trace;
 
@@ -30,4 +31,5 @@ pub use face::Face;
 pub use parallel::Parallel;
 pub use pocket_2d::Pocket2d;
 pub use pocket_3d::Pocket3d;
+pub use rotary::{RotaryAlongX, RotaryAroundA, RotaryRough, RotarySpiral};
 pub use trace::Trace;

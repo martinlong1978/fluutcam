@@ -116,7 +116,11 @@ fn every_d15b_example_round_trips() {
             "bore",
             "drill",
             "adaptive_3d",
-            "pocket_3d"
+            "pocket_3d",
+            "rotary_rough",
+            "rotary_along_x",
+            "rotary_around_a",
+            "rotary_spiral"
         ]
     );
 }

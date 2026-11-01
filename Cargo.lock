@@ -412,6 +412,7 @@ dependencies = [
  "fluut-model",
  "fluut-path",
  "fluut-topo",
+ "glam",
  "libm",
  "proptest",
 ]

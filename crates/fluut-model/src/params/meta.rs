@@ -73,6 +73,8 @@ pub enum FieldKind {
     Enum(&'static [&'static str]),
     /// `{ ref, offset }` (D15 §2.4).
     Height,
+    /// `{ ref, offset }` along X of W (D15b §1.4).
+    XPos,
     /// Array of `{ body | face | edge = id }` (D15 §2.3.1).
     Selection,
     /// `[x, y, z]` in the model frame, mm.
@@ -150,10 +152,14 @@ pub enum ToolpathTypeId {
     Engrave,
     Adaptive3d,
     Pocket3d,
+    RotaryRough,
+    RotaryAlongX,
+    RotaryAroundA,
+    RotarySpiral,
 }
 
 impl ToolpathTypeId {
-    pub const ALL: [ToolpathTypeId; 12] = [
+    pub const ALL: [ToolpathTypeId; 16] = [
         ToolpathTypeId::Contour2d,
         ToolpathTypeId::Pocket2d,
         ToolpathTypeId::Parallel,
@@ -166,6 +172,10 @@ impl ToolpathTypeId {
         ToolpathTypeId::Engrave,
         ToolpathTypeId::Adaptive3d,
         ToolpathTypeId::Pocket3d,
+        ToolpathTypeId::RotaryRough,
+        ToolpathTypeId::RotaryAlongX,
+        ToolpathTypeId::RotaryAroundA,
+        ToolpathTypeId::RotarySpiral,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -182,6 +192,10 @@ impl ToolpathTypeId {
             ToolpathTypeId::Engrave => "engrave",
             ToolpathTypeId::Adaptive3d => "adaptive_3d",
             ToolpathTypeId::Pocket3d => "pocket_3d",
+            ToolpathTypeId::RotaryRough => "rotary_rough",
+            ToolpathTypeId::RotaryAlongX => "rotary_along_x",
+            ToolpathTypeId::RotaryAroundA => "rotary_around_a",
+            ToolpathTypeId::RotarySpiral => "rotary_spiral",
         }
     }
 
@@ -204,6 +218,10 @@ impl ToolpathTypeId {
             ToolpathTypeId::Engrave => super::tables::ENGRAVE,
             ToolpathTypeId::Adaptive3d => super::tables::ADAPTIVE_3D,
             ToolpathTypeId::Pocket3d => super::tables::POCKET_3D,
+            ToolpathTypeId::RotaryRough => super::tables::ROTARY_ROUGH,
+            ToolpathTypeId::RotaryAlongX => super::tables::ROTARY_ALONG_X,
+            ToolpathTypeId::RotaryAroundA => super::tables::ROTARY_AROUND_A,
+            ToolpathTypeId::RotarySpiral => super::tables::ROTARY_SPIRAL,
         }
     }
 
@@ -223,6 +241,18 @@ impl ToolpathTypeId {
                 | ToolpathTypeId::Engrave
                 | ToolpathTypeId::Adaptive3d
                 | ToolpathTypeId::Pocket3d
+                | ToolpathTypeId::RotaryRough
+        )
+    }
+
+    /// Rotary types run in `rotary` Setups only (D15b §1.2, §6).
+    pub fn is_rotary(self) -> bool {
+        matches!(
+            self,
+            ToolpathTypeId::RotaryRough
+                | ToolpathTypeId::RotaryAlongX
+                | ToolpathTypeId::RotaryAroundA
+                | ToolpathTypeId::RotarySpiral
         )
     }
 

@@ -61,3 +61,12 @@ fn sections_move_with_the_part() {
     let b = area_at(&step::pocket_block([0.123, -4.5, 0.0]), 16.0);
     assert!((a - b).abs() < 1e-6);
 }
+
+#[test]
+fn shaft_sections() {
+    let text = step::shaft([0.0; 3]);
+    let pi = std::f64::consts::PI;
+    assert!((area_at(&text, 10.0) - pi * 225.0).abs() < 1e-6);
+    assert!((area_at(&text, 40.0) - 400.0).abs() < 1e-6);
+    assert!((area_at(&text, 70.0) - pi * 64.0).abs() < 1e-6);
+}

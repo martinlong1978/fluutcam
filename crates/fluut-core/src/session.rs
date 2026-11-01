@@ -8,15 +8,15 @@ use crate::frame::SetupFrame;
 use crate::graph::{Graph, NodeId};
 use crate::reimport::{ReimportReport, Unmatched, belongs, match_bodies, references};
 use crate::store::ModelStore;
-use fluut_cam::StrategyInput;
 use fluut_cam::geometry::SetupBody;
 use fluut_cam::stock::{LayeredStock, Sweep};
+use fluut_cam::{RotaryAxisInfo, RotaryInfo, StrategyInput};
 use fluut_model::document::{Document, Outcome};
 use fluut_model::edit::{Edit, EditError};
 use fluut_model::journal::{Journal, file_hash, journal_path, recover};
 use fluut_model::library::{DefKind, LayerKind, Library};
 use fluut_model::machine::{BUILTIN_MACHINES, Machine};
-use fluut_model::project::{BodyEntry, Project, read};
+use fluut_model::project::{BodyEntry, Project, SetupKind, read};
 use fluut_model::resolve::{Coolant, DrillCycle, resolve};
 use fluut_model::setup::{ResolvedSetup, resolve_all};
 use fluut_model::tools::ToolStore;
@@ -605,7 +605,13 @@ impl Session {
                     machine: self.machine(rs.machine.as_deref()).and_then(|m| m.limits()),
                     post,
                     in_process,
-                    rotary: fr.rotary_info(),
+                    rotary: fr.rotary_info().map(|i| RotaryInfo {
+                        machine_axis: rs
+                            .machine
+                            .as_deref()
+                            .map(|m| self.machine(Some(m)).and_then(|m| rotary_axis(&m))),
+                        ..i
+                    }),
                 };
                 match fluut_cam::calculate(&input) {
                     Ok(g) => {
@@ -785,7 +791,11 @@ impl Session {
             }
             setups.push(SetupJob {
                 name: s.name.clone(),
-                kind: fluut_post::SetupKind::ThreeAxis,
+                kind: match rs.kind {
+                    SetupKind::ThreeAxis => fluut_post::SetupKind::ThreeAxis,
+                    SetupKind::Rotary => fluut_post::SetupKind::Rotary,
+                    SetupKind::Indexed => fluut_post::SetupKind::Indexed,
+                },
                 work_offset: rs.work_offset.clone(),
                 index_a: None,
                 index_b: None,
@@ -820,6 +830,23 @@ impl Session {
             setups,
         }
     }
+}
+
+/// The machine's A axis (parallel to X), or `None` when it has none.
+fn rotary_axis(m: &Machine) -> Option<RotaryAxisInfo> {
+    let a = m
+        .fields
+        .axis
+        .rotary
+        .iter()
+        .find(|a| a.parallel_to.eq_ignore_ascii_case("x"))?;
+    Some(RotaryAxisInfo {
+        continuous: a.continuous,
+        limits_deg: match a.limits_deg.as_slice() {
+            [lo, hi] => Some((*lo, *hi)),
+            _ => None,
+        },
+    })
 }
 
 /// Takes what `result` cut out of `stock` (D08 §7).

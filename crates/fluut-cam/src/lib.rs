@@ -13,6 +13,7 @@ pub mod layout;
 pub mod link;
 pub mod moves;
 pub mod path2;
+pub mod radial;
 pub mod region;
 pub mod scallop;
 pub mod section;

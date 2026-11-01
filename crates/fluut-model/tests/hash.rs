@@ -27,7 +27,7 @@ fn sample(kind: FieldKind) -> PValue {
         | FieldKind::Duration => PValue::Num(Num::float(7.25)),
         FieldKind::Bool => PValue::Bool(false),
         FieldKind::Enum(e) => PValue::Enum(e[e.len() - 1].to_owned()),
-        FieldKind::Height => PValue::Height(HeightSpec::new("work_zero", 1.5)),
+        FieldKind::Height | FieldKind::XPos => PValue::Height(HeightSpec::new("work_zero", 1.5)),
         FieldKind::Selection => PValue::Selection(vec![Sel::Face("f-9".into())]),
         FieldKind::Point => PValue::Point([Num::int(1), Num::int(2), Num::int(3)]),
         FieldKind::Points => PValue::Points(vec![[Num::int(1), Num::int(2), Num::int(3)]]),

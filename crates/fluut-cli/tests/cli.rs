@@ -78,6 +78,7 @@ fn step_inputs_match_the_writer() {
         &here("projects/rough3d/rough3d.step"),
         &step::ridge([0.0; 3]),
     );
+    check_file(&here("projects/shaft/shaft.step"), &step::shaft([0.0; 3]));
 }
 
 #[test]
@@ -90,6 +91,7 @@ fn projects_are_canonical() {
         "projects/plate2d/plate2d.fluut",
         "projects/holes/holes.fluut",
         "projects/rough3d/rough3d.fluut",
+        "projects/shaft/shaft.fluut",
     ] {
         let text = std::fs::read_to_string(here(p)).unwrap();
         let l = fluut_model::project::read(&text).unwrap();
@@ -224,6 +226,65 @@ fn golden_roughing_3d() {
         "rough3d-linuxcnc.ngc",
         &["cam.linking.ramp_fallback"],
     );
+}
+
+#[test]
+fn golden_rotary() {
+    // A rotary Setup posted with a project post that adds the A axis to
+    // LinuxCNC; the machine has a continuous A axis.
+    golden(
+        "projects/shaft/shaft.fluut",
+        "shop/linuxcnc-4x",
+        "shaft-linuxcnc-4x.ngc",
+        &[],
+    );
+}
+
+#[test]
+fn rotary_invariance_along_x() {
+    // Moving the part along the rotary axis, with the zero on the stock
+    // end, moves nothing in the program.
+    let post = |shift: f64, name: &str| -> (Session, String) {
+        let d = tmp(name);
+        for sub in ["tools", "posts", "machines"] {
+            std::fs::create_dir_all(d.join(sub)).unwrap();
+        }
+        for f in [
+            "shaft.fluut",
+            "tools/shop.toml",
+            "posts/linuxcnc-4x.post.toml",
+            "machines/router-4x.machine.toml",
+        ] {
+            std::fs::copy(here(&format!("projects/shaft/{f}")), d.join(f)).unwrap();
+        }
+        std::fs::write(d.join("shaft.step"), step::shaft([0.0, 0.0, shift])).unwrap();
+        let mut s = Session::open(&d.join("shaft.fluut"), &[]).unwrap();
+        assert!(s.warnings.is_empty(), "{:?}", s.warnings);
+        let store = s.library.mem_store(fluut_model::library::DefKind::Post);
+        let opts = PostOptions {
+            date: "2026-11-01".into(),
+            time: "12:00:00".into(),
+            notes: String::new(),
+        };
+        let (out, _) = s.post("shop/linuxcnc-4x", &store, &opts).unwrap();
+        (s, out.files.concat())
+    };
+    let (mut sa, ga) = post(0.0, "rot-a");
+    let (mut sb, gb) = post(7.123457, "rot-b");
+    assert_eq!(ga, gb);
+    sa.calculate(&Targets::All);
+    sb.calculate(&Targets::All);
+    for id in ["t1", "t2", "t3", "t4"] {
+        let (ra, rb) = (sa.result(id).unwrap(), sb.result(id).unwrap());
+        for (p, q) in ra.segments().zip(rb.segments()) {
+            for (u, v) in [(p.start(), q.start()), (p.end(), q.end())] {
+                if let (Some(u), Some(v)) = (u, v) {
+                    assert!(u.xyz.distance(v.xyz) <= 1e-6, "{id}");
+                    assert_eq!(u.a, v.a, "{id}");
+                }
+            }
+        }
+    }
 }
 
 /// A post that extends `fluut/gcode` with a tap cycle.

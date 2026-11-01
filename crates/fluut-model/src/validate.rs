@@ -137,6 +137,10 @@ pub fn validate(tp: &Toolpath, cx: &ValidateCx) -> Vec<Diagnostic> {
         ToolpathTypeId::Engrave => v.engrave(),
         ToolpathTypeId::Adaptive3d => v.adaptive_3d(),
         ToolpathTypeId::Pocket3d => {}
+        ToolpathTypeId::RotaryRough => v.rotary_rough(),
+        ToolpathTypeId::RotaryAlongX => v.rotary_along_x(),
+        ToolpathTypeId::RotaryAroundA => v.rotary_around_a(),
+        ToolpathTypeId::RotarySpiral => v.rotary_spiral(),
     }
     tag(out, tp)
 }
@@ -192,7 +196,17 @@ impl V<'_, '_> {
     }
 
     fn item(&mut self) {
-        if !matches!(
+        // D15b §1.2: rotary types in rotary Setups, the others in
+        // three_axis and indexed Setups.
+        if self.r.kind.is_rotary() {
+            if self.cx.setup_kind != SetupKind::Rotary {
+                self.e(
+                    "param.type.setup_kind",
+                    "type",
+                    format!("{} runs in rotary Setups only", self.ty()),
+                );
+            }
+        } else if !matches!(
             self.cx.setup_kind,
             SetupKind::ThreeAxis | SetupKind::Indexed
         ) {
@@ -373,7 +387,19 @@ impl V<'_, '_> {
                 ),
             );
         }
-        if let Some(sb) = self.cx.stock_bottom
+        if self.cx.setup_kind == SetupKind::Rotary {
+            // Heights are radii (D15b §1.3).
+            if has_bottom && z.bottom < 0.0 {
+                self.w(
+                    "param.heights.below_axis",
+                    "heights.bottom",
+                    format!(
+                        "bottom radius {} is below the rotary axis and is taken as 0",
+                        z.bottom
+                    ),
+                );
+            }
+        } else if let Some(sb) = self.cx.stock_bottom
             && has_bottom
             && z.bottom < sb
         {
@@ -416,7 +442,9 @@ impl V<'_, '_> {
             }
         }
         let stl = p.stock_to_leave;
-        let two_d = self.r.kind != ToolpathTypeId::Parallel;
+        // 3-D finishing and rotary types offset along the surface normal
+        // (D15b §1.7).
+        let two_d = self.r.kind != ToolpathTypeId::Parallel && !self.r.kind.is_rotary();
         let (bad, bound) = if two_d {
             (stl <= -self.tool.radius(), "−R")
         } else {
@@ -965,6 +993,95 @@ impl V<'_, '_> {
                 format!("fine step-down {f} must be above 0 and below the step-down {sd}"),
             );
         }
+    }
+
+    fn rotary_rough(&mut self) {
+        let Some(t) = self.r.rotary_rough().cloned() else {
+            return;
+        };
+        self.required("passes.radial_step_down", t.radial_step_down);
+        self.required("passes.stepover_x", t.stepover_x);
+    }
+
+    /// The stepover / scallop height pair of rotary finishing types
+    /// (D15b §1.8, §6). `step_key` is the type's stepover field.
+    fn scallop_pair(&mut self, step_key: &str, step: Option<f64>, scallop: Option<f64>) {
+        let ty = self.ty();
+        let r = self.tool.corner_radius();
+        if self.p.is_set(&format!("passes.{step_key}")) && self.p.is_set("passes.scallop_height") {
+            self.e(
+                &format!("param.{ty}.stepover_and_scallop"),
+                "passes.scallop_height",
+                format!("set either {step_key} or scallop_height, not both"),
+            );
+        }
+        match scallop {
+            None => self.required(&format!("passes.{step_key}"), step),
+            Some(h) => {
+                if r <= 0.0 {
+                    self.e(
+                        &format!("param.{ty}.scallop.radius"),
+                        "passes.scallop_height",
+                        "scallop height needs a tool with a corner radius".into(),
+                    );
+                } else if !(h > 0.0 && h < r) {
+                    self.e(
+                        &format!("param.{ty}.scallop.range"),
+                        "passes.scallop_height",
+                        format!(
+                            "scallop height {h} must be above 0 and below the corner radius {r}"
+                        ),
+                    );
+                }
+            }
+        }
+    }
+
+    fn rotary_along_x(&mut self) {
+        let Some(t) = self.r.rotary_along_x().cloned() else {
+            return;
+        };
+        // The default comes from the preset stepover (D15b §6.2).
+        let preset = self.tool.preset(self.cx.material).and_then(|p| p.stepover);
+        let step = t.stepover_deg.or(preset);
+        self.scallop_pair("stepover_deg", step, t.scallop_height);
+        let (a0, a1) = (t.a_start_deg, t.a_end_deg);
+        if a1 <= a0 || a1 - a0 > 360.0 {
+            self.e(
+                "param.rotary_along_x.a_range",
+                "passes.a_end_deg",
+                format!("the A range {a0}° to {a1}° must be increasing and at most 360°"),
+            );
+        }
+        if let (Some(deg), Some(z)) = (t.stepover_deg, self.cx.heights) {
+            let d = self.tool.diameter;
+            let s = z.top * deg.to_radians();
+            if s > d {
+                self.e(
+                    "param.passes.stepover.max",
+                    "passes.stepover_deg",
+                    format!(
+                        "stepover {deg}° is {s:.3} mm at the top radius {}, more than the tool \
+                         diameter {d}",
+                        z.top
+                    ),
+                );
+            }
+        }
+    }
+
+    fn rotary_around_a(&mut self) {
+        let Some(t) = self.r.rotary_around_a().cloned() else {
+            return;
+        };
+        self.scallop_pair("stepover_x", t.stepover_x, t.scallop_height);
+    }
+
+    fn rotary_spiral(&mut self) {
+        let Some(t) = self.r.rotary_spiral().cloned() else {
+            return;
+        };
+        self.scallop_pair("advance", t.advance, t.scallop_height);
     }
 
     /// Load and smoothing rules of the adaptive types (D15b §2.2, §4.1).

@@ -1,0 +1,76 @@
+format = "fluut.project/1"
+name   = "Shaft"
+units  = "mm"
+
+[[geometry]]
+id   = "g1"
+path = "shaft.step"
+kind = "step"
+
+  [[geometry.body]]
+  id   = "b-354"
+  name = "shaft"
+
+[[setup]]
+id          = "s1"
+name        = "Turn"
+kind        = "rotary"
+machine     = "shop/router-4x@1"
+material    = "MDF"
+orientation = { rotary_axis = { face = "f-354.0" }, a_zero_toward = "+X" }
+stock       = { kind = "cylinder", radius = 17, length = 82 }
+zero        = { x = "stock_left" }
+clearance   = { kind = "cylinder", radius = 25 }
+
+  [[setup.toolpath]]
+  id   = "t1"
+  name = "Rotary rough"
+  type = "rotary_rough"
+  tool = "shop#flat-6"
+
+    [setup.toolpath.passes]
+    machining_tolerance = 0.02
+    stock_to_leave      = 0.3
+
+  [[setup.toolpath]]
+  id   = "t2"
+  name = "Square finish"
+  type = "rotary_along_x"
+  tool = "shop#ball-6"
+
+    [setup.toolpath.geometry]
+    x_start = { ref = "model_left", offset = 33 }
+    x_end   = { ref = "model_left", offset = 52 }
+
+    [setup.toolpath.passes]
+    machining_tolerance = 0.02
+    stepover_deg        = 10
+
+  [[setup.toolpath]]
+  id   = "t3"
+  name = "Large diameter"
+  type = "rotary_around_a"
+  tool = "shop#ball-6"
+
+    [setup.toolpath.geometry]
+    x_start = { ref = "model_left", offset = 1 }
+    x_end   = { ref = "model_left", offset = 27 }
+
+    [setup.toolpath.passes]
+    machining_tolerance = 0.02
+    stepover_x          = 2
+    direction           = "zigzag"
+
+  [[setup.toolpath]]
+  id   = "t4"
+  name = "Small diameter"
+  type = "rotary_spiral"
+  tool = "shop#ball-6"
+
+    [setup.toolpath.geometry]
+    x_start = { ref = "model_left", offset = 59 }
+    x_end   = { ref = "model_right", offset = -1 }
+
+    [setup.toolpath.passes]
+    machining_tolerance = 0.02
+    advance             = 1
