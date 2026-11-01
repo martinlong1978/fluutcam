@@ -145,4 +145,41 @@ All earlier Global Constraints apply. In addition:
 
 ### Task 10: Close
 
-- [ ] **Step 1:** Mark this plan done with deviations; README row; D06 updates. Commit and push `m4-model-persistence`.
+- [x] **Step 1:** Mark this plan done with deviations; README row; D06 updates. Commit and push `m4-model-persistence`.
+
+**Done.** The D06 §8 tests pass and every reference project round-trips byte for byte (read
+and write, and through `persist::save`). The spec 02 §2.1 project round-trips without its
+rotary toolpaths (types this build does not have). Random Setup chains resolve as a manual
+walk does; random edit sequences undo to the original and redo to the final document; a journal
+cut at every byte recovers a valid prefix; a reload calculates nothing, an R edit misses the
+cache and a P edit hits it; re-importing the boss with a raised top and every entity
+renumbered keeps the walls and the bottom and reports the top for the toolpath and the Setup
+that use it.
+
+Deviations from this plan:
+- Commits: tasks 2 and 3 landed together (the core moved straight to resolved Setups), and
+  tasks 6 and 7 together (`Document` writes the journal). Task 6 came before task 5, because
+  templates produce edits.
+- A toolpath's `tool` stays a `String`: empty means no tool and is not written. `fluut-cam`
+  tests read it as a string, so this merges cleanly with M6. The code is the existing
+  `param.tool.missing`, not `toolpath.tool.missing`.
+- `Project.format` is gone: the writer always writes `fluut.project/1`.
+- `ToolRef` gained a `version` field. `VersionReq` now derives `Ord`.
+- The edit for re-import is `RemapIds` (it also renames Setup bodies, orientation picks and
+  body stock). Positions are `at` indices, not `after` ids.
+- Cache and journal are opt-in per open (`OpenOptions { cache, journal, recover }`). The CLI
+  uses neither, so `fluut calc` writes nothing beside a project. The CLI posts through the
+  session's library, so project and user posts work.
+- `Session::project` stays public for the existing callers. A direct change starts a new undo
+  history at the next `apply`.
+- Results whose arc normals `UnitVec3::new` would change, and results with spline segments,
+  are not cached. Every reference result is stored exactly (tested).
+- The Setup name left the Setup hash (class N). Frames also take `geometry.scale` and `mirror`,
+  `size` blocks, and face and edge picks. A non-uniform scale of a curved B-rep fails with
+  `setup.geometry.transform`.
+- `region` is read, inherited and hashed but not yet used by the strategies.
+- Not done: the lock file (D06 §7.4), the body cache and `index.toml`, `blake3` (as decided).
+
+Found, not fixed (outside this plan's crates): a `pocket_2d` of the whole boss top trips a
+debug assertion in the vendored `cavalier_contours` (`pline_view.rs:290`,
+`EndPointOnFinalOffsetVertex`). The cache tests use a second `contour_2d` instead.
