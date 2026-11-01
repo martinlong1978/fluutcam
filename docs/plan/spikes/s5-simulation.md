@@ -8,7 +8,7 @@ Code that is kept:
 Spike code, which may be thrown away:
 - `crates/fluut-sim/src/spike`: the stand-ins and the exact single-ray probe.
 
-Measurement tool: `cargo run -p fluut-sim --example s5 --release -- [rays|relief|rotary|error] [res…]`.
+Measurement tool: `cargo run -p fluut-sim --example s5 --release -- [rays|relief|rotary|cyl|error|error-rotary] [res…]`.
 
 All numbers: release build, Linux cloud container, 4 cores of an Intel Xeon at 2.8 GHz, 15 GB RAM. "4 threads" means the whole machine. D11 §7 targets assume 8 cores.
 
@@ -153,8 +153,130 @@ The span ends themselves are exact to `f32` (about 1e-5 mm); all error is betwee
 
 ## 7. Follow-ups
 
-1. Closed form for flat and bull tools on ramps and plunges seen from the side (now GJK).
-2. Cylindrical dexels for rotary Setups, measured against this tri-dexel on the same stand-in.
-3. Better Z-family parallelism on rasters: interleave the tiles, or batch by region instead of by program order.
+1. Closed form for flat and bull tools on ramps and plunges seen from the side (now GJK). Done; see [Follow-ups](#follow-ups-2026-11-01).
+2. Cylindrical dexels for rotary Setups, measured against this tri-dexel on the same stand-in. Done; not adopted, see [Follow-ups](#follow-ups-2026-11-01).
+3. Better Z-family parallelism on rasters: interleave the tiles, or batch by region instead of by program order. Done by scheduling only busy tiles; see [Follow-ups](#follow-ups-2026-11-01).
 4. Re-run on the real reference projects once they exist, on an 8-core machine, to settle D11 §7.
 5. Tile copy-on-write checkpoints and dual-contouring display (D11 §4) were not prototyped.
+
+## Follow-ups (2026-11-01)
+
+Plan: [`../2026-11-01-s5-followups.md`](../2026-11-01-s5-followups.md). Follow-ups 1–3 of §7 are done.
+
+These numbers come from a different machine than the rest of this report: a Linux cloud container, release build, 4 cores. "Before" is `main` measured on that machine. Whole runs vary by about ±10 % between repeats, and single-ray timings by up to 30 %.
+
+### Ramps and plunges seen from the side
+
+**Change.** `Method::Side` now covers any chord with a fixed axis, for lines across the axis. Level chords were the only case before.
+- The line stays at one height. At each point of the chord the tool's section at that height is a disc.
+- **Straight flank:** the disc has radius `R`, so the sweep's section is a 2-D capsule. This is closed form, and covers flat tools completely.
+- **Corner bands of a bull nose:** the disc shrinks. The part of the chord where it still reaches the line comes from a line against a 2-D capsule. The entry and exit are convex in the chord parameter, and a golden-section search finds them.
+- GJK now remains only for flat and bull tools on rotary chords and on lines that are neither along nor across a fixed axis. The 3-axis tri-dexel no longer uses it.
+
+**Checks:** the side method agrees with GJK within 1e-3 mm on 900 random ramps and plunges (flat, two bull radii, vertical and tilted axes), and with brute force on steep bull ramps.
+
+| Case (one thread) | Before (GJK), ns per ray | After, ns per ray |
+|---|---|---|
+| Bull R3 r1, ramp | 3 040 | 145 |
+| Flat R3, ramp | 3 020 | 68 |
+
+**Effect:** relief roughing (flat Ø6, plunges at each run) goes from 1.00 to 0.14 s at 0.4 mm and from 4.04 to 0.54 s at 0.2 mm on one thread, about 7.5× faster.
+
+### Ball fast path
+
+This was found while building the cylindrical layout, and it serves both layouts.
+
+**Rule.** The ball's sweep is the hull of four sphere centres (two per pose) grown by the radius. For each end of the line:
+- **Bottom capsule:** a point on the capsule around `c0`–`c2` whose outward normal `n` has `n·w ≤ 0` for both axes lies on the hull's boundary. The hull's support in `n` is then at `c0` or `c2`.
+- **Top capsule:** the same holds for the capsule around `c1`–`c3` when `n·w ≥ 0`.
+- **Misses:** a line farther than the radius from the bottom segment, in a direction with `n·w ≤ 0`, misses the sweep.
+
+Only lines this cannot decide go to the full hull. All of this is exact.
+
+| Case (one thread) | Before, ns per ray | After, ns per ray |
+|---|---|---|
+| Ball R3, rotary chord, line across the axis | 390–490 | 290 |
+| Ball R3, rotary chord, line near the axis | 390–490 | 150 |
+
+The relief finish after roughing goes from 6.25 to 4.90 s at 0.4 mm on one thread.
+
+### Cylindrical dexels for rotary Setups
+
+**Layout** (`CylDexel`):
+- **Radial rays** start on the rotary axis, on an (x, θ) grid. `nθ = ⌈2πR / res⌉`, so neighbouring rays are at most `res` apart at the stock surface.
+- **X rays** lie on the tri-dexel's (y, z) grid.
+- Both families are cut by the same `Sweep::ray`, by tiles that take their chords in program order.
+
+**Near-axis rays.** Skipping them saved nothing, because no ray is empty near the axis:
+- every radial ray starts there and costs 24 B whatever its length;
+- the X rays there are full.
+
+What could be skipped were the X rays outside the stock circle. They are empty for the whole run, and leaving them out saves 21 % of the X family.
+
+**Rotary stand-in** (ball Ø6 spiral, 56 880 moves), 4 threads. The tri-dexel "after" includes the fast path.
+
+| res | Tri-dexel before: 1 / 4 thr (s) | µs per move | Tri-dexel after: 1 / 4 thr (s) | µs per move | Cylindrical: 1 / 4 thr (s) | µs per move |
+|---|---|---|---|---|---|---|
+| 0.4 | 14.34 / 4.11 | 72 | 6.86 / 1.97 | 35 | 5.46 / 1.55 | 27 |
+| 0.2 | 53.67 / 14.46 | 254 | 24.42 / 6.64 | 117 | 20.15 / 5.69 | 100 |
+| 0.1 | – / 59.79 | 1 051 | – / 23.84 | 419 | – / 20.85 | 367 |
+
+| res | Tri-dexel rays | Memory after (MB) | Cylindrical rays (radial + X) | Memory after (MB) | Ray tests per chord, tri-dexel X / Y / Z | Ray tests per chord, cylindrical X / radial |
+|---|---|---|---|---|---|---|
+| 0.4 | 135 k | 3 | 177 k + 18 k | 5 | 239 / 164 / 167 | 239 / 409 |
+| 0.2 | 540 k | 13 | 707 k + 71 k | 18 | 954 / 658 / 667 | 954 / 1 623 |
+| 0.1 | 2.16 M | 52 | 2.83 M + 0.28 M | 74 | 3 810 / 2 630 / 2 667 | 3 810 / 6 471 |
+
+**Error against the exact probe**, in the same window on top of the cylinder (x 65–75 mm). The tri-dexel uses Z rays; the cylindrical layout uses radial rays at θ within ±0.2 rad.
+
+| res | Tri-dexel: max / p99 / RMS (mm) | Cylindrical: max / p99 / RMS (mm) |
+|---|---|---|
+| 0.4 | 0.0146 / 0.0123 / 0.0046 | 0.0146 / 0.0122 / 0.0047 |
+| 0.2 | 0.0110 / 0.0091 / 0.0031 | 0.0110 / 0.0089 / 0.0030 |
+| 0.1 | 0.0080 / 0.0064 / 0.0029 | 0.0079 / 0.0062 / 0.0028 |
+
+**Findings:**
+1. **Most of the rotary gain is the fast path, not the layout.** The tri-dexel gets 2.1–2.5× faster with it. The cylindrical layout adds 14–27 % on top, less at finer resolution.
+2. **Cost of the cylindrical layout:** 1.4× the memory, because radial rays outnumber the tri-dexel's Y and Z rays by π/2. It also tests 22 % more radial rays than the tri-dexel tests Y and Z rays, because the θ range per chord comes from the chord's box.
+3. **X rays cost the same in both layouts** and take half the cylindrical time. Those that cross the tool's shank fall back to the full hull.
+4. **The error is the same in both layouts.** The tri-dexel's Z rays are almost radial in this window.
+5. **Against D11 §7** (< 20 s per million moves at 0.2 mm on 8 cores, about 40 µs per move on 4 cores): the rotary wrap was about 6× over. It is now about 3× over with the tri-dexel, and 2.5× with cylindrical dexels.
+
+**Decision.** Keep the tri-dexel for rotary Setups. A second stock model with 40 % more memory is not worth a 14–27 % gain. `CylDexel` stays in the crate as spike code, for comparison, until M7.
+
+**Further rotary speed has to come from fewer or cheaper ray tests:**
+- a closed form for lines across a ball's shank on rotary chords (now the full hull);
+- a tighter per-chord ray range.
+
+### Z-family parallelism on rasters
+
+**Measurement.** On the relief finish at 0.2 mm, before the change, the families sped up from 1 to 4 threads by:
+- X: 2.3×;
+- Y: 3.1×;
+- Z: 1.9–2.0×.
+
+A batch of 32 768 chords covers a band of about 60 of the 375 Z tiles, and rayon's first splits left that band to one or two threads.
+
+**Change.** Each layout now runs only the tiles that some chord of the batch reaches, as one parallel list. The order within a tile is unchanged, so the hash is the same on any thread count. A new test cuts a raster whose batches cover narrow bands of a wide grid, against the probe and on 1 and 4 threads. Interleaving and region batching were not needed.
+
+| Relief, 0.2 mm, Z family | 1 thread (s) | 4 threads before (s) | 4 threads after (s) | Speed-up |
+|---|---|---|---|---|
+| Finish after roughing | 2.3 | 1.2–1.4 | 0.6–0.7 | 1.9× → 3.3–3.8× |
+| Finish from full stock | 2.3 | 1.1–1.3 | 0.6–0.7 | 2.0× → 3.3–3.8× |
+
+The Z family is 10–20 % of the relief time, so totals change by less than the noise between runs.
+
+### Relief totals, before and after all follow-ups
+
+| Relief, toolpath | res | Before: 1 / 4 thr (s) | After: 1 / 4 thr (s) | µs per move (4 thr), before → after |
+|---|---|---|---|---|
+| Rough (flat Ø6) | 0.4 | 1.00 / 0.29 | 0.14 / 0.05 | 79 → 13 |
+| Rough | 0.2 | 4.04 / 1.06 | 0.54 / 0.20 | 287 → 53 |
+| Finish after rough (ball Ø3) | 0.4 | 6.25 / 2.15 | 4.90 / 2.02 | 10.5 → 9.8 |
+| Finish after rough | 0.2 | 23.41 / 9.57 | 18.31 / 7.05 | 47 → 34 |
+| Finish from full stock | 0.4 | 11.22 / 3.73 | 10.30 / 3.47 | 18 → 17 |
+| Finish from full stock | 0.2 | 42.79 / 13.07 | 38.05 / 11.98 | 64 → 59 |
+
+**Relief against D11 §7:** the relief finish at 0.2 mm now runs at 34 µs per move on 4 cores, inside the 40 µs that the target allows. The worst case (finishing from full stock, 59 µs) is still above it.
+
+Follow-ups 4 and 5 of §7 remain open, and so do the two rotary items above.

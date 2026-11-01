@@ -109,12 +109,15 @@ fn flat_plunge_is_cylinder() {
         s.ray(DVec3::new(0.3 + 2.1, -0.2, -10.0), DVec3::Z)
             .is_none()
     );
-    // A sideways line through the plunge, by GJK.
+    // A sideways line through the plunge, by the side method.
+    assert_eq!(s.method(DVec3::X), Method::Side);
     let (t0, t1) = s.ray(DVec3::new(-10.0, -0.2, 0.0), DVec3::X).unwrap();
     assert!(
-        (t0 - 8.3).abs() < 2e-3 && (t1 - 12.3).abs() < 2e-3,
+        (t0 - 8.3).abs() < 1e-12 && (t1 - 12.3).abs() < 1e-12,
         "{t0} {t1}"
     );
+    // Below the lowest tip it misses.
+    assert!(s.ray(DVec3::new(-10.0, -0.2, -3.0), DVec3::X).is_none());
 }
 
 #[test]
@@ -285,4 +288,116 @@ fn side_matches_gjk() {
             );
         }
     }
+}
+
+/// GJK interval of the line, for reference.
+fn gjk(s: &Sweep, o: DVec3, e: DVec3) -> Option<(f64, f64)> {
+    let sup = |n: DVec3| s.support(n);
+    s.slab(o, e).and_then(|(ta, tb)| {
+        let t0 = ray_cast(sup, o + e * ta, e, tb - ta, 1e-7)?;
+        let t1 = ray_cast(sup, o + e * tb, -e, tb - ta, 1e-7)?;
+        Some((ta + t0, tb - t1))
+    })
+}
+
+#[test]
+fn side_on_ramps_and_plunges_matches_gjk() {
+    let mut rng = Lcg(13);
+    for tool in [Tool::flat(2.0), Tool::bull(2.0, 0.6), Tool::bull(2.0, 1.5)] {
+        for n in 0..300 {
+            // Plunges, steep and shallow ramps, about a vertical or tilted axis.
+            let axis = if n % 3 == 0 { rng.unit() } else { DVec3::Z };
+            let mut d = DVec3::new(
+                rng.range(-3.0, 3.0),
+                rng.range(-3.0, 3.0),
+                rng.range(-3.0, 3.0),
+            );
+            if n % 5 == 0 {
+                d = axis * d.z;
+            }
+            let tip = DVec3::new(rng.range(-0.5, 0.5), rng.range(-0.5, 0.5), 0.1);
+            let s = Sweep::new(tool, pose(tip, axis), pose(tip + d, axis));
+            let e = axis.cross(rng.unit()).normalize();
+            let c = DVec3::new(
+                rng.range(-3.0, 4.0),
+                rng.range(-3.0, 4.0),
+                rng.range(-3.5, 8.0),
+            );
+            let o = c - e * 20.0;
+            assert_eq!(s.method(e), Method::Side);
+            let side = s.ray(o, e);
+            let want = gjk(&s, o, e);
+            assert!(
+                close(side, want, 1e-3),
+                "{tool:?} axis={axis} d={d} o={o} e={e}: {side:?} vs {want:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn side_on_steep_bull_ramps_matches_brute_force() {
+    let mut rng = Lcg(17);
+    let tool = Tool::bull(1.0, 0.4);
+    for _ in 0..40 {
+        let d = DVec3::new(
+            rng.range(-1.0, 1.0),
+            rng.range(-1.0, 1.0),
+            rng.range(-2.0, 2.0),
+        );
+        let s = axial_sweep(tool, d);
+        let e = if rng.next() < 0.5 { DVec3::X } else { DVec3::Y };
+        let mut o = DVec3::new(
+            rng.range(-1.5, 2.5),
+            rng.range(-1.5, 2.5),
+            rng.range(-2.0, 1.5),
+        );
+        o[if e.x != 0.0 { 0 } else { 1 }] = -10.0;
+        let got = s.ray(o, e);
+        let want = brute(&s, o, e, 0.002, 600);
+        assert!(close(got, want, 0.01), "d={d} o={o}: {got:?} vs {want:?}");
+    }
+}
+
+#[test]
+fn ball_fast_path_matches_full_hull() {
+    let mut rng = Lcg(19);
+    let (mut decided, mut total) = (0, 0);
+    for n in 0..2000 {
+        // Rotary chords like a wrap, with axes a few degrees apart, and
+        // fixed-axis chords; lines mostly near the axes, some across them.
+        let axis = rng.unit();
+        let axis1 = if n % 3 == 0 {
+            axis
+        } else {
+            (axis + rng.unit() * 0.1).normalize()
+        };
+        let tip = DVec3::new(
+            rng.range(-1.0, 1.0),
+            rng.range(-1.0, 1.0),
+            rng.range(-1.0, 1.0),
+        );
+        let d = rng.unit() * rng.range(0.0, 1.5);
+        let s = Sweep::new(Tool::ball(1.0), pose(tip, axis), pose(tip + d, axis1));
+        let (e, o) = if n % 2 == 0 {
+            let e = (axis + rng.unit() * 0.1).normalize();
+            (e, tip + rng.unit() * rng.range(0.0, 0.8) - e * 20.0)
+        } else {
+            let e = rng.unit();
+            (e, tip + rng.unit() * rng.range(0.0, 1.5) - e * 20.0)
+        };
+        let full = s.ball_ray_full(o, e);
+        let fast = s.ball_fast(o, e);
+        if let Some(fast) = fast {
+            assert!(close(fast, full, 1e-9), "{fast:?} vs {full:?}");
+        }
+        if n % 2 == 0 && full.is_some() {
+            total += 1;
+            decided += usize::from(fast.is_some());
+        }
+        assert!(close(s.ray(o, e), full, 1e-9));
+    }
+    // Most lines near the axes that meet the sweep are decided by the fast
+    // path.
+    assert!(decided * 2 > total, "{decided} of {total}");
 }

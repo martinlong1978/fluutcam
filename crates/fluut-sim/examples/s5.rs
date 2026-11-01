@@ -3,14 +3,15 @@
 //! S5 measurements: memory, update time and error of the tri-dexel on the
 //! relief and rotary stand-ins.
 //!
-//! `cargo run -p fluut-sim --example s5 --release -- [relief|rotary|error|rays] [res...]`
+//! `cargo run -p fluut-sim --example s5 --release -- [relief|rotary|cyl|error|rays] [res...]`
 
 use fluut_geom::Point3;
 use fluut_path::Segment;
-use fluut_sim::spike::probe::top_error;
+use fluut_sim::cyl::{RADIAL, X};
+use fluut_sim::spike::probe::{radial_error, top_error};
 use fluut_sim::spike::{relief, rotary};
 use fluut_sim::sweep::Method;
-use fluut_sim::{Chorder, Pose, Stock, Sweep, Tool, TriDexel, cut};
+use fluut_sim::{Chorder, CylDexel, Pose, Stock, Sweep, Tool, TriDexel, cut};
 use glam::DVec3;
 use std::time::Instant;
 
@@ -45,14 +46,14 @@ fn project(name: &str, stock: Stock, rotary: bool, stages: &[Stage], res: &[f64]
         );
     }
     println!(
-        "\n| res | stage | rays | chords | cut 1 thread (s) | cut {all} threads (s) | µs/move ({all} thr) | s per M chords ({all} thr) | memory (MB) | spilled rays | tests X/Y/Z per chord | time X/Y/Z ({all} thr, s) | removed (cm³) |"
+        "\n| res | stage | rays | chords | cut 1 thread (s) | cut {all} threads (s) | µs/move ({all} thr) | s per M chords ({all} thr) | memory (MB) | spilled rays | tests X/Y/Z per chord | time X/Y/Z (1 thr, s) | time X/Y/Z ({all} thr, s) | removed (cm³) |"
     );
-    println!("|---|---|---|---|---|---|---|---|---|---|---|---|---|");
+    println!("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|");
     for &r in res {
         let fresh = TriDexel::new(&stock, r);
         let before = fresh.memory();
         println!(
-            "| {r} | stock | {} | | | | | | {:.0} | 0 | | | |",
+            "| {r} | stock | {} | | | | | | {:.0} | 0 | | | | |",
             before.rays,
             mb(before.total())
         );
@@ -68,8 +69,8 @@ fn project(name: &str, stock: Stock, rotary: bool, stages: &[Stage], res: &[f64]
         for (st, ch) in stages.iter().zip(&chords) {
             let t1 = one.then(|| {
                 let t = Instant::now();
-                p1.install(|| cut(&mut d1, ch));
-                t.elapsed().as_secs_f64()
+                let st = p1.install(|| cut(&mut d1, ch));
+                (t.elapsed().as_secs_f64(), st.secs)
             });
             let v0 = dn.volumes()[2];
             let t = Instant::now();
@@ -78,10 +79,10 @@ fn project(name: &str, stock: Stock, rotary: bool, stages: &[Stage], res: &[f64]
             let mem = dn.memory();
             let nc = ch.len().max(1) as f64;
             println!(
-                "| {r} | {} | | {} | {} | {:.2} | {:.1} | {:.1} | {:.0} | {} | {:.0} / {:.0} / {:.0} | {:.1} / {:.1} / {:.1} | {:.1} |",
+                "| {r} | {} | | {} | {} | {:.2} | {:.1} | {:.1} | {:.0} | {} | {:.0} / {:.0} / {:.0} | {} | {:.1} / {:.1} / {:.1} | {:.1} |",
                 st.label,
                 ch.len(),
-                t1.map_or("–".to_string(), |t| format!("{t:.2}")),
+                t1.map_or("–".to_string(), |(t, _)| format!("{t:.2}")),
                 tn,
                 tn / st.segs.len() as f64 * 1e6,
                 tn / nc * 1e6,
@@ -90,6 +91,10 @@ fn project(name: &str, stock: Stock, rotary: bool, stages: &[Stage], res: &[f64]
                 stats.tests[0] as f64 / nc,
                 stats.tests[1] as f64 / nc,
                 stats.tests[2] as f64 / nc,
+                t1.map_or("–".to_string(), |(_, s)| format!(
+                    "{:.1} / {:.1} / {:.1}",
+                    s[0], s[1], s[2]
+                )),
                 stats.secs[0],
                 stats.secs[1],
                 stats.secs[2],
@@ -99,6 +104,71 @@ fn project(name: &str, stock: Stock, rotary: bool, stages: &[Stage], res: &[f64]
         if one {
             assert_eq!(d1.hash(), dn.hash(), "thread count changed the result");
         }
+    }
+}
+
+/// The rotary stand-in on cylindrical dexels: memory, time and error.
+fn cyl(res: &[f64]) {
+    let all = std::thread::available_parallelism().map_or(1, |n| n.get());
+    let segs = rotary::program(0.5, 2.0);
+    let (stock, tool) = (rotary::STOCK, rotary::tool());
+    println!("\n## Rotary, cylindrical dexels: {} segments", segs.len());
+    println!(
+        "\n| res | rays (radial + X) | stock (MB) | chords | cut 1 thread (s) | cut {all} threads (s) | µs/move ({all} thr) | memory after (MB) | spilled rays | tests X/radial per chord | time X/radial ({all} thr, s) | removed (cm³) |"
+    );
+    println!("|---|---|---|---|---|---|---|---|---|---|---|---|");
+    // Error window as in `error`: 8 × 0.4 rad on top of the cylinder.
+    let fine = Chorder::new(tool, stock, true, 0.002).chords(&segs);
+    let pts = samples(66.0, 74.0, -0.2, 0.2, 4000);
+    let mut errs = Vec::new();
+    for &r in res {
+        let fresh = CylDexel::new(&stock, r);
+        let before = fresh.memory();
+        let chords = Chorder::new(tool, stock, true, r).chords(&segs);
+        let one = r >= 0.2 || std::env::var("S5_ONE").is_ok();
+        let t1 = one.then(|| {
+            let mut d = fresh.clone();
+            let t = Instant::now();
+            pool(1).install(|| d.cut(&chords));
+            (t.elapsed().as_secs_f64(), d.hash())
+        });
+        let mut d = fresh.clone();
+        let t = Instant::now();
+        let stats = pool(all).install(|| d.cut(&chords));
+        let tn = t.elapsed().as_secs_f64();
+        if let Some((_, h)) = t1 {
+            assert_eq!(h, d.hash(), "thread count changed the result");
+        }
+        let mem = d.memory();
+        let nc = chords.len().max(1) as f64;
+        println!(
+            "| {r} | {} ({} + {}) | {:.0} | {} | {} | {:.2} | {:.1} | {:.0} | {} | {:.0} / {:.0} | {:.1} / {:.1} | {:.1} |",
+            before.rays,
+            d.radial.len(),
+            d.xrays.len(),
+            mb(before.total()),
+            chords.len(),
+            t1.map_or("–".to_string(), |(t, _)| format!("{t:.2}")),
+            tn,
+            tn / segs.len() as f64 * 1e6,
+            mb(mem.total()),
+            mem.spilled,
+            stats.tests[X] as f64 / nc,
+            stats.tests[RADIAL] as f64 / nc,
+            stats.secs[X],
+            stats.secs[RADIAL],
+            (fresh.volumes()[RADIAL] - d.volumes()[RADIAL]) / 1000.0,
+        );
+        errs.push((r, radial_error(&d, &fine, &pts)));
+    }
+    println!("\n### Error, radial rays: x 66–74 mm, θ ±0.2 rad");
+    println!("| res | samples | max (mm) | p99 (mm) | RMS (mm) |");
+    println!("|---|---|---|---|---|");
+    for (r, e) in errs {
+        println!(
+            "| {r} | {} | {:.4} | {:.4} | {:.4} |",
+            e.samples, e.max, e.p99, e.rms
+        );
     }
 }
 
@@ -188,25 +258,26 @@ fn rays() {
             DVec3::X,
         ),
         (
-            "GJK, side line, ramp",
+            "side, ramp",
             Tool::bull(3.0, 1.0),
             DVec3::Z,
             DVec3::Z,
             DVec3::X,
         ),
-        (
-            "GJK, side line, ramp",
-            Tool::flat(3.0),
-            DVec3::Z,
-            DVec3::Z,
-            DVec3::X,
-        ),
+        ("side, ramp", Tool::flat(3.0), DVec3::Z, DVec3::Z, DVec3::X),
         (
             "ball, rotary chord",
             Tool::ball(3.0),
             DVec3::Z,
             DVec3::new(0.0, 0.03, 1.0).normalize(),
             DVec3::Y,
+        ),
+        (
+            "ball, rotary chord, line near the axis",
+            Tool::ball(3.0),
+            DVec3::Z,
+            DVec3::new(0.0, 0.03, 1.0).normalize(),
+            DVec3::Z,
         ),
         (
             "GJK, rotary chord",
@@ -217,11 +288,7 @@ fn rays() {
         ),
     ];
     for (label, tool, w0, w1, e) in cases {
-        let d = if label.starts_with("side") {
-            level
-        } else {
-            ramp
-        };
+        let d = if label.contains("level") { level } else { ramp };
         let s = Sweep::new(tool, pose(DVec3::ZERO, w0), pose(d, w1));
         let n = 200_000;
         let mut hits = 0;
@@ -323,6 +390,23 @@ fn main() {
             rotary::STOCK,
             true,
             &[stage],
+            &pick(&[0.4, 0.2, 0.1]),
+        );
+    }
+    if what == "cyl" || what == "all" {
+        cyl(&pick(&[0.4, 0.2, 0.1]));
+    }
+    if what == "error-rotary" {
+        let w = Stock::Box {
+            min: Point3::new(65.0, -6.0, 18.0),
+            max: Point3::new(75.0, 6.0, 31.0),
+        };
+        error(
+            "rotary",
+            w,
+            rotary::tool(),
+            true,
+            &rotary::program(0.5, 2.0),
             &pick(&[0.4, 0.2, 0.1]),
         );
     }

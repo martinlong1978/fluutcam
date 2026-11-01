@@ -385,6 +385,14 @@ refinement; tile-based copy-on-write checkpoints.
 
 The error between rays is set by sharp machined detail. The relief needs 0.1 mm for 0.05 mm error and 0.025–0.05 mm for 0.01 mm. The rotary wrap needs 0.4 mm for 0.05 mm and 0.1 mm for 0.01 mm. The tri-dexel stays for three-axis work; rotary Setups should try cylindrical dexels (radial rays) in M7.
 
+**S5 follow-ups (2026-11-01).** Measured on a different 4-core machine ([report](../plan/spikes/s5-simulation.md#follow-ups-2026-11-01)):
+- **Closed forms:** flat and bull ramps and plunges seen from the side take 70–150 ns per ray instead of about 3 µs (GJK). A fast path for ball end mills decides most lines from two capsules.
+- **Rotary at 0.2 mm:** from 254 to 117 µs per move on the tri-dexel, now about 3× over the D11 §7 target.
+- **Cylindrical dexels:** tried. They are only 14–27 % faster than the tri-dexel with the same error, and need 1.4× the memory, so they are not adopted. The tri-dexel stays for rotary Setups too.
+- **Relief finish at 0.2 mm:** 34 µs per move.
+
+Rotary speed is still open: the remaining cost is ray tests across the tool's shank on rotary chords.
+
 ### CH-23 Live pass preview cost while dragging
 
 **Problem.** [S 08 §8.4] asks for a live ghost of the pass pattern while editing stepover, angle
