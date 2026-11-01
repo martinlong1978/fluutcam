@@ -12,9 +12,9 @@ use glam::DVec3;
 use rayon::prelude::*;
 
 /// Chords per batch.
-const BATCH: usize = 32768;
+pub(crate) const BATCH: usize = 32768;
 /// Grid rows per tile.
-const ROWS: usize = 2;
+pub(crate) const ROWS: usize = 2;
 
 /// Work counters, per family where indexed.
 #[derive(Copy, Clone, PartialEq, Debug, Default)]
@@ -29,7 +29,7 @@ pub struct Stats {
 }
 
 impl Stats {
-    fn add(&mut self, o: &Stats) {
+    pub(crate) fn add(&mut self, o: &Stats) {
         self.chords += o.chords;
         for k in 0..3 {
             self.tests[k] += o.tests[k];
@@ -56,7 +56,13 @@ pub fn cut(d: &mut TriDexel, sweeps: &[Sweep]) -> Stats {
 }
 
 /// Index range of rays whose centre lies in `[lo, hi]` along an axis.
-fn ray_range(lo: f64, hi: f64, origin: f64, res: f64, n: usize) -> Option<(usize, usize)> {
+pub(crate) fn ray_range(
+    lo: f64,
+    hi: f64,
+    origin: f64,
+    res: f64,
+    n: usize,
+) -> Option<(usize, usize)> {
     let a = ((lo - origin) / res - 0.5).ceil().max(0.0);
     let b = ((hi - origin) / res - 0.5).floor();
     if b < a || a >= n as f64 {

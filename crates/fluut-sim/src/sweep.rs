@@ -123,11 +123,80 @@ impl Sweep {
     }
 
     /// Ball end mill: the hull of the four sphere centres grown by the ball
-    /// radius. The line meets it in the hull of its intervals with the
-    /// spheres, the edge cylinders and the triangles thickened by the radius.
-    /// With a fixed axis the centres form a parallelogram, and its four sides
-    /// and two triangles suffice.
+    /// radius. Most lines are decided by the bottom and top capsules alone;
+    /// the rest by the whole hull.
     fn ball_ray(&self, o: DVec3, e: DVec3) -> Option<(f64, f64)> {
+        if let Some(i) = self.ball_fast(o, e) {
+            return i;
+        }
+        self.ball_ray_full(o, e)
+    }
+
+    /// Ball end mill: the line's entry and exit, each from the bottom capsule
+    /// (`c0`–`c2`) or the top capsule (`c1`–`c3`), if they lie on the hull's
+    /// boundary. A point of the bottom capsule with outward normal `n` does
+    /// when `n·w ≤ 0` for both axes, because then the hull's support in `n` is
+    /// at `c0` or `c2`; a point of the top capsule when `n·w ≥ 0`. A line
+    /// farther than the radius from the bottom segment, in a direction `n`
+    /// with `n·w ≤ 0`, misses. `None` if this cannot decide.
+    fn ball_fast(&self, o: DVec3, e: DVec3) -> Option<Option<(f64, f64)>> {
+        let r = self.tool.corner;
+        let c = self.ball_centres();
+        let (w0, w1) = (self.p0.axis, self.p1.axis);
+        // Shortest vector from the bottom segment to the line.
+        let perp = |v: DVec3| v - e * v.dot(e);
+        let (pw, pd) = (perp(o - c[0]), perp(c[2] - c[0]));
+        let dd = pd.length_squared();
+        let l = if dd > 0.0 {
+            (pw.dot(pd) / dd).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let v = pw - pd * l;
+        if v.length_squared() > r * r {
+            return (v.dot(w0) <= 0.0 && v.dot(w1) <= 0.0).then_some(None);
+        }
+        // Outward normal of the capsule `pq` at `x`, not normalised.
+        let normal = |x: DVec3, p: DVec3, q: DVec3| {
+            let d = q - p;
+            let dd = d.length_squared();
+            let l = if dd > 0.0 {
+                ((x - p).dot(d) / dd).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            x - (p + d * l)
+        };
+        // The line's end `t` on capsule `pq`, if it is on the hull's boundary;
+        // `s` is +1 for the top capsule, −1 for the bottom, `side` −1 for an
+        // entry, +1 for an exit.
+        let on_hull = |t: f64, p: DVec3, q: DVec3, s: f64, side: f64| {
+            let n = normal(o + e * t, p, q);
+            side * n.dot(e) > 0.0 && s * n.dot(w0) >= 0.0 && s * n.dot(w1) >= 0.0
+        };
+        let (b0, b1) = line_capsule(o, e, c[0], c[2], r)?;
+        let top = std::cell::OnceCell::new();
+        let top = || *top.get_or_init(|| line_capsule(o, e, c[1], c[3], r));
+        let t0 = if on_hull(b0, c[0], c[2], -1.0, -1.0) {
+            b0
+        } else {
+            let (a, _) = top()?;
+            on_hull(a, c[1], c[3], 1.0, -1.0).then_some(a)?
+        };
+        let t1 = if on_hull(b1, c[0], c[2], -1.0, 1.0) {
+            b1
+        } else {
+            let (_, b) = top()?;
+            on_hull(b, c[1], c[3], 1.0, 1.0).then_some(b)?
+        };
+        Some((t0 <= t1).then_some((t0, t1)))
+    }
+
+    /// Ball end mill, by the whole hull. The line meets it in the hull of its
+    /// intervals with the spheres, the edge cylinders and the triangles
+    /// thickened by the radius. With a fixed axis the centres form a
+    /// parallelogram, and its four sides and two triangles suffice.
+    fn ball_ray_full(&self, o: DVec3, e: DVec3) -> Option<(f64, f64)> {
         const QUAD_EDGES: [(usize, usize); 4] = [(0, 1), (2, 3), (0, 2), (1, 3)];
         const QUAD_TRIS: [(usize, usize, usize); 2] = [(0, 1, 3), (0, 3, 2)];
         const EDGES: [(usize, usize); 6] = [(0, 1), (2, 3), (0, 2), (1, 3), (0, 3), (1, 2)];

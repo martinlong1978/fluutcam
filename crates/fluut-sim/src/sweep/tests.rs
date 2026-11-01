@@ -358,3 +358,46 @@ fn side_on_steep_bull_ramps_matches_brute_force() {
         assert!(close(got, want, 0.01), "d={d} o={o}: {got:?} vs {want:?}");
     }
 }
+
+#[test]
+fn ball_fast_path_matches_full_hull() {
+    let mut rng = Lcg(19);
+    let (mut decided, mut total) = (0, 0);
+    for n in 0..2000 {
+        // Rotary chords like a wrap, with axes a few degrees apart, and
+        // fixed-axis chords; lines mostly near the axes, some across them.
+        let axis = rng.unit();
+        let axis1 = if n % 3 == 0 {
+            axis
+        } else {
+            (axis + rng.unit() * 0.1).normalize()
+        };
+        let tip = DVec3::new(
+            rng.range(-1.0, 1.0),
+            rng.range(-1.0, 1.0),
+            rng.range(-1.0, 1.0),
+        );
+        let d = rng.unit() * rng.range(0.0, 1.5);
+        let s = Sweep::new(Tool::ball(1.0), pose(tip, axis), pose(tip + d, axis1));
+        let (e, o) = if n % 2 == 0 {
+            let e = (axis + rng.unit() * 0.1).normalize();
+            (e, tip + rng.unit() * rng.range(0.0, 0.8) - e * 20.0)
+        } else {
+            let e = rng.unit();
+            (e, tip + rng.unit() * rng.range(0.0, 1.5) - e * 20.0)
+        };
+        let full = s.ball_ray_full(o, e);
+        let fast = s.ball_fast(o, e);
+        if let Some(fast) = fast {
+            assert!(close(fast, full, 1e-9), "{fast:?} vs {full:?}");
+        }
+        if n % 2 == 0 && full.is_some() {
+            total += 1;
+            decided += usize::from(fast.is_some());
+        }
+        assert!(close(s.ray(o, e), full, 1e-9));
+    }
+    // Most lines near the axes that meet the sweep are decided by the fast
+    // path.
+    assert!(decided * 2 > total, "{decided} of {total}");
+}
