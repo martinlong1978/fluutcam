@@ -675,9 +675,10 @@ Both types clear the stock in Z levels against the 3-D model (D09 §4.1, §4.2).
   offset by R + `stock_to_leave` (D08 §7.1);
 - clear(z) = machinable(z) ∩ the starting stock at z (§1.10), grown by R.
 
-The region is the stock outline, cut by `boundary` if set. Check faces are part of the
-sections; drive faces only decide `selection` and which faces get `stock_to_leave` (all faces
-of the Setup's bodies are always avoided).
+The region is the stock outline, cut by `boundary` if set. The sections are taken through the
+drive faces, grown by `stock_to_leave`, and the check faces, with no allowance. Excluded faces
+are left out of the sections, so the tool may cut through them (for example a cap face over a
+pocket).
 
 **Common fields used (both):** item keys; all of `tool_params`; `drive_faces`, `check_faces`,
 `excluded_faces`, `boundary`, `rest_from`; all heights; `machining_tolerance`,
