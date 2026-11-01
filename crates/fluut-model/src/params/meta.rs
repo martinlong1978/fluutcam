@@ -139,13 +139,24 @@ pub enum ToolpathTypeId {
     Contour2d,
     Pocket2d,
     Parallel,
+    // 3-D finishing (D15b §5).
+    Contour,
+    Horizontal,
+    Spiral,
+    Scallop,
+    SteepAndShallow,
 }
 
 impl ToolpathTypeId {
-    pub const ALL: [ToolpathTypeId; 3] = [
+    pub const ALL: [ToolpathTypeId; 8] = [
         ToolpathTypeId::Contour2d,
         ToolpathTypeId::Pocket2d,
         ToolpathTypeId::Parallel,
+        ToolpathTypeId::Contour,
+        ToolpathTypeId::Horizontal,
+        ToolpathTypeId::Spiral,
+        ToolpathTypeId::Scallop,
+        ToolpathTypeId::SteepAndShallow,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -153,6 +164,11 @@ impl ToolpathTypeId {
             ToolpathTypeId::Contour2d => "contour_2d",
             ToolpathTypeId::Pocket2d => "pocket_2d",
             ToolpathTypeId::Parallel => "parallel",
+            ToolpathTypeId::Contour => "contour",
+            ToolpathTypeId::Horizontal => "horizontal",
+            ToolpathTypeId::Spiral => "spiral",
+            ToolpathTypeId::Scallop => "scallop",
+            ToolpathTypeId::SteepAndShallow => "steep_and_shallow",
         }
     }
 
@@ -166,7 +182,27 @@ impl ToolpathTypeId {
             ToolpathTypeId::Contour2d => super::tables::CONTOUR_2D,
             ToolpathTypeId::Pocket2d => super::tables::POCKET_2D,
             ToolpathTypeId::Parallel => super::tables::PARALLEL,
+            ToolpathTypeId::Contour => super::tables::CONTOUR,
+            ToolpathTypeId::Horizontal => super::tables::HORIZONTAL,
+            ToolpathTypeId::Spiral => super::tables::SPIRAL,
+            ToolpathTypeId::Scallop => super::tables::SCALLOP,
+            ToolpathTypeId::SteepAndShallow => super::tables::STEEP_AND_SHALLOW,
         }
+    }
+
+    /// 3-D types that follow the surface (D15 §5, D15b §5): stock to leave
+    /// is a normal offset, `top` may equal `bottom`, and there are no
+    /// ramps.
+    pub fn follows_surface(self) -> bool {
+        matches!(
+            self,
+            ToolpathTypeId::Parallel
+                | ToolpathTypeId::Contour
+                | ToolpathTypeId::Horizontal
+                | ToolpathTypeId::Spiral
+                | ToolpathTypeId::Scallop
+                | ToolpathTypeId::SteepAndShallow
+        )
     }
 
     /// The fields of one group.

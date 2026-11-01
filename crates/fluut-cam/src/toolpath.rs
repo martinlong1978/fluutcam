@@ -121,6 +121,32 @@ pub fn find(id: ToolpathTypeId) -> &'static dyn ToolpathType {
         ToolpathTypeId::Contour2d => &CONTOUR_2D,
         ToolpathTypeId::Pocket2d => &POCKET_2D,
         ToolpathTypeId::Parallel => &PARALLEL,
+        ToolpathTypeId::Contour => &Pending(ToolpathTypeId::Contour),
+        ToolpathTypeId::Horizontal => &Pending(ToolpathTypeId::Horizontal),
+        ToolpathTypeId::Spiral => &Pending(ToolpathTypeId::Spiral),
+        ToolpathTypeId::Scallop => &Pending(ToolpathTypeId::Scallop),
+        ToolpathTypeId::SteepAndShallow => &Pending(ToolpathTypeId::SteepAndShallow),
+    }
+}
+
+/// A type with parameters but no strategy in this build yet.
+#[derive(Debug)]
+struct Pending(ToolpathTypeId);
+
+impl ToolpathType for Pending {
+    fn id(&self) -> ToolpathTypeId {
+        self.0
+    }
+
+    fn role(&self) -> Role {
+        Role::Finish
+    }
+
+    fn generate(&self, _: &StrategyInput) -> Result<Generated, CamError> {
+        Err(CamError::Unavailable(format!(
+            "{} cannot be calculated by this build",
+            self.0
+        )))
     }
 }
 

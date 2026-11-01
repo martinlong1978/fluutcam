@@ -92,6 +92,11 @@ pub fn validate(tp: &Toolpath, cx: &ValidateCx) -> Vec<Diagnostic> {
         ToolpathTypeId::Contour2d => v.contour(),
         ToolpathTypeId::Pocket2d => v.pocket(),
         ToolpathTypeId::Parallel => v.parallel(),
+        ToolpathTypeId::Contour => v.contour3d(),
+        ToolpathTypeId::Horizontal => v.horizontal(),
+        ToolpathTypeId::Spiral => v.spiral(),
+        ToolpathTypeId::Scallop => v.scallop(),
+        ToolpathTypeId::SteepAndShallow => v.steep_and_shallow(),
     }
     tag(out, tp)
 }
@@ -279,7 +284,7 @@ impl V<'_, '_> {
         let Some(z) = self.cx.heights.copied() else {
             return;
         };
-        let top_ok = if self.r.kind == ToolpathTypeId::Parallel {
+        let top_ok = if self.r.kind.follows_surface() {
             z.top >= z.bottom
         } else {
             z.top > z.bottom
@@ -291,7 +296,7 @@ impl V<'_, '_> {
                 format!(
                     "heights must satisfy clearance ≥ retract ≥ feed ≥ top {} bottom \
                      (now {} / {} / {} / {} / {})",
-                    if self.r.kind == ToolpathTypeId::Parallel {
+                    if self.r.kind.follows_surface() {
                         "≥"
                     } else {
                         ">"
@@ -346,7 +351,7 @@ impl V<'_, '_> {
             }
         }
         let stl = p.stock_to_leave;
-        let two_d = self.r.kind != ToolpathTypeId::Parallel;
+        let two_d = !self.r.kind.follows_surface();
         let (bad, bound) = if two_d {
             (stl <= -self.tool.radius(), "−R")
         } else {
@@ -439,7 +444,7 @@ impl V<'_, '_> {
                 );
             }
         }
-        let uses_ramp = self.r.kind != ToolpathTypeId::Parallel;
+        let uses_ramp = !self.r.kind.follows_surface();
         if uses_ramp {
             let a = l.ramp.angle_deg;
             if l.ramp.kind != RampKind::Plunge && !(a > 0.0 && a <= 90.0) {
@@ -668,6 +673,168 @@ impl V<'_, '_> {
                 "param.parallel.slope.order",
                 "passes.min_slope_deg",
                 format!("min slope {lo}° must be below max slope {hi}°"),
+            );
+        }
+    }
+
+    /// `stepover` and `scallop_height` both set locally (D15 §5.2).
+    fn stepover_and_scallop(&mut self, code: &str, stepover: &str, scallop: &str) {
+        if self.p.is_set(stepover) && self.p.is_set(scallop) {
+            self.e(
+                code,
+                scallop,
+                "set either stepover or scallop_height, not both".into(),
+            );
+        }
+    }
+
+    /// A scallop height needs a corner radius r and must be in (0, r).
+    fn scallop_height(&mut self, scope: &str, field: &str, h: Option<f64>) {
+        let Some(h) = h else { return };
+        let r = self.tool.corner_radius();
+        if r <= 0.0 {
+            self.e(
+                &format!("param.{scope}.scallop.radius"),
+                field,
+                "scallop height needs a tool with a corner radius".into(),
+            );
+        } else if !(h > 0.0 && h < r) {
+            self.e(
+                &format!("param.{scope}.scallop.range"),
+                field,
+                format!("scallop height {h} must be above 0 and below the corner radius {r}"),
+            );
+        }
+    }
+
+    /// Slope limits in [0, 90], min below max (D15 §5.2).
+    fn slope_limits(&mut self, scope: &str, lo: f64, hi: f64) {
+        if !(0.0..=90.0).contains(&lo) || !(0.0..=90.0).contains(&hi) {
+            self.e(
+                &format!("param.{scope}.slope.range"),
+                "passes.min_slope_deg",
+                "slope limits must lie in [0, 90]".into(),
+            );
+        } else if lo >= hi {
+            self.e(
+                &format!("param.{scope}.slope.order"),
+                "passes.min_slope_deg",
+                format!("min slope {lo}° must be below max slope {hi}°"),
+            );
+        }
+    }
+
+    fn contour3d(&mut self) {
+        let Some(c) = self.r.contour3d().cloned() else {
+            return;
+        };
+        self.scallop_height("contour", "passes.scallop_height", c.scallop_height);
+        self.slope_limits("contour", c.min_slope_deg, c.max_slope_deg);
+    }
+
+    fn horizontal(&mut self) {
+        let Some(h) = self.r.horizontal().cloned() else {
+            return;
+        };
+        self.required("passes.stepover", h.stepover);
+        if !matches!(self.tool.shape, ToolShape::Flat | ToolShape::Bull) {
+            self.w(
+                "param.horizontal.tool_shape",
+                "tool",
+                "the tool is not flat or bull nosed: the flats will be scalloped".into(),
+            );
+        }
+    }
+
+    fn spiral(&mut self) {
+        let Some(sp) = self.r.spiral().cloned() else {
+            return;
+        };
+        self.stepover_and_scallop(
+            "param.spiral.stepover_and_scallop",
+            "passes.stepover",
+            "passes.scallop_height",
+        );
+        match sp.scallop_height {
+            None => self.required("passes.stepover", sp.stepover),
+            h => self.scallop_height("spiral", "passes.scallop_height", h),
+        }
+    }
+
+    fn scallop(&mut self) {
+        let Some(sc) = self.r.scallop().cloned() else {
+            return;
+        };
+        self.stepover_and_scallop(
+            "param.scallop.stepover_and_scallop",
+            "passes.stepover",
+            "passes.scallop_height",
+        );
+        match sc.scallop_height {
+            None => self.required("passes.stepover", sc.stepover),
+            h => self.scallop_height("scallop", "passes.scallop_height", h),
+        }
+        self.slope_limits("scallop", sc.min_slope_deg, sc.max_slope_deg);
+    }
+
+    fn steep_and_shallow(&mut self) {
+        let Some(ss) = self.r.steep_and_shallow().cloned() else {
+            return;
+        };
+        let t = ss.threshold_deg;
+        if !(t > 0.0 && t < 90.0) {
+            self.e(
+                "param.steep_and_shallow.threshold.range",
+                "passes.threshold_deg",
+                format!("threshold {t}° is outside (0, 90)"),
+            );
+        }
+        self.range(
+            "steep_and_shallow",
+            "passes.overlap",
+            ss.overlap >= 0.0,
+            "0 or more",
+        );
+        self.range(
+            "steep_and_shallow",
+            "passes.steep.step_down",
+            ss.steep.step_down > 0.0,
+            "above 0",
+        );
+        if let Some(fl) = self.tool.flute_length
+            && ss.steep.step_down > fl
+        {
+            self.w(
+                "param.passes.step_down.flute",
+                "passes.steep.step_down",
+                format!(
+                    "step-down {} is more than the flute length {fl}",
+                    ss.steep.step_down
+                ),
+            );
+        }
+        self.stepover_and_scallop(
+            "param.steep_and_shallow.shallow.stepover_and_scallop",
+            "passes.shallow.stepover",
+            "passes.shallow.scallop_height",
+        );
+        let scope = "steep_and_shallow";
+        self.scallop_height(
+            scope,
+            "passes.steep.scallop_height",
+            ss.steep.scallop_height,
+        );
+        match ss.shallow.scallop_height {
+            None => self.required("passes.shallow.stepover", ss.shallow.stepover),
+            h => self.scallop_height(scope, "passes.shallow.scallop_height", h),
+        }
+        if ss.shallow.pattern == crate::resolve::ShallowPattern::Scallop
+            && ss.shallow.direction == crate::resolve::ParallelDirection::Zigzag
+        {
+            self.e(
+                "param.steep_and_shallow.shallow.direction",
+                "passes.shallow.direction",
+                "a scallop pattern cuts climb or conventional, not zigzag".into(),
             );
         }
     }
