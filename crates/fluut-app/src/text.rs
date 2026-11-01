@@ -83,6 +83,7 @@ const EN: &[(&str, &str)] = &[
     ("inspector-default-none", "Default: not set"),
     ("inspector-default-preset", "tool preset { $key }"),
     ("inspector-reset", "Reset to default"),
+    ("inspector-reset-short", "Reset"),
     ("inspector-invalid-entry", "Not a value: { $text }"),
     (
         "inspector-entry-help",
@@ -112,7 +113,7 @@ const EN: &[(&str, &str)] = &[
     ("viewport-label", "3-D viewport"),
     (
         "viewport-help",
-        "Drag: orbit · right or middle drag: pan · wheel: zoom · click: pick",
+        "Drag: orbit · right or middle drag: pan · wheel: zoom · click: pick · double-click: fit",
     ),
     ("viewport-no-gpu", "No GPU device: the viewport is off"),
     ("viewport-picked-face", "Face { $id }"),

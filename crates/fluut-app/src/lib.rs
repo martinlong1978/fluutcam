@@ -11,10 +11,14 @@
 //! - `ui`: the `egui` widget layer.
 //! - `text`, `brand`: user-visible text and the brand.
 
+pub mod bench;
 pub mod brand;
 pub mod jobs;
 pub mod scene;
 pub mod session;
 pub mod text;
+pub mod ui;
 pub mod viewport;
 pub mod vm;
+
+pub use ui::FluutApp;
