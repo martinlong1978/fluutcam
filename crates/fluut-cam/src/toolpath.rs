@@ -4,7 +4,7 @@
 
 use crate::geometry::SetupGeometry;
 use crate::strategy::{
-    Adaptive2d, Bore, Chamfer2d, Contour2d, Drill, Face, Parallel, Pocket2d, Trace,
+    Adaptive2d, Bore, Chamfer2d, Contour2d, Drill, Engrave, Face, Parallel, Pocket2d, Trace,
 };
 use fluut_geom::{Aabb3, Affine, Point2, Point3};
 use fluut_model::params::{FieldMeta, ToolpathTypeId};
@@ -119,7 +119,8 @@ static CHAMFER_2D: Chamfer2d = Chamfer2d;
 static BORE: Bore = Bore;
 static DRILL: Drill = Drill;
 static ADAPTIVE_2D: Adaptive2d = Adaptive2d;
-static REGISTRY: [&dyn ToolpathType; 9] = [
+static ENGRAVE: Engrave = Engrave;
+static REGISTRY: [&dyn ToolpathType; 10] = [
     &CONTOUR_2D,
     &POCKET_2D,
     &PARALLEL,
@@ -129,6 +130,7 @@ static REGISTRY: [&dyn ToolpathType; 9] = [
     &BORE,
     &DRILL,
     &ADAPTIVE_2D,
+    &ENGRAVE,
 ];
 
 /// Every type of this build (D09 §1).
@@ -147,6 +149,7 @@ pub fn find(id: ToolpathTypeId) -> &'static dyn ToolpathType {
         ToolpathTypeId::Bore => &BORE,
         ToolpathTypeId::Drill => &DRILL,
         ToolpathTypeId::Adaptive2d => &ADAPTIVE_2D,
+        ToolpathTypeId::Engrave => &ENGRAVE,
     }
 }
 

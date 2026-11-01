@@ -83,6 +83,7 @@ fn curve_mode_follows_the_curve_z() {
     let c = cuts(&r);
     assert!(c.iter().all(|s| (end(s).y() - 2.0).abs() < 1e-9));
     assert!((end(c[c.len() - 1]).z() - 10.0).abs() < 1e-9);
+    assert!(!codes(&r).contains(&"cam.trace.below_stock".into()));
     // Below the stock bottom: a warning.
     let t = tp(
         "trace",
@@ -128,6 +129,7 @@ fn side_offsets_of_open_and_closed_chains() {
     );
     let len: f64 = cuts(&r).iter().map(|s| s.length()).sum();
     assert!((len - 24.0).abs() < 1e-9, "{len}");
+    assert!(!codes(&r).contains(&"cam.trace.offset_empty".into()));
     let r = run(
         &g,
         &tp(

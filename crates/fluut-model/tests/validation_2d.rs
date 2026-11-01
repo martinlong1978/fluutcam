@@ -49,6 +49,12 @@ flute_length = 8
   plunge = 800
   step_down = 2
 [[tool]]
+id = "v-60-short"
+shape = "v"
+diameter = 12
+half_angle_deg = 30
+flute_length = 4
+[[tool]]
 id = "drill-5"
 shape = "drill"
 diameter = 5
@@ -369,4 +375,31 @@ fn adaptive_2d_codes() {
         CURVES,
         "",
     );
+}
+
+#[test]
+fn engrave_codes() {
+    clean("engrave", "v-90", CURVES);
+    case_with(
+        "param.engrave.tool_shape",
+        ("engrave", "v-90", CURVES, None),
+        ("engrave", "flat-6", CURVES, None),
+    );
+    // Cone height (6 − 0.1) / tan 45° = 5.9; flute length 8.
+    case(
+        "param.engrave.max_depth.cone",
+        "engrave",
+        "v-90",
+        &format!("{CURVES}[passes]\nmax_depth = 5.9\n"),
+        &format!("{CURVES}[passes]\nmax_depth = 6\n"),
+    );
+    // Cone height 6 / tan 30° = 10.4, flute length 4.
+    case(
+        "param.engrave.max_depth.flute",
+        "engrave",
+        "v-60-short",
+        &format!("{CURVES}[passes]\nmax_depth = 4\n"),
+        &format!("{CURVES}[passes]\nmax_depth = 4.5\n"),
+    );
+    case("param.geometry.drive.empty", "engrave", "v-90", CURVES, "");
 }

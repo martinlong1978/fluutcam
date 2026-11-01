@@ -130,6 +130,7 @@ pub fn validate(tp: &Toolpath, cx: &ValidateCx) -> Vec<Diagnostic> {
         ToolpathTypeId::Bore => v.bore(),
         ToolpathTypeId::Drill => v.drill(),
         ToolpathTypeId::Adaptive2d => v.adaptive(),
+        ToolpathTypeId::Engrave => v.engrave(),
     }
     tag(out, tp)
 }
@@ -272,6 +273,7 @@ impl V<'_, '_> {
             ToolpathTypeId::Contour2d
                 | ToolpathTypeId::Pocket2d
                 | ToolpathTypeId::Adaptive2d
+                | ToolpathTypeId::Engrave
                 | ToolpathTypeId::Trace
                 | ToolpathTypeId::Chamfer2d
                 | ToolpathTypeId::Bore
@@ -747,6 +749,40 @@ impl V<'_, '_> {
             );
         }
         Some((a?, self.tool.tip_radius()))
+    }
+
+    fn engrave(&mut self) {
+        let Some(e) = self.r.engrave().cloned() else {
+            return;
+        };
+        if self.v_tool().is_none() {
+            return;
+        }
+        let Some(md) = e.max_depth else {
+            return;
+        };
+        self.range("engrave", "passes.max_depth", md > 0.0, "above 0");
+        if let Some(cone) = self.tool.cone_height()
+            && md > cone + 1e-9
+        {
+            self.e(
+                "param.engrave.max_depth.cone",
+                "passes.max_depth",
+                format!(
+                    "max depth {md} is more than the cone height {cone}: the shank would cut \
+                     the walls"
+                ),
+            );
+        }
+        if let Some(fl) = self.tool.flute_length
+            && md > fl
+        {
+            self.w(
+                "param.engrave.max_depth.flute",
+                "passes.max_depth",
+                format!("max depth {md} is more than the flute length {fl}"),
+            );
+        }
     }
 
     fn chamfer(&mut self) {

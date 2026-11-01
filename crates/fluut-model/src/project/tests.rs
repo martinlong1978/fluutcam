@@ -110,6 +110,7 @@ fn every_d15b_example_round_trips() {
             "face",
             "adaptive_2d",
             "trace",
+            "engrave",
             "chamfer_2d",
             "bore",
             "drill"

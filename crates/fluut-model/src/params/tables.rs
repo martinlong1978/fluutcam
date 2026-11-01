@@ -813,6 +813,39 @@ pub(crate) const ADAPTIVE_2D: &[FieldMeta] = &[
     ORDER,
 ];
 
+// ── engrave (D15b §2.4) ──────────────────────────────────────────────
+
+const ENGRAVE_RAMP: &[FieldMeta] = &ramp_fields(&["plunge"], "plunge");
+
+pub(crate) const ENGRAVE: &[FieldMeta] = &[
+    SPINDLE_RPM,
+    FEEDS,
+    COOLANT,
+    DRIVE_CURVES,
+    CLEARANCE,
+    RETRACT_H,
+    FEED_H,
+    top("stock_top"),
+    MACHINING_TOLERANCE,
+    MAX_SEGMENT_LENGTH,
+    OUTPUT_ARCS,
+    f(
+        "max_depth",
+        Passes,
+        Length,
+        Computed("cone height of the tool"),
+        R,
+        true,
+    ),
+    f("step_down", Passes, Length, NoDefault, R, true),
+    f("corner_sharpening", Passes, Bool, flag(false), R, false),
+    RETRACT,
+    SAFETY_DISTANCE,
+    TRANSITIONS,
+    f("ramp", Linking, Table(ENGRAVE_RAMP), NoDefault, R, false),
+    ORDER,
+];
+
 /// Whether `key` is a field of `group` for some type. Used to tell an
 /// undeclared common field (an error, spec 03 §3.10.3) from an unknown key.
 pub fn known_in_any_type(group: Group, key: &str) -> bool {

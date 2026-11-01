@@ -473,6 +473,16 @@ pub struct Adaptive2d {
     pub direction: CutDirection,
 }
 
+/// `engrave` (D15b §2.4).
+#[derive(Clone, PartialEq, Debug)]
+pub struct Engrave {
+    /// `None` when the tool is not a V tool and the key is absent.
+    pub max_depth: Option<f64>,
+    /// `None`: one pass.
+    pub step_down: Option<f64>,
+    pub corner_sharpening: bool,
+}
+
 #[derive(Clone, PartialEq, Debug)]
 pub enum TypeParams {
     Contour2d(Contour2d),
@@ -484,6 +494,7 @@ pub enum TypeParams {
     Bore(Bore),
     Drill(Drill),
     Adaptive2d(Adaptive2d),
+    Engrave(Engrave),
 }
 
 /// Every parameter of a toolpath with defaults applied.
@@ -562,6 +573,13 @@ impl ResolvedParams {
         }
     }
 
+    pub fn engrave(&self) -> Option<&Engrave> {
+        match &self.ty {
+            TypeParams::Engrave(c) => Some(c),
+            _ => None,
+        }
+    }
+
     /// Step-down of the type, if it has one.
     pub fn step_down(&self) -> Option<f64> {
         match &self.ty {
@@ -570,6 +588,7 @@ impl ResolvedParams {
             TypeParams::Face(p) => p.step_down,
             TypeParams::Trace(p) => p.step_down,
             TypeParams::Adaptive2d(p) => p.step_down,
+            TypeParams::Engrave(p) => p.step_down,
             TypeParams::Parallel(_)
             | TypeParams::Chamfer2d(_)
             | TypeParams::Bore(_)
@@ -588,7 +607,8 @@ impl ResolvedParams {
             | TypeParams::Chamfer2d(_)
             | TypeParams::Bore(_)
             | TypeParams::Drill(_)
-            | TypeParams::Adaptive2d(_) => None,
+            | TypeParams::Adaptive2d(_)
+            | TypeParams::Engrave(_) => None,
         }
     }
 }
@@ -891,6 +911,11 @@ pub fn resolve(p: &Params, tool: &Tool, material: Option<&str>) -> ResolvedParam
             overlap: g.num_or("passes.overlap", 0.6 * d),
             step_down: g.or_preset("passes.step_down", "step_down"),
             final_step_down: g.num("passes.final_step_down"),
+        }),
+        ToolpathTypeId::Engrave => TypeParams::Engrave(Engrave {
+            max_depth: g.num("passes.max_depth").or(tool.cone_height()),
+            step_down: g.num("passes.step_down"),
+            corner_sharpening: g.flag("passes.corner_sharpening", false),
         }),
         ToolpathTypeId::Adaptive2d => TypeParams::Adaptive2d(Adaptive2d {
             // D15b §9, decision 1: the preset, else 0.1 · D.

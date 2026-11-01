@@ -150,6 +150,15 @@ fn faces_circles_and_bosses() {
     let li = moves(&r, Motion::LeadIn);
     let p0 = xy(start(li[0]));
     assert!(p0.distance(fluut_geom::Point2::new(20.0, 20.0)) > 8.0);
+    // A Ø10 hole leaves no core for a 6 mm tool (helix radius 2 < R).
+    let small = wire_circle(20.0, 20.0, 10.0, 5.0);
+    let t = tp(
+        "bore",
+        "f6",
+        "[geometry]\ndrive_curves = [{ body = \"b-w\" }]\n\
+         [heights]\nbottom = { ref = \"selection\", offset = -4 }\n",
+    );
+    assert!(run(&small, &t, stock()).diagnostics.is_empty());
     // A curve that is not a circle.
     let line = wire(&[[0.0, 0.0, 10.0], [10.0, 0.0, 10.0]]);
     let t = tp(
