@@ -65,6 +65,8 @@ pub enum FieldKind {
     Speed,
     /// Degrees in the file.
     Angle,
+    /// Seconds (D15b §1.1).
+    Duration,
     Count,
     Bool,
     /// One of the listed snake_case strings.
@@ -133,19 +135,21 @@ impl FieldMeta {
     }
 }
 
-/// Toolpath types with parameter definitions (D15 §3–§5).
+/// Toolpath types with parameter definitions (D15 §3–§5, D15b §2–§3).
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub enum ToolpathTypeId {
     Contour2d,
     Pocket2d,
     Parallel,
+    Face,
 }
 
 impl ToolpathTypeId {
-    pub const ALL: [ToolpathTypeId; 3] = [
+    pub const ALL: [ToolpathTypeId; 4] = [
         ToolpathTypeId::Contour2d,
         ToolpathTypeId::Pocket2d,
         ToolpathTypeId::Parallel,
+        ToolpathTypeId::Face,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -153,6 +157,7 @@ impl ToolpathTypeId {
             ToolpathTypeId::Contour2d => "contour_2d",
             ToolpathTypeId::Pocket2d => "pocket_2d",
             ToolpathTypeId::Parallel => "parallel",
+            ToolpathTypeId::Face => "face",
         }
     }
 
@@ -166,6 +171,7 @@ impl ToolpathTypeId {
             ToolpathTypeId::Contour2d => super::tables::CONTOUR_2D,
             ToolpathTypeId::Pocket2d => super::tables::POCKET_2D,
             ToolpathTypeId::Parallel => super::tables::PARALLEL,
+            ToolpathTypeId::Face => super::tables::FACE,
         }
     }
 

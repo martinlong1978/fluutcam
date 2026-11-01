@@ -1,0 +1,53 @@
+format = "fluut.tools/1"
+id     = "shop"
+name   = "Test shop"
+
+[[tool]]
+id            = "flat-20"
+name          = "20 mm flat"
+number        = 1
+shape         = "flat"
+diameter      = 20.0
+flute_length  = 25
+
+  [[tool.preset]]
+  material  = "MDF"
+  rpm       = 12000
+  feed      = 3000
+  plunge    = 800
+  stepover  = 14
+  step_down = 2
+
+[[tool]]
+id            = "flat-6"
+name          = "6 mm flat"
+number        = 2
+shape         = "flat"
+diameter      = 6.0
+flute_length  = 25
+
+  [[tool.preset]]
+  material     = "MDF"
+  rpm          = 18000
+  feed         = 2000
+  plunge       = 600
+  stepover     = 2.4
+  step_down    = 4.0
+  optimal_load = 0.9
+
+[[tool]]
+id             = "v-90"
+name           = "90° V bit"
+number         = 3
+shape          = "v"
+diameter       = 12.0
+half_angle_deg = 45
+tip_diameter   = 0.2
+flute_length   = 10
+
+  [[tool.preset]]
+  material  = "MDF"
+  rpm       = 18000
+  feed      = 1500
+  plunge    = 500
+  step_down = 2

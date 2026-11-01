@@ -36,14 +36,21 @@ pub fn tool_r_text(tool: Option<&Tool>, material: Option<&str>) -> String {
     format!(
         "tool.shape = {:?}\ntool.diameter = {:?}\ntool.corner_radius = {:?}\n\
          tool.flute_length = {}\ntool.centre_cutting = {}\n\
-         preset.stepover = {}\npreset.step_down = {}\n",
+         tool.half_angle_deg = {}\ntool.tip_diameter = {}\n\
+         tool.point_angle_deg = {}\ntool.pitch = {}\n\
+         preset.stepover = {}\npreset.step_down = {}\npreset.optimal_load = {}\n",
         t.shape,
         t.diameter,
         t.corner_radius(),
         opt(t.flute_length),
         t.centre_cutting,
+        opt(t.half_angle_deg),
+        opt(t.tip_diameter),
+        opt(t.point_angle_deg),
+        opt(t.pitch),
         opt(p.and_then(|p| p.stepover)),
         opt(p.and_then(|p| p.step_down)),
+        opt(p.and_then(|p| p.optimal_load)),
     )
 }
 

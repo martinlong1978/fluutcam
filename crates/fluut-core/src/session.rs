@@ -11,7 +11,7 @@ use fluut_cam::geometry::SetupBody;
 use fluut_model::project::{Project, Setup, read};
 use fluut_model::resolve::{Coolant, resolve};
 use fluut_model::tools::{ToolLibrary, ToolStore};
-use fluut_model::validate::{PostCaps, ValidateCx, validate};
+use fluut_model::validate::{CycleSet, PostCaps, ValidateCx, validate};
 use fluut_model::{DefRef, DefStore, Diagnostic, Severity};
 use fluut_path::{PathStats, ToolpathResult};
 use fluut_post::{
@@ -259,6 +259,7 @@ impl Session {
                     material: s.material.as_deref(),
                     setup_kind: s.kind,
                     env: fr.height_env(),
+                    stock: Some(fr.stock),
                     to_work: fr.to_work,
                     machine: None,
                     post,
@@ -313,6 +314,19 @@ impl Session {
                 && has("cutter_comp_right")
                 && has("cutter_comp_off"),
             coolant: has("coolant_on"),
+            helix: cp.post.helix.enabled,
+            cycles: if cp.post.cycles.enabled && has("cycle_start") {
+                CycleSet::of(
+                    &cp.post
+                        .cycles
+                        .supported
+                        .iter()
+                        .map(|c| cycle_name(*c))
+                        .collect::<Vec<_>>(),
+                )
+            } else {
+                CycleSet::default()
+            },
         };
         let mut reports = self.calculate_with(&Targets::All, Some(caps));
         // Post-dependent rules also for toolpaths taken from the cache.
@@ -429,5 +443,19 @@ impl Session {
             },
             setups,
         }
+    }
+}
+
+/// The spec 05 §5.5 name of a post cycle.
+fn cycle_name(c: fluut_post::post::CycleName) -> &'static str {
+    use fluut_post::post::CycleName as C;
+    match c {
+        C::Drill => "drill",
+        C::Spot => "spot",
+        C::Peck => "peck",
+        C::ChipBreak => "chip_break",
+        C::Tap => "tap",
+        C::Ream => "ream",
+        C::Bore => "bore",
     }
 }

@@ -440,6 +440,7 @@ dependencies = [
 name = "fluut-model"
 version = "0.1.0"
 dependencies = [
+ "libm",
  "serde",
  "serde_ignored",
  "sha2",

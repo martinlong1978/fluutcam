@@ -1,0 +1,31 @@
+format = "fluut.project/1"
+name   = "Plate"
+units  = "mm"
+
+[[geometry]]
+id   = "g1"
+path = "plate.step"
+kind = "step"
+
+  [[geometry.body]]
+  id   = "b-588"
+  name = "plate"
+
+[[setup]]
+id       = "s1"
+name     = "Top"
+kind     = "three_axis"
+material = "MDF"
+stock    = { kind = "block", margin = [5, 5, 1] }
+zero     = { method = "stock_top_corner", corner = "front_left" }
+
+  [[setup.toolpath]]
+  id   = "t1"
+  name = "Face top"
+  type = "face"
+  tool = "shop#flat-20"
+
+    [setup.toolpath.passes]
+    step_down       = 0.6
+    final_step_down = 0.2
+    overlap         = 12

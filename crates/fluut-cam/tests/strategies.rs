@@ -79,6 +79,7 @@ fn run(g: &SetupGeometry, t: &Toolpath, top: f64) -> Generated {
         material: Some("MDF"),
         setup_kind: SetupKind::ThreeAxis,
         env: env(top),
+        stock: None,
         to_work: Affine::identity(),
         machine: None,
         post: None,
@@ -95,6 +96,7 @@ fn run_err(g: &SetupGeometry, t: &Toolpath) -> Vec<String> {
         material: Some("MDF"),
         setup_kind: SetupKind::ThreeAxis,
         env: env(10.0),
+        stock: None,
         to_work: Affine::identity(),
         machine: None,
         post: None,
@@ -678,5 +680,9 @@ fn pocket_helix_entry_or_fallback() {
 
 #[test]
 fn every_type_is_registered() {
-    assert_eq!(fluut_cam::registry().len(), 3);
+    let ids = fluut_model::params::ToolpathTypeId::ALL;
+    assert_eq!(fluut_cam::registry().len(), ids.len());
+    for id in ids {
+        assert_eq!(fluut_cam::find(id).id(), id);
+    }
 }

@@ -161,7 +161,7 @@ pub fn link(cuts: &[Cut], cx: &LinkCx, diags: &mut Vec<Diagnostic>) -> Vec<Pass>
 /// Retract height for a link from a pass at `z` (D08 §8.2). `minimum`
 /// stays `safety_distance` above the highest material the link can meet;
 /// without drop queries (S2) that is the material top.
-fn link_height(z: f64, cx: &LinkCx) -> f64 {
+pub fn link_height(z: f64, cx: &LinkCx) -> f64 {
     let h = match cx.linking.retract {
         RetractPolicy::Full => cx.heights.retract,
         RetractPolicy::Minimum | RetractPolicy::StayDown => cx
@@ -173,8 +173,8 @@ fn link_height(z: f64, cx: &LinkCx) -> f64 {
 }
 
 /// Whether the link from `end` to the next entry may stay at depth: same
-/// level and area, the straight move inside the area's tool-centre region,
-/// and the policy allows it (`stay_down` always, `minimum` up to one tool
+/// level, the straight move inside the next cut's tool-centre region, and
+/// the policy allows it (`stay_down` always, `minimum` up to one tool
 /// diameter, `full` never).
 fn can_stay(prev: &Cut, end: Point3, next: &Cut, entry: Point2, z0: f64, cx: &LinkCx) -> bool {
     let max_len = match cx.linking.retract {
@@ -182,10 +182,10 @@ fn can_stay(prev: &Cut, end: Point3, next: &Cut, entry: Point2, z0: f64, cx: &Li
         RetractPolicy::Minimum => cx.tool_diameter,
         RetractPolicy::StayDown => f64::INFINITY,
     };
-    let (Some(a), Some(b)) = (prev.area, next.area) else {
+    let (Some(_), Some(a)) = (prev.area, next.area) else {
         return false;
     };
-    if a != b || (end.z() - z0).abs() > EPS || (prev.end_z() - z0).abs() > EPS {
+    if (end.z() - z0).abs() > EPS || (prev.end_z() - z0).abs() > EPS {
         return false;
     }
     let p = Point2::new(end.x(), end.y());

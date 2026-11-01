@@ -195,7 +195,11 @@ impl Params {
 fn fits(kind: FieldKind, v: &PValue) -> bool {
     match (kind, v) {
         (
-            FieldKind::Length | FieldKind::Feed | FieldKind::Speed | FieldKind::Angle,
+            FieldKind::Length
+            | FieldKind::Feed
+            | FieldKind::Speed
+            | FieldKind::Angle
+            | FieldKind::Duration,
             PValue::Num(_),
         ) => true,
         (FieldKind::Count, PValue::Num(n)) => n.int,

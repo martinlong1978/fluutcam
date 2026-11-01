@@ -459,6 +459,60 @@ pub(crate) const PARALLEL: &[FieldMeta] = &[
     lead_out(LEAD_NONE),
 ];
 
+// ── face (D15b §2.1) ─────────────────────────────────────────────────
+
+const ZIGZAG_CLIMB_CONVENTIONAL: &[&str] = &["zigzag", "climb", "conventional"];
+
+pub(crate) const FACE: &[FieldMeta] = &[
+    SPINDLE_RPM,
+    FEEDS,
+    COOLANT,
+    DRIVE_FACES,
+    BOUNDARY,
+    CLEARANCE,
+    RETRACT_H,
+    FEED_H,
+    top("stock_top"),
+    bottom("model_top"),
+    MACHINING_TOLERANCE,
+    MAX_SEGMENT_LENGTH,
+    OUTPUT_ARCS,
+    f("stepover", Passes, Length, FromTool("stepover"), R, true),
+    f(
+        "direction",
+        Passes,
+        Enum(ZIGZAG_CLIMB_CONVENTIONAL),
+        text("zigzag"),
+        R,
+        false,
+    ),
+    f("pass_angle_deg", Passes, Angle, num(0.0), R, true),
+    f("step_down", Passes, Length, FromTool("step_down"), R, true),
+    f("final_step_down", Passes, Length, NoDefault, R, true),
+    f(
+        "overlap",
+        Passes,
+        Length,
+        Computed("0.6 * tool.diameter"),
+        R,
+        true,
+    ),
+    PASS_LAYOUT,
+    f("stock_to_leave_axial", Passes, Length, num(0.0), R, true),
+    f(
+        "retract",
+        Linking,
+        Enum(&["full", "minimum", "stay_down"]),
+        text("stay_down"),
+        R,
+        false,
+    ),
+    SAFETY_DISTANCE,
+    TRANSITIONS,
+    lead_in(LEAD_NONE),
+    lead_out(LEAD_NONE),
+];
+
 /// Whether `key` is a field of `group` for some type. Used to tell an
 /// undeclared common field (an error, spec 03 §3.10.3) from an unknown key.
 pub fn known_in_any_type(group: Group, key: &str) -> bool {

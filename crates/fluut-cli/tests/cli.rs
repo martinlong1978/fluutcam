@@ -68,6 +68,7 @@ fn step_inputs_match_the_writer() {
         &step::pocket_block([0.0; 3]),
     );
     check_file(&here("projects/ridge/ridge.step"), &step::ridge([0.0; 3]));
+    check_file(&here("projects/plate/plate.step"), &step::plate([0.0; 3]));
 }
 
 #[test]
@@ -76,6 +77,7 @@ fn projects_are_canonical() {
         "projects/boss/boss.fluut",
         "projects/block/block.fluut",
         "projects/ridge/ridge.fluut",
+        "projects/plate/plate.fluut",
     ] {
         let text = std::fs::read_to_string(here(p)).unwrap();
         let l = fluut_model::project::read(&text).unwrap();
@@ -155,6 +157,16 @@ fn golden_parallel() {
 }
 
 #[test]
+fn golden_2d_types() {
+    golden(
+        "projects/plate/plate.fluut",
+        "fluut/linuxcnc",
+        "plate-linuxcnc.ngc",
+        &[],
+    );
+}
+
+#[test]
 fn calc_reports_each_toolpath() {
     let o = fluut(&["calc", here("projects/block/block.fluut").to_str().unwrap()]);
     let out = String::from_utf8_lossy(&o.stdout);
@@ -221,6 +233,13 @@ const BLOCK: Reference = Reference {
     zero: [10.0, 5.0, 20.0],
 };
 
+const PLATE: Reference = Reference {
+    name: "plate",
+    part: step::plate,
+    toolpaths: &["t1"],
+    zero: [-5.0, -5.0, 21.0],
+};
+
 /// The stock top is 1 above the crest of the ridge (stock margin).
 const RIDGE: Reference = Reference {
     name: "ridge",
@@ -282,7 +301,7 @@ fn translation_invariance() {
     // together moves no toolpath coordinate by more than ε_s, and the
     // G-code is the same.
     let shift = [0.123457, -0.987651, 0.31];
-    for r in [&BLOCK, &RIDGE] {
+    for r in [&BLOCK, &RIDGE, &PLATE] {
         for point in [true, false] {
             let n = r.name;
             let a = shifted(r, &tmp(&format!("inv-{n}-a-{point}")), [0.0; 3], point);

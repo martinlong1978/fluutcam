@@ -165,6 +165,17 @@ pub fn wall_pieces(
     excluded: &[Sel],
     tol: f64,
 ) -> Result<Vec<Piece>, Diagnostic> {
+    wall_edges(g, sels, excluded, tol, false)
+}
+
+/// Bottom (or, with `top`, top) edges of vertical wall faces.
+pub fn wall_edges(
+    g: &SetupGeometry,
+    sels: &[Sel],
+    excluded: &[Sel],
+    tol: f64,
+    top: bool,
+) -> Result<Vec<Piece>, Diagnostic> {
     let mut out = Vec::new();
     let ztol = g.tol_model().max(1e-6) * 10.0;
     for (b, f, id) in faces(g, sels, excluded, "geometry.drive_faces")? {
@@ -176,7 +187,8 @@ pub fn wall_pieces(
             )
             .at("geometry.drive_faces"));
         }
-        let lo = face_z_range(b, f, tol).lo;
+        let zr = face_z_range(b, f, tol);
+        let lo = if top { zr.hi } else { zr.lo };
         for &l in &face.loops {
             for &c in &b.loops[l as usize].coedges {
                 let ce = &b.coedges[c as usize];

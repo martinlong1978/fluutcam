@@ -324,11 +324,23 @@ pub struct Parallel {
     pub max_slope_deg: f64,
 }
 
+/// `face` (D15b §2.1).
+#[derive(Clone, PartialEq, Debug)]
+pub struct Face {
+    pub stepover: Option<f64>,
+    pub direction: ParallelDirection,
+    pub pass_angle_deg: f64,
+    pub overlap: f64,
+    pub step_down: Option<f64>,
+    pub final_step_down: Option<f64>,
+}
+
 #[derive(Clone, PartialEq, Debug)]
 pub enum TypeParams {
     Contour2d(Contour2d),
     Pocket2d(Pocket2d),
     Parallel(Parallel),
+    Face(Face),
 }
 
 /// Every parameter of a toolpath with defaults applied.
@@ -365,11 +377,19 @@ impl ResolvedParams {
         }
     }
 
+    pub fn face(&self) -> Option<&Face> {
+        match &self.ty {
+            TypeParams::Face(c) => Some(c),
+            _ => None,
+        }
+    }
+
     /// Step-down of the type, if it has one.
     pub fn step_down(&self) -> Option<f64> {
         match &self.ty {
             TypeParams::Contour2d(c) => c.step_down,
             TypeParams::Pocket2d(p) => p.step_down,
+            TypeParams::Face(p) => p.step_down,
             TypeParams::Parallel(_) => None,
         }
     }
@@ -379,6 +399,7 @@ impl ResolvedParams {
         match &self.ty {
             TypeParams::Pocket2d(p) => p.stepover,
             TypeParams::Parallel(p) => p.stepover,
+            TypeParams::Face(p) => p.stepover,
             TypeParams::Contour2d(_) => None,
         }
     }
@@ -492,6 +513,14 @@ fn lead_kind(s: &str) -> LeadKind {
         "arc" => LeadKind::Arc,
         "linear" => LeadKind::Linear,
         _ => LeadKind::None,
+    }
+}
+
+fn parallel_direction(s: &str) -> ParallelDirection {
+    match s {
+        "climb" => ParallelDirection::Climb,
+        "conventional" => ParallelDirection::Conventional,
+        _ => ParallelDirection::Zigzag,
     }
 }
 
@@ -653,13 +682,17 @@ pub fn resolve(p: &Params, tool: &Tool, material: Option<&str>) -> ResolvedParam
             stepover: g.or_preset("passes.stepover", "stepover"),
             scallop_height: g.num("passes.scallop_height"),
             pass_angle_deg: g.num_or("passes.pass_angle_deg", 0.0),
-            direction: match g.text("passes.direction") {
-                "climb" => ParallelDirection::Climb,
-                "conventional" => ParallelDirection::Conventional,
-                _ => ParallelDirection::Zigzag,
-            },
+            direction: parallel_direction(g.text("passes.direction")),
             min_slope_deg: g.num_or("passes.min_slope_deg", 0.0),
             max_slope_deg: g.num_or("passes.max_slope_deg", 90.0),
+        }),
+        ToolpathTypeId::Face => TypeParams::Face(Face {
+            stepover: g.or_preset("passes.stepover", "stepover"),
+            direction: parallel_direction(g.text("passes.direction")),
+            pass_angle_deg: g.num_or("passes.pass_angle_deg", 0.0),
+            overlap: g.num_or("passes.overlap", 0.6 * d),
+            step_down: g.or_preset("passes.step_down", "step_down"),
+            final_step_down: g.num("passes.final_step_down"),
         }),
     };
     ResolvedParams {

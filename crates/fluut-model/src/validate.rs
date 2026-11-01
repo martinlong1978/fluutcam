@@ -26,6 +26,38 @@ pub struct MachineLimits {
 pub struct PostCaps {
     pub cutter_comp: bool,
     pub coolant: bool,
+    /// Helices are posted as helices (else linearized).
+    pub helix: bool,
+    /// Canned cycles the post emits natively (D10 §5).
+    pub cycles: CycleSet,
+}
+
+/// A set of canned cycle names: `drill`, `spot`, `peck`, `chip_break`,
+/// `tap`, `ream`, `bore` (spec 05 §5.5).
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
+pub struct CycleSet(u8);
+
+impl CycleSet {
+    pub const NAMES: [&'static str; 7] =
+        ["drill", "spot", "peck", "chip_break", "tap", "ream", "bore"];
+
+    /// The set of the known names in `names`; others are ignored.
+    pub fn of(names: &[&str]) -> CycleSet {
+        let mut bits = 0;
+        for (i, n) in CycleSet::NAMES.iter().enumerate() {
+            if names.contains(n) {
+                bits |= 1 << i;
+            }
+        }
+        CycleSet(bits)
+    }
+
+    pub fn contains(self, name: &str) -> bool {
+        CycleSet::NAMES
+            .iter()
+            .position(|n| *n == name)
+            .is_some_and(|i| self.0 & (1 << i) != 0)
+    }
 }
 
 /// Inputs beyond the parameters. Rules whose input is `None` are skipped.
@@ -92,6 +124,7 @@ pub fn validate(tp: &Toolpath, cx: &ValidateCx) -> Vec<Diagnostic> {
         ToolpathTypeId::Contour2d => v.contour(),
         ToolpathTypeId::Pocket2d => v.pocket(),
         ToolpathTypeId::Parallel => v.parallel(),
+        ToolpathTypeId::Face => v.face(),
     }
     tag(out, tp)
 }
@@ -439,7 +472,7 @@ impl V<'_, '_> {
                 );
             }
         }
-        let uses_ramp = self.r.kind != ToolpathTypeId::Parallel;
+        let uses_ramp = Params::meta(self.r.kind, "linking.ramp").is_some();
         if uses_ramp {
             let a = l.ramp.angle_deg;
             if l.ramp.kind != RampKind::Plunge && !(a > 0.0 && a <= 90.0) {
@@ -620,6 +653,45 @@ impl V<'_, '_> {
                 "param.pocket_2d.tool_shape",
                 "tool",
                 "the tool is not flat or bull nosed: the floor will be scalloped".into(),
+            );
+        }
+    }
+
+    fn face(&mut self) {
+        let Some(f) = self.r.face().cloned() else {
+            return;
+        };
+        self.required("passes.stepover", f.stepover);
+        self.required("passes.step_down", f.step_down);
+        let r = self.tool.radius();
+        if f.overlap < 0.0 {
+            self.range("face", "passes.overlap", false, "0 or more");
+        } else if f.overlap < r {
+            self.w(
+                "param.face.overlap.short",
+                "passes.overlap",
+                format!(
+                    "overlap {} is less than the tool radius {r}: the tool does not clear the \
+                     stock edge at the pass ends",
+                    f.overlap
+                ),
+            );
+        }
+        if let Some(fs) = f.final_step_down {
+            let over = f.step_down.is_some_and(|sd| fs > sd);
+            if fs <= 0.0 || over {
+                self.e(
+                    "param.face.final_step_down.range",
+                    "passes.final_step_down",
+                    format!("final step-down {fs} must be above 0 and at most the step-down"),
+                );
+            }
+        }
+        if !matches!(self.tool.shape, ToolShape::Flat | ToolShape::Bull) {
+            self.w(
+                "param.face.tool_shape",
+                "tool",
+                "the tool is not flat or bull nosed: the face will be scalloped".into(),
             );
         }
     }
