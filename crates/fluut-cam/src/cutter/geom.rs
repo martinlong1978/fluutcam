@@ -197,12 +197,45 @@ fn intersect(a: Interval, b: Interval) -> Option<Interval> {
 
 impl<'a> QueryGeometry<'a> {
     pub fn new(body: &'a BrepBody, opts: &BuildOptions) -> QueryGeometry<'a> {
+        QueryGeometry::with_faces(body, opts, |_| true)
+    }
+
+    /// The query geometry of the faces for which `keep` is true, with the
+    /// edges and vertices that bound them. Other faces are `None` in
+    /// `faces`, without an issue.
+    pub fn with_faces(
+        body: &'a BrepBody,
+        opts: &BuildOptions,
+        keep: impl Fn(u32) -> bool,
+    ) -> QueryGeometry<'a> {
         let mut prims = Vec::new();
         let mut boxes = Vec::new();
         let mut faces = Vec::with_capacity(body.faces.len());
         let mut issues = Vec::new();
+        let mut edge_used = vec![false; body.edges.len()];
+        for (fi, f) in body.faces.iter().enumerate() {
+            if !keep(fi as u32) {
+                continue;
+            }
+            for &l in &f.loops {
+                for &c in &body.loops[l as usize].coedges {
+                    edge_used[body.coedges[c as usize].edge as usize] = true;
+                }
+            }
+        }
+        let mut vertex_used = vec![false; body.vertices.len()];
+        for (ei, e) in body.edges.iter().enumerate() {
+            if edge_used[ei] {
+                vertex_used[e.v0 as usize] = true;
+                vertex_used[e.v1 as usize] = true;
+            }
+        }
         for (fi, f) in body.faces.iter().enumerate() {
             let fi = fi as u32;
+            if !keep(fi) {
+                faces.push(None);
+                continue;
+            }
             let s = &body.surfaces[f.surface as usize];
             let trim = match Trim::build(body, fi, opts.trim_chord) {
                 Ok(t) => t,
@@ -258,10 +291,16 @@ impl<'a> QueryGeometry<'a> {
         }
         for (ei, e) in body.edges.iter().enumerate() {
             let Some(c) = e.curve else { continue };
+            if !edge_used[ei] {
+                continue;
+            }
             prims.push(Prim::Edge(ei as u32));
             boxes.push(curve_box(&body.curves[c as usize], e.range));
         }
         for (vi, v) in body.vertices.iter().enumerate() {
+            if !vertex_used[vi] {
+                continue;
+            }
             prims.push(Prim::Vertex(vi as u32));
             boxes.push(Aabb3::from_points(&[v.p]));
         }

@@ -198,6 +198,14 @@ slope limits: drop contacts whose surface normal angle to Z is outside [min, max
 direction: zig-zag (alternate) or one-way; climb/conventional only meaningful for one-way
 ```
 
+**M3 (2026-11-01).** Built as above, with these choices ([plan](../plan/2026-11-01-m3-parallel.md)):
+the region is the drive faces' XY box (from their edges), limited by the boundary; the scallop
+stepover uses the exact two-ball cusp on a sphere of the worst convex curvature, sampled on a
+9 × 9 grid per face; the slope is that of the tool's lower surface at the contact, so edges and
+vertices have one too; cut-off points (slope, `top`, check faces) are bisected to 1e-7 mm;
+output is lines only, within `tol/2`. Arc fitting, contact transitions (D07 §5) and `rayon`
+are left for M6.
+
 ### 4.4 `contour` (waterline)
 
 ```

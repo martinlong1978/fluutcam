@@ -18,6 +18,11 @@ pub enum Kind {
         centre: [f64; 2],
         ccw: bool,
     },
+    /// Arc about `centre`, counter-clockwise about the unit `axis`.
+    Arc3 {
+        centre: [f64; 3],
+        axis: [f64; 3],
+    },
 }
 
 /// A closed profile: edge `i` runs from `pts[i]` to `pts[i + 1]`.
@@ -157,6 +162,13 @@ impl Writer {
                 let ci = self.add(&format!("CIRCLE('',#{ax},{r:?})"));
                 self.add(&format!("EDGE_CURVE('',#{va},#{vb},#{ci},.T.)"))
             }
+            Kind::Arc3 { centre: c, axis } => {
+                let d = [a[0] - c[0], a[1] - c[1], a[2] - c[2]];
+                let r = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+                let ax = self.placement(c, axis, d.map(|x| x / r));
+                let ci = self.add(&format!("CIRCLE('',#{ax},{r:?})"));
+                self.add(&format!("EDGE_CURVE('',#{va},#{vb},#{ci},.T.)"))
+            }
         };
         self.edges.insert((key(a), key(b)), e);
         self.add(&format!("ORIENTED_EDGE('',*,*,#{e},.T.)"))
@@ -200,7 +212,7 @@ impl Writer {
             );
             let k = prof.kinds[i];
             let rev = match k {
-                Kind::Line => Kind::Line,
+                Kind::Line | Kind::Arc3 { .. } => Kind::Line,
                 Kind::Arc { centre, ccw } => Kind::Arc { centre, ccw: !ccw },
             };
             let b = self.bound(
@@ -221,6 +233,7 @@ impl Writer {
                     let pl = self.placement(p0, nrm, [d[0] / l, d[1] / l, 0.0]);
                     self.add(&format!("PLANE('',#{pl})"))
                 }
+                Kind::Arc3 { .. } => panic!("walls take planar profiles"),
                 Kind::Arc { centre, .. } => {
                     let r = ((p[0] - centre[0]).powi(2) + (p[1] - centre[1]).powi(2)).sqrt();
                     let ax = self.placement(
@@ -232,7 +245,7 @@ impl Writer {
                 }
             };
             let same = match k {
-                Kind::Line => true,
+                Kind::Line | Kind::Arc3 { .. } => true,
                 Kind::Arc { ccw, .. } => ccw == outward,
             };
             self.face(&[b], surface, same);
@@ -264,6 +277,31 @@ impl Writer {
         let pl = self.placement(o, nrm, [1.0, 0.0, 0.0]);
         let s = self.add(&format!("PLANE('',#{pl})"));
         self.face(&bounds, s, true);
+    }
+
+    /// A planar face with normal `n` bounded by `edges` (counter-clockwise
+    /// seen from the side `n` points to).
+    pub fn plane_face(&mut self, edges: &[([f64; 3], [f64; 3], Kind)], n: [f64; 3], x: [f64; 3]) {
+        let b = self.bound(edges, true);
+        let pl = self.placement(edges[0].0, n, x);
+        let s = self.add(&format!("PLANE('',#{pl})"));
+        self.face(&[b], s, true);
+    }
+
+    /// A cylindrical face of radius `r` about the line through `o` along
+    /// `axis`, facing away from the axis, bounded by `edges`.
+    pub fn cylinder_face(
+        &mut self,
+        edges: &[([f64; 3], [f64; 3], Kind)],
+        o: [f64; 3],
+        axis: [f64; 3],
+        x: [f64; 3],
+        r: f64,
+    ) {
+        let b = self.bound(edges, true);
+        let ax = self.placement(o, axis, x);
+        let s = self.add(&format!("CYLINDRICAL_SURFACE('',#{ax},{r:?})"));
+        self.face(&[b], s, true);
     }
 
     /// The file: one solid of every face added.
@@ -314,4 +352,88 @@ pub fn pocket_block(shift: [f64; 3]) -> String {
     w.walls(&island, 12.0, 20.0, true);
     w.cap(&island, &[], 20.0, true);
     w.finish("pocket_block")
+}
+
+/// Radius of the [`ridge`] top.
+pub const RIDGE_RADIUS: f64 = 40.0;
+
+/// Z of the [`ridge`] cylinder axis: the top meets the 10 mm walls at
+/// y = 0 and y = 40.
+pub fn ridge_axis_z() -> f64 {
+    10.0 - (RIDGE_RADIUS * RIDGE_RADIUS - 400.0).sqrt()
+}
+
+/// A 60 × 40 block, 10 mm high at its long sides, whose top is a convex
+/// cylinder of radius 40 along X: a ridge 5.36 mm high at y = 20. Faces:
+/// bottom, two sides, two ends, and the cylinder.
+pub fn ridge(shift: [f64; 3]) -> String {
+    let mut w = Writer::new(shift);
+    let zc = ridge_axis_z();
+    let (a, b, c, d) = (
+        [0.0, 0.0, 10.0],
+        [60.0, 0.0, 10.0],
+        [60.0, 40.0, 10.0],
+        [0.0, 40.0, 10.0],
+    );
+    let arc = |x: f64| Kind::Arc3 {
+        centre: [x, 20.0, zc],
+        axis: [1.0, 0.0, 0.0],
+    };
+    w.cap(&Profile::rect(0.0, 0.0, 60.0, 40.0), &[], 0.0, false);
+    let l = Kind::Line;
+    w.plane_face(
+        &[
+            ([0.0, 0.0, 0.0], [60.0, 0.0, 0.0], l),
+            ([60.0, 0.0, 0.0], b, l),
+            (b, a, l),
+            (a, [0.0, 0.0, 0.0], l),
+        ],
+        [0.0, -1.0, 0.0],
+        [1.0, 0.0, 0.0],
+    );
+    w.plane_face(
+        &[
+            ([60.0, 40.0, 0.0], [0.0, 40.0, 0.0], l),
+            ([0.0, 40.0, 0.0], d, l),
+            (d, c, l),
+            (c, [60.0, 40.0, 0.0], l),
+        ],
+        [0.0, 1.0, 0.0],
+        [-1.0, 0.0, 0.0],
+    );
+    w.plane_face(
+        &[
+            ([60.0, 0.0, 0.0], [60.0, 40.0, 0.0], l),
+            ([60.0, 40.0, 0.0], c, l),
+            (c, b, arc(60.0)),
+            (b, [60.0, 0.0, 0.0], l),
+        ],
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+    );
+    w.plane_face(
+        &[
+            ([0.0, 40.0, 0.0], [0.0, 0.0, 0.0], l),
+            ([0.0, 0.0, 0.0], a, l),
+            (
+                a,
+                d,
+                Kind::Arc3 {
+                    centre: [0.0, 20.0, zc],
+                    axis: [-1.0, 0.0, 0.0],
+                },
+            ),
+            (d, [0.0, 40.0, 0.0], l),
+        ],
+        [-1.0, 0.0, 0.0],
+        [0.0, -1.0, 0.0],
+    );
+    w.cylinder_face(
+        &[(a, b, l), (b, c, arc(60.0)), (c, d, l), (d, a, arc(0.0))],
+        [0.0, 20.0, zc],
+        [1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0],
+        RIDGE_RADIUS,
+    );
+    w.finish("ridge")
 }

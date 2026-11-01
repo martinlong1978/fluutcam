@@ -7,7 +7,8 @@
 //! curves) `e-<stem>.<i>`, where `i` is the index in the body. Matching ids
 //! across re-import is M4.
 
-use fluut_geom::{Aabb3, Affine, Interval, Point3};
+use crate::cutter::geom::curve_box;
+use fluut_geom::{Aabb3, Affine, Curve3, Interval, Point3};
 use fluut_topo::{BrepBody, WireBody, WireCurve};
 
 #[derive(Debug, Clone)]
@@ -110,27 +111,42 @@ impl SetupGeometry {
             .fold(1e-6, f64::max)
     }
 
-    /// Bounds of every body, from vertices and edge samples (`chord` apart).
+    /// Bounds of every body, from vertices and edges: exact for lines,
+    /// circles and ellipses, from samples `chord` apart for other curves.
+    /// A face that bulges beyond its edges (a sphere cap) is not covered.
     pub fn bounds(&self, chord: f64) -> Aabb3 {
         let mut bb = Aabb3::empty();
+        let mut add = |c: &Curve3, range: Interval| match c {
+            Curve3::Line { .. } | Curve3::Circle { .. } | Curve3::Ellipse { .. } => {
+                let b = curve_box(c, range);
+                bb = bb.with_point(b.min).with_point(b.max);
+            }
+            _ => {
+                for (_, p) in c.tessellate(range, chord) {
+                    bb = bb.with_point(p);
+                }
+            }
+        };
         for b in &self.bodies {
             match &b.geom {
                 BodyGeom::Brep(x) => {
-                    for v in &x.vertices {
-                        bb = bb.with_point(v.p);
-                    }
-                    for e in 0..x.edges.len() as u32 {
-                        for p in x.edge_points(e, chord) {
-                            bb = bb.with_point(p);
+                    for e in &x.edges {
+                        if let Some(c) = e.curve {
+                            add(&x.curves[c as usize], e.range);
                         }
                     }
                 }
                 BodyGeom::Wire(w) => {
                     for c in &w.curves {
-                        for (_, p) in c.curve.tessellate(c.range, chord) {
-                            bb = bb.with_point(p);
-                        }
+                        add(&c.curve, c.range);
                     }
+                }
+            }
+        }
+        for b in &self.bodies {
+            if let BodyGeom::Brep(x) = &b.geom {
+                for v in &x.vertices {
+                    bb = bb.with_point(v.p);
                 }
             }
         }
@@ -179,5 +195,41 @@ pub fn edge_points(e: EdgeRef<'_>, chord: f64) -> Vec<Point3> {
             .into_iter()
             .map(|(_, p)| p)
             .collect(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cutter::synth::Builder;
+    use fluut_geom::{Frame, Surface, UvBox, Vec3};
+
+    #[test]
+    fn bounds_are_exact_on_arcs() {
+        // A cylinder of radius 4 along X, over angles 0.3 … 2.8: its
+        // top is at u = π/2, inside an arc edge, not at a vertex.
+        let f = Frame::new(
+            Point3::new(0.0, 0.0, 0.0),
+            Vec3::new(1.0, 0.0, 0.0),
+            Vec3::new(0.0, 1.0, 0.0),
+        )
+        .unwrap();
+        let mut b = Builder::new("c");
+        b.patch(
+            Surface::cylinder(f, 4.0).unwrap(),
+            UvBox::new(
+                Interval { lo: 0.3, hi: 2.8 },
+                Interval { lo: 0.0, hi: 10.0 },
+            ),
+        );
+        let g = SetupGeometry {
+            bodies: vec![SetupBody {
+                id: "b-1".into(),
+                geom: BodyGeom::Brep(b.build()),
+            }],
+        };
+        let bb = g.bounds(1.0);
+        assert_eq!(bb.max.z(), 4.0, "{bb:?}");
+        assert_eq!(bb.max.x(), 10.0);
     }
 }

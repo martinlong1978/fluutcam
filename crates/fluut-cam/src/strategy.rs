@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! v1 strategies (D09). M3 has the 2-D types; `parallel` is registered and
-//! reports that it is not available until the S2 drop queries merge.
+//! v1 strategies (D09): the M3 types `contour_2d`, `pocket_2d` and
+//! `parallel`.
 
 mod contour_2d;
 mod parallel;

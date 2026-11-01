@@ -636,7 +636,17 @@ change does not affect later toolpaths.
   `param.contour_2d.tabs.distance.range`.
 - Codes added while building M3: `param.geometry.rest_from.unsupported` (E, `rest_from =
   "previous"` until in-process stock exists), `cam.geometry.drive.empty` (E, the selection
-  gives no curves), `cam.type.unavailable` (E, `parallel` until the S2 drop queries merge).
+  gives no curves, or a 3-D type has no drive faces), `cam.type.unavailable` (E, a type this
+  build cannot calculate; none in M3 now that `parallel` is done).
+- Codes added with `parallel` (M3): `cam.parallel.tool_shape` (E, the tool is not flat, ball
+  or bull-nose), `cam.parallel.lead.dropped` (W, a lead would gouge and is left out),
+  `cam.parallel.empty` (W, nothing in the region is cut).
+- `parallel` in M3: `param.parallel.drive_faces.mesh_scallop` treats a body whose faces are
+  all planar triangles as a mesh; `cam.parallel.scallop.concave` is checked for every
+  `parallel` toolpath, with or without a scallop height. The scallop stepover is the chord
+  between contact points on level ground; across a slope θ the cusp grows (by about
+  1/cos²θ on a plane), so it holds where the slope across the passes is small
+  ([M3 parallel plan](../plan/2026-11-01-m3-parallel.md)).
 
 Tests:
 

@@ -12,8 +12,10 @@ pub mod link;
 pub mod moves;
 pub mod path2;
 pub mod region;
+pub mod scallop;
 pub mod spike;
 pub mod strategy;
+pub mod surface;
 pub mod toolpath;
 
 pub use region::{Inside, Loop2, Region2, Seg2, Vertex};
