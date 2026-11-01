@@ -257,6 +257,20 @@ height, or to `safety_distance` above the entry when the link is already below t
 height, and plunges. Leads are in the vertical plane of the pass, tangent to it in 3-D, and dropped if
 drops along them show a gouge.
 
+**Rapid floor (2026-11-01, simulation findings).** A rapid on the way down to an entry stops at
+`max(feed, material top + safety_distance)`; below that the tool feeds (`Plunge`). The material
+top is the stock top, or `top` when that is higher. A toolpath whose `top` is below the stock
+top (a floor pass, a hole under an unmachined counterbore) cannot tell, without the in-process
+stock, whether an earlier toolpath cleared the material above `top`, so the safe choice is to
+feed through it. The drill's R plane takes the same floor, since canned cycles rapid to it, and
+so does `bore`'s approach. Toolpaths whose `top` is the stock top are unchanged. Using the
+in-process stock to lower the floor where it is known to be clear is left for later. The 3-D
+linker (`follow.rs`) still rapids to `safety_distance` above each entry.
+
+**Adaptive links (2026-11-01).** The straight entry move of an adaptive pass, its sliver moves
+and the safe regions its stay-down links use are kept inside the tool-centre region; the shrunk
+cleared region alone can reach across an island.
+
 ### 8.3 Leads and ramps
 
 - Lead-in/out: tangent arc of the given radius in the plane of the pass (or vertical arc for

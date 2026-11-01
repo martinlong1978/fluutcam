@@ -522,13 +522,24 @@ impl Session {
             })?
             .clone();
         let rs = fluut_model::setup::resolve_setup(&self.project, setup).map_err(|d| vec![d])?;
+        if rs.kind == SetupKind::Rotary {
+            return Err(err(
+                "sim.setup.rotary",
+                format!("Setup `{setup}` is rotary; rotary Setups are not simulated yet"),
+            ));
+        }
         let fr = self
             .setup_bodies(&rs)
             .and_then(|b| SetupFrame::new(&rs, b))
             .map_err(|d| vec![d])?;
         let mut missing = Vec::new();
         let mut inputs = Vec::new();
-        for t in s.toolpaths.iter().filter(|t| t.is_enabled()) {
+        // `manual_nc` has no tool and no motion (D15b §7).
+        for t in s
+            .toolpaths
+            .iter()
+            .filter(|t| t.is_enabled() && t.kind() != fluut_model::params::ToolpathTypeId::ManualNc)
+        {
             let (Some(r), Some(tool)) = (self.result(&t.id), self.tools.get(t.tool_ref())) else {
                 missing.push(t.id.clone());
                 continue;

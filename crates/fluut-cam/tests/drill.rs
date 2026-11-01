@@ -45,13 +45,20 @@ fn holes_by_diameter_in_shortest_order() {
         ]
     );
     // Through holes from the top at 15 to the bottom at 0; the hole under
-    // the counterbore starts at its own top, Z 12. R plane: top + 2.
+    // the counterbore starts at its own top, Z 12. R plane: top + 2, but
+    // never below the stock top + the safety distance: nothing machines
+    // the counterbore, and the cycle rapids to the R plane (D08 §8.2).
     let (_, p) = c[0];
     assert_eq!(
         (p.kind, p.top_z, p.depth_z, p.retract_z),
         (CycleKind::Drill, 15.0, 0.0, 17.0)
     );
-    assert_eq!((c[2].1.top_z, c[2].1.retract_z), (12.0, 14.0));
+    assert_eq!((c[2].1.top_z, c[2].1.retract_z), (12.0, 16.0));
+    assert!(
+        moves(&r, Motion::Rapid)
+            .iter()
+            .all(|s| start(s).z().min(end(s).z()) >= 16.0)
+    );
     // Retract mode `retract`: between holes at the retract height (stock
     // top + 5).
     let rapid_z: Vec<f64> = moves(&r, Motion::Rapid)
