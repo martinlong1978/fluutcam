@@ -51,3 +51,4 @@ the product owner straight away.
 | [D13](D13-ui-architecture.md) | UI architecture | `fluut-app` | 08 |
 | [D14](D14-build-test-release.md) | Build, test, release | CI | 01 §1.8, 06 |
 | [D15](D15-toolpath-parameters.md) | Toolpath parameter definitions (common, `contour_2d`, `pocket_2d`, `parallel`) | `fluut-model`, `fluut-cam` | 02 §2.1, 03 §3.10, 04 §4.13.7 |
+| [D15b](D15b-toolpath-parameters-2.md) | Toolpath parameter definitions, part 2 (the other 19 v1 types) | `fluut-model`, `fluut-cam` | 03 §3.10, 04 §4.13.7 |
