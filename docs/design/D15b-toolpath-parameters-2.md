@@ -666,3 +666,140 @@ is its initial plane.
 
 **In-process stock:** updates (a disc of tool radius at each level down to the hole bottom);
 does not read.
+
+## 4. 3-D roughing types
+
+Both types clear the stock in Z levels against the 3-D model (D09 §4.1, §4.2). At each level z:
+
+- machinable(z) = the region minus the section of the bodies at z − `stock_to_leave_axial`,
+  offset by R + `stock_to_leave` (D08 §7.1);
+- clear(z) = machinable(z) ∩ the starting stock at z (§1.10), grown by R.
+
+The region is the stock outline, cut by `boundary` if set. Check faces are part of the
+sections; drive faces only decide `selection` and which faces get `stock_to_leave` (all faces
+of the Setup's bodies are always avoided).
+
+**Common fields used (both):** item keys; all of `tool_params`; `drive_faces`, `check_faces`,
+`excluded_faces`, `boundary`, `rest_from`; all heights; `machining_tolerance`,
+`max_segment_length`, `output_arcs`, `stock_to_leave`, `stock_to_leave_axial`; all of
+`linking`. **Not used:** `drive_curves`. `pass_layout` is used by `pocket_3d` raster only.
+
+**Type defaults for common fields (both):** `heights.top = { ref = "stock_top" }`,
+`heights.bottom = { ref = "model_bottom" }`, `lead_in.kind = "none"`, `ramp.kind = "helix"`,
+`stock_to_leave = 0` (D15 §7, decision 2), `order = "by_level"`.
+
+**Levels (both):** `layout(top, bottom, step_down)` in even mode, plus, with
+`flat_detection`, the Z + `stock_to_leave_axial` of every horizontal planar face between top and
+bottom [S 04 §4.4]. Flat levels use CH-03 handling (D09 §4.1). Mesh bodies find flats by the
+heuristic of [S 04 §4.4].
+
+### 4.1 `adaptive_3d`
+
+Constant-engagement clearing per level, with the `adaptive_2d` algorithm (§2.2). Roughing type.
+
+Allowed ramps: `helix`, `plunge` (fallback helix → plunge). Open regions (reaching outside the
+stock) are entered from outside.
+
+#### Fields (`passes`)
+
+| Key | Type | Range | Default | Expr | Depends on | Class |
+|---|---|---|---|---|---|---|
+| `optimal_load` | Length | (0, 0.5·D] | `0.1 · tool.diameter` † | yes | tool | R |
+| `step_down` | Length | > 0 | preset `step_down` | yes | tool, material | R |
+| `fine_step_down` | Length | (0, `step_down`) | absent = off | yes | `step_down` | R |
+| `min_cutting_radius` | Length | ≥ 0 | `0.1 · tool.diameter` † | yes | tool | R |
+| `direction` | Enum `climb` \| `conventional` | | `climb` | — | — | R |
+| `flat_detection` | Bool | | `true` | — | — | R |
+
+- **Fine step-down.** Between main levels, intermediate levels every `fine_step_down` clear only
+  the stepped material left on shallow areas: where the remaining stock at that level differs
+  from machinable(z) by more than `fine_step_down` (D09 §4.2). They do not cut full-width.
+- Engagement, smoothing and the final contour pass at each level are as `adaptive_2d`.
+
+#### Validation
+
+| Code | Sev | Rule |
+|---|---|---|
+| `param.adaptive_3d.optimal_load.range` | E | `optimal_load` > 50 % of tool diameter |
+| `param.adaptive_3d.optimal_load.high` | W | `optimal_load` > 30 % of tool diameter |
+| `param.adaptive_3d.fine_step_down.range` | E | `fine_step_down` ≥ `step_down` |
+| `param.adaptive_3d.min_cutting_radius.large` | W | `min_cutting_radius` > tool radius |
+| `param.passes.step_down.flute` | W | `step_down` > flute length |
+| `cam.adaptive_3d.incomplete` | W | material above tolerance is left after the path search stops (CH-16) |
+| `cam.linking.ramp_fallback` | W | the helix does not fit and a plunge was used |
+
+#### Example
+
+```toml
+  [[setup.toolpath]]
+  id   = "t12"
+  name = "Adaptive rough"
+  type = "adaptive_3d"
+  tool = "user/router-bits#flat-10"
+
+    [setup.toolpath.passes]
+    optimal_load         = 1.2
+    step_down            = 15
+    fine_step_down       = 2
+    stock_to_leave       = 0.5
+    stock_to_leave_axial = 0.3
+
+    [setup.toolpath.linking]
+    ramp = { kind = "helix", angle_deg = 2, radius = 4 }
+```
+
+**In-process stock:** updates; reads always (from the Setup stock, or with `rest_from` the
+stock after earlier toolpaths, §1.10).
+
+### 4.2 `pocket_3d`
+
+Offset or raster clearing per level, with the `pocket_2d` patterns (D15 §4.1) on clear(z).
+Roughing type.
+
+Allowed ramps: all four (fallback helix → zigzag → plunge, D15 §2.6).
+
+#### Fields (`passes`)
+
+| Key | Type | Range | Default | Expr | Depends on | Class |
+|---|---|---|---|---|---|---|
+| `pattern` | Enum `offset` \| `raster` | | `offset` † | — | — | R |
+| `stepover` | Length | (0, D] | preset `stepover` | yes | tool, material | R |
+| `step_down` | Length | > 0 | preset `step_down` | yes | tool, material | R |
+| `direction` | Enum `climb` \| `conventional` | | `climb` | — | — | R |
+| `offset_order` | Enum `inside_out` \| `outside_in` | | `inside_out` | — | `pattern` = `offset` | R |
+| `pass_angle_deg` | Angle | any; used mod 180 | `0` | yes | `pattern` = `raster` | R |
+| `flat_detection` | Bool | | `true` | — | — | R |
+
+Pattern rules are those of `pocket_2d` (D15 §4.1), applied to clear(z) at each level. Entries
+use a ramp where clear(z) cannot be reached from outside the stock (D09 §4.1).
+
+#### Validation
+
+| Code | Sev | Rule |
+|---|---|---|
+| `param.passes.stepover.max` | E | `stepover` > tool diameter |
+| `param.passes.stepover.flat_width` | W | `stepover` > D − 2·corner radius |
+| `param.passes.step_down.flute` | W | `step_down` > flute length |
+| `cam.pocket_3d.region.unreachable` | W | part of clear(z) is narrower than the tool and is left uncut |
+| `cam.linking.ramp_fallback` | W | the ramp does not fit and a fallback was used |
+
+#### Example
+
+```toml
+  [[setup.toolpath]]
+  id   = "t13"
+  name = "Pocket rough"
+  type = "pocket_3d"
+  tool = "user/router-bits#flat-6"
+
+    [setup.toolpath.geometry]
+    rest_from = "previous"
+
+    [setup.toolpath.passes]
+    pattern        = "offset"
+    stepover       = 2.4
+    step_down      = 3
+    stock_to_leave = 0.3
+```
+
+**In-process stock:** updates; reads always (§1.10).
