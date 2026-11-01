@@ -196,8 +196,8 @@ chain, in selection order. Chains are projected along the tool axis onto the XY 
 
 | Key | Type | Range | Default | Expr | Depends on | Class |
 |---|---|---|---|---|---|---|
-| `drive_faces` | Selection (faces) | faces of the Setup's bodies | empty = all faces of the Setup's bodies [S 03 §3.3] | — | Setup `geometry` | R |
-| `drive_curves` | Selection (curves) | edges, wire curves, planar faces | — (required by 2-D types) | — | Setup `geometry` | R |
+| `drive_faces` | Selection (faces) | faces of the Setup's bodies | 3-D types: empty = all faces of the Setup's bodies [S 03 §3.3]. 2-D types: empty = none | — | Setup `geometry` | R |
+| `drive_curves` | Selection (curves) | edges, wire curves, planar faces | empty | — | Setup `geometry` | R |
 | `check_faces` | Selection (faces) | | all faces not in `drive_faces` or `excluded_faces` [S 03 §3.3] | — | `drive_faces`, `excluded_faces` | R |
 | `excluded_faces` | Selection (faces) | | empty | — | — | R |
 | `boundary.curves` | Selection (curves) | closed chains | absent = no boundary | — | — | R |
@@ -205,6 +205,9 @@ chain, in selection order. Chains are projected along the tool axis onto the XY 
 | `boundary.tool_containment` | Enum `inside` \| `centre` \| `outside` | | `inside` † | — | `boundary.curves`, tool radius | R |
 | `rest_from` | Enum `off` \| `previous` | | `off` | — | earlier toolpaths in the Setup | R |
 
+- 2-D types take their chains from `drive_curves`, from `drive_faces`, or from both; each type
+  says which faces it accepts (§3, §4). At least one of the two must be non-empty. "Empty = all
+  faces" applies to 3-D types only, so a 2-D toolpath never machines every face by default.
 - `boundary` is one inline table with the three keys [S 03 §3.3]. `tool_containment` offsets the
   boundary by −R, 0 or +R before it limits the region (D08 §3).
 - `rest_from = "previous"` takes the starting stock from the in-process stock after all earlier
@@ -213,7 +216,8 @@ chain, in selection order. Chains are projected along the tool axis onto the XY 
 
 | Code | Sev | Rule |
 |---|---|---|
-| `param.geometry.drive_curves.empty` | E | a type that needs curves has an empty `drive_curves` |
+| `param.geometry.drive.empty` | E | a 2-D type has both `drive_curves` and `drive_faces` empty |
+| `param.geometry.drive_faces.kind` | E | a 2-D type has a drive face it cannot use (`contour_2d`: not a vertical wall; `pocket_2d`: not planar and horizontal) |
 | `param.geometry.selection.missing` | E | a selected id is not in the model (after re-import, [S 03 §3.5]) |
 | `param.geometry.overlap` | E | a face is in more than one of `drive_faces`, `check_faces`, `excluded_faces` |
 | `param.geometry.boundary.open` | E | a `boundary` chain is not closed |
