@@ -1,11 +1,11 @@
 # D13 — UI Architecture (`fluut-app`)
 
-Implements: [S 08], OQ-09 (prototype `egui` vs `slint`), OQ-20 (timeline v1). Depends on:
-`fluut-core`, `fluut-script`, `fluut-i18n`, `wgpu`, toolkit (pending), `accesskit`, `nucleo`
+Implements: [S 08], OQ-09 (`egui`), OQ-20 (timeline v1). Depends on:
+`fluut-core`, `fluut-script`, `fluut-i18n`, `wgpu`, `egui`, `egui_dock`, `accesskit`, `nucleo`
 (fuzzy search).
 
-The toolkit is not chosen yet (OQ-09). This design keeps everything except the widget layer
-toolkit-independent, so the prototype result changes only §6.
+The toolkit is `egui` (OQ-09, decided 2026-11-01 after spike S4). Everything except the widget
+layer (§6) stays toolkit-independent.
 
 ## 1. Layers
 
@@ -150,21 +150,26 @@ the pass preview updates live [S 08 §8.4].
 | Pick latency | ≤ 1 frame |
 | Cold start to interactive | ≤ 2 s |
 
-## 6. Widget layer (toolkit-specific)
+## 6. Widget layer (`egui`)
 
-Depends on OQ-09. Requirements [S 08 §8.11] and what the prototype must show:
+`egui` with `egui_dock`, through `eframe` on `wgpu` (OQ-09; [S4 report](../plan/spikes/s4-ui-toolkit.md)).
 
-| Component | egui notes | slint notes |
-|---|---|---|
-| Ribbon with galleries | custom painted; easy | `.slint` components; strong styling |
-| Docking panels | `egui_dock` | custom (no built-in docking) |
-| wgpu viewport + overlays | `egui_wgpu` paint callback | `slint` wgpu underlay/texture import |
-| Timeline | custom painted | custom component |
-| Accessibility | AccessKit integrated | built-in accessibility |
-| Theming | style tokens via `egui::Style` | design tokens in `.slint` globals |
-| Licence | MIT/Apache | GPL-3 / royalty-free / commercial — check vs MIT/Apache [S 06 §6.1] |
+| Component | How |
+|---|---|
+| Ribbon with galleries | custom painted widgets |
+| Docking, floating and multi-window panels | `egui_dock` |
+| `wgpu` viewport and overlays | `egui_wgpu` paint callback; overlays drawn by `egui` on top |
+| Timeline | custom painted |
+| Accessibility | AccessKit, through `egui` |
+| Theming | style tokens in `egui::Style`, using the brand colours (`assets/README.md`) |
+| Fonts | `default_fonts` off; one bundled OFL-1.1 UI font family, chosen in M5 [S 08 §8.9] |
 
-Prototype scope [S 08 §8.11]; decision recorded in [S 01 §1.8].
+- `egui` rebuilds the UI from state every frame, so the widget layer reads view models directly;
+  there is no property-sync layer.
+- The UI repaints only on input, job progress or animation; idle CPU stays near zero (S4 §2).
+- Before M5: measure frame times on a real GPU on Windows, macOS and Linux against §5. S4 ran on
+  a software rasteriser only.
+- Known gap: bidirectional text. Tracked for right-to-left translations.
 
 ### 6.1 Branding
 

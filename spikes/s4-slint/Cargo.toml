@@ -1,0 +1,26 @@
+[package]
+name = "s4-slint"
+description = "Spike S4: slint prototype of the FluutCAM window (not part of FluutCAM)"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "MIT OR Apache-2.0"
+
+# Not a member of the FluutCAM workspace.
+[workspace]
+
+[dependencies]
+s4-common = { path = "../s4-common" }
+slint = { version = "1.18", default-features = false, features = ["std", "compat-1-2", "backend-winit", "renderer-femtovg-wgpu", "accessibility", "unstable-wgpu-30"] }
+
+[features]
+# Draw the UI with Skia (C++) instead of FemtoVG; both use wgpu 30.
+skia = ["slint/renderer-skia"]
+
+[build-dependencies]
+slint-build = "1.18"
+
+[profile.release]
+debug = false
+lto = "thin"
+codegen-units = 1

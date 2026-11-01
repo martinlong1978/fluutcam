@@ -248,10 +248,11 @@ impl Curve3 {
         ts.into_iter().map(|t| (t, self.eval(t))).collect()
     }
 
-    /// The curve mapped by `a`, with the same parametrisation:
-    /// `C′(t) = a(C(t))`. Lines and B-splines accept any affine map; circles,
-    /// ellipses and offsets only similarities (otherwise `None`). A mirror keeps
-    /// a circle's or ellipse's point set and parametrisation and flips its axis.
+    /// The curve mapped by `a`: `C′(transformed_param(a, t)) = a(C(t))`
+    /// ([`Curve3::transformed_param`]). Lines and B-splines accept any affine
+    /// map; circles, ellipses and offsets only similarities (otherwise
+    /// `None`). A mirror keeps a circle's or ellipse's point set and
+    /// parametrisation and flips its axis.
     pub fn transformed(&self, a: &Affine) -> Option<Curve3> {
         let similar_frame = |frame: &Frame| -> Option<(Frame, f64)> {
             let s = a.uniform_scale(SIMILARITY_TOL)?;
@@ -288,6 +289,26 @@ impl Curve3 {
                     UnitVec3::new(a.apply_vec(dir.get()))?,
                 )
             }
+        }
+    }
+
+    /// Maps a parameter of `self` to the parameter of `self.transformed(a)`
+    /// at the mapped point. Lines are parametrised by arc length, so `t`
+    /// scales by `|a·dir|`; an offset maps as its basis; every other kind
+    /// keeps `t`. The map is increasing, so ranges keep their order.
+    pub fn transformed_param(&self, a: &Affine, t: f64) -> f64 {
+        match self {
+            Curve3::Line { dir, .. } => t * a.apply_vec(dir.get()).length(),
+            Curve3::Offset { basis, .. } => basis.transformed_param(a, t),
+            _ => t,
+        }
+    }
+
+    /// [`Curve3::transformed_param`] applied to both ends of `range`.
+    pub fn transformed_range(&self, a: &Affine, range: Interval) -> Interval {
+        Interval {
+            lo: self.transformed_param(a, range.lo),
+            hi: self.transformed_param(a, range.hi),
         }
     }
 }
@@ -426,6 +447,29 @@ mod tests {
 
     fn full() -> Interval {
         Interval { lo: 0.0, hi: TAU }
+    }
+
+    #[test]
+    fn transformed_param_maps_points() {
+        let line = Curve3::line(
+            Point3::new(1.0, 2.0, 3.0),
+            UnitVec3::new(Vec3::new(1.0, 1.0, 0.0)).unwrap(),
+        );
+        let offset = Curve3::offset(line.clone(), 0.5, UnitVec3::Z).unwrap();
+        let shear = Affine::scale(2.0, 3.0, 1.0);
+        let similar = Affine::scale(2.0, 2.0, 2.0);
+        for (c, a) in [
+            (&line, &shear),
+            (&line, &similar),
+            (&offset, &similar),
+            (&unit_circle(), &similar),
+        ] {
+            let t2 = c.transformed(a).unwrap();
+            for t in [-1.5, 0.0, 0.7, 4.0] {
+                let p = t2.eval(c.transformed_param(a, t));
+                assert!(p.distance(a.apply_point(c.eval(t))) < 1e-12, "{c:?} t={t}");
+            }
+        }
     }
 
     #[test]

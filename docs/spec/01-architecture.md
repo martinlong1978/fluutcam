@@ -175,7 +175,7 @@ FluutCAM MUST be written entirely in Rust.
 | 2D offsetting | Arc-aware, floating-point. **[DECIDED — OQ-06]** `cavalier_contours` (polylines with arc segments), wrapped behind an internal trait. Integer-grid libraries are excluded by DC-02. |
 | STEP parsing | Own Part 21 reader (OQ-01 decision, §1.4); `ruststep` may be evaluated in the spike. |
 | Rendering | `wgpu`. |
-| UI toolkit | **[DECIDED — OQ-09]** Prototype in `egui` and `slint`, then choose (08 §8.11). `iced` dropped. |
+| UI toolkit | **[DECIDED — OQ-09, 2026-11-01]** `egui` with `egui_dock`, on `wgpu` and AccessKit. Chosen after the S4 prototypes of `egui` and `slint` ([report](../plan/spikes/s4-ui-toolkit.md)): `egui` keeps shipped binaries under permissive licences and has docking; `slint`'s royalty-free licence is not open source. `iced` dropped. |
 | Scripting | `rhai`, embedded and sandboxed, in v1. See [09](09-scripting.md). |
 | JavaScript (Fusion post import) | Candidate: `boa_engine` (pure Rust). |
 | Serialization | `serde`; formats per 02. |

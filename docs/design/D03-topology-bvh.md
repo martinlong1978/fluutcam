@@ -94,6 +94,23 @@ Periodic surfaces (cylinder, cone, sphere, torus, periodic B-splines) need care:
 the seam. UV polylines are unwrapped into one period window chosen per face (from the loop's
 UV bounds), and query points are shifted into that window before classification.
 
+**Outer loop.** The cache decides which loop is outer from the polylines, not from the file
+(`fluut_topo::trim::outer_loop`, built in the [STEP follow-ups](../plan/spikes/s1-kernel-step.md#follow-ups-2026-11-01)):
+- the outer loop is the one closed loop that contains points of every other loop, each point
+  moved by whole periods into the candidate's window (a hole may lie across the seam);
+- a loop that ends a whole period from where it starts, other than across a pole, **wraps** round
+  the surface and contains nothing; a face with wrapping loops is a band, and the widest of them
+  in 3-D is outer;
+- on a closed but non-periodic B-spline a p-curve jumps back across the seam to stay in the
+  domain; the polyline undoes such jumps before the tests;
+- joints at a pole or apex are free in the collapsed direction and are joined by a straight
+  segment along it.
+
+The STEP mapper uses this for faces bounded only by `FACE_BOUND` (AP203). A declared
+`FACE_OUTER_BOUND` is not proof either: one corpus file puts it on the hole of 23 planar faces.
+When the trim cache is built at import, the outer flag comes from this rule for every face, and
+a disagreement with the file goes into the import report (D04 §7).
+
 ### 3.2 Classification
 
 ```rust

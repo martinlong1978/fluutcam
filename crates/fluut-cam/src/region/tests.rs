@@ -145,6 +145,34 @@ fn offset_plate_hole_grows() {
 }
 
 #[test]
+fn offset_to_exactly_half_the_width() {
+    // A 50 × 30 slot with corner radius 5 offset inward by 15 collapses to
+    // its centre line. The offset used to hit a debug assertion in
+    // `cavalier_contours` (a zero-length segment); now it must just be
+    // empty or a sliver, at every nearby distance.
+    let k = core::f64::consts::SQRT_2 - 1.0;
+    let slot = Region2 {
+        loops: vec![Loop2 {
+            verts: vec![
+                Vertex::new(20.0, 15.0, 0.0),
+                Vertex::new(60.0, 15.0, k),
+                Vertex::new(65.0, 20.0, 0.0),
+                Vertex::new(65.0, 40.0, k),
+                Vertex::new(60.0, 45.0, 0.0),
+                Vertex::new(20.0, 45.0, k),
+                Vertex::new(15.0, 40.0, 0.0),
+                Vertex::new(15.0, 20.0, k),
+            ],
+        }],
+    };
+    assert!(close(slot.area(), 1500.0 - (4.0 - PI) * 25.0, 1e-9));
+    for d in [-14.999_999, -15.0, -15.000_001, -(3.0 + 2.4 * 5.0)] {
+        let s = slot.offset(d);
+        assert!(s.area() < 1e-3, "d={d} area={}", s.area());
+    }
+}
+
+#[test]
 fn offset_zero_and_empty() {
     assert_eq!(plate().offset(0.0), plate());
     assert!(Region2::empty().offset(3.0).is_empty());

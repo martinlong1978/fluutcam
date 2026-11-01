@@ -193,8 +193,9 @@ the post's decimal character (05 §5.3).
 
 ## 8.11 Toolkit requirements
 
-**[DECIDED — OQ-09]** The toolkit is chosen by prototyping in `egui` (with a docking crate) and
-`slint`. The choice must meet these requirements:
+**[DECIDED — OQ-09, 2026-11-01]** The toolkit is `egui` with `egui_dock`. It was chosen by
+prototyping `egui` and `slint` (spike S4, [report](../plan/spikes/s4-ui-toolkit.md)). The toolkit must meet
+these requirements:
 
 1. Custom-drawn widgets and full theming (ribbon, galleries, timeline, dials).
 2. Docking, floating and multi-window panels.
@@ -208,10 +209,14 @@ handle, the inspector with a scrub-able numeric field, and a docked/floating pan
 the six requirements above, and code effort. For `slint`, check licence terms against
 FluutCAM's distribution model. Record the result in 01 §1.8.
 
+Result: `egui` met the requirements with the least code and keeps the shipped binary under
+permissive licences. Known gap: bidirectional (right-to-left) text, tracked for later
+translations.
+
 ## 8.12 Decisions
 
 | Id | Decision |
 |---|---|
-| OQ-09 | Prototype `egui` and `slint`; choose against §8.11 |
+| OQ-09 | `egui` with `egui_dock` (2026-11-01, after the S4 prototypes) |
 | OQ-19 | v1 saves files (to a file or chosen folder, e.g. USB stick or network share). Direct send to controllers (e.g. GRBL serial, LinuxCNC remote) later, through per-controller adapters. |
 | OQ-20 | Timeline in v1 without drag-reorder (§8.7) |

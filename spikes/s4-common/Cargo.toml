@@ -1,0 +1,19 @@
+[package]
+name = "s4-common"
+description = "Spike S4: viewport, mock data and measurement code shared by the UI prototypes (not part of FluutCAM)"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "MIT OR Apache-2.0"
+
+# Not a member of the FluutCAM workspace.
+[workspace]
+
+[dependencies]
+wgpu = "30"
+glam = { version = "0.30", features = ["bytemuck"] }
+bytemuck = { version = "1", features = ["derive"] }
+pollster = "0.4"
+
+[profile.release]
+debug = false
