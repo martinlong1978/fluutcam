@@ -242,6 +242,12 @@ else: retract to retract height (or clearance if crossing Setup clearance), rapi
 Rapids are checked against model and stock with the full tool assembly; if blocked, raised to
 clearance [S 04 §4.14].
 
+M3 (2-D types, before the S2 drop queries): "clear" means the link stays inside the
+tool-centre region of the same area and level; `minimum` stays down only for links up to one
+tool diameter (D15 §2.6), and its retract height is `min(retract, max(stock top, top) +
+safety_distance)`, the material bound standing in for the drops along the link. Every
+toolpath starts above its first entry at its `clearance` height and ends there.
+
 ### 8.3 Leads and ramps
 
 - Lead-in/out: tangent arc of the given radius in the plane of the pass (or vertical arc for

@@ -87,8 +87,8 @@ All earlier Global Constraints apply. In addition:
 - `Project { format, name, units, geometry, setups }`, `GeometrySource { id, path, kind, hash, unit, bodies }`, `Setup` (fields as Scope decisions), `Toolpath { id, name, kind, tool, enabled, template, groups }`.
 - The writer uses canonical key order and aligns `=` within a table. Toolpaths are indented 2 spaces and their group tables 4, as in spec 02 §2.1. Defaults and absent keys are not written.
 - `ToolLibrary` (spec 02 §2.4) with presets; `ToolRef` = `library#tool`.
-- [ ] **Step 1:** Tests: each D15 example (§3.4, §4.3, §5.3, read from the D15 file, comments stripped) round-trips byte-identically inside a project; a full project round-trips; format checks (unknown major is an error, newer minor a warning).
-- [ ] **Step 2:** Implement; pass; commit.
+- [x] **Step 1:** Tests: each D15 example (§3.4, §4.3, §5.3, read from the D15 file, comments stripped) round-trips byte-identically inside a project; a full project round-trips; format checks (unknown major is an error, newer minor a warning).
+- [x] **Step 2:** Implement; pass; commit.
 
 ### Task 4: Resolution, validation and the result hash (`fluut-model`)
 
@@ -98,8 +98,8 @@ All earlier Global Constraints apply. In addition:
 - `HeightEnv` → `ResolvedHeights` (Z in W).
 - `validate(tp, resolved, cx) -> Vec<Diagnostic>`: one function per D15 code for `contour_2d`, `pocket_2d`, common fields, and the parameter-only `parallel` rules. `Diagnostic { code, severity, message, toolpath, field }`.
 - `result_hash(...)` over R fields, the tool geometry, R presets and Setup inputs. P fields are left out.
-- [ ] **Step 1:** Tests: every code with one passing and one failing case; every P field leaves the hash unchanged and every R field changes it; inch entry round trip to 1e-12 (`Num` from inches).
-- [ ] **Step 2:** Implement; pass; commit.
+- [x] **Step 1:** Tests: every code with one passing and one failing case; every P field leaves the hash unchanged and every R field changes it; inch entry round trip to 1e-12 (`Num` from inches).
+- [x] **Step 2:** Implement; pass; commit.
 
 ### Task 5: Framework (`fluut-cam`)
 
@@ -110,8 +110,8 @@ All earlier Global Constraints apply. In addition:
 - `layout_even`, `layout_fixed`, `levels(top, bottom, step | count)`.
 - Linking: entry from clearance; retract `full` / `minimum` / `stay_down`; arc and linear leads; ramps `plunge`, `zigzag`, `helix`, `profile` with fallback helix → zigzag → plunge (`cam.linking.ramp_fallback`); feeds per D08 §9; final retract to clearance.
 - Output: `output_arcs = false` linearizes; `max_segment_length` splits lines.
-- [ ] **Step 1:** Tests: layout and levels; chaining open/closed/reversed curves; each link policy; each lead and ramp, with the fallback; continuity of every result (`ToolpathResult::new`).
-- [ ] **Step 2:** Implement; pass; commit.
+- [x] **Step 1:** Tests: layout and levels; chaining open/closed/reversed curves; each link policy; each lead and ramp, with the fallback; continuity of every result (`ToolpathResult::new`).
+- [x] **Step 2:** Implement; pass; commit.
 
 ### Task 6: `contour_2d`
 
@@ -122,8 +122,8 @@ All earlier Global Constraints apply. In addition:
 - Tabs `count`/`distance`/`points` with exact ends and ramps; merge of overlapping tabs (`cam.contour_2d.tabs.overlap`); `cam.contour_2d.tabs.moved`.
 - Drive curves (WireBody, edges, planar faces) and drive faces (vertical walls: bottom edges).
 - `cam.contour_2d.offset_empty`; `param.geometry.drive_faces.kind` for non-wall faces.
-- [ ] **Step 1:** Tests: orientation per side and direction; offsets and finishing pass radii; level Zs; tab Z profile and exact tab ends; control compensation path and `comp`; walls and edges give the same path; endpoint test (D08 §11).
-- [ ] **Step 2:** Implement; pass; commit.
+- [x] **Step 1:** Tests: orientation per side and direction; offsets and finishing pass radii; level Zs; tab Z profile and exact tab ends; control compensation path and `comp`; walls and edges give the same path; endpoint test (D08 §11).
+- [x] **Step 2:** Implement; pass; commit.
 
 ### Task 7: `pocket_2d`
 
@@ -132,8 +132,8 @@ All earlier Global Constraints apply. In addition:
 - Regions from closed drive chains (nesting → islands) and planar floor faces (loops → region, Z → `selection`).
 - Offset pattern (rings at −(R + stl) − k·s, `inside_out`/`outside_in`); raster pattern (layout by `pass_layout`, zig-zag, final contour); `direction`; `stock_to_leave`, `stock_to_leave_axial`.
 - `cam.pocket_2d.region.open`, `cam.pocket_2d.region.unreachable`.
-- [ ] **Step 1:** Tests: ring count and spacing ≤ stepover (D08 §11 stepover test); raster line ends on the region boundary; island kept; floor Z; ramp helix fits or falls back.
-- [ ] **Step 2:** Implement; pass; commit.
+- [x] **Step 1:** Tests: ring count and spacing ≤ stepover (D08 §11 stepover test); raster line ends on the region boundary; island kept; floor Z; ramp helix fits or falls back.
+- [x] **Step 2:** Implement; pass; commit.
 
 ### Task 8: `fluut-core` session, graph and jobs
 
@@ -143,8 +143,8 @@ All earlier Global Constraints apply. In addition:
 - `SetupFrame`: transform to W (orientation, zero), stock box, clearance, `HeightEnv`.
 - `Graph`: nodes `GeometrySource → SetupFrame → ToolpathResult → PostOutput` with SHA-256 hashes (D01 §4); stale = hash not in the cache.
 - `Session::calculate(targets) -> Vec<JobReport>`, sequential, single process; `Session::post(post_id) -> PostOutput`, with the `PostJob` filled from the P fields.
-- [ ] **Step 1:** Tests: graph hashes (a P edit keeps the result node and changes the post node); cache hit on recalculation; missing tool and missing file diagnostics.
-- [ ] **Step 2:** Implement; pass; commit.
+- [x] **Step 1:** Tests: graph hashes (a P edit keeps the result node and changes the post node); cache hit on recalculation; missing tool and missing file diagnostics.
+- [x] **Step 2:** Implement; pass; commit.
 
 ### Task 9: `fluut-cli`, golden projects and end-to-end tests
 
@@ -154,9 +154,45 @@ All earlier Global Constraints apply. In addition:
 - Hand-written STEP inputs from a small test writer: a rounded-rectangle boss (planes and cylinders) and a block with a pocket and a square island. The files are committed and checked against the writer.
 - Golden G-code per type (`fluut/linuxcnc`), refreshed with `FLUUT_BLESS=1`.
 - Translation invariance: the same project with the model and the zero moved by (0.123457, −0.987651, 0.31).
-- [ ] **Step 1:** Tests; bless and review the golden output by eye.
-- [ ] **Step 2:** Pass; commit.
+- [x] **Step 1:** Tests; bless and review the golden output by eye.
+- [x] **Step 2:** Pass; commit.
 
 ### Task 10: Close
 
-- [ ] **Step 1:** Mark this plan done with deviations; README row; D-doc updates (D06 field set, D01 hash, D15 clarifications found while building). Commit and push `m3-vertical-slice`.
+- [x] **Step 1:** Mark this plan done with deviations; README row; D-doc updates (D06 field set, D01 hash, D15 clarifications found while building). Commit and push `m3-vertical-slice`.
+
+**Done.** `fluut post` takes the reference projects in `crates/fluut-cli/tests/projects/` from
+STEP to G-code, with golden files for `fluut/linuxcnc` and `fluut/grbl`. The
+translation-invariance test moves model and zero by (0.123457, −0.987651, 0.31), with the zero
+as a point and from the stock. The G-code is identical, and every coordinate is within 1e-6 mm.
+`parallel` has its parameters, validation and registry slot; `generate` reports
+`cam.type.unavailable` until S2 merges.
+
+Deviations from this plan:
+- Tasks 5–7 landed in one commit: the registry ties the framework to both strategies.
+- `fluut-post` changed outside the plan. Each toolpath now starts with a rapid to its first
+  segment's start, so the first move never runs from wherever the tool change left the tool.
+  The post golden files were re-blessed, and D10 §4.7 records the rule.
+- The D15 §3.4 example had one unaligned line (`tabs`). It was aligned, so that every example
+  round-trips through the canonical writer.
+- Offset pockets add a ring half a stepover in wherever the region runs out between rings.
+  Ring merges at an angle θ can still leave a corner up to (s/2)/sin(θ/2) from a pass. The
+  test checks that bound (D09 §2.2).
+- `minimum` retract stays down for clear links up to one tool diameter. `profile` ramps
+  replace the lead-in, and fall back to plunge over tabs (D15 §2.6, D08 §8.2).
+- `tabs.width` is the length of the bridge. The flat on the tool-centre path is width + D
+  (D15 §3.2).
+- New codes are listed in D15 §6: `param.<scope>.<key>.range` for ranges without their own
+  code, `param.geometry.rest_from.unsupported`, `cam.geometry.drive.empty` and
+  `cam.type.unavailable`.
+- The tests run on STEP parts from a small writer (`crates/fluut-cam/tests/support/step.rs`)
+  and on WireBodies built in code. No corpus files were needed.
+- The † constants of D15 (decision 15) were not tuned: there were no real cuts in this
+  session.
+
+Follow-ups:
+- `parallel` after S2.
+- Link ordering across areas: offset rings alternate between separate areas of a level.
+- Profile ramps over tabs.
+- Machine definitions for the machine rules.
+- The disk result cache (M4).

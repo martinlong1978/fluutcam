@@ -50,7 +50,11 @@ stock_out = stock_in minus swept
 ```
 
 Ring offsets come from `Region2::offset`; ring endpoints are not needed (closed loops), and
-the boundary ring is exact (D08 §3.1).
+the boundary ring is exact (D08 §3.1). Where part of the region runs out less than a stepover
+inside ring k (a thin band between a wall and an island, or the middle), the loops of the ring
+at −(k + ½)·s through that part are added after ring k, so no point is more than s/2 from a
+pass along the ring normals. Where rings from two boundaries merge at an angle θ, the merged
+corner is up to (s/2)/sin(θ/2) from a pass; with s ≤ R that stays within R for θ ≥ 60°.
 
 ### 2.3 `adaptive_2d`
 

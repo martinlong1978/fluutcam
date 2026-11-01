@@ -169,7 +169,9 @@ GeometrySource(file hash) ──► Body set ──► SetupFrame(setup params, 
 ```
 
 - Hash: `blake3` over a canonical serialization of the node's inputs, including input node
-  hashes and the FluutCAM algorithm version of the producing crate.
+  hashes and the FluutCAM algorithm version of the producing crate. M3 uses SHA-256 (`sha2`,
+  already a dependency, and the form of geometry hashes in the project file, S 02 §2.1); the
+  switch to `blake3` can come with the disk cache (M4), which is the only place speed matters.
 - A `ToolpathResult` hash covers only the toolpath parameters that change the result (class R,
   D15 §1.8). Post-time parameters such as feeds and spindle speed (class P) feed the
   `PostOutput` node instead, so editing them does not make the toolpath stale.

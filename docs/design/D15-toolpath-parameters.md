@@ -301,11 +301,21 @@ types. `stock_to_leave_axial` applies to floors and is used by 2-D types only.
 
 - Leads: `arc` is a tangent quarter arc of `radius`, in the plane of the pass (2-D types) or
   vertical (3-D finishing) (D08 §8.3). `length` adds a straight tangent before an arc lead-in
-  (after an arc lead-out); for `linear` it is the whole lead. `lead_out` absent copies `lead_in`.
+  (after an arc lead-out); for `linear` it is the whole lead. `lead_out` absent copies `lead_in`;
+  a `lead_out` table that sets only some keys takes the others from the resolved `lead_in`
+  (`length` only when the kinds match). The arc comes from the side the tool is on, away from
+  the material.
 - `safety_distance` is the clearance above the highest drop along a link for `minimum` retracts
   (D08 §8.2).
 - Ramps apply to entries into material. If the chosen ramp does not fit the region, the
   framework falls back helix → zigzag → plunge and reports `cam.linking.ramp_fallback` (W).
+  A ramp starts at the level above (the top for the first level); above that the tool plunges
+  in cleared material. `profile` follows the pass backwards from its start (closed chains) or
+  goes out and back along it (open chains), so it replaces the lead-in of that entry; over
+  tabs it falls back to `plunge`.
+- `retract`: `stay_down` keeps the tool down when the straight link stays inside the area's
+  tool-centre region at the same level; `minimum` does so only for links up to one tool
+  diameter, else retracts as below; `full` always retracts to `retract`.
 
 All Linking fields are class **R**.
 
@@ -383,7 +393,9 @@ and `direction` is not used; open chains are then cut in selection direction.
   chain, from its ends inward). `distance` places one tab every `distance` along each chain.
   `points` stores model-frame points; each snaps to the nearest point of the projected chains.
   Below tab top (`bottom + tabs.height`), the path rises to tab top over each tab, with ramps at
-  `tabs.ramp_angle_deg` (D09 §2.4). Tab ends are exact.
+  `tabs.ramp_angle_deg` (D09 §2.4). Tab ends are exact. `tabs.width` is the length of the
+  material bridge: the flat part of the tool-centre path at tab top is `width` + tool
+  diameter long, centred on the tab point snapped to the pass.
 
 All `contour_2d` fields are class **R**.
 
@@ -616,6 +628,14 @@ change does not affect later toolpaths.
 - `visible_if` hides fields; a hidden field set in the file is kept and written back, but not
   used (e.g. `offset_order` while `pattern = "raster"`). It is not an error, so switching a
   pattern back and forth loses nothing.
+- M3 keeps the field tables as data (`fluut-model::params`) instead of a derive macro;
+  `visible_if` waits for the inspector (M5).
+- A range in the tables without a code of its own reports `param.<scope>.<key>.range` (E),
+  where the scope is the group for common fields and the type id for type fields, e.g.
+  `param.contour_2d.tabs.distance.range`.
+- Codes added while building M3: `param.geometry.rest_from.unsupported` (E, `rest_from =
+  "previous"` until in-process stock exists), `cam.geometry.drive.empty` (E, the selection
+  gives no curves), `cam.type.unavailable` (E, `parallel` until the S2 drop queries merge).
 
 Tests:
 
