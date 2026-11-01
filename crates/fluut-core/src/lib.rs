@@ -7,6 +7,7 @@
 //! memory and, when enabled, in the disk sidecar (D06 §7.5).
 
 pub mod cache;
+pub mod entities;
 pub mod frame;
 pub mod graph;
 pub mod reimport;

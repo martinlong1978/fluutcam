@@ -43,7 +43,7 @@ pub fn manual_nc(tp: &Toolpath, setup_kind: SetupKind) -> Result<Generated, CamE
         return Err(CamError::Invalid(diags));
     }
     let text = match tp.params.get("passes.text") {
-        Some(PValue::Text(t)) => Some(t.clone()),
+        Some(PValue::Enum(t)) => Some(t.clone()),
         _ => None,
     };
     let kind = match tp.params.get("passes.kind") {

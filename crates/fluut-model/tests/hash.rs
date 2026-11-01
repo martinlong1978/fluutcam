@@ -26,7 +26,7 @@ fn sample(kind: FieldKind) -> PValue {
         | FieldKind::Angle
         | FieldKind::Duration => PValue::Num(Num::float(7.25)),
         FieldKind::Bool => PValue::Bool(false),
-        FieldKind::Text => PValue::Text("M1".into()),
+        FieldKind::Text => PValue::Enum("M1".into()),
         FieldKind::Enum(e) => PValue::Enum(e[e.len() - 1].to_owned()),
         FieldKind::Height | FieldKind::XPos => PValue::Height(HeightSpec::new("work_zero", 1.5)),
         FieldKind::Selection => PValue::Selection(vec![Sel::Face("f-9".into())]),

@@ -250,13 +250,15 @@ fn fits(kind: FieldKind, v: &PValue) -> bool {
         ) => true,
         (FieldKind::Count, PValue::Num(n)) => n.int,
         (FieldKind::Bool, PValue::Bool(_)) => true,
-        (FieldKind::Text, PValue::Text(_)) => true,
+        (FieldKind::Text, PValue::Enum(_)) => true,
         (FieldKind::Enum(allowed), PValue::Enum(s)) => allowed.contains(&s.as_str()),
         (FieldKind::Height, PValue::Height(h)) => HEIGHT_REFS.contains(&h.reference.as_str()),
         (FieldKind::XPos, PValue::Height(h)) => X_REFS.contains(&h.reference.as_str()),
         (FieldKind::Selection, PValue::Selection(_)) => true,
         (FieldKind::Point, PValue::Point(_)) => true,
         (FieldKind::Points, PValue::Points(_)) => true,
+        // Sub-fields were checked when the table was read.
+        (FieldKind::Table(_), PValue::Table(_)) => true,
         _ => false,
     }
 }

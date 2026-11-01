@@ -6,6 +6,9 @@
 //! `Arc`s, so an entry costs only the Setups the edit changed. The history
 //! is unlimited by count and capped by an estimate of those unshared
 //! Setups' size (256 MB by default); the oldest entries go first.
+//!
+//! A group (a script run, a multi-step UI action) makes many edits one
+//! step: [`Document::begin_group`] and [`Document::end_group`].
 
 use crate::edit::{Changed, Edit, EditError, apply};
 use crate::journal::{Journal, Record};
@@ -37,6 +40,15 @@ pub struct Outcome {
     pub changed: Changed,
 }
 
+/// An open group: the root before it and what its edits changed.
+#[derive(Clone, Debug)]
+struct OpenGroup {
+    label: String,
+    depth: usize,
+    start: Arc<Project>,
+    changed: Changed,
+}
+
 #[derive(Debug)]
 pub struct Document {
     root: Arc<Project>,
@@ -45,6 +57,7 @@ pub struct Document {
     undo_bytes: usize,
     cap: usize,
     journal: Option<Journal>,
+    group: Option<OpenGroup>,
 }
 
 /// Rough size of the Setups of `old` that `new` does not share.
@@ -73,6 +86,7 @@ impl Document {
             undo_bytes: 0,
             cap: UNDO_CAP_BYTES,
             journal: None,
+            group: None,
         }
     }
 
@@ -134,6 +148,64 @@ impl Document {
         self.apply_inner(edit, Some(now_ms))
     }
 
+    /// Opens a group: the edits until the matching [`Document::end_group`]
+    /// become one undo step labelled `label`. Groups nest; only the
+    /// outermost counts.
+    pub fn begin_group(&mut self, label: &str) {
+        match &mut self.group {
+            Some(g) => g.depth += 1,
+            None => {
+                self.group = Some(OpenGroup {
+                    label: label.to_owned(),
+                    depth: 1,
+                    start: self.root.clone(),
+                    changed: Changed::new(),
+                });
+            }
+        }
+    }
+
+    pub fn in_group(&self) -> bool {
+        self.group.is_some()
+    }
+
+    /// Closes the innermost group. Closing the outermost one adds its undo
+    /// step and returns it; `None` when a group stays open or the group
+    /// changed nothing.
+    pub fn end_group(&mut self) -> Option<Outcome> {
+        let g = self.group.as_mut()?;
+        g.depth -= 1;
+        if g.depth > 0 {
+            return None;
+        }
+        let g = self.group.take()?;
+        if Arc::ptr_eq(&g.start, &self.root) {
+            return None;
+        }
+        let bytes = unshared_bytes(&g.start, &self.root);
+        self.undo_bytes += bytes;
+        self.undo.push_back(Entry {
+            label: g.label.clone(),
+            root: g.start,
+            changed: g.changed.clone(),
+            bytes,
+            coalesce: None,
+        });
+        self.trim();
+        Some(Outcome {
+            label: g.label,
+            changed: g.changed,
+        })
+    }
+
+    /// Closes every open level of a group.
+    fn close_groups(&mut self) {
+        if let Some(g) = &mut self.group {
+            g.depth = 1;
+        }
+        self.end_group();
+    }
+
     fn apply_inner(&mut self, edit: Edit, now: Option<u64>) -> Result<Outcome, EditError> {
         let (next, changed) = apply(&self.root, &edit)?;
         if let Some(j) = &mut self.journal {
@@ -142,6 +214,12 @@ impl Document {
         }
         let next = Arc::new(next);
         let label = edit.label();
+        if let Some(g) = &mut self.group {
+            g.changed.extend(changed.iter().cloned());
+            self.root = next;
+            self.redo.clear();
+            return Ok(Outcome { label, changed });
+        }
         let key = match (edit.coalesce_key(), now) {
             (Some((t, k)), Some(ms)) => Some((t.to_owned(), k.to_owned(), ms)),
             _ => None,
@@ -185,8 +263,10 @@ impl Document {
         }
     }
 
-    /// Steps back; `None` when there is nothing to undo.
+    /// Steps back; `None` when there is nothing to undo. An open group is
+    /// closed first.
     pub fn undo(&mut self) -> Option<Outcome> {
+        self.close_groups();
         let mut e = self.undo.pop_back()?;
         self.undo_bytes -= e.bytes;
         if let Some(j) = &mut self.journal {
@@ -206,6 +286,7 @@ impl Document {
 
     /// Steps forward again; `None` when there is nothing to redo.
     pub fn redo(&mut self) -> Option<Outcome> {
+        self.close_groups();
         let mut e = self.redo.pop()?;
         if let Some(j) = &mut self.journal {
             let _ = j.append(&Record::Redo);

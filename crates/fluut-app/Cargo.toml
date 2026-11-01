@@ -1,0 +1,36 @@
+[package]
+name = "fluut-app"
+description = "FluutCAM desktop application: egui shell over the fluut-core session (design D13)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "fluutcam"
+path = "src/main.rs"
+
+[dependencies]
+fluut-cam.workspace = true
+fluut-core.workspace = true
+fluut-geom.workspace = true
+fluut-model.workspace = true
+fluut-path.workspace = true
+fluut-post.workspace = true
+fluut-topo.workspace = true
+glam = { workspace = true, features = ["bytemuck"] }
+bytemuck = { version = "1", features = ["derive"] }
+# `default_fonts` is off: the UI font is bundled in `assets/fonts` (D13 §6).
+eframe = { version = "0.36", default-features = false, features = ["accesskit", "wgpu", "wayland", "x11"] }
+egui_dock = "0.21"
+wgpu = { version = "30", default-features = false, features = ["wgsl"] }
+pollster = "0.4"
+
+[build-dependencies]
+resvg = { version = "0.49", default-features = false }
+
+[dev-dependencies]
+egui_kittest = "0.36"
+
+[lints]
+workspace = true

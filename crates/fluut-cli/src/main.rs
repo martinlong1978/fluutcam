@@ -5,7 +5,13 @@
 //! ```text
 //! fluut calc <project> [--tools <file>]...
 //! fluut post <project> --post <id> -o <file> [--tools <file>]... [--date <d>] [--time <t>]
+//! fluut run <script> [<project>] [--tools <file>]... [--date <d>] [--time <t>] [-- <args>...]
 //! ```
+//!
+//! `run` runs a script headless (spec 09 §9.2, D12 §4). It may read and
+//! write the project's folder and the paths given after `--`, and import
+//! modules from the project's `scripts/`. Its exit status is
+//! `fluut.exit(n)`, 0, or 1 when it fails.
 //!
 //! Exit status: 0 on success, 1 when a diagnostic is an error, 2 on bad
 //! arguments.
@@ -17,7 +23,8 @@ use std::process::ExitCode;
 
 const USAGE: &str = "usage:
   fluut calc <project> [--tools <file>]...
-  fluut post <project> --post <id> -o <file> [--tools <file>]... [--date <yyyy-mm-dd>] [--time <hh:mm:ss>]";
+  fluut post <project> --post <id> -o <file> [--tools <file>]... [--date <yyyy-mm-dd>] [--time <hh:mm:ss>]
+  fluut run <script> [<project>] [--tools <file>]... [--date <yyyy-mm-dd>] [--time <hh:mm:ss>] [-- <args>...]";
 
 #[derive(Debug, Default)]
 struct Args {
@@ -66,6 +73,16 @@ fn main() -> ExitCode {
         }
         _ => {}
     }
+    if args.peek().map(String::as_str) == Some("run") {
+        args.next();
+        return match parse_run(args) {
+            Ok(r) => run_script(&r),
+            Err(e) => {
+                eprintln!("fluut: {e}\n{USAGE}");
+                ExitCode::from(2)
+            }
+        };
+    }
     let a = match parse(args) {
         Ok(a) => a,
         Err(e) => {
@@ -81,6 +98,116 @@ fn main() -> ExitCode {
             ExitCode::from(2)
         }
     }
+}
+
+/// Arguments of `fluut run`.
+#[derive(Debug, Default)]
+struct RunArgs {
+    script: PathBuf,
+    project: Option<PathBuf>,
+    tools: Vec<PathBuf>,
+    date: Option<String>,
+    time: Option<String>,
+    /// After `--`: `fluut.args`, and paths the script may use.
+    args: Vec<String>,
+}
+
+fn parse_run(mut it: impl Iterator<Item = String>) -> Result<RunArgs, String> {
+    let mut a = RunArgs::default();
+    let mut script = None;
+    while let Some(arg) = it.next() {
+        let mut value = |name: &str| it.next().ok_or(format!("{name} needs a value"));
+        match arg.as_str() {
+            "--" => {
+                a.args = it.by_ref().collect();
+                break;
+            }
+            "--tools" => a.tools.push(value("--tools")?.into()),
+            "--project" => a.project = Some(value("--project")?.into()),
+            "--date" => a.date = Some(value("--date")?),
+            "--time" => a.time = Some(value("--time")?),
+            s if s.starts_with('-') => return Err(format!("unknown option {s}")),
+            s if script.is_none() => script = Some(PathBuf::from(s)),
+            s if a.project.is_none() => a.project = Some(PathBuf::from(s)),
+            s => {
+                return Err(format!(
+                    "unexpected argument {s}; script arguments go after --"
+                ));
+            }
+        }
+    }
+    a.script = script.ok_or("no script file")?;
+    Ok(a)
+}
+
+fn run_script(a: &RunArgs) -> ExitCode {
+    let source = match std::fs::metadata(&a.script).and_then(|m| {
+        if m.len() > fluut_script::run::MAX_SOURCE_BYTES as u64 {
+            Err(std::io::Error::other("the script is too large"))
+        } else {
+            std::fs::read_to_string(&a.script)
+        }
+    }) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("fluut: cannot read {}: {e}", a.script.display());
+            return ExitCode::from(1);
+        }
+    };
+    let open = fluut_core::OpenOptions {
+        tool_files: a.tools.clone(),
+        ..fluut_core::OpenOptions::default()
+    };
+    let session = match &a.project {
+        None => None,
+        Some(p) => match Session::open_with(p, &open) {
+            Ok(s) => {
+                print_diags(&s.warnings);
+                Some(s)
+            }
+            Err(d) => {
+                print_diags(&d);
+                return ExitCode::from(1);
+            }
+        },
+    };
+    let project_dir = session.as_ref().map(|s| absolute(&s.dir));
+    let (date, time) = now_utc();
+    let name = a
+        .script
+        .file_name()
+        .map_or_else(|| "script".into(), |n| n.to_string_lossy().into_owned());
+    let opts = fluut_script::RunOptions {
+        name: name.clone(),
+        permissions: fluut_script::Permissions {
+            library_dirs: project_dir.iter().cloned().collect(),
+            project_dir,
+            allowed_paths: a
+                .args
+                .iter()
+                .map(|x| absolute(std::path::Path::new(x)))
+                .collect(),
+            ui: false,
+        },
+        open,
+        args: a.args.clone(),
+        date: a.date.clone().unwrap_or(date),
+        time: a.time.clone().unwrap_or(time),
+        ..fluut_script::RunOptions::default()
+    };
+    let host = std::sync::Arc::new(fluut_script::Console::echo());
+    let out = fluut_script::run(&source, session, opts, host);
+    if let Err(e) = &out.result {
+        match e.line {
+            Some(l) => eprintln!("fluut: {name}:{l}: {}", e.message),
+            None => eprintln!("fluut: {name}: {}", e.message),
+        }
+    }
+    ExitCode::from(out.exit_code.clamp(0, 255) as u8)
+}
+
+fn absolute(p: &std::path::Path) -> PathBuf {
+    std::path::absolute(p).unwrap_or_else(|_| p.to_path_buf())
 }
 
 fn print_diags(d: &[Diagnostic]) -> bool {

@@ -1088,7 +1088,7 @@ pub fn resolve(p: &Params, tool: &Tool, material: Option<&str>) -> ResolvedParam
                 _ => ManualKind::OptionalStop,
             },
             text: match g.p.get("passes.text") {
-                Some(PValue::Text(t)) => Some(t.clone()),
+                Some(PValue::Enum(t)) => Some(t.clone()),
                 _ => None,
             },
             dwell_s: g.num_or("passes.dwell_s", 1.0),

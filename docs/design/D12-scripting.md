@@ -77,7 +77,7 @@ field:
 
 ### 3.3 Functions
 
-As listed in [S 09 §9.4]. Additions found necessary during design:
+As listed in [S 09 §9.4]; the full member list with types is [D12b](D12b-scripting-api.md). Additions found necessary during design:
 
 | Function | Reason |
 |---|---|
@@ -116,6 +116,15 @@ help text from Fluent) into the online help [S 01 §1.9]. This keeps one source 
 - API round trip: a script that builds the spec's example project produces a document equal to
   the parsed example file.
 - Headless golden runs: `fluut run` on sample jobs; output G-code compared to golden files.
+
+## 6a. As built (M7)
+
+[D12b](D12b-scripting-api.md) is the member list. Differences from the sketch above: the
+`ScriptHost` has `log`, `ui_request` and `cancelled`; the session lives in the run state, not
+the host, so a script can open or create a project. A `memory_cells` limit was added (§1),
+because rhai checks sizes only when a value is passed or assigned whole. `Model.import` is
+`import_file` (`import` is a Rhai keyword). Calculations are not interrupted: cancellation and
+the time limit act when a call returns, and time in calculation, post and import does not count.
 
 ## 7. Challenges
 

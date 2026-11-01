@@ -158,7 +158,7 @@ fn manual_nc(tp: &Toolpath, out: &mut Vec<Diagnostic>) {
         _ => "optional_stop",
     };
     let text = match tp.params.get("passes.text") {
-        Some(PValue::Text(t)) => Some(t.as_str()),
+        Some(PValue::Enum(t)) => Some(t.as_str()),
         _ => None,
     };
     if matches!(kind, "comment" | "pass_through") && text.is_none_or(str::is_empty) {
