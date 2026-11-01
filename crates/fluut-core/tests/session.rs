@@ -322,3 +322,60 @@ fn frames_take_scale_size_and_face_picks() {
     t.kind = Some(fluut_model::project::SetupKind::Rotary);
     assert!(try_frame(&s, &t).is_err());
 }
+
+#[test]
+fn machines_and_posts_come_from_the_library() {
+    let (dir, id) = workspace("library");
+    let user = dir.join("user-defs");
+    std::fs::create_dir_all(user.join("posts")).unwrap();
+    std::fs::create_dir_all(dir.join("machines")).unwrap();
+    // A user post extending a built-in one, and a project machine that
+    // sets one post word.
+    std::fs::write(
+        user.join("posts/mine.post.toml"),
+        "format = \"fluut.post/1\"\nid = \"user/mine\"\nversion = \"1.0\"\nextends = \"fluut/linuxcnc@1\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("machines/router.machine.toml"),
+        "format = \"fluut.machine/1\"\nid = \"project/router\"\nversion = \"1.0\"\n\
+         name = \"Shop router\"\nextends = \"fluut/generic-3axis-router@1\"\n\
+         [post_overrides]\n\"words.F.prefix\" = \"F=\"\n",
+    )
+    .unwrap();
+    let text = project(&id).replace(
+        "material = \"MDF\"",
+        "machine  = \"project/router@1\"\nmaterial = \"MDF\"",
+    );
+    std::fs::write(dir.join("p.fluut"), text).unwrap();
+    let opts = fluut_core::OpenOptions {
+        tool_files: Vec::new(),
+        user_dir: Some(user.clone()),
+    };
+    let mut s = Session::open_with(&dir.join("p.fluut"), &opts).unwrap();
+    assert!(s.warnings.is_empty(), "{:?}", s.warnings);
+    let m = s.machines();
+    assert_eq!(
+        m["project/router@1"].as_ref().unwrap().fields.name,
+        "Shop router"
+    );
+    let posts = s.library.mem_store(fluut_model::library::DefKind::Post);
+    let popts = PostOptions {
+        date: "2026-11-01".into(),
+        time: "12:00:00".into(),
+        notes: String::new(),
+    };
+    let (out, _) = s.post("user/mine", &posts, &popts).unwrap();
+    let g = &out.files[0];
+    assert!(g.contains(" F=2000"), "{g}");
+    assert!(g.contains("project/router@1.0"), "{g}");
+    // A machine that is not in the library is a warning at open.
+    let text = project(&id).replace(
+        "material = \"MDF\"",
+        "machine  = \"user/gone@1\"\nmaterial = \"MDF\"",
+    );
+    std::fs::write(dir.join("p.fluut"), text).unwrap();
+    let s = Session::open_with(&dir.join("p.fluut"), &opts).unwrap();
+    assert_eq!(s.warnings[0].code, "setup.machine.missing");
+    assert!(!s.warnings[0].is_error());
+}

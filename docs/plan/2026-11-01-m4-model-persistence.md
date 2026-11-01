@@ -88,8 +88,8 @@ All earlier Global Constraints apply. In addition:
 - `Machine::from_resolved` (spec 02 §2.3): travel, spindle, feed, rotary axes, tool changer, `post`, `post_overrides`; `format = "fluut.machine/1"`. Built-in `fluut/generic-3axis-router@1.0`.
 - Tool libraries: optional `version` (default `1.0`) and `extends`. Tools merge by id: the child replaces or adds. `ToolRef` takes `lib@req#tool`.
 - `fluut-core`: `Session::open_with(path, &OpenOptions { tool_files, user_dir })` builds the library from built-in posts and machines, the user dir and the project dir. The Setup's `machine` gives the post's machine info and the validation machine limits.
-- [ ] **Step 1:** Tests: layers and ties; reserved namespace; `@3` and `@3.2` across layers; cycles and missing parents through the library; mixin conflict warning and provenance for machines; machine typed load and errors; tool `extends` and `@version` refs.
-- [ ] **Step 2:** Implement; pass; commit.
+- [x] **Step 1:** Tests: layers and ties; reserved namespace; `@3` and `@3.2` across layers; cycles and missing parents through the library; mixin conflict warning and provenance for machines; machine typed load and errors; tool `extends` and `@version` refs.
+- [x] **Step 2:** Implement; pass; commit.
 
 ### Task 5: Templates (`fluut-model`)
 

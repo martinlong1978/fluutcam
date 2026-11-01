@@ -13,7 +13,9 @@ pub mod store;
 
 pub use frame::SetupFrame;
 pub use graph::{Graph, NodeId};
-pub use session::{JobReport, JobState, PostOptions, Session, Targets};
+pub use session::{
+    JobReport, JobState, OpenOptions, PostOptions, Session, Targets, builtin_library,
+};
 pub use store::{LoadedSource, ModelStore};
 
 /// Version of the calculation code, part of every result hash (D01 §4).

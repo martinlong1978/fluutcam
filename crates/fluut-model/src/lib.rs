@@ -4,6 +4,8 @@
 //!
 //! - `defs`: the generic layered resolver for definitions (posts, machines,
 //!   templates; D06 §4).
+//! - `library`: the layered definition library (built-in, user, project).
+//! - `machine`: machine definitions (spec 02 §2.3).
 //! - `params`: toolpath parameter metadata and values (D06 §3, D15).
 //! - `project`: the project document, read and written (D06 §1, §7.2).
 //! - `setup`: Setup inheritance (`based_on`, D06 §2).
@@ -14,6 +16,8 @@
 pub mod defs;
 pub mod diag;
 pub mod hash;
+pub mod library;
+pub mod machine;
 pub mod params;
 pub mod project;
 pub mod resolve;

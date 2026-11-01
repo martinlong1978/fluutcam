@@ -8,10 +8,12 @@ use crate::graph::{Graph, NodeId};
 use crate::store::ModelStore;
 use fluut_cam::StrategyInput;
 use fluut_cam::geometry::SetupBody;
+use fluut_model::library::{DefKind, LayerKind, Library};
+use fluut_model::machine::{BUILTIN_MACHINES, Machine};
 use fluut_model::project::{Project, read};
 use fluut_model::resolve::{Coolant, resolve};
 use fluut_model::setup::{ResolvedSetup, resolve_all};
-use fluut_model::tools::{ToolLibrary, ToolStore};
+use fluut_model::tools::ToolStore;
 use fluut_model::validate::{PostCaps, ValidateCx, validate};
 use fluut_model::{DefRef, DefStore, Diagnostic, Severity};
 use fluut_path::{PathStats, ToolpathResult};
@@ -59,6 +61,30 @@ pub struct PostOptions {
     pub notes: String,
 }
 
+/// Where definitions come from besides the built-in layer.
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct OpenOptions {
+    /// Extra tool library files, loaded after the project's `tools/`.
+    pub tool_files: Vec<PathBuf>,
+    /// The user definition folder (`posts/`, `machines/`, `templates/`,
+    /// `tools/`); none when `None`.
+    pub user_dir: Option<PathBuf>,
+}
+
+/// The built-in layer: posts and machines embedded in the binary.
+pub fn builtin_library() -> Library {
+    let mut l = Library::new();
+    for (id, text) in fluut_post::builtin::BUILTIN_POSTS {
+        l.add(DefKind::Post, LayerKind::BuiltIn, id, text)
+            .unwrap_or_else(|e| panic!("built-in post {id}: {e}"));
+    }
+    for (id, text) in BUILTIN_MACHINES {
+        l.add(DefKind::Machine, LayerKind::BuiltIn, id, text)
+            .unwrap_or_else(|e| panic!("built-in machine {id}: {e}"));
+    }
+    l
+}
+
 #[derive(Clone, Debug)]
 struct Cached {
     result: Arc<ToolpathResult>,
@@ -71,6 +97,9 @@ pub struct Session {
     /// Directory of the project file; geometry paths are relative to it.
     pub dir: PathBuf,
     pub store: ModelStore,
+    /// Posts, machines, templates and tool libraries (D06 §4.1).
+    pub library: Library,
+    /// The library's tools, all layers merged.
     pub tools: ToolStore,
     /// Load findings: project warnings, tool libraries, geometry.
     pub warnings: Vec<Diagnostic>,
@@ -78,26 +107,14 @@ pub struct Session {
     next_job: u64,
 }
 
-/// Tool library files beside the project: `tools/*.toml`, by name.
-fn project_tool_files(dir: &Path) -> Vec<PathBuf> {
-    let mut v: Vec<PathBuf> = std::fs::read_dir(dir.join("tools"))
-        .into_iter()
-        .flatten()
-        .filter_map(Result::ok)
-        .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|x| x == "toml"))
-        .collect();
-    v.sort();
-    v
-}
-
 impl Session {
-    pub fn new(project: Project, dir: PathBuf, store: ModelStore, tools: ToolStore) -> Session {
+    pub fn new(project: Project, dir: PathBuf, store: ModelStore, library: Library) -> Session {
         Session {
             project,
             dir,
             store,
-            tools,
+            tools: library.tools(),
+            library,
             warnings: Vec::new(),
             cache: BTreeMap::new(),
             next_job: 1,
@@ -107,6 +124,18 @@ impl Session {
     /// Opens a project file. Tool libraries come from `tools/*.toml` beside
     /// the project, then from `tool_files` (later ids replace earlier ones).
     pub fn open(path: &Path, tool_files: &[PathBuf]) -> Result<Session, Vec<Diagnostic>> {
+        Session::open_with(
+            path,
+            &OpenOptions {
+                tool_files: tool_files.to_vec(),
+                user_dir: None,
+            },
+        )
+    }
+
+    /// Opens a project file with the definition layers of `opts`: built-in,
+    /// then the user folder, then the folders beside the project.
+    pub fn open_with(path: &Path, opts: &OpenOptions) -> Result<Session, Vec<Diagnostic>> {
         let text = std::fs::read_to_string(path).map_err(|e| {
             vec![Diagnostic::error(
                 "model.project.load",
@@ -125,31 +154,55 @@ impl Session {
             .into_iter()
             .map(|w| Diagnostic::warning("model.project.warning", w))
             .collect();
-        let mut tools = ToolStore::new();
-        for f in project_tool_files(&dir).iter().chain(tool_files) {
-            match std::fs::read_to_string(f)
-                .map_err(|e| e.to_string())
-                .and_then(|t| ToolLibrary::parse(&t))
-            {
-                Ok((lib, w)) => {
-                    warnings.extend(w.into_iter().map(|w| {
-                        Diagnostic::warning("model.tools.warning", format!("{}: {w}", f.display()))
-                    }));
-                    tools.insert(lib);
-                }
-                Err(e) => warnings.push(Diagnostic::error(
-                    "model.tools.load",
-                    format!("{}: {e}", f.display()),
-                )),
-            }
+        let mut library = builtin_library();
+        if let Some(u) = &opts.user_dir {
+            warnings.extend(library.load_dir(u, LayerKind::User));
+        }
+        warnings.extend(library.load_dir(&dir, LayerKind::Project));
+        for f in &opts.tool_files {
+            warnings.extend(library.load_tools_file(f, LayerKind::Project));
         }
         let mut store = ModelStore::new();
         for g in &loaded.project.geometry {
             warnings.extend(store.load(g, &dir));
         }
-        let mut s = Session::new(loaded.project, dir, store, tools);
+        let mut s = Session::new(loaded.project, dir, store, library);
+        for (m, e) in s.machines() {
+            if let Err(e) = e {
+                warnings.push(Diagnostic::warning(
+                    "setup.machine.missing",
+                    format!("machine `{m}`: {e}"),
+                ));
+            }
+        }
         s.warnings = warnings;
         Ok(s)
+    }
+
+    /// Every machine the Setups name, resolved, by reference.
+    pub fn machines(&self) -> BTreeMap<String, Result<Machine, String>> {
+        resolve_all(&self.project)
+            .into_iter()
+            .filter_map(|r| r.ok()?.machine)
+            .map(|m| {
+                let r = DefRef::parse(&m)
+                    .map_err(|e| e.to_string())
+                    .and_then(|r| self.library.machine(&r).map_err(|e| e.to_string()));
+                (m, r)
+            })
+            .collect()
+    }
+
+    fn first_machine(&self) -> Option<Machine> {
+        let r = resolve_all(&self.project)
+            .into_iter()
+            .find_map(|r| r.ok()?.machine)?;
+        self.machine(Some(&r))
+    }
+
+    fn machine(&self, r: Option<&str>) -> Option<Machine> {
+        let r = DefRef::parse(r?).ok()?;
+        self.library.machine(&r).ok()
     }
 
     pub fn graph(&self) -> Graph {
@@ -268,7 +321,7 @@ impl Session {
                     setup_kind: rs.kind,
                     env: fr.height_env(),
                     to_work: fr.to_work,
-                    machine: None,
+                    machine: self.machine(rs.machine.as_deref()).and_then(|m| m.limits()),
                     post,
                 };
                 match fluut_cam::calculate(&input) {
@@ -305,7 +358,14 @@ impl Session {
     ) -> Result<(PostOutput, Vec<JobReport>), Vec<Diagnostic>> {
         let err = |code: &str, m: String| vec![Diagnostic::error(code, m)];
         let r = DefRef::parse(post_id).map_err(|e| err("post.load", format!("{post_id}: {e}")))?;
-        let resolved = resolve_post(posts, &r, None)
+        // The machine of the first Setup that names one: its post overrides
+        // apply (spec 05 §5.2.3) and its name goes into the output.
+        let machine = self.first_machine();
+        let overrides = machine
+            .as_ref()
+            .and_then(|m| Some((&m.fields.post_overrides, m.layer()?)))
+            .filter(|(t, _)| !t.is_empty());
+        let resolved = resolve_post(posts, &r, overrides)
             .map_err(|e| err("post.load", format!("{post_id}: {e}")))?;
         let loaded =
             Post::load(&resolved).map_err(|e| err("post.load", format!("{post_id}: {e}")))?;
@@ -354,7 +414,7 @@ impl Session {
         if !errors.is_empty() {
             return Err(errors);
         }
-        let job = self.post_job(&resolved, post_id, opts);
+        let job = self.post_job(&resolved, post_id, opts, machine.as_ref());
         let mut out = fluut_post::post(&job, &cp).map_err(|e| err("post.emit", e.to_string()))?;
         out.warnings.splice(0..0, post_warnings);
         Ok((out, reports))
@@ -365,6 +425,7 @@ impl Session {
         resolved: &fluut_model::Resolved,
         post_id: &str,
         opts: &PostOptions,
+        machine: Option<&Machine>,
     ) -> PostJob {
         let mut setups = Vec::new();
         let setups_r = resolve_all(&self.project);
@@ -428,13 +489,24 @@ impl Session {
             date: opts.date.clone(),
             time: opts.time.clone(),
             provenance: Provenance::of(resolved, post_id),
-            machine: MachineInfo {
-                name: setups_r
-                    .iter()
-                    .find_map(|s| s.as_ref().ok().and_then(|s| s.machine.clone()))
-                    .unwrap_or_default(),
-                tool_changer: "atc".into(),
-                has_rotary: false,
+            machine: match machine {
+                Some(m) => MachineInfo {
+                    name: if m.fields.name.is_empty() {
+                        m.id.clone()
+                    } else {
+                        m.fields.name.clone()
+                    },
+                    tool_changer: m.fields.tool_changer.kind.as_str().into(),
+                    has_rotary: m.has_rotary(),
+                },
+                None => MachineInfo {
+                    name: setups_r
+                        .iter()
+                        .find_map(|s| s.as_ref().ok().and_then(|s| s.machine.clone()))
+                        .unwrap_or_default(),
+                    tool_changer: "atc".into(),
+                    has_rotary: false,
+                },
             },
             setups,
         }

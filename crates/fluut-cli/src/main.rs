@@ -158,7 +158,8 @@ fn post(a: &Args) -> ExitCode {
         time: a.time.clone().unwrap_or(time),
         notes: String::new(),
     };
-    let store = fluut_post::builtin::builtin_store();
+    // Built-in posts, then the project's `posts/` (D06 §4.1).
+    let store = s.library.mem_store(fluut_model::library::DefKind::Post);
     match s.post(id, &store, &opts) {
         Ok((output, reports)) => {
             for r in &reports {
