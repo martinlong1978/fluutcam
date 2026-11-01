@@ -86,21 +86,21 @@ All earlier Global Constraints apply. In addition:
 
 ### Task 1: Plan
 
-- [ ] **Step 1:** This plan; README table row. Commit.
+- [x] **Step 1:** This plan; README table row. Commit.
 
 ### Task 2: Model: five types
 
 **Files:** `crates/fluut-model/src/params/{meta.rs, tables.rs}`, `src/resolve.rs`, `src/validate.rs`; tests in `crates/fluut-model/tests/{finishing_3d.rs}`.
 
 - Field tables, resolved parameters and the parameter-only validation codes of D15b §5.1–§5.5.
-- [ ] **Step 1:** Tests: each D15b §5 example parses, resolves and is written back byte for byte; every parameter-only code has a passing and a failing case; R fields change the result hash.
-- [ ] **Step 2:** Implement; pass; commit.
+- [x] **Step 1:** Tests: each D15b §5 example parses, resolves and is written back byte for byte; every parameter-only code has a passing and a failing case; R fields change the result hash.
+- [x] **Step 2:** Implement; pass; commit.
 
 ### Task 3: `follow` and `contour`
 
 **Files:** Create `crates/fluut-cam/src/{follow.rs, waterline.rs, strategy/contour.rs}`; modify `strategy/parallel.rs` (use `follow`), `surface.rs` (contact drop), `toolpath.rs`; tests in `crates/fluut-cam/tests/{support/finish.rs, contour.rs}`, and `support/step.rs` (sphere faces, the dome part); `crates/fluut-cli/tests/{cli.rs, projects/dome/…, golden/dome-linuxcnc.ngc}`.
 
-- [ ] **Step 1:** Tests:
+- [x] **Step 1:** Tests:
   - waterlines of a vertical cylinder, a sphere and a cone against closed forms;
   - a flat level gives the wall foot (CH-03);
   - levels include flats, and the scallop-adaptive levels;
@@ -111,13 +111,13 @@ All earlier Global Constraints apply. In addition:
   - no gouges with any tool;
   - translation invariance;
   - its toolpath in the dome project: STEP matches the writer, project canonical, golden G-code, translation invariance in the CLI.
-- [ ] **Step 2:** Implement; the `parallel` tests and the ridge golden file pass unchanged; commit.
+- [x] **Step 2:** Implement; the `parallel` tests and the ridge golden file pass unchanged; commit.
 
 ### Task 4: `horizontal`
 
 **Files:** Create `crates/fluut-cam/src/strategy/horizontal.rs`; tests in `crates/fluut-cam/tests/horizontal.rs`.
 
-- [ ] **Step 1:** Tests:
+- [x] **Step 1:** Tests:
   - flats only, at Z + axial stock;
   - walls kept at R + stock;
   - offset and raster;
@@ -126,13 +126,13 @@ All earlier Global Constraints apply. In addition:
   - no gouges;
   - translation invariance;
   - its toolpath in the dome project: STEP matches the writer, project canonical, golden G-code, translation invariance in the CLI.
-- [ ] **Step 2:** Implement; pass; commit.
+- [x] **Step 2:** Implement; pass; commit.
 
 ### Task 5: `spiral`
 
 **Files:** Create `crates/fluut-cam/src/strategy/spiral.rs`; tests in `crates/fluut-cam/tests/spiral.rs`.
 
-- [ ] **Step 1:** Tests:
+- [x] **Step 1:** Tests:
   - even pitch reaching r_max;
   - centre, rotation and direction;
   - exact region clips;
@@ -142,13 +142,13 @@ All earlier Global Constraints apply. In addition:
   - no gouges;
   - translation invariance;
   - its toolpath in the dome project: STEP matches the writer, project canonical, golden G-code, translation invariance in the CLI.
-- [ ] **Step 2:** Implement; pass; commit.
+- [x] **Step 2:** Implement; pass; commit.
 
 ### Task 6: `scallop`
 
 **Files:** Create `crates/fluut-cam/src/strategy/scallop.rs`; tests in `crates/fluut-cam/tests/scallop.rs`.
 
-- [ ] **Step 1:** Tests:
+- [x] **Step 1:** Tests:
   - 3-D stepover ≤ s on a dome;
   - extra passes reported;
   - `direction`, `cut_direction` and `continuous`;
@@ -157,13 +157,13 @@ All earlier Global Constraints apply. In addition:
   - no gouges;
   - translation invariance;
   - its toolpath in the dome project: STEP matches the writer, project canonical, golden G-code, translation invariance in the CLI.
-- [ ] **Step 2:** Implement; pass; commit.
+- [x] **Step 2:** Implement; pass; commit.
 
 ### Task 7: `steep_and_shallow`
 
 **Files:** Create `crates/fluut-cam/src/strategy/steep_and_shallow.rs`; tests in `crates/fluut-cam/tests/steep_and_shallow.rs`.
 
-- [ ] **Step 1:** Tests:
+- [x] **Step 1:** Tests:
   - steep cuts only at slope ≥ threshold;
   - the shallow region with overlap;
   - both shallow patterns;
@@ -172,9 +172,9 @@ All earlier Global Constraints apply. In addition:
   - no gouges;
   - translation invariance;
   - its toolpath in the dome project: STEP matches the writer, project canonical, golden G-code, translation invariance in the CLI.
-- [ ] **Step 2:** Implement; pass; commit.
+- [x] **Step 2:** Implement; pass; commit.
 
 ### Task 8: Timing and close
 
-- [ ] **Step 1:** Time per output point on the largest NIST body (outside the repository), release build, one thread.
-- [ ] **Step 2:** CH-03 findings in `challenges.md`; design changes in D09 §4; new codes in D15b §8. Mark this plan done with deviations; README rows. Commit and push.
+- [x] **Step 1:** Time per output point on the largest NIST body (outside the repository), release build, one thread.
+- [x] **Step 2:** CH-03 findings in `challenges.md`; design changes in D09 §4; new codes in D15b §8. Mark this plan done with deviations; README rows. Commit and push.
