@@ -6,7 +6,7 @@
 //! with `τ = p.z − h(d(p))`. So a solver can miss the contact (and the
 //! caller gouges) but never place the tool too high.
 
-use super::geom::{QueryFace, QueryGeometry, curve_box};
+use super::geom::{QueryFace, QueryGeometry, RIM_CHUNK, curve_box};
 use super::profile::Cutter;
 use fluut_geom::{Aabb3, Curve3, Interval, Point3, SurfDerivs, Surface, Tol, UvBox, Vec3};
 use std::f64::consts::{FRAC_PI_2, TAU};
@@ -59,6 +59,8 @@ pub struct SolveStats {
     pub faces_numeric: u64,
     pub newton_runs: u64,
     pub newton_converged: u64,
+    /// Face boundaries searched ([`rim`]).
+    pub rims: u64,
 }
 
 /// The tool axis: a vertical line through `(x, y)`.
@@ -367,7 +369,8 @@ pub(crate) fn analytic_uv(s: &Surface, p: Point3) -> (f64, f64) {
     (c.u, c.v)
 }
 
-/// Best valid candidate point of a face.
+/// Best valid candidate point of a face. `trimmed` is raised to the τ of
+/// better candidates outside the trim.
 fn best_point(
     q: &QueryFace,
     face: u32,
@@ -375,6 +378,7 @@ fn best_point(
     ax: Axis,
     c: &Cutter,
     pts: impl IntoIterator<Item = Point3>,
+    trimmed: &mut f64,
 ) -> Option<Contact> {
     let mut best: Option<Contact> = None;
     for p in pts {
@@ -389,12 +393,21 @@ fn best_point(
                 point: p,
                 on: ContactOn::Face { face, u, v },
             });
+        } else {
+            *trimmed = trimmed.max(tau);
         }
     }
     best
 }
 
-fn plane(q: &QueryFace, face: u32, s: &Surface, ax: Axis, c: &Cutter) -> Option<Contact> {
+fn plane(
+    q: &QueryFace,
+    face: u32,
+    s: &Surface,
+    ax: Axis,
+    c: &Cutter,
+    trimmed: &mut f64,
+) -> Option<Contact> {
     let Surface::Plane { frame } = s else {
         return None;
     };
@@ -414,13 +427,20 @@ fn plane(q: &QueryFace, face: u32, s: &Surface, ax: Axis, c: &Cutter) -> Option<
         (ax.x - d * n.x() / sin, ax.y - d * n.y() / sin)
     };
     let pz = o.z() - (n.x() * (px - o.x()) + n.y() * (py - o.y())) / n.z();
-    best_point(q, face, s, ax, c, [Point3::new(px, py, pz)])
+    best_point(q, face, s, ax, c, [Point3::new(px, py, pz)], trimmed)
 }
 
 /// Ball on sphere or cylinder: the ball centre is on the offset surface
 /// (radius ρ ± R) and on the axis; the contact is on the line from the
 /// centre to the sphere centre or cylinder axis.
-fn ball_on_quadric(q: &QueryFace, face: u32, s: &Surface, ax: Axis, c: &Cutter) -> Option<Contact> {
+fn ball_on_quadric(
+    q: &QueryFace,
+    face: u32,
+    s: &Surface,
+    ax: Axis,
+    c: &Cutter,
+    trimmed: &mut f64,
+) -> Option<Contact> {
     let rad = c.radius();
     let mut pts: Vec<Point3> = Vec::new();
     match s {
@@ -465,14 +485,21 @@ fn ball_on_quadric(q: &QueryFace, face: u32, s: &Surface, ax: Axis, c: &Cutter) 
         }
         _ => return None,
     }
-    best_point(q, face, s, ax, c, pts)
+    best_point(q, face, s, ax, c, pts, trimmed)
 }
 
 /// Flat and bull-nose tools on the outside of a sphere, in closed form:
 /// the sphere grown by the corner radius r touches the disc of radius
 /// R − r at height τ + r. Seam-proof where the numeric seeding is not
 /// (M6). Candidates only: [`best_point`] keeps those inside the face.
-fn bull_on_sphere(q: &QueryFace, face: u32, s: &Surface, ax: Axis, c: &Cutter) -> Option<Contact> {
+fn bull_on_sphere(
+    q: &QueryFace,
+    face: u32,
+    s: &Surface,
+    ax: Axis,
+    c: &Cutter,
+    trimmed: &mut f64,
+) -> Option<Contact> {
     let Surface::Sphere { frame, r: rho } = s else {
         return None;
     };
@@ -490,7 +517,7 @@ fn bull_on_sphere(q: &QueryFace, face: u32, s: &Surface, ax: Axis, c: &Cutter) -
             pts.push(o + u.get() * *rho);
         }
     }
-    best_point(q, face, s, ax, c, pts)
+    best_point(q, face, s, ax, c, pts, trimmed)
 }
 
 /// Upward unit normal and its parameter derivatives.
@@ -678,6 +705,7 @@ fn numeric(
     c: &Cutter,
     seeding: &Seeding,
     stats: &mut SolveStats,
+    trimmed: &mut f64,
 ) -> Option<Contact> {
     let n = seeding.grid.max(1);
     let mut grid: Vec<(Point3, f64, f64)> = Vec::with_capacity(n * n);
@@ -760,7 +788,11 @@ fn numeric(
             return;
         }
         let tau = p.z() - c.h(d.min(c.radius()));
-        if best.is_some_and(|b| b.tau >= tau) || !q.trim.contains(u, v) {
+        if best.is_some_and(|b| b.tau >= tau) {
+            return;
+        }
+        if !q.trim.contains(u, v) {
+            *trimmed = trimmed.max(tau);
             return;
         }
         best = Some(Contact {
@@ -798,27 +830,48 @@ pub fn face(
     seeding: &Seeding,
     stats: &mut SolveStats,
 ) -> Option<Contact> {
-    let q = g.faces[face as usize].as_ref()?;
+    face_trimmed(g, face, uv, bx, ax, c, seeding, stats).0
+}
+
+/// As [`face`], with the highest τ of a stationary point the trim left out
+/// (−∞ if none). Where it beats the contact, the face's highest point in
+/// the footprint is on its boundary ([`rim`]).
+#[allow(clippy::too_many_arguments)]
+pub fn face_trimmed(
+    g: &QueryGeometry,
+    face: u32,
+    uv: UvBox,
+    bx: &Aabb3,
+    ax: Axis,
+    c: &Cutter,
+    seeding: &Seeding,
+    stats: &mut SolveStats,
+) -> (Option<Contact>, f64) {
+    let mut trimmed = f64::NEG_INFINITY;
+    let Some(q) = g.faces[face as usize].as_ref() else {
+        return (None, trimmed);
+    };
+    let t = &mut trimmed;
     let s = &g.body.surfaces[g.body.faces[face as usize].surface as usize];
     let is_ball = c.flat_radius() == 0.0;
-    match s {
+    let r = match s {
         Surface::Plane { .. } => {
             stats.faces_closed_form += 1;
-            plane(q, face, s, ax, c)
+            plane(q, face, s, ax, c, t)
         }
         Surface::Sphere { .. } | Surface::Cylinder { .. } if is_ball => {
             stats.faces_closed_form += 1;
-            ball_on_quadric(q, face, s, ax, c)
+            ball_on_quadric(q, face, s, ax, c, t)
         }
         // Outside of a sphere: the closed form is the whole answer.
         Surface::Sphere { .. } if g.body.faces[face as usize].same_sense => {
             stats.faces_closed_form += 1;
-            bull_on_sphere(q, face, s, ax, c)
+            bull_on_sphere(q, face, s, ax, c, t)
         }
         Surface::Sphere { .. } => {
             stats.faces_closed_form += 1;
-            let a = bull_on_sphere(q, face, s, ax, c);
-            let b = numeric(q, face, s, uv, bx, ax, c, seeding, stats);
+            let a = bull_on_sphere(q, face, s, ax, c, t);
+            let b = numeric(q, face, s, uv, bx, ax, c, seeding, stats, t);
             match (a, b) {
                 (Some(a), Some(b)) => Some(if b.tau > a.tau { b } else { a }),
                 (a, b) => a.or(b),
@@ -826,7 +879,109 @@ pub fn face(
         }
         _ => {
             stats.faces_numeric += 1;
-            numeric(q, face, s, uv, bx, ax, c, seeding, stats)
+            numeric(q, face, s, uv, bx, ax, c, seeding, stats, t)
+        }
+    };
+    (r, trimmed)
+}
+
+/// The highest point of face `face`'s own boundary (its trim loops on the
+/// surface) in the footprint. It covers the boundary where the edge
+/// solvers cannot: an edge curve a little off its face (a model gap) can
+/// be out of reach while the face's boundary is not, and at the rim of a
+/// ball on a near-vertical wall that misses the top of the wall. Only
+/// contacts above `above` are searched for.
+pub fn rim(g: &QueryGeometry, face: u32, ax: Axis, c: &Cutter, above: f64) -> Option<Contact> {
+    let q = g.faces[face as usize].as_ref()?;
+    let s = &g.body.surfaces[g.body.faces[face as usize].surface as usize];
+    let rad = c.radius();
+    let mut best: Option<Contact> = None;
+    let mut floor = above;
+    for lp in &q.rim {
+        let pts = &lp.pts;
+        let n = pts.len();
+        if n < 2 {
+            continue;
+        }
+        // Position t along the loop: segment ⌊t⌋, linear in (u, v).
+        let at = |t: f64| {
+            let i = (t.floor().max(0.0) as usize).min(n - 2);
+            let f = t - i as f64;
+            let (a, b) = (pts[i], pts[i + 1]);
+            let (u, v) = (a.0 + (b.0 - a.0) * f, a.1 + (b.1 - a.1) * f);
+            (u, v, s.eval(u, v))
+        };
+        let tau_at = |t: f64| ax.tau(c, at(t).2);
+        let lat = |t: f64| ax.lateral(at(t).2);
+        // The footprint end of [inn, out] (inn inside, out outside).
+        let rim_end = |mut inn: f64, mut out: f64| {
+            for _ in 0..50 {
+                let m = 0.5 * (inn + out);
+                if lat(m) <= rad {
+                    inn = m;
+                } else {
+                    out = m;
+                }
+            }
+            inn
+        };
+        let mut take = |t: f64, floor: &mut f64| {
+            let (u, v, p) = at(t);
+            let Some(tau) = ax.tau(c, p) else { return };
+            if tau > *floor {
+                *floor = tau;
+                best = Some(Contact {
+                    tau,
+                    point: p,
+                    on: ContactOn::Face { face, u, v },
+                });
+            }
+        };
+        for (ci, bx) in lp.boxes.iter().enumerate() {
+            let dx = (bx[0] - ax.x).max(ax.x - bx[2]).max(0.0);
+            let dy = (bx[1] - ax.y).max(ax.y - bx[3]).max(0.0);
+            if libm::hypot(dx, dy) > rad {
+                continue;
+            }
+            let k0 = ci * RIM_CHUNK;
+            for k in k0..(k0 + RIM_CHUNK).min(n - 1) {
+                let (p0, p1) = (pts[k].2, pts[k + 1].2);
+                // Bounds over the segment from its ends and its length: a
+                // point s along it is within s of one end and L − s of the
+                // other (the path on the surface is about the chord).
+                let len = 1.01 * p0.distance(p1);
+                let (d0, d1) = (ax.lateral(p0), ax.lateral(p1));
+                let dmin = (0.5 * (d0 + d1 - len)).max(0.0);
+                if dmin > rad {
+                    continue;
+                }
+                let zmax = 0.5 * (p0.z() + p1.z() + len);
+                if zmax - c.h(dmin) <= floor {
+                    continue;
+                }
+                let (a, b) = (k as f64, (k + 1) as f64);
+                let (lo, hi) = match (d0 <= rad, d1 <= rad) {
+                    (true, true) => (a, b),
+                    (true, false) => (a, rim_end(a, b)),
+                    (false, true) => (rim_end(b, a), b),
+                    (false, false) => {
+                        let (t, neg) = maximize(|t| Some(-lat(t)), a, b, 1e-12);
+                        if -neg > rad {
+                            continue;
+                        }
+                        (rim_end(t, a), rim_end(t, b))
+                    }
+                };
+                take(lo, &mut floor);
+                take(hi, &mut floor);
+                if hi > lo {
+                    let (t, v) = maximize(tau_at, lo, hi, 1e-12);
+                    if v.is_finite() {
+                        take(t, &mut floor);
+                    }
+                }
+            }
         }
     }
+    best
 }
