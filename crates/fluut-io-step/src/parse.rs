@@ -547,7 +547,8 @@ fn decode(raw: &[u8]) -> Option<String> {
             i += 2;
         } else if rest.starts_with(b"\\X2\\") || rest.starts_with(b"\\X4\\") {
             let w = if rest[2] == b'2' { 4 } else { 8 };
-            let end = rest.windows(4).position(|x| x == b"\\X0\\")?;
+            // The end marker starts after the opening one.
+            let end = 4 + rest[4..].windows(4).position(|x| x == b"\\X0\\")?;
             let body = &rest[4..end];
             if !body.len().is_multiple_of(w) {
                 return None;
