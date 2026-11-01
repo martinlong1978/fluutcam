@@ -180,6 +180,6 @@ Deviations from this plan:
 - `region` is read, inherited and hashed but not yet used by the strategies.
 - Not done: the lock file (D06 §7.4), the body cache and `index.toml`, `blake3` (as decided).
 
-Found, not fixed (outside this plan's crates): a `pocket_2d` of the whole boss top trips a
-debug assertion in the vendored `cavalier_contours` (`pline_view.rs:290`,
-`EndPointOnFinalOffsetVertex`). The cache tests use a second `contour_2d` instead.
+Found while testing: a `pocket_2d` of the whole boss top tripped a debug assertion in the
+vendored `cavalier_contours` (`pline_view.rs:290`). The fix on `main` (ae42b4d, merged into
+this branch) removes it. The cache tests use a second `contour_2d`, which needs neither.
