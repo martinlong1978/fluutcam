@@ -31,7 +31,7 @@ Specification, design and plans are in `docs/`, so they change together with the
 | S1 | **Spike:** kernel + STEP | `fluut-topo` arena + BVH; Part 21 parser; `truck` evaluation (OQ-01) | CAx-IF corpus: % loaded, % valid shells; decision own vs `truck` recorded; CH-03/04/08/12 updated |
 | S2 | **Spike:** cutter queries | D07 exact drop with branch-and-bound on S1 models | drop query time per point on a 5 000-face model; decision that "no grids" holds or needs a fallback |
 | S3 | **Spike:** 2-D geometry | `cavalier_contours` wrapper; adaptive clearing without a grid (CH-16); medial axis (CH-17) | working adaptive pocket on 3 test shapes; CH-13/16–19 updated |
-| S4 | **Spike:** UI toolkit | egui vs slint prototype: viewport (`wgpu`), ribbon, tree, properties panel (OQ-09) | decision recorded with frame times and code size; slint licence checked |
+| S4 | **Spike:** UI toolkit | egui vs slint prototype: viewport (`wgpu`), ribbon, tree, properties panel (OQ-09) | decision recorded with frame times and code size; slint licence checked. **Decided: `egui`** (2026-11-01) |
 | S5 | **Spike:** simulation | tri-dexel prototype (CH-22) | memory and update time on the reference rotary and relief projects |
 | M3 | Vertical slice | `fluut-model` (minimal project), `fluut-core` jobs, `fluut-cam` framework + 3 strategies (`contour_2d`, `pocket_2d`, `parallel`), `fluut-cli` `calc` and `post` | STEP file + TOML project → G-code from the CLI; translation-invariance test passes |
 | M4 | Model and persistence | `fluut-model` full: definitions, layered resolution, `.fluut` save/load, undo, journal, cache sidecar | D06 tests; round-trip of reference projects |

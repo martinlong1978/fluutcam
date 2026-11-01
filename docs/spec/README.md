@@ -53,7 +53,7 @@ its point in the spec.
 | OQ-06 | Arc-aware 2D offset | `cavalier_contours` behind an internal trait | 04 §4.8 |
 | OQ-07 | Spline (NURBS) output | Not in v1 | 05 §5.12 |
 | OQ-08 | Non-Rust dependencies | Per-case recorded exception, confined to one crate | 01 §1.8, §1.8.3 |
-| OQ-09 | UI toolkit | Prototype `egui` and `slint`, choose against 08 §8.11 | 08 §8.11 |
+| OQ-09 | UI toolkit | `egui` with `egui_dock`, after the S4 prototypes | 01 §1.8, 08 §8.11 |
 | OQ-10 | Platforms | Windows, macOS and Linux in v1 | 01 §1.8 |
 | OQ-11 | Rest regions | In-process stock as layered exact 2D regions (cylindrical layers in rotary Setups) | 04 §4.12.6 |
 | OQ-12 | File extensions | `.fluut`; `.post.toml`, `.machine.toml`, `.tools.toml`, `.template.toml` | 02 §2.0 |
@@ -90,5 +90,3 @@ its point in the spec.
 | Vectric / Fusion tool library field mapping | 05 §5.10.5 |
 | Telemetry policy (opt-in only, if any) | 06 §6.4 |
 | Release channels and update cadence | 06 §6.5 |
-| UI toolkit licence check (`slint` vs MIT/Apache) | 06 §6.1, 08 §8.11 |
-| Result of the kernel spike (OQ-01) and toolkit prototypes (OQ-09) | 01 §1.4, 08 §8.11 |
