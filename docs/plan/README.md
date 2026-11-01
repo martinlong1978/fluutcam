@@ -48,7 +48,7 @@ These must be written before the milestone that needs them:
 
 | Item | Needed by |
 |---|---|
-| Per-type toolpath parameter definitions (fields, units, ranges, defaults, validation) for all 22 v1 types | M3 (first 3 types), M6 (rest) |
+| Per-type toolpath parameter definitions (fields, units, ranges, defaults, validation) for the other 19 v1 types. Common parameters, `contour_2d`, `pocket_2d` and `parallel` are done in [D15](../design/D15-toolpath-parameters.md); its §7 open questions need product-owner answers | M6 |
 | Scripting API member list | M7 |
 | Tool-library field mapping (Vectric/Fusion/DeskProto) | M7 |
 | Vectric unsupported-feature list | M7 (after CH-21 samples) |
