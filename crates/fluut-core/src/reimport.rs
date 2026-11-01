@@ -166,8 +166,17 @@ fn face_sig(b: &BrepBody, f: usize) -> Sig {
         // Free-form surfaces match by bounds only.
         _ => (5, Vec::new()),
     };
+    Sig {
+        kind,
+        params,
+        bounds: face_bounds(b, f),
+    }
+}
+
+/// Bounds of face `f` from its edges.
+pub(crate) fn face_bounds(b: &BrepBody, f: usize) -> [f64; 6] {
     let mut pts = Vec::new();
-    for &l in &face.loops {
+    for &l in &b.faces[f].loops {
         for &c in &b.loops[l as usize].coedges {
             let e = &b.edges[b.coedges[c as usize].edge as usize];
             match e.curve {
@@ -176,11 +185,16 @@ fn face_sig(b: &BrepBody, f: usize) -> Sig {
             }
         }
     }
-    Sig {
-        kind,
-        params,
-        bounds: bounds_of(pts.into_iter()),
-    }
+    bounds_of(pts.into_iter())
+}
+
+/// Bounds of a wire body's curves.
+pub(crate) fn wire_bounds(w: &fluut_topo::WireBody) -> [f64; 6] {
+    bounds_of(
+        w.curves
+            .iter()
+            .flat_map(|c| curve_points(&c.curve, c.range)),
+    )
 }
 
 fn v3_vec(v: fluut_geom::Vec3) -> [f64; 3] {

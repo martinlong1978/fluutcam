@@ -251,6 +251,19 @@ impl Session {
         Ok(out)
     }
 
+    /// Opens an edit group: the edits until [`Session::end_group`] are one
+    /// undo step (a script run, D12 §3.4).
+    pub fn begin_group(&mut self, label: &str) {
+        self.sync_doc();
+        self.doc.begin_group(label);
+    }
+
+    /// Closes the group; its undo step, if it changed anything.
+    pub fn end_group(&mut self) -> Option<Outcome> {
+        self.sync_doc();
+        self.doc.end_group()
+    }
+
     pub fn undo(&mut self) -> Option<Outcome> {
         self.sync_doc();
         let out = self.doc.undo()?;
@@ -603,6 +616,27 @@ impl Session {
         posts: &dyn DefStore,
         opts: &PostOptions,
     ) -> Result<(PostOutput, Vec<JobReport>), Vec<Diagnostic>> {
+        self.post_setups(post_id, posts, opts, None)
+    }
+
+    /// As [`Session::post`], for the Setups with the ids in `setups` only
+    /// (`None`: every Setup).
+    pub fn post_setups(
+        &mut self,
+        post_id: &str,
+        posts: &dyn DefStore,
+        opts: &PostOptions,
+        setups: Option<&[String]>,
+    ) -> Result<(PostOutput, Vec<JobReport>), Vec<Diagnostic>> {
+        if let Some(ids) = setups
+            && let Some(id) = ids.iter().find(|id| self.project.setup(id).is_none())
+        {
+            return Err(vec![Diagnostic::error(
+                "post.setup.missing",
+                format!("Setup `{id}` is not in the project"),
+            )]);
+        }
+        let chosen = |id: &str| setups.is_none_or(|ids| ids.iter().any(|x| x == id));
         let err = |code: &str, m: String| vec![Diagnostic::error(code, m)];
         let r = DefRef::parse(post_id).map_err(|e| err("post.load", format!("{post_id}: {e}")))?;
         // The machine of the first Setup that names one: its post overrides
@@ -642,10 +676,24 @@ impl Session {
                 CycleSet::default()
             },
         };
-        let mut reports = self.calculate_with(&Targets::All, Some(caps));
+        let targets = match setups {
+            None => Targets::All,
+            Some(_) => Targets::Toolpaths(
+                self.project
+                    .setups
+                    .iter()
+                    .filter(|s| chosen(&s.id))
+                    .flat_map(|s| s.toolpaths.iter().map(|t| t.id.clone()))
+                    .collect(),
+            ),
+        };
+        let mut reports = self.calculate_with(&targets, Some(caps));
         // Post-dependent rules also for toolpaths taken from the cache.
         let project = self.project.clone();
         for (s, rs) in project.setups.iter().zip(resolve_all(&project)) {
+            if !chosen(&s.id) {
+                continue;
+            }
             let material = rs.ok().and_then(|r| r.material);
             for t in s.toolpaths.iter().filter(|t| t.is_enabled()) {
                 let Some(rep) = reports.iter_mut().find(|r| r.toolpath == t.id) else {
@@ -673,7 +721,22 @@ impl Session {
         if !errors.is_empty() {
             return Err(errors);
         }
-        let job = self.post_job(&resolved, post_id, opts, machine.as_ref());
+        let mut job = self.post_job(&resolved, post_id, opts, machine.as_ref());
+        if setups.is_some() {
+            let names: Vec<&str> = project
+                .setups
+                .iter()
+                .zip(resolve_all(&project))
+                .filter(|(_, r)| r.is_ok())
+                .map(|(s, _)| s.id.as_str())
+                .collect();
+            let mut i = 0;
+            job.setups.retain(|_| {
+                let keep = names.get(i).is_some_and(|id| chosen(id));
+                i += 1;
+                keep
+            });
+        }
         let mut out = fluut_post::post(&job, &cp).map_err(|e| err("post.emit", e.to_string()))?;
         out.warnings.splice(0..0, post_warnings);
         Ok((out, reports))

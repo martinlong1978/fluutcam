@@ -1,6 +1,6 @@
 [package]
 name = "fluut-cli"
-description = "FluutCAM command line: calculate and post projects (design D01 §1)"
+description = "FluutCAM command line: calculate, post and run scripts (design D01 §1, D12 §4)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -14,6 +14,7 @@ path = "src/main.rs"
 fluut-core.workspace = true
 fluut-model.workspace = true
 fluut-post.workspace = true
+fluut-script.workspace = true
 
 [dev-dependencies]
 fluut-geom.workspace = true

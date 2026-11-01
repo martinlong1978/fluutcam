@@ -37,7 +37,7 @@ Specification, design and plans are in `docs/`, so they change together with the
 | M4 | Model and persistence | `fluut-model` full: definitions, layered resolution, `.fluut` save/load, undo, journal, cache sidecar | D06 tests; round-trip of reference projects |
 | M5 | UI v1 shell | `fluut-app` on chosen toolkit: viewport, Setup/Toolpath tree, properties, job progress | open, calculate, post a reference project from the UI |
 | M6 | Strategy catalogue | remaining v1 types of [S 04 §4.13] (22 in all); roughing with in-process stock; holder collisions | D09 tests; golden toolpath summaries for each type. **Part 1 done** ([m6-2d-holes](2026-11-01-m6-2d-holes.md)): 2-D and hole types except `engrave` |
-| M7 | Importers, simulation, scripting | `fluut-io-2d`, `fluut-io-mesh`, `fluut-post-import` (needs CH-21 samples), `fluut-sim`, `fluut-script` | D05/D10 §6/D11/D12 tests |
+| M7 | Importers, simulation, scripting | `fluut-io-2d`, `fluut-io-mesh`, `fluut-post-import` (needs CH-21 samples), `fluut-sim`, `fluut-script` | D05/D10 §6/D11/D12 tests. **Scripting done** ([m7-scripting](2026-11-01-m7-scripting.md)); 2-D and mesh importers done ([m7-io-2d-mesh](2026-11-01-m7-io-2d-mesh.md)) |
 | M8 | Release engineering | signing, installers, update manifest, crash reports, docs | signed builds on 3 platforms ([D14 §5]) |
 
 M1 and M2 can run in parallel. S1–S5 can start as soon as M0 is done. S2 needs S1.
@@ -48,7 +48,7 @@ These must be written before the milestone that needs them:
 
 | Item | Needed by |
 |---|---|
-| Scripting API member list | M7 |
+| ~~Scripting API member list~~ | M7: done, [D12b](../design/D12b-scripting-api.md) |
 | Tool-library field mapping (Vectric/Fusion/DeskProto) | M7 |
 | Vectric unsupported-feature list | M7 (after CH-21 samples) |
 | Telemetry policy, release channels | M8 |
@@ -75,3 +75,4 @@ These must be written before the milestone that needs them:
 | [2026-11-01-m4-model-persistence.md](2026-11-01-m4-model-persistence.md) | M4 | **M4 complete**: layered definitions (built-in, user, project) for posts, machines, templates and tools; every Setup kind with `based_on`; byte-identical `.fluut` save; undo; `FLUJ` journal recovery; `FLUT` result cache; re-import identity |
 | [2026-11-01-m6-2d-holes.md](2026-11-01-m6-2d-holes.md) | M6 | Done, part 1: `face`, `adaptive_2d`, `trace`, `chamfer_2d`, `bore`, `drill` with golden `plate` and `holes` projects; `engrave` waits for the medial axis (CH-17); adaptive 0.65–1.04 s per level on the S3 shapes |
 | [2026-11-01-m5-ui-shell.md](2026-11-01-m5-ui-shell.md) | M5 | **M5 complete**: `fluutcam` (egui + `egui_dock`, `wgpu` viewport with GPU picking) opens, calculates (off the UI thread, with progress and cancel) and posts the reference projects to the same G-code as `fluut post`; startup 160 ms, idle CPU 0 under lavapipe; GPU frame times still to measure |
+| [2026-11-01-m7-scripting.md](2026-11-01-m7-scripting.md) | M7 | Done: `fluut-script` on `rhai` with the [D12b](../design/D12b-scripting-api.md) API; every limit stops its hostile script; one run is one undo step; a script builds, calculates and posts `block` to the golden G-code; `fluut run`; 56 596 fuzz runs, no crashes |
