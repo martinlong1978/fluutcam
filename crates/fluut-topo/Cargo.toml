@@ -8,6 +8,7 @@ license.workspace = true
 
 [dependencies]
 fluut-geom.workspace = true
+libm.workspace = true
 
 [lints]
 workspace = true
