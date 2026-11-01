@@ -388,6 +388,38 @@ fn closed_bspline_seam() {
 }
 
 #[test]
+fn closed_bspline_pcurves_stay_in_the_domain() {
+    // Every rotation of the loop: alignment must not push a p-curve past
+    // the ends of a closed, non-periodic domain.
+    let (s, a, b, ku) = ruled_patch(true);
+    let (p0, p1) = (s.eval(0.0, 0.0), s.eval(0.0, 1.0));
+    for rot in 0..4 {
+        let mut bd = Build::new();
+        let bottom = bd.edge(iso_curve(&a, &b, &ku, 0.0), 0.0, 1.0);
+        let top = bd.edge(iso_curve(&a, &b, &ku, 1.0), 0.0, 1.0);
+        let seam = bd.edge(
+            Curve3::line(p0, UnitVec3::new(p1 - p0).unwrap()),
+            0.0,
+            p0.distance(p1),
+        );
+        let mut l = vec![(bottom, true), (seam, true), (top, false), (seam, false)];
+        l.rotate_left(rot);
+        bd.face(s.clone(), &[&l]);
+        let st = compute(&mut bd.b);
+        all_within(&st);
+        for c in 0..4 {
+            let (p, q) = start_end(&bd.b, c);
+            for x in [p.x(), q.x()] {
+                assert!(
+                    (-1e-9..=1.0 + 1e-9).contains(&x),
+                    "rot {rot} coedge {c}: {x}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn plane_images_are_exact() {
     let pf = frame([1.0, 1.0, 1.0], [0.0, 0.0, 1.0]);
     let mut bd = Build::new();
@@ -464,4 +496,26 @@ fn off_surface_edge_is_reported() {
     let f = &st.failures[0];
     assert!(f.off_surface && (f.dev - 0.01).abs() < 1e-9, "{f:?}");
     assert_eq!(f.kind, SurfaceKind::Cylinder);
+}
+
+#[test]
+fn range_a_few_ulps_long_does_not_panic() {
+    // Found on the corpus: a closed edge whose range collapsed to a few
+    // ulps gave repeated sample parameters and NaN tangents.
+    let f0 = frame([0.0; 3], [0.0, 0.0, 1.0]);
+    let s = Surface::cylinder(f0, 5.0).unwrap();
+    let bs = BSplineCurve3::new(
+        1,
+        vec![0.0, 0.0, TAU, TAU],
+        vec![Point3::new(5.0, 0.0, 0.0), Point3::new(5.0, 0.0, 3.0)],
+        None,
+    )
+    .unwrap();
+    let c = Curve3::BSpline(Arc::new(bs));
+    let lo = TAU - 4.0 * f64::EPSILON * TAU;
+    let r = Interval::new(lo, TAU).unwrap();
+    if let Some((pc, _)) = project(&s, &c, r, TOL) {
+        let q = pc.eval(TAU);
+        assert!(q.x().is_finite() && q.y().is_finite());
+    }
 }

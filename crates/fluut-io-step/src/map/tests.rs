@@ -191,24 +191,55 @@ fn flipped_orientation_is_caught() {
     assert!(!check(&b.body, 1e-6).is_empty());
 }
 
-#[test]
-fn cylinder_with_seam() {
+const CTX2: &str = "(GEOMETRIC_REPRESENTATION_CONTEXT(2) PARAMETRIC_REPRESENTATION_CONTEXT() \
+                    REPRESENTATION_CONTEXT('2D SPACE',''))";
+
+impl Step {
+    /// A 2-D `LINE` through `p` along `d`, as the curve of a `PCURVE` on `surf`.
+    fn pcurve_line(&mut self, surf: u64, p: [f64; 2], d: [f64; 2], mag: f64) -> u64 {
+        let pt = self.add(&format!("CARTESIAN_POINT('',({:?},{:?}))", p[0], p[1]));
+        let dir = self.add(&format!("DIRECTION('',({:?},{:?}))", d[0], d[1]));
+        let v = self.add(&format!("VECTOR('',#{dir},{mag:?})"));
+        let l = self.add(&format!("LINE('',#{pt},#{v})"));
+        let ctx = self.add(CTX2);
+        let rep = self.add(&format!("DEFINITIONAL_REPRESENTATION('',(#{l}),#{ctx})"));
+        self.add(&format!("PCURVE('',#{surf},#{rep})"))
+    }
+}
+
+/// A closed cylinder with a seam. With `pcurves = Some(swapped)` the side
+/// face's edges carry p-curves, the seam's two in either order.
+fn cylinder_step(pcurves: Option<bool>) -> Step {
     let mut s = Step::default();
     let (r, h) = (5.0, 10.0);
+    let tau = std::f64::consts::TAU;
+    let ax0 = s.placement([0.0; 3], [0.0, 0.0, 1.0], [1.0, 0.0, 0.0]);
+    let ax1 = s.placement([0.0, 0.0, h], [0.0, 0.0, 1.0], [1.0, 0.0, 0.0]);
+    let cyl = s.add(&format!("CYLINDRICAL_SURFACE('',#{ax0},{r:?})"));
     let pa = s.point([r, 0.0, 0.0]);
     let pb = s.point([r, 0.0, h]);
     let va = s.add(&format!("VERTEX_POINT('',#{pa})"));
     let vb = s.add(&format!("VERTEX_POINT('',#{pb})"));
-    let ax0 = s.placement([0.0; 3], [0.0, 0.0, 1.0], [1.0, 0.0, 0.0]);
-    let ax1 = s.placement([0.0, 0.0, h], [0.0, 0.0, 1.0], [1.0, 0.0, 0.0]);
-    let c0 = s.add(&format!("CIRCLE('',#{ax0},{r:?})"));
-    let c1 = s.add(&format!("CIRCLE('',#{ax1},{r:?})"));
-    let e0 = s.add(&format!("EDGE_CURVE('',#{va},#{va},#{c0},.T.)"));
-    let e1 = s.add(&format!("EDGE_CURVE('',#{vb},#{vb},#{c1},.T.)"));
+    let mut c0 = s.add(&format!("CIRCLE('',#{ax0},{r:?})"));
+    let mut c1 = s.add(&format!("CIRCLE('',#{ax1},{r:?})"));
     let sp = s.point([r, 0.0, 0.0]);
     let sd = s.dir([0.0, 0.0, 1.0]);
     let sv = s.add(&format!("VECTOR('',#{sd},1.)"));
-    let sl = s.add(&format!("LINE('',#{sp},#{sv})"));
+    let mut sl = s.add(&format!("LINE('',#{sp},#{sv})"));
+    if let Some(swapped) = pcurves {
+        let p0 = s.pcurve_line(cyl, [0.0, 0.0], [1.0, 0.0], 1.0);
+        c0 = s.add(&format!("SURFACE_CURVE('',#{c0},(#{p0}),.CURVE_3D.)"));
+        let p1 = s.pcurve_line(cyl, [0.0, h], [1.0, 0.0], 1.0);
+        c1 = s.add(&format!("SURFACE_CURVE('',#{c1},(#{p1}),.CURVE_3D.)"));
+        let mut a = s.pcurve_line(cyl, [0.0, 0.0], [0.0, 1.0], 1.0);
+        let mut b = s.pcurve_line(cyl, [tau, 0.0], [0.0, 1.0], 1.0);
+        if swapped {
+            std::mem::swap(&mut a, &mut b);
+        }
+        sl = s.add(&format!("SEAM_CURVE('',#{sl},(#{a},#{b}),.CURVE_3D.)"));
+    }
+    let e0 = s.add(&format!("EDGE_CURVE('',#{va},#{va},#{c0},.T.)"));
+    let e1 = s.add(&format!("EDGE_CURVE('',#{vb},#{vb},#{c1},.T.)"));
     let e2 = s.add(&format!("EDGE_CURVE('',#{va},#{vb},#{sl},.T.)"));
     let oe = |s: &mut Step, e: u64, o: bool| {
         s.add(&format!(
@@ -236,7 +267,6 @@ fn cylinder_with_seam() {
     let side_b = loop_of(&mut s, &side);
     let bottom_b = loop_of(&mut s, &[bottom]);
     let top_b = loop_of(&mut s, &[top]);
-    let cyl = s.add(&format!("CYLINDRICAL_SURFACE('',#{ax0},{r:?})"));
     let down = s.placement([0.0; 3], [0.0, 0.0, -1.0], [1.0, 0.0, 0.0]);
     let pl0 = s.add(&format!("PLANE('',#{down})"));
     let pl1 = s.add(&format!("PLANE('',#{ax1})"));
@@ -245,10 +275,134 @@ fn cylinder_with_seam() {
     let f2 = s.add(&format!("ADVANCED_FACE('',(#{top_b}),#{pl1},.T.)"));
     let sh = s.add(&format!("CLOSED_SHELL('',(#{f0},#{f1},#{f2}))"));
     s.add(&format!("MANIFOLD_SOLID_BREP('cyl',#{sh})"));
-    let b = map_one(&s.file(MM));
+    s
+}
+
+/// Start and end (u, v) of coedge `c` in its direction of travel.
+fn uv_ends(b: &BrepBody, c: u32) -> (fluut_geom::Point2, fluut_geom::Point2) {
+    let ce = &b.coedges[c as usize];
+    let r = b.edges[ce.edge as usize].range;
+    let pc = b.pcurves[c as usize].as_ref().unwrap();
+    let (p, q) = (pc.eval(r.lo), pc.eval(r.hi));
+    if ce.forward { (p, q) } else { (q, p) }
+}
+
+/// The side face's loop closes in (u, v) and its seam coedges are one
+/// period apart.
+fn assert_side_loop(b: &BrepBody) {
+    let side = &b.loops[b.faces[0].loops[0] as usize].coedges;
+    for i in 0..4 {
+        let (_, e) = uv_ends(b, side[i]);
+        let (s, _) = uv_ends(b, side[(i + 1) % 4]);
+        assert!(e.distance(s) < 1e-9, "joint {i}: {e:?} {s:?}");
+    }
+    let (a, _) = uv_ends(b, side[1]);
+    let (c, _) = uv_ends(b, side[3]);
+    assert!(((a.x() - c.x()).abs() - std::f64::consts::TAU).abs() < 1e-9);
+}
+
+#[test]
+fn cylinder_with_seam() {
+    let b = map_one(&cylinder_step(None).file(MM));
     assert_eq!(check(&b.body, 1e-6), vec![]);
     let circle = &b.body.edges[0];
     assert!((circle.range.length() - std::f64::consts::TAU).abs() < 1e-12);
+    // No p-curves in the file: all projected, exactly.
+    let st = &b.pcurves;
+    assert_eq!(
+        (st.coedges, st.given, st.exact, st.within_tol),
+        (6, 0, 6, 6)
+    );
+    assert_side_loop(&b.body);
+}
+
+#[test]
+fn file_pcurves_are_used_and_seams_follow_the_loop() {
+    for swapped in [false, true] {
+        let b = map_one(&cylinder_step(Some(swapped)).file(MM));
+        let st = &b.pcurves;
+        assert!(st.failures.is_empty(), "{:?}", st.failures);
+        assert_eq!((st.given, st.exact, st.within_tol), (4, 2, 6), "{st:?}");
+        assert_eq!(b.pcurves_rejected, 0);
+        assert_side_loop(&b.body);
+    }
+}
+
+/// A 10 mm square in the plane z = 0 whose edges carry p-curves, the first
+/// with `pc0 = (point, direction, magnitude)`.
+fn square_step(pc0: ([f64; 2], [f64; 2], f64)) -> Step {
+    let mut s = Step::default();
+    let ax = s.placement([0.0; 3], [0.0, 0.0, 1.0], [1.0, 0.0, 0.0]);
+    let plane = s.add(&format!("PLANE('',#{ax})"));
+    let c = [[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]];
+    let vs: Vec<u64> = c
+        .iter()
+        .map(|p| {
+            let pt = s.point([p[0], p[1], 0.0]);
+            s.add(&format!("VERTEX_POINT('',#{pt})"))
+        })
+        .collect();
+    let mut oes = Vec::new();
+    for i in 0..4 {
+        let (a, b) = (c[i], c[(i + 1) % 4]);
+        let d = [(b[0] - a[0]) / 10.0, (b[1] - a[1]) / 10.0];
+        let pt = s.point([a[0], a[1], 0.0]);
+        let dir = s.dir([d[0], d[1], 0.0]);
+        let v = s.add(&format!("VECTOR('',#{dir},1.)"));
+        let line = s.add(&format!("LINE('',#{pt},#{v})"));
+        let pc = if i == 0 {
+            s.pcurve_line(plane, pc0.0, pc0.1, pc0.2)
+        } else {
+            s.pcurve_line(plane, a, d, 1.0)
+        };
+        let sc = s.add(&format!("SURFACE_CURVE('',#{line},(#{pc}),.CURVE_3D.)"));
+        let ec = s.add(&format!(
+            "EDGE_CURVE('',#{},#{},#{sc},.T.)",
+            vs[i],
+            vs[(i + 1) % 4]
+        ));
+        oes.push(s.add(&format!("ORIENTED_EDGE('',*,*,#{ec},.T.)")));
+    }
+    let l = oes
+        .iter()
+        .map(|i| format!("#{i}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    let lp = s.add(&format!("EDGE_LOOP('',({l}))"));
+    let bound = s.add(&format!("FACE_OUTER_BOUND('',#{lp},.T.)"));
+    let f = s.add(&format!("ADVANCED_FACE('',(#{bound}),#{plane},.T.)"));
+    let sh = s.add(&format!("OPEN_SHELL('',(#{f}))"));
+    s.add(&format!("SHELL_BASED_SURFACE_MODEL('sq',(#{sh}))"));
+    s
+}
+
+#[test]
+fn file_pcurve_with_another_parameter_is_reparametrised() {
+    // Magnitude 10: the p-curve's parameter is a tenth of the edge's.
+    let b = map_one(&square_step(([0.0, 0.0], [1.0, 0.0], 10.0)).file(MM));
+    assert_eq!((b.pcurves.given, b.pcurves.within_tol), (4, 4));
+    assert_eq!(b.pcurves_rejected, 0);
+    let pc = b.body.pcurves[0].as_ref().unwrap();
+    assert!(pc.eval(7.0).distance(fluut_geom::Point2::new(7.0, 0.0)) < 1e-9);
+}
+
+#[test]
+fn wrong_file_pcurve_is_replaced() {
+    // The first p-curve is 1 mm off its edge.
+    let b = map_one(&square_step(([0.0, 1.0], [1.0, 0.0], 1.0)).file(MM));
+    assert_eq!(b.pcurves_rejected, 1);
+    let st = &b.pcurves;
+    assert_eq!((st.given, st.exact, st.within_tol), (3, 1, 4), "{st:?}");
+    let pc = b.body.pcurves[0].as_ref().unwrap();
+    assert!(pc.eval(3.0).distance(fluut_geom::Point2::new(3.0, 0.0)) < 1e-9);
+}
+
+#[test]
+fn cube_pcurves_are_projected() {
+    let b = map_one(&cube_step(10.0).file(MM));
+    let st = &b.pcurves;
+    assert_eq!((st.coedges, st.exact, st.within_tol), (24, 24, 24));
+    assert!(st.max_dev < 1e-12);
 }
 
 #[test]
@@ -261,4 +415,41 @@ fn unsupported_surface_skips_face() {
     assert_eq!(b.body.faces.len(), 5);
     assert_eq!(b.skipped.len(), 1);
     assert!(b.skipped[0].msg.contains("WEIRD"), "{:?}", b.skipped);
+}
+
+#[test]
+fn closed_bspline_edge_spans_its_domain() {
+    // A closed quadratic B-spline (a rounded square) as one edge of a
+    // planar face, with one vertex where it closes.
+    let mut s = Step::default();
+    let ax = s.placement([0.0; 3], [0.0, 0.0, 1.0], [1.0, 0.0, 0.0]);
+    let plane = s.add(&format!("PLANE('',#{ax})"));
+    let pts = [
+        [5.0, 0.0],
+        [5.0, 5.0],
+        [-5.0, 5.0],
+        [-5.0, -5.0],
+        [5.0, -5.0],
+        [5.0, 0.0],
+    ];
+    let ids: Vec<String> = pts
+        .iter()
+        .map(|p| format!("#{}", s.point([p[0], p[1], 0.0])))
+        .collect();
+    let bs = s.add(&format!(
+        "B_SPLINE_CURVE_WITH_KNOTS('',2,({}),.UNSPECIFIED.,.T.,.F.,(3,1,1,1,3),(0.,0.25,0.5,0.75,1.),.UNSPECIFIED.)",
+        ids.join(",")
+    ));
+    let v = s.add(&format!("VERTEX_POINT('',{})", ids[0]));
+    let ec = s.add(&format!("EDGE_CURVE('',#{v},#{v},#{bs},.T.)"));
+    let oe = s.add(&format!("ORIENTED_EDGE('',*,*,#{ec},.T.)"));
+    let lp = s.add(&format!("EDGE_LOOP('',(#{oe}))"));
+    let bound = s.add(&format!("FACE_OUTER_BOUND('',#{lp},.T.)"));
+    let f = s.add(&format!("ADVANCED_FACE('',(#{bound}),#{plane},.T.)"));
+    let sh = s.add(&format!("OPEN_SHELL('',(#{f}))"));
+    s.add(&format!("SHELL_BASED_SURFACE_MODEL('loop',(#{sh}))"));
+    let b = map_one(&s.file(MM));
+    let r = b.body.edges[0].range;
+    assert_eq!((r.lo, r.hi), (0.0, 1.0));
+    assert_eq!(b.pcurves.within_tol, 1, "{:?}", b.pcurves);
 }

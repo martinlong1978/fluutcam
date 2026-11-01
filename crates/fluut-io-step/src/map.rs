@@ -8,8 +8,10 @@
 use crate::parse::{Param, RawEntity, RawModel};
 use crate::schema::{BODY_KINDS, Units, part, parts, units};
 use fluut_geom::{
-    BSplineCurve3, BSplineSurface, Curve3, Frame, Interval, Point3, Surface, Tol, UnitVec3, Vec3,
+    BSplineCurve2, BSplineCurve3, BSplineSurface, Curve2, Curve3, Frame, Interval, Point2, Point3,
+    Surface, Tol, UnitVec3, Vec2, Vec3,
 };
+use fluut_topo::pcurve::{self, Stats};
 use fluut_topo::{BrepBody, Coedge, Edge, Face, Loop, Shell, Vertex};
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -38,6 +40,11 @@ pub struct MappedBody {
     pub units: Units,
     /// Faces left out, with the reason.
     pub skipped: Vec<MapError>,
+    /// P-curves: read from the file (`given`) or projected (D04 §5.2).
+    pub pcurves: Stats,
+    /// Coedges whose file p-curves were all unusable (unsupported, or off
+    /// the 3-D edge by more than `tol_model`) and were projected instead.
+    pub pcurves_rejected: usize,
 }
 
 /// Maps every body root in the file.
@@ -55,12 +62,21 @@ pub fn map_bodies(m: &RawModel) -> Vec<R<MappedBody>> {
         };
         let u = ctx.get(&id).map_or_else(Units::default, |&c| units(m, c));
         let mut mp = Mapper::new(m, u);
-        out.push(mp.body(id, kind).map(|()| MappedBody {
-            id,
-            kind: kind.to_owned(),
-            body: mp.b,
-            units: u,
-            skipped: mp.skipped,
+        out.push(mp.body(id, kind).map(|()| {
+            mp.b.pcurves = vec![None; mp.b.coedges.len()];
+            for (c, pc) in std::mem::take(&mut mp.file_pcurves) {
+                mp.b.pcurves[c as usize] = Some(pc);
+            }
+            let pcurves = pcurve::compute(&mut mp.b);
+            MappedBody {
+                id,
+                kind: kind.to_owned(),
+                body: mp.b,
+                units: u,
+                skipped: mp.skipped,
+                pcurves,
+                pcurves_rejected: mp.pcurves_rejected,
+            }
         }));
     }
     out
@@ -160,6 +176,12 @@ struct Mapper<'a> {
     edges: BTreeMap<u64, u32>,
     skipped: Vec<MapError>,
     depth: u32,
+    /// Edge → (surface id, 2-D curve id) of each `PCURVE` of its
+    /// `SURFACE_CURVE` or `SEAM_CURVE`.
+    edge_pcurves: BTreeMap<u32, Vec<(u64, u64)>>,
+    /// Coedge → usable file p-curve.
+    file_pcurves: BTreeMap<u32, Curve2>,
+    pcurves_rejected: usize,
 }
 
 impl<'a> Mapper<'a> {
@@ -180,6 +202,9 @@ impl<'a> Mapper<'a> {
             edges: BTreeMap::new(),
             skipped: Vec::new(),
             depth: 0,
+            edge_pcurves: BTreeMap::new(),
+            file_pcurves: BTreeMap::new(),
+            pcurves_rejected: 0,
         }
     }
 
@@ -320,6 +345,24 @@ impl<'a> Mapper<'a> {
     }
 
     fn bspline_curve(&self, id: u64, e: &RawEntity) -> R<Curve3> {
+        let (deg, knots, poles, weights) = self.bspline_parts(id, e)?;
+        let poles: Vec<Point3> = poles.into_iter().map(|r| self.point(r)).collect::<R<_>>()?;
+        BSplineCurve3::new(deg, knots, poles, weights)
+            .map(|c| Curve3::BSpline(Arc::new(c)))
+            .map_err(|err| MapError {
+                id,
+                msg: format!("B-spline curve: {err:?}"),
+            })
+    }
+
+    /// Degree, expanded knots, pole references and weights of a B-spline
+    /// curve in simple or complex form.
+    #[allow(clippy::type_complexity)]
+    fn bspline_parts(
+        &self,
+        id: u64,
+        e: &RawEntity,
+    ) -> R<(u8, Vec<f64>, Vec<u64>, Option<Vec<f64>>)> {
         let m = self.m;
         // Simple form: (name, degree, poles, form, closed, self_int, mults, knots, spec).
         // Complex form: B_SPLINE_CURVE(degree, poles, …), _WITH_KNOTS(mults, knots, …).
@@ -342,10 +385,7 @@ impl<'a> Mapper<'a> {
             None => None,
         };
         let deg = int(id, deg)?;
-        let poles: Vec<Point3> = refs(id, poles)?
-            .into_iter()
-            .map(|r| self.point(r))
-            .collect::<R<_>>()?;
+        let poles = refs(id, poles)?;
         let mults: Vec<i64> = list(id, mults)?
             .iter()
             .map(|x| int(id, Some(x)))
@@ -355,12 +395,247 @@ impl<'a> Mapper<'a> {
             id,
             msg: "bad degree".into(),
         })?;
-        BSplineCurve3::new(deg, knots, poles, weights)
-            .map(|c| Curve3::BSpline(Arc::new(c)))
-            .map_err(|err| MapError {
-                id,
-                msg: format!("B-spline curve: {err:?}"),
-            })
+        Ok((deg, knots, poles, weights))
+    }
+
+    /// A 2-D curve of a `PCURVE`, its coordinates multiplied by `scale`
+    /// (the units of the surface's u and v).
+    fn curve2(&self, id: u64, scale: (f64, f64)) -> R<Curve2> {
+        let (su, sv) = scale;
+        let e = self.entity(id)?;
+        let pt = |r: u64| -> R<Point2> {
+            let p = self.expect(r, "CARTESIAN_POINT")?;
+            match reals(r, p.get(1))?[..] {
+                [x, y] | [x, y, _] => Ok(Point2::new(x * su, y * sv)),
+                _ => fail(r, "2-D point needs 2 coordinates"),
+            }
+        };
+        let dir = |r: u64| -> R<(f64, f64)> {
+            let p = self.expect(r, "DIRECTION")?;
+            let (x, y) = match reals(r, p.get(1))?[..] {
+                [x, y] | [x, y, _] => (x, y),
+                _ => return fail(r, "2-D direction needs 2 components"),
+            };
+            let n = libm::hypot(x, y);
+            if n.is_finite() && n > 0.0 {
+                Ok((x / n, y / n))
+            } else {
+                fail(r, "zero direction")
+            }
+        };
+        let spline = |e: &RawEntity| -> R<Curve2> {
+            let (deg, knots, poles, weights) = self.bspline_parts(id, e)?;
+            let poles = poles.into_iter().map(pt).collect::<R<_>>()?;
+            BSplineCurve2::new(deg, knots, poles, weights)
+                .map(|c| Curve2::BSpline(Arc::new(c)))
+                .map_err(|err| MapError {
+                    id,
+                    msg: format!("2-D B-spline curve: {err:?}"),
+                })
+        };
+        if let RawEntity::Complex { .. } = e {
+            return spline(e);
+        }
+        let (name, p) = self.simple(id)?;
+        match name {
+            "LINE" => {
+                let o = pt(reference(id, p.get(1))?)?;
+                let v = self.expect(reference(id, p.get(2))?, "VECTOR")?;
+                let (dx, dy) = dir(reference(id, v.get(1))?)?;
+                let mag = real(id, v.get(2))?;
+                Ok(Curve2::Line {
+                    origin: o,
+                    dir: Vec2::new(dx * mag * su, dy * mag * sv),
+                })
+            }
+            "CIRCLE" | "ELLIPSE" => {
+                let pl = self.expect(reference(id, p.get(1))?, "AXIS2_PLACEMENT_2D")?;
+                let c = pt(reference(id, pl.get(1))?)?;
+                let (xx, xy) = match pl.get(2) {
+                    Some(Param::Ref(r)) => dir(*r)?,
+                    _ => (1.0, 0.0),
+                };
+                let r1 = real(id, p.get(2))?;
+                let r2 = if name == "ELLIPSE" {
+                    real(id, p.get(3))?
+                } else {
+                    r1
+                };
+                if !(r1.is_finite() && r2.is_finite() && r1 > 0.0 && r2 > 0.0) {
+                    return fail(id, "bad radius");
+                }
+                Ok(Curve2::Ellipse {
+                    centre: c,
+                    a: Vec2::new(xx * r1 * su, xy * r1 * sv),
+                    b: Vec2::new(-xy * r2 * su, xx * r2 * sv),
+                })
+            }
+            "B_SPLINE_CURVE_WITH_KNOTS" => spline(e),
+            n => fail(id, format!("unsupported 2-D curve {n}")),
+        }
+    }
+
+    /// Units of a surface's (u, v) in the file: lengths or angles.
+    fn param_scale(&self, s: &Surface) -> Option<(f64, f64)> {
+        let (len, ang) = (self.len, self.ang);
+        fn curve(c: &Curve3, len: f64, ang: f64) -> f64 {
+            match c {
+                Curve3::Line { .. } => len,
+                Curve3::Circle { .. } | Curve3::Ellipse { .. } => ang,
+                Curve3::BSpline(_) => 1.0,
+                Curve3::Offset { basis, .. } => curve(basis, len, ang),
+            }
+        }
+        Some(match s {
+            Surface::Plane { .. } => (len, len),
+            Surface::Cylinder { .. } | Surface::Cone { .. } => (ang, len),
+            Surface::Sphere { .. } | Surface::Torus { .. } => (ang, ang),
+            Surface::BSpline(_) => (1.0, 1.0),
+            Surface::Extrusion { profile, .. } => (curve(profile, len, ang), len),
+            Surface::Revolution { profile, .. } => (ang, curve(profile, len, ang)),
+            Surface::Offset { .. } => return None,
+        })
+    }
+
+    /// `pc` with its parameter changed to the edge's, if it then lies
+    /// within `tol_model` of the edge: as is, or after the affine change of
+    /// parameter that matches the edge's ends.
+    fn fit_param(&self, surface: u32, edge: u32, pc: &Curve2) -> Option<Curve2> {
+        let s = &self.b.surfaces[surface as usize];
+        let e = &self.b.edges[edge as usize];
+        let c3 = &self.b.curves[e.curve? as usize];
+        let tol = self.b.tol_model;
+        let ok = |a: f64, b: f64| {
+            pc.reparametrised(a, b)
+                .filter(|r| pcurve::deviation(s, c3, e.range, r) <= tol)
+        };
+        if let Some(r) = ok(0.0, 1.0) {
+            return Some(r);
+        }
+        let (t0, t1) = (e.range.lo, e.range.hi);
+        let h = t1 - t0;
+        if h.is_nan() || h <= 0.0 {
+            return None;
+        }
+        let s0 = pcurve::locate(s, pc, c3.eval(t0), t0, tol)?;
+        let s1 = pcurve::locate(s, pc, c3.eval(t1), t1, tol)?;
+        let period = match pc {
+            Curve2::Ellipse { .. } => Some(std::f64::consts::TAU),
+            Curve2::BSpline(b) => Some(b.domain().length()),
+            Curve2::Line { .. } => None,
+        };
+        let mut ends = vec![s1];
+        if let Some(p) = period {
+            ends.extend([s1 + p, s1 - p]);
+        }
+        for s1 in ends {
+            let mut b = (s1 - s0) / h;
+            if matches!(pc, Curve2::Ellipse { .. }) && (b.abs() - 1.0).abs() < 1e-6 {
+                b = b.signum();
+            }
+            if let Some(r) = ok(s0 - b * t0, b) {
+                return Some(r);
+            }
+        }
+        None
+    }
+
+    /// Maps the file p-curves of one face's coedges, if any. The two
+    /// p-curves of a seam edge go to its two coedges in the order that
+    /// best joins them to their neighbours.
+    fn face_pcurves(&mut self, sid: u64, surface: u32, lids: &[u32]) {
+        let Some(scale) = self.param_scale(&self.b.surfaces[surface as usize]) else {
+            return;
+        };
+        let mut per_edge: BTreeMap<u32, Vec<Curve2>> = BTreeMap::new();
+        let mut uses: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
+        let mut order = Vec::new();
+        for &l in lids {
+            for &c in &self.b.loops[l as usize].coedges {
+                let edge = self.b.coedges[c as usize].edge;
+                let Some(list) = self.edge_pcurves.get(&edge) else {
+                    continue;
+                };
+                if !list.iter().any(|(s, _)| *s == sid) {
+                    continue;
+                }
+                order.push((l, c));
+                uses.entry(edge).or_default().push(c);
+                if per_edge.contains_key(&edge) {
+                    continue;
+                }
+                let ok: Vec<Curve2> = list
+                    .iter()
+                    .filter(|(s, _)| *s == sid)
+                    .filter_map(|&(_, c2)| self.curve2(c2, scale).ok())
+                    .filter_map(|pc| self.fit_param(surface, edge, &pc))
+                    .collect();
+                per_edge.insert(edge, ok);
+            }
+        }
+        let mut got: BTreeMap<u32, Curve2> = BTreeMap::new();
+        let mut seams = Vec::new();
+        for (edge, cs) in &uses {
+            let cands = &per_edge[edge];
+            if cs.len() == 2 {
+                // A seam needs both p-curves; else both coedges are projected.
+                if cands.len() >= 2 {
+                    seams.push((cs[0], cs[1], cands[0].clone(), cands[1].clone()));
+                }
+            } else if let Some(pc) = cands.first() {
+                for &c in cs {
+                    got.insert(c, pc.clone());
+                }
+            }
+        }
+        for (ca, cb, a, b) in seams {
+            let cost = |x: &Curve2, y: &Curve2| {
+                self.joint_gap(ca, x, lids, &got) + self.joint_gap(cb, y, lids, &got)
+            };
+            let (pa, pb) = if cost(&b, &a) < cost(&a, &b) {
+                (b, a)
+            } else {
+                (a, b)
+            };
+            got.insert(ca, pa);
+            got.insert(cb, pb);
+        }
+        for (_, c) in order {
+            match got.remove(&c) {
+                Some(pc) => {
+                    self.file_pcurves.insert(c, pc);
+                }
+                None => self.pcurves_rejected += 1,
+            }
+        }
+    }
+
+    /// Distance in (u, v) from coedge `c` with p-curve `pc` to the ends of
+    /// its neighbours in the loop that already have one.
+    fn joint_gap(&self, c: u32, pc: &Curve2, lids: &[u32], got: &BTreeMap<u32, Curve2>) -> f64 {
+        let ends = |c: u32, pc: &Curve2| {
+            let ce = &self.b.coedges[c as usize];
+            let r = self.b.edges[ce.edge as usize].range;
+            let (p, q) = (pc.eval(r.lo), pc.eval(r.hi));
+            if ce.forward { (p, q) } else { (q, p) }
+        };
+        let (start, end) = ends(c, pc);
+        let mut gap = 0.0;
+        for &l in lids {
+            let cs = &self.b.loops[l as usize].coedges;
+            let Some(i) = cs.iter().position(|&x| x == c) else {
+                continue;
+            };
+            let n = cs.len();
+            let (prev, next) = (cs[(i + n - 1) % n], cs[(i + 1) % n]);
+            if let Some(p) = got.get(&prev) {
+                gap += ends(prev, p).1.distance(start);
+            }
+            if let Some(p) = got.get(&next) {
+                gap += ends(next, p).0.distance(end);
+            }
+        }
+        gap
     }
 
     fn surface(&mut self, id: u64) -> R<u32> {
@@ -528,7 +803,8 @@ impl<'a> Mapper<'a> {
         let p = self.expect(id, "EDGE_CURVE")?;
         let vs = self.vertex(reference(id, p.get(1))?)?;
         let ve = self.vertex(reference(id, p.get(2))?)?;
-        let c = self.curve(reference(id, p.get(3))?)?;
+        let cref = reference(id, p.get(3))?;
+        let c = self.curve(cref)?;
         let same = boolean(id, p.get(4))?;
         let (v0, v1) = if same { (vs, ve) } else { (ve, vs) };
         let curve = &self.b.curves[c as usize];
@@ -538,11 +814,17 @@ impl<'a> Mapper<'a> {
         );
         let range = match curve.natural_range() {
             Some(nat) => {
-                let (t0, _) = curve.closest(p0, nat, &self.tol);
+                let (mut t0, _) = curve.closest(p0, nat, &self.tol);
                 let (mut t1, _) = curve.closest(p1, nat, &self.tol);
                 let periodic = matches!(curve, Curve3::Circle { .. } | Curve3::Ellipse { .. });
                 if periodic && (v0 == v1 || t1 <= t0) {
                     t1 += std::f64::consts::TAU;
+                } else if v0 == v1
+                    && t0 == t1
+                    && curve.eval(nat.lo).distance(curve.eval(nat.hi)) <= self.b.tol_model
+                {
+                    // A closed B-spline used whole: both ends map to one parameter.
+                    (t0, t1) = (nat.lo, nat.hi);
                 }
                 Interval::new(t0.min(t1), t0.max(t1))
             }
@@ -565,7 +847,42 @@ impl<'a> Mapper<'a> {
         });
         let i = self.b.edges.len() as u32 - 1;
         self.edges.insert(id, i);
+        self.record_pcurves(i, cref);
         Ok(i)
+    }
+
+    /// Notes the `PCURVE`s of an edge's `SURFACE_CURVE` or `SEAM_CURVE`.
+    /// Broken ones are ignored: the edge is then projected.
+    fn record_pcurves(&mut self, edge: u32, curve: u64) {
+        let Ok((name, cp)) = self.simple(curve) else {
+            return;
+        };
+        if name != "SURFACE_CURVE" && name != "SEAM_CURVE" {
+            return;
+        }
+        let Ok(items) = refs(curve, cp.get(2)) else {
+            return;
+        };
+        let mut out = Vec::new();
+        for it in items {
+            let Ok(pp) = self.expect(it, "PCURVE") else {
+                continue;
+            };
+            let (Ok(s), Ok(rep)) = (reference(it, pp.get(1)), reference(it, pp.get(2))) else {
+                continue;
+            };
+            let Ok(dp) = self.expect(rep, "DEFINITIONAL_REPRESENTATION") else {
+                continue;
+            };
+            if let Ok(cs) = refs(rep, dp.get(1))
+                && let Some(&c2) = cs.first()
+            {
+                out.push((s, c2));
+            }
+        }
+        if !out.is_empty() {
+            self.edge_pcurves.insert(edge, out);
+        }
     }
 
     /// A face bound as a loop; `orientation` false reverses it.
@@ -650,13 +967,15 @@ impl<'a> Mapper<'a> {
                 loops[i].outer = true;
             }
         }
-        let surface = self.surface(reference(id, p.get(2))?)?;
+        let sid = reference(id, p.get(2))?;
+        let surface = self.surface(sid)?;
         let same_sense = boolean(id, p.get(3))?;
         let mut lids = Vec::new();
         for l in loops {
             self.b.loops.push(l);
             lids.push(self.b.loops.len() as u32 - 1);
         }
+        self.face_pcurves(sid, surface, &lids);
         self.b.faces.push(Face {
             surface,
             same_sense,

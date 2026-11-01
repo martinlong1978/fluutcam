@@ -183,6 +183,52 @@ pub fn project(s: &Surface, c: &Curve3, range: Interval, tol_model: f64) -> Opti
     sampled(s, c, range, tol_model).map(|pc| (pc, false))
 }
 
+/// Parameter of `pc` whose image on `s` is closest to `p`, searched near
+/// `hint`: the whole period of an ellipse around it, the domain of a
+/// B-spline, and for a line the projection of `p`'s `(u, v)` (unwrapped
+/// near `pc(hint)`) onto it.
+pub fn locate(s: &Surface, pc: &Curve2, p: Point3, hint: f64, tol_model: f64) -> Option<f64> {
+    let f = |x: f64| {
+        let q = pc.eval(x);
+        s.eval(q.x(), q.y()).distance(p)
+    };
+    let (lo, hi) = match pc {
+        Curve2::Line { origin, dir } => {
+            let pj = Projector::new(s, tol_model)?;
+            let h = pc.eval(hint);
+            let (u, v) = pj.point(p, Some((h.x(), h.y())));
+            let d2 = dir.dot(*dir);
+            if d2.is_nan() || d2 <= 0.0 {
+                return None;
+            }
+            let x = (Point2::new(u, v) - *origin).dot(*dir) / d2;
+            return x.is_finite().then_some(x);
+        }
+        Curve2::Ellipse { .. } => (hint - PI, hint + PI),
+        Curve2::BSpline(b) => (b.domain().lo, b.domain().hi),
+    };
+    if !(lo.is_finite() && hi.is_finite()) {
+        return None;
+    }
+    // Best of a coarse scan, then golden-section search around it.
+    let n = 64;
+    let step = (hi - lo) / n as f64;
+    let best = (0..=n)
+        .map(|i| lo + step * i as f64)
+        .min_by(|&a, &b| f(a).total_cmp(&f(b)))?;
+    let (mut a, mut b) = ((best - step).max(lo), (best + step).min(hi));
+    let g = 0.5 * (libm::sqrt(5.0) - 1.0);
+    for _ in 0..80 {
+        let (x1, x2) = (b - g * (b - a), a + g * (b - a));
+        if f(x1) <= f(x2) {
+            b = x2;
+        } else {
+            a = x1;
+        }
+    }
+    Some(0.5 * (a + b))
+}
+
 // --- exact cases -------------------------------------------------------------
 
 fn angle_of(frame: &Frame, v: Vec3) -> f64 {
@@ -409,6 +455,9 @@ struct Projector<'a> {
     /// Shift periods: true periods, or the domain length of a B-spline that
     /// is closed without being periodic.
     per: (Option<f64>, Option<f64>),
+    /// Domains of directions that are closed but not periodic: shifts must
+    /// keep parameters inside them.
+    bounded: (Option<Interval>, Option<Interval>),
     /// Parameter spans used to judge degeneracy.
     span: (f64, f64),
     tol: Tol,
@@ -478,10 +527,16 @@ impl<'a> Projector<'a> {
             per.0.unwrap_or(sbox.u.length().min(1e3)),
             per.1.unwrap_or(sbox.v.length().min(1e3)),
         );
+        let (pu, pv) = s.periodicity();
+        let bounded = (
+            (per.0.is_some() && pu.is_none()).then_some(sbox.u),
+            (per.1.is_some() && pv.is_none()).then_some(sbox.v),
+        );
         Some(Projector {
             s,
             sbox,
             per,
+            bounded,
             span,
             tol: Tol::for_machining(tol_model, (tol_model * 10.0).min(0.01)),
             tol_model,
@@ -495,6 +550,7 @@ impl<'a> Projector<'a> {
             lo: c - PI,
             hi: c + PI,
         };
+        let near = near.filter(|q| q.0.is_finite() && q.1.is_finite());
         let (u, v) = match self.s {
             Surface::Plane { .. }
             | Surface::Cylinder { .. }
@@ -519,9 +575,30 @@ impl<'a> Projector<'a> {
             }
         };
         match near {
-            Some((nu, nv)) => (unwrap(u, nu, self.per.0), unwrap(v, nv, self.per.1)),
+            Some((nu, nv)) => (self.unwrap_axis(0, u, nu), self.unwrap_axis(1, v, nv)),
             None => (u, v),
         }
+    }
+
+    /// `x` moved by whole periods to within half a period of `near`, unless
+    /// that leaves the domain of a closed, non-periodic direction.
+    fn unwrap_axis(&self, axis: usize, x: f64, near: f64) -> f64 {
+        let y = unwrap(x, near, self.per.get(axis));
+        if self.inside(axis, y) { y } else { x }
+    }
+
+    /// Whether `x` is a valid parameter along `axis` (always, unless the
+    /// direction is closed but not periodic).
+    fn inside(&self, axis: usize, x: f64) -> bool {
+        let b = if axis == 0 {
+            self.bounded.0
+        } else {
+            self.bounded.1
+        };
+        b.is_none_or(|iv| {
+            let slack = 1e-9 * iv.length();
+            x >= iv.lo - slack && x <= iv.hi + slack
+        })
     }
 
     /// Whether the surface collapses along u, v at `(u, v)`: moving across the
@@ -588,6 +665,11 @@ fn sampled(s: &Surface, c: &Curve3, range: Interval, tol_model: f64) -> Option<C
     ts.push(range.hi);
     if ts.len() < 9 {
         ts = (0..=8).map(|i| range.at(i as f64 / 8.0)).collect();
+    }
+    // A range a few ulps long gives repeated parameters.
+    ts.dedup_by(|b, a| *b <= *a);
+    if ts.len() < 2 {
+        return None;
     }
     // Project, unwrapping against the last sample that has both coordinates.
     let mut qs = Vec::with_capacity(ts.len());
@@ -676,6 +758,10 @@ fn refine(
     out: &mut Vec<Sample>,
 ) {
     let tm = 0.5 * (a.t + b.t);
+    if tm <= a.t || tm >= b.t || depth >= MAX_DEPTH || *budget == 0 {
+        out.push(b);
+        return;
+    }
     let pred = hermite(&a, &b, tm);
     let (mut u, mut v) = pj.point(c.eval(tm), Some(pred));
     let dg = pj.degenerate(u, v);
@@ -686,13 +772,7 @@ fn refine(
         v = pred.1;
     }
     let err = pj.s.eval(pred.0, pred.1).distance(pj.s.eval(u, v));
-    if err.is_nan()
-        || err <= tol_fit
-        || depth >= MAX_DEPTH
-        || *budget == 0
-        || tm <= a.t
-        || tm >= b.t
-    {
+    if err.is_nan() || err <= tol_fit {
         out.push(b);
         return;
     }
@@ -835,6 +915,17 @@ pub fn align_face(b: &mut BrepBody, face: u32, fixed: &[bool]) {
                     let mid = 0.5 * (coord(ends[i].0, axis) + coord(ends[i].1, axis));
                     sh[i] = Some(p * libm::round((start - mid) / p));
                 }
+                // On a closed, non-periodic surface the p-curve must stay in
+                // the domain: a seam coedge goes to whichever side it fits.
+                let fits = |d: f64| {
+                    pj.inside(axis, coord(ends[i].0, axis) + d)
+                        && pj.inside(axis, coord(ends[i].1, axis) + d)
+                };
+                if let Some(d) = sh[i]
+                    && !fits(d)
+                {
+                    sh[i] = [0.0, p, -p].into_iter().find(|&d| fits(d)).or(Some(0.0));
+                }
             }
         }
         let shift = |i: usize| (shifts[0][i].unwrap_or(0.0), shifts[1][i].unwrap_or(0.0));
@@ -850,6 +941,10 @@ pub fn align_face(b: &mut BrepBody, face: u32, fixed: &[bool]) {
             };
             for axis in 0..2 {
                 let Some(p) = per.get(axis) else { continue };
+                if !pj.inside(axis, f64::INFINITY) {
+                    // Closed, non-periodic: the domain is the window.
+                    continue;
+                }
                 let w = match reference {
                     None => {
                         let lo = if axis == 0 {
