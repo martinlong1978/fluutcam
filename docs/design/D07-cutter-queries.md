@@ -185,11 +185,15 @@ emitting a gouging point [S 04 §4.2.4].
   harmless. Closed forms built: planes (all tools), ball on sphere and cylinder; the rest use
   Newton.
 - *Seeding (replaces 1 and 2 above).* Targets in the footprint (the axis point and two rings of
-  8) are projected vertically onto the surface; starts come from the closed-form closest point
-  for analytic faces and from a 4 × 4 sample of the patch for B-splines. Newton runs from the
-  3 candidates with the highest `τ` (points outside the footprint ranked down). Seeding from a
-  sample of the whole face missed contacts on large faces (a 17.5 mm torus fillet ring under a
-  6 mm tool) and was dropped.
+  8) are projected vertically onto the surface (Newton on `S_xy = target`). Starts: for
+  analytic faces the closed-form closest point to the target at the top of the primitive's box,
+  retried from mid and bottom height when the projection gets stuck; for B-spline patches the
+  nearest of a 4 × 4 sample. Newton runs from the 3 candidates (projections and samples) with
+  the highest `τ`, points outside the footprint ranked down. Three seeding bugs found on the
+  corpus show where this is fragile: a sample of the whole face misses small tools on large
+  faces; a start at mid height lands on the underside of a horizontal cone; a start on the
+  vertical side of a torus fillet is a singular spot for the projection. Each gave misses of
+  1–30 mm before it was fixed ([S2 report](../plan/spikes/s2-cutter-queries.md) §3).
 - *Non-convergence is normal.* About half of all Newton runs do not converge, because most
   candidate primitives have no interior contact (it is on an edge). Non-convergence alone
   therefore cannot raise `NoConvergence`; the rule is suspended until a test separating "no
@@ -203,7 +207,9 @@ neighbours), and closed through a pole when an odd number of loops wrap around t
 with a ray along the non-periodic parameter. All 7 902 corpus faces get a trim. Accuracy is
 the polyline chord (1e-3 mm by default): a contact up to about `chord × slope` outside the true
 face may be accepted, which showed up once on the corpus as a 1.5e-4 mm difference to the
-reference. Exact edge geometry near the boundary (or p-curves, M4) removes this.
+reference. Exact edge geometry near the boundary (or p-curves, M4) removes this. Where an
+edge curve lies off its face (a model gap, S1 §1), the highest face point near the boundary
+can be above the edge, and the drop misses by up to the gap (2.8e-5 mm seen).
 
 ### 4.4 Triangles (mesh bodies)
 
