@@ -2,4 +2,5 @@
 
 //! Test support shared by the integration tests.
 
+pub mod finish;
 pub mod step;

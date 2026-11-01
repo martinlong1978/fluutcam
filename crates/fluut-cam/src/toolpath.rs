@@ -3,7 +3,7 @@
 //! The strategy interface and registry (D08 §1, D09 §1).
 
 use crate::geometry::SetupGeometry;
-use crate::strategy::{Contour2d, Parallel, Pocket2d};
+use crate::strategy::{Contour, Contour2d, Parallel, Pocket2d};
 use fluut_geom::{Affine, Point2, Point3};
 use fluut_model::params::{FieldMeta, ToolpathTypeId};
 use fluut_model::project::{SetupKind, Toolpath};
@@ -109,7 +109,8 @@ pub trait ToolpathType: Send + Sync + fmt::Debug {
 static CONTOUR_2D: Contour2d = Contour2d;
 static POCKET_2D: Pocket2d = Pocket2d;
 static PARALLEL: Parallel = Parallel;
-static REGISTRY: [&dyn ToolpathType; 3] = [&CONTOUR_2D, &POCKET_2D, &PARALLEL];
+static CONTOUR: Contour = Contour;
+static REGISTRY: [&dyn ToolpathType; 4] = [&CONTOUR_2D, &POCKET_2D, &PARALLEL, &CONTOUR];
 
 /// Every type of this build (D09 §1).
 pub fn registry() -> &'static [&'static dyn ToolpathType] {
@@ -121,7 +122,7 @@ pub fn find(id: ToolpathTypeId) -> &'static dyn ToolpathType {
         ToolpathTypeId::Contour2d => &CONTOUR_2D,
         ToolpathTypeId::Pocket2d => &POCKET_2D,
         ToolpathTypeId::Parallel => &PARALLEL,
-        ToolpathTypeId::Contour => &Pending(ToolpathTypeId::Contour),
+        ToolpathTypeId::Contour => &CONTOUR,
         ToolpathTypeId::Horizontal => &Pending(ToolpathTypeId::Horizontal),
         ToolpathTypeId::Spiral => &Pending(ToolpathTypeId::Spiral),
         ToolpathTypeId::Scallop => &Pending(ToolpathTypeId::Scallop),

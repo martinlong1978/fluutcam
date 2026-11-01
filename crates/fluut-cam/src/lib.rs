@@ -6,6 +6,7 @@
 pub mod chain;
 pub mod cutter;
 pub mod drive;
+pub mod follow;
 pub mod geometry;
 pub mod layout;
 pub mod link;
@@ -17,6 +18,7 @@ pub mod spike;
 pub mod strategy;
 pub mod surface;
 pub mod toolpath;
+pub mod waterline;
 
 pub use region::{Inside, Loop2, Region2, Seg2, Vertex};
 pub use toolpath::{

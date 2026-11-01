@@ -69,6 +69,7 @@ fn step_inputs_match_the_writer() {
         &step::pocket_block([0.0; 3]),
     );
     check_file(&here("projects/ridge/ridge.step"), &step::ridge([0.0; 3]));
+    check_file(&here("projects/dome/dome.step"), &step::dome([0.0; 3]));
 }
 
 #[test]
@@ -78,6 +79,7 @@ fn projects_are_canonical() {
         "projects/block/block.fluut",
         "projects/ridge/ridge.fluut",
         "projects/plate/plate.fluut",
+        "projects/dome/dome.fluut",
     ] {
         let text = std::fs::read_to_string(here(p)).unwrap();
         let l = fluut_model::project::read(&text).unwrap();
@@ -153,6 +155,27 @@ fn golden_parallel() {
         "fluut/linuxcnc",
         "ridge-linuxcnc.ngc",
         &[],
+    );
+}
+
+#[test]
+fn golden_3d_finishing() {
+    // One toolpath of each 3-D finishing type (D15b §5) on the dome.
+    golden(
+        "projects/dome/dome.fluut",
+        "fluut/linuxcnc",
+        "dome-linuxcnc.ngc",
+        &[],
+    );
+    let o = fluut(&["calc", here("projects/dome/dome.fluut").to_str().unwrap()]);
+    let out = String::from_utf8_lossy(&o.stdout);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    assert_eq!(
+        out.lines()
+            .filter(|l| l.contains(": calculated; cut "))
+            .count(),
+        DOME.toolpaths.len(),
+        "{out}"
     );
 }
 
@@ -248,6 +271,14 @@ const RIDGE: Reference = Reference {
     zero: [-5.0, -5.0, 16.358983848622453],
 };
 
+/// The stock top is 1 above the dome top (stock margin).
+const DOME: Reference = Reference {
+    name: "dome",
+    part: step::dome,
+    toolpaths: &["t1"],
+    zero: [-5.0, -5.0, 29.0],
+};
+
 /// The project `r` in `dir` with the model moved by `shift`, and the work
 /// zero given as a point moved by the same offset when `point` is set.
 fn shifted(r: &Reference, dir: &Path, shift: [f64; 3], point: bool) -> PathBuf {
@@ -301,7 +332,7 @@ fn translation_invariance() {
     // together moves no toolpath coordinate by more than ε_s, and the
     // G-code is the same.
     let shift = [0.123457, -0.987651, 0.31];
-    for r in [&BLOCK, &RIDGE] {
+    for r in [&BLOCK, &RIDGE, &DOME] {
         for point in [true, false] {
             let n = r.name;
             let a = shifted(r, &tmp(&format!("inv-{n}-a-{point}")), [0.0; 3], point);

@@ -678,5 +678,11 @@ fn pocket_helix_entry_or_fallback() {
 
 #[test]
 fn every_type_is_registered() {
-    assert_eq!(fluut_cam::registry().len(), 3);
+    // Each registered type is found by its id, once.
+    let reg = fluut_cam::registry();
+    for t in reg {
+        assert_eq!(fluut_cam::find(t.id()).id(), t.id());
+        assert_eq!(reg.iter().filter(|u| u.id() == t.id()).count(), 1);
+    }
+    assert!(reg.len() >= 4);
 }

@@ -76,12 +76,29 @@ pub struct Writer {
     next: u64,
     shift: [f64; 3],
     verts: BTreeMap<[u64; 3], u64>,
-    edges: BTreeMap<([u64; 3], [u64; 3]), u64>,
+    /// Edges by end points and, for planar arcs, centre and sense: two
+    /// arcs between the same points (the halves of a circle) differ.
+    edges: BTreeMap<EdgeKey, u64>,
     faces: Vec<u64>,
 }
 
+/// Start, end and arc part ([`arc_key`]) of an edge.
+type EdgeKey = ([u64; 3], [u64; 3], [u64; 3]);
+
 fn key(p: [f64; 3]) -> [u64; 3] {
     p.map(|x| (x + 0.0).to_bits())
+}
+
+/// The arc part of an edge key; `reversed` for the same arc walked back.
+fn arc_key(kind: Kind, reversed: bool) -> [u64; 3] {
+    match kind {
+        Kind::Arc { centre, ccw } => [
+            (centre[0] + 0.0).to_bits(),
+            (centre[1] + 0.0).to_bits(),
+            u64::from(ccw != reversed) + 1,
+        ],
+        Kind::Line | Kind::Arc3 { .. } => [0; 3],
+    }
 }
 
 impl Writer {
@@ -135,7 +152,7 @@ impl Writer {
     /// An oriented edge from `a` to `b`; an edge already made from `b` to
     /// `a` is reused reversed.
     fn oriented(&mut self, a: [f64; 3], b: [f64; 3], kind: Kind) -> u64 {
-        if let Some(&e) = self.edges.get(&(key(b), key(a))) {
+        if let Some(&e) = self.edges.get(&(key(b), key(a), arc_key(kind, true))) {
             return self.add(&format!("ORIENTED_EDGE('',*,*,#{e},.F.)"));
         }
         let (va, vb) = (self.vertex(a), self.vertex(b));
@@ -170,7 +187,7 @@ impl Writer {
                 self.add(&format!("EDGE_CURVE('',#{va},#{vb},#{ci},.T.)"))
             }
         };
-        self.edges.insert((key(a), key(b)), e);
+        self.edges.insert((key(a), key(b), arc_key(kind, false)), e);
         self.add(&format!("ORIENTED_EDGE('',*,*,#{e},.T.)"))
     }
 
@@ -301,6 +318,15 @@ impl Writer {
         let b = self.bound(edges, true);
         let ax = self.placement(o, axis, x);
         let s = self.add(&format!("CYLINDRICAL_SURFACE('',#{ax},{r:?})"));
+        self.face(&[b], s, true);
+    }
+
+    /// A spherical face of radius `r` about `centre`, facing away from it,
+    /// bounded by `edges` (counter-clockwise seen from outside).
+    pub fn sphere_face(&mut self, edges: &[([f64; 3], [f64; 3], Kind)], centre: [f64; 3], r: f64) {
+        let b = self.bound(edges, true);
+        let ax = self.placement(centre, [0.0, 0.0, 1.0], [1.0, 0.0, 0.0]);
+        let s = self.add(&format!("SPHERICAL_SURFACE('',#{ax},{r:?})"));
         self.face(&[b], s, true);
     }
 
@@ -436,4 +462,36 @@ pub fn ridge(shift: [f64; 3]) -> String {
         RIDGE_RADIUS,
     );
     w.finish("ridge")
+}
+
+/// Centre (XY) and radius of the [`dome`] boss.
+pub const DOME_CENTRE: [f64; 2] = [40.0, 30.0];
+pub const DOME_RADIUS: f64 = 12.0;
+/// Z of the top of the [`dome`] boss's cylinder (the hemisphere's centre).
+pub const DOME_SHOULDER: f64 = 16.0;
+
+/// An 80 × 60 × 10 block with a round boss of radius 12 at (40, 30): a
+/// vertical cylinder from Z 10 to 16 under a hemisphere, top at Z 28.
+/// Faces: bottom, four sides, the top with a hole, two half cylinders and
+/// the hemisphere.
+pub fn dome(shift: [f64; 3]) -> String {
+    let mut w = Writer::new(shift);
+    let outer = Profile::rect(0.0, 0.0, 80.0, 60.0);
+    let [cx, cy] = DOME_CENTRE;
+    let r = DOME_RADIUS;
+    let arc = Kind::Arc {
+        centre: [cx, cy],
+        ccw: true,
+    };
+    let circle = Profile {
+        pts: vec![[cx - r, cy], [cx + r, cy]],
+        kinds: vec![arc; 2],
+    };
+    w.walls(&outer, 0.0, 10.0, true);
+    w.cap(&outer, &[], 0.0, false);
+    w.cap(&outer, std::slice::from_ref(&circle), 10.0, true);
+    w.walls(&circle, 10.0, DOME_SHOULDER, true);
+    let (a, b) = ([cx - r, cy, DOME_SHOULDER], [cx + r, cy, DOME_SHOULDER]);
+    w.sphere_face(&[(a, b, arc), (b, a, arc)], [cx, cy, DOME_SHOULDER], r);
+    w.finish("dome")
 }
