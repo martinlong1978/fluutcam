@@ -17,6 +17,7 @@ repository = "https://github.com/fluutcam/fluutcam"
 [workspace.dependencies]
 fluut-geom = { path = "crates/fluut-geom", version = "0.1.0" }
 fluut-path = { path = "crates/fluut-path", version = "0.1.0" }
+fluut-i18n = { path = "crates/fluut-i18n", version = "0.1.0" }
 fluut-topo = { path = "crates/fluut-topo", version = "0.1.0" }
 fluut-io-step = { path = "crates/fluut-io-step", version = "0.1.0" }
 fluut-io-2d = { path = "crates/fluut-io-2d", version = "0.1.0" }

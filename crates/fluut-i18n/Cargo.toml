@@ -1,0 +1,15 @@
+[package]
+name = "fluut-i18n"
+description = "FluutCAM localisation: Fluent messages, locale number formats, unit parsing and formatting (design D01 §2)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+fluent-bundle = "0.16"
+unic-langid = "0.9"
+thiserror.workspace = true
+
+[lints]
+workspace = true
