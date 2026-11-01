@@ -378,7 +378,10 @@ version = "0.1.0"
 dependencies = [
  "cavalier_contours",
  "fluut-geom",
+ "fluut-io-step",
+ "fluut-model",
  "fluut-path",
+ "fluut-topo",
  "libm",
  "proptest",
 ]
