@@ -397,3 +397,50 @@ fn an_edit_group_is_one_undo_step() {
     assert_eq!(s.project, before);
     assert!(s.undo().is_none());
 }
+
+#[test]
+fn post_one_setup() {
+    let (dir, id) = workspace("post_setups");
+    let mut text = project(&id);
+    text.push_str(
+        r#"
+[[setup]]
+id       = "s2"
+name     = "Again"
+based_on = "s1"
+
+  [[setup.toolpath]]
+  id   = "t2"
+  name = "Second"
+  type = "contour_2d"
+  tool = "shop#flat-6"
+
+    [setup.toolpath.geometry]
+"#,
+    );
+    text.push_str(&format!("    drive_curves = [{{ face = \"f-{id}.8\" }}]\n"));
+    std::fs::write(dir.join("p.fluut"), text).unwrap();
+    let mut s = Session::open(&dir.join("p.fluut"), &[]).unwrap();
+    let opts = PostOptions::default();
+    let (all, _) = s.post("fluut/linuxcnc", &builtin_store(), &opts).unwrap();
+    assert!(all.files[0].contains("(Profile)") && all.files[0].contains("(Second)"));
+    let (one, reports) = s
+        .post_setups(
+            "fluut/linuxcnc",
+            &builtin_store(),
+            &opts,
+            Some(&["s2".to_owned()]),
+        )
+        .unwrap();
+    assert_eq!(reports.len(), 1);
+    assert!(!one.files[0].contains("(Profile)") && one.files[0].contains("(Second)"));
+    let e = s
+        .post_setups(
+            "fluut/linuxcnc",
+            &builtin_store(),
+            &opts,
+            Some(&["x".into()]),
+        )
+        .unwrap_err();
+    assert_eq!(e[0].code, "post.setup.missing");
+}
