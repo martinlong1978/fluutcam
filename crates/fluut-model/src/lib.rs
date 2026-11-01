@@ -7,16 +7,23 @@
 //! - `params`: toolpath parameter metadata and values (D06 §3, D15).
 //! - `project`: the project document, read and written (D06 §1, §7.2).
 //! - `tools`: tool libraries (spec 02 §2.4).
+//! - `resolve`, `validate`, `hash`: defaults, validation codes and the
+//!   result-hash inputs (D15).
 
 pub mod defs;
+pub mod diag;
+pub mod hash;
 pub mod params;
 pub mod project;
+pub mod resolve;
 pub mod tools;
+pub mod validate;
 
 pub use defs::{
     Def, DefError, DefRef, DefStore, DefWarning, LayerId, MAX_DEPTH, MemStore, ModeMerger, NoModes,
     Resolved, Version, VersionReq, apply_overrides, resolve,
 };
+pub use diag::{Diagnostic, Severity};
 pub use params::{
     Class, FieldKind, FieldMeta, Group, HeightSpec, Num, PValue, ParamMap, Params, Sel,
     ToolpathTypeId,
