@@ -70,3 +70,4 @@ These must be written before the milestone that needs them:
 | [2026-10-31-s2-cutter-queries.md](2026-10-31-s2-cutter-queries.md) | S2 | Done: [report](spikes/s2-cutter-queries.md); exact drop 12 µs median on 5 967 corpus faces, 210–320 µs on dense B-spline; "no grids" holds, no fallback; speed work listed |
 | [2026-11-01-m3-parallel.md](2026-11-01-m3-parallel.md) | M3 | Done: `parallel` on the S2 drop queries; ridge project golden and translation-invariant; 180–197 µs per CL point on the largest NIST body |
 | [2026-11-01-m7-io-2d-mesh.md](2026-11-01-m7-io-2d-mesh.md) | M7 | Done: `fluut-io-2d` (own DXF reader, SVG on `roxmltree`) and `fluut-io-mesh` (STL with welding and adjacency); a DXF outline drives `contour_2d` and `pocket_2d` to golden G-code; 27 M fuzz executions, no crashes |
+| [2026-11-01-m4-model-persistence.md](2026-11-01-m4-model-persistence.md) | M4 | In progress |
