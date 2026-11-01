@@ -68,7 +68,7 @@ fn main() -> ExitCode {
             return ExitCode::SUCCESS;
         }
         Some("-V" | "--version") => {
-            println!("fluut {}", env!("CARGO_PKG_VERSION"));
+            println!("fluut {}", fluut_core::build_info::version_string());
             return ExitCode::SUCCESS;
         }
         _ => {}

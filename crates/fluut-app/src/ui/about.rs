@@ -45,6 +45,10 @@ pub fn show(ctx: &egui::Context, state: &mut UiState) {
                     "about-version",
                     &[("version", env!("CARGO_PKG_VERSION"))],
                 ));
+                // The build's git commit: a hash needs no translation.
+                if let Some(commit) = fluut_core::build_info::GIT_COMMIT {
+                    ui.label(egui::RichText::new(commit).small().monospace());
+                }
                 ui.add_space(8.0);
                 ui.label(egui::RichText::new(tr("about-licence")).small());
                 ui.label(egui::RichText::new(tr("about-font")).small());

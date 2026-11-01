@@ -6,6 +6,7 @@
 //! Jobs run in one process, one after another. Results are cached in
 //! memory and, when enabled, in the disk sidecar (D06 §7.5).
 
+pub mod build_info;
 pub mod cache;
 pub mod entities;
 pub mod frame;

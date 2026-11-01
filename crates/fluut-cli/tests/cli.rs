@@ -314,6 +314,16 @@ fn errors_and_usage() {
     assert!(fluut(&["--version"]).status.success());
 }
 
+#[test]
+fn version_names_the_workspace_version() {
+    let o = fluut(&["--version"]);
+    assert_eq!(
+        String::from_utf8_lossy(&o.stdout).trim(),
+        format!("fluut {}", fluut_core::build_info::version_string())
+    );
+    assert!(String::from_utf8_lossy(&o.stdout).starts_with("fluut 0.1.0"));
+}
+
 /// A reference project: its directory and STEP stem, the writer of its
 /// part, the toolpaths, and the work zero (the front left stock top
 /// corner) for an unshifted part.
