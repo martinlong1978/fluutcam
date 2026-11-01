@@ -47,6 +47,7 @@ flute_length = 8
   rpm = 18000
   feed = 2500
   plunge = 800
+  step_down = 2
 [[tool]]
 id = "drill-5"
 shape = "drill"
@@ -178,4 +179,26 @@ fn face_codes() {
         "[passes]\nstepover = 6\n",
         "[passes]\nstepover = 6.5\n",
     );
+}
+
+const CURVES: &str = "[geometry]\ndrive_curves = [{ body = \"b\" }]\n";
+
+#[test]
+fn trace_codes() {
+    clean("trace", "v-90", CURVES);
+    case(
+        "param.trace.depths.both",
+        "trace",
+        "v-90",
+        &format!("{CURVES}[passes]\ndepth_count = 2\n"),
+        &format!("{CURVES}[passes]\ndepth_count = 2\nstep_down = 1\n"),
+    );
+    case(
+        "param.trace.curve_depth.unused",
+        "trace",
+        "v-90",
+        &format!("{CURVES}[passes]\ndepth_mode = \"curve\"\ncurve_depth = 1\n"),
+        &format!("{CURVES}[passes]\ncurve_depth = 1\n"),
+    );
+    case("param.geometry.drive.empty", "trace", "v-90", CURVES, "");
 }

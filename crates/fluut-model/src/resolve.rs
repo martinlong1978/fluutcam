@@ -335,12 +335,37 @@ pub struct Face {
     pub final_step_down: Option<f64>,
 }
 
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum DepthMode {
+    Heights,
+    Curve,
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum TraceDirection {
+    Any,
+    Selection,
+    Reversed,
+}
+
+/// `trace` (D15b §2.3).
+#[derive(Clone, PartialEq, Debug)]
+pub struct Trace {
+    pub depth_mode: DepthMode,
+    pub curve_depth: f64,
+    pub side_offset: f64,
+    pub step_down: Option<f64>,
+    pub depth_count: Option<i64>,
+    pub direction: TraceDirection,
+}
+
 #[derive(Clone, PartialEq, Debug)]
 pub enum TypeParams {
     Contour2d(Contour2d),
     Pocket2d(Pocket2d),
     Parallel(Parallel),
     Face(Face),
+    Trace(Trace),
 }
 
 /// Every parameter of a toolpath with defaults applied.
@@ -384,12 +409,20 @@ impl ResolvedParams {
         }
     }
 
+    pub fn trace(&self) -> Option<&Trace> {
+        match &self.ty {
+            TypeParams::Trace(c) => Some(c),
+            _ => None,
+        }
+    }
+
     /// Step-down of the type, if it has one.
     pub fn step_down(&self) -> Option<f64> {
         match &self.ty {
             TypeParams::Contour2d(c) => c.step_down,
             TypeParams::Pocket2d(p) => p.step_down,
             TypeParams::Face(p) => p.step_down,
+            TypeParams::Trace(p) => p.step_down,
             TypeParams::Parallel(_) => None,
         }
     }
@@ -400,7 +433,7 @@ impl ResolvedParams {
             TypeParams::Pocket2d(p) => p.stepover,
             TypeParams::Parallel(p) => p.stepover,
             TypeParams::Face(p) => p.stepover,
-            TypeParams::Contour2d(_) => None,
+            TypeParams::Contour2d(_) | TypeParams::Trace(_) => None,
         }
     }
 }
@@ -693,6 +726,21 @@ pub fn resolve(p: &Params, tool: &Tool, material: Option<&str>) -> ResolvedParam
             overlap: g.num_or("passes.overlap", 0.6 * d),
             step_down: g.or_preset("passes.step_down", "step_down"),
             final_step_down: g.num("passes.final_step_down"),
+        }),
+        ToolpathTypeId::Trace => TypeParams::Trace(Trace {
+            depth_mode: match g.text("passes.depth_mode") {
+                "curve" => DepthMode::Curve,
+                _ => DepthMode::Heights,
+            },
+            curve_depth: g.num_or("passes.curve_depth", 0.0),
+            side_offset: g.num_or("passes.side_offset", 0.0),
+            step_down: g.or_preset("passes.step_down", "step_down"),
+            depth_count: g.int("passes.depth_count"),
+            direction: match g.text("passes.direction") {
+                "selection" => TraceDirection::Selection,
+                "reversed" => TraceDirection::Reversed,
+                _ => TraceDirection::Any,
+            },
         }),
     };
     ResolvedParams {

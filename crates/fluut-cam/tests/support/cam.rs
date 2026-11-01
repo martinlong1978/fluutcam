@@ -226,3 +226,32 @@ pub fn cut_levels(r: &Generated) -> Vec<f64> {
     zs.dedup_by(|a, b| (*a - *b).abs() < 1e-9);
     zs
 }
+
+/// A wire body `b-w` of straight lines through `pts`.
+pub fn wire(pts: &[[f64; 3]]) -> SetupGeometry {
+    use fluut_geom::{Curve3, Interval, UnitVec3};
+    let curves = pts
+        .windows(2)
+        .map(|w| {
+            let a = Point3::new(w[0][0], w[0][1], w[0][2]);
+            let b = Point3::new(w[1][0], w[1][1], w[1][2]);
+            fluut_topo::WireCurve {
+                curve: Curve3::line(a, UnitVec3::new(b - a).unwrap()),
+                range: Interval {
+                    lo: 0.0,
+                    hi: a.distance(b),
+                },
+            }
+        })
+        .collect();
+    SetupGeometry {
+        bodies: vec![SetupBody {
+            id: "b-w".into(),
+            geom: BodyGeom::Wire(fluut_topo::WireBody {
+                name: "w".into(),
+                tol_model: 1e-6,
+                curves,
+            }),
+        }],
+    }
+}

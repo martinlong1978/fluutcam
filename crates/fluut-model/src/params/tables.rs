@@ -513,6 +513,50 @@ pub(crate) const FACE: &[FieldMeta] = &[
     lead_out(LEAD_NONE),
 ];
 
+// ── trace (D15b §2.3) ────────────────────────────────────────────────
+
+pub(crate) const TRACE: &[FieldMeta] = &[
+    SPINDLE_RPM,
+    FEEDS,
+    COOLANT,
+    DRIVE_CURVES,
+    CLEARANCE,
+    RETRACT_H,
+    FEED_H,
+    top("stock_top"),
+    bottom("selection"),
+    MACHINING_TOLERANCE,
+    MAX_SEGMENT_LENGTH,
+    OUTPUT_ARCS,
+    f(
+        "depth_mode",
+        Passes,
+        Enum(&["heights", "curve"]),
+        text("heights"),
+        R,
+        false,
+    ),
+    f("curve_depth", Passes, Length, num(0.0), R, true),
+    f("side_offset", Passes, Length, num(0.0), R, true),
+    f("step_down", Passes, Length, FromTool("step_down"), R, true),
+    f("depth_count", Passes, Count, NoDefault, R, false),
+    f(
+        "direction",
+        Passes,
+        Enum(&["any", "selection", "reversed"]),
+        text("any"),
+        R,
+        false,
+    ),
+    RETRACT,
+    SAFETY_DISTANCE,
+    TRANSITIONS,
+    lead_in(LEAD_NONE),
+    lead_out(LEAD_NONE),
+    f("ramp", Linking, Table(CONTOUR_RAMP), NoDefault, R, false),
+    ORDER,
+];
+
 /// Whether `key` is a field of `group` for some type. Used to tell an
 /// undeclared common field (an error, spec 03 §3.10.3) from an unknown key.
 pub fn known_in_any_type(group: Group, key: &str) -> bool {

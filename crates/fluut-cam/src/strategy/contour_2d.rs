@@ -334,7 +334,7 @@ fn offset_chain(ch: &Chain, side: Side, d: f64, dir: CutDirection) -> Vec<(Path2
 }
 
 /// Open path offset to the left by `d` (right when negative).
-fn offset_open(p: &Path2, d: f64) -> Vec<Path2> {
+pub(crate) fn offset_open(p: &Path2, d: f64) -> Vec<Path2> {
     if d == 0.0 {
         return vec![p.clone()];
     }

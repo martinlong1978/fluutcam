@@ -29,3 +29,18 @@ zero     = { method = "stock_top_corner", corner = "front_left" }
     step_down       = 0.6
     final_step_down = 0.2
     overlap         = 12
+
+  [[setup.toolpath]]
+  id   = "t2"
+  name = "Score around the pocket"
+  type = "trace"
+  tool = "shop#v-90"
+
+    [setup.toolpath.geometry]
+    drive_curves = [{ edge = "e-588.16" }, { edge = "e-588.17" }, { edge = "e-588.18" }, { edge = "e-588.19" }, { edge = "e-588.20" }, { edge = "e-588.21" }, { edge = "e-588.22" }, { edge = "e-588.23" }]
+
+    [setup.toolpath.heights]
+    bottom = { ref = "model_top", offset = -0.8 }
+
+    [setup.toolpath.passes]
+    side_offset = 3

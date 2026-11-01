@@ -8,8 +8,10 @@ mod contour_2d;
 mod face;
 mod parallel;
 mod pocket_2d;
+mod trace;
 
 pub use contour_2d::Contour2d;
 pub use face::Face;
 pub use parallel::Parallel;
 pub use pocket_2d::Pocket2d;
+pub use trace::Trace;

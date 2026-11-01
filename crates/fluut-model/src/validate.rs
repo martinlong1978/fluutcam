@@ -125,6 +125,7 @@ pub fn validate(tp: &Toolpath, cx: &ValidateCx) -> Vec<Diagnostic> {
         ToolpathTypeId::Pocket2d => v.pocket(),
         ToolpathTypeId::Parallel => v.parallel(),
         ToolpathTypeId::Face => v.face(),
+        ToolpathTypeId::Trace => v.trace(),
     }
     tag(out, tp)
 }
@@ -264,7 +265,7 @@ impl V<'_, '_> {
         let g = &self.r.geometry;
         let two_d = matches!(
             self.r.kind,
-            ToolpathTypeId::Contour2d | ToolpathTypeId::Pocket2d
+            ToolpathTypeId::Contour2d | ToolpathTypeId::Pocket2d | ToolpathTypeId::Trace
         );
         if two_d && g.drive_curves.is_empty() && g.drive_faces.is_empty() {
             self.e(
@@ -312,7 +313,12 @@ impl V<'_, '_> {
         let Some(z) = self.cx.heights.copied() else {
             return;
         };
-        let top_ok = if self.r.kind == ToolpathTypeId::Parallel {
+        // In `trace` curve mode the heights do not set the cut depth.
+        let curve_mode = self
+            .r
+            .trace()
+            .is_some_and(|t| t.depth_mode == crate::resolve::DepthMode::Curve);
+        let top_ok = if self.r.kind == ToolpathTypeId::Parallel || curve_mode {
             z.top >= z.bottom
         } else {
             z.top > z.bottom
@@ -692,6 +698,39 @@ impl V<'_, '_> {
                 "param.face.tool_shape",
                 "tool",
                 "the tool is not flat or bull nosed: the face will be scalloped".into(),
+            );
+        }
+    }
+
+    fn trace(&mut self) {
+        let Some(t) = self.r.trace().cloned() else {
+            return;
+        };
+        if self.p.is_set("passes.step_down") && self.p.is_set("passes.depth_count") {
+            self.e(
+                "param.trace.depths.both",
+                "passes.depth_count",
+                "set either step_down or depth_count, not both".into(),
+            );
+        }
+        let curve = t.depth_mode == crate::resolve::DepthMode::Curve;
+        if t.depth_count.is_none() && (!curve || t.curve_depth > 0.0) {
+            self.required("passes.step_down", t.step_down);
+        }
+        if let Some(n) = t.depth_count {
+            self.range("trace", "passes.depth_count", n >= 1, "1 or more");
+        }
+        self.range(
+            "trace",
+            "passes.curve_depth",
+            t.curve_depth >= 0.0,
+            "0 or more",
+        );
+        if !curve && self.p.is_set("passes.curve_depth") {
+            self.w(
+                "param.trace.curve_depth.unused",
+                "passes.curve_depth",
+                "curve_depth is ignored with depth_mode = \"heights\"".into(),
             );
         }
     }
