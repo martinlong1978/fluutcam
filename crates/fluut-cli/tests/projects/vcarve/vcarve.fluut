@@ -1,0 +1,35 @@
+format = "fluut.project/1"
+name   = "V-carve"
+units  = "mm"
+
+[[geometry]]
+id   = "g1"
+path = "vcarve.dxf"
+kind = "dxf"
+unit = "mm"
+
+  [[geometry.body]]
+  id   = "b-1"
+  name = "TEXT"
+
+[[setup]]
+id       = "s1"
+name     = "Top"
+kind     = "three_axis"
+material = "MDF"
+stock    = { kind = "block", margin = [5, 5, 12] }
+zero     = { method = "stock_top_corner", corner = "front_left" }
+
+  [[setup.toolpath]]
+  id   = "t1"
+  name = "V-carve lettering"
+  type = "engrave"
+  tool = "shop#v-90"
+
+    [setup.toolpath.geometry]
+    drive_curves = [{ body = "b-1" }]
+
+    [setup.toolpath.passes]
+    max_depth         = 2
+    step_down         = 1.2
+    corner_sharpening = true

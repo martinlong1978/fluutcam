@@ -91,7 +91,7 @@ Tracing costs O(n) per edge with a uniform grid of sites, so O(n · E) at worst 
 
 **Files:** Create `crates/fluut-cli/tests/projects/vcarve/`; `crates/fluut-cli/tests/golden/vcarve-linuxcnc.ngc`; `crates/fluut-cli/tests/cli.rs`.
 
-- [ ] **Step 1:** A DXF of lettering-like shapes (strokes with round ends, a bowl with a hole, serifs) written by a test function, so that translation invariance can move it. Golden G-code; translation invariance. Commit.
+- [x] **Step 1:** A DXF of lettering-like shapes (strokes with round ends, a bowl with a hole, serifs) written by a test function, so that translation invariance can move it. Golden G-code; translation invariance. Commit.
 
 ### Task 6: Measure and close
 
