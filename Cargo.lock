@@ -378,9 +378,38 @@ version = "0.1.0"
 dependencies = [
  "cavalier_contours",
  "fluut-geom",
+ "fluut-io-step",
+ "fluut-model",
  "fluut-path",
+ "fluut-topo",
  "libm",
  "proptest",
+]
+
+[[package]]
+name = "fluut-cli"
+version = "0.1.0"
+dependencies = [
+ "fluut-core",
+ "fluut-geom",
+ "fluut-model",
+ "fluut-path",
+ "fluut-post",
+]
+
+[[package]]
+name = "fluut-core"
+version = "0.1.0"
+dependencies = [
+ "fluut-cam",
+ "fluut-geom",
+ "fluut-io-step",
+ "fluut-model",
+ "fluut-path",
+ "fluut-post",
+ "fluut-topo",
+ "glam",
+ "sha2",
 ]
 
 [[package]]
@@ -411,6 +440,9 @@ dependencies = [
 name = "fluut-model"
 version = "0.1.0"
 dependencies = [
+ "serde",
+ "serde_ignored",
+ "sha2",
  "thiserror",
  "toml",
 ]

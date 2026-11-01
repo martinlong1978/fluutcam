@@ -11,7 +11,8 @@ M0 (Change to T1: 6 mm flat)
 S18000 M3
 M8
 (Profile)
-G0 X0 Y0 Z5
+G0 X0 Y0 Z25
+G0 Z5
 G1 Z-1 F300
 G1 X10 F1200
 G1 Y10
@@ -39,7 +40,8 @@ M0 (Change to T2: 5 mm drill)
 S2500 M3
 M8
 (Holes)
-G0 X50 Y0 Z2
+G0 X50 Y0 Z25
+G0 Z2
 G1 Z-6 F150
 G0 Z2
 G0 X60
@@ -87,6 +89,7 @@ M0 (Change to T1: 6 mm flat)
 S20000 M3
 M7
 (Finish)
+G0 X0 Y0 Z25
 (Check clamps)
 M1
 G0 X0 Y20 Z5

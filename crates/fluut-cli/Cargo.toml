@@ -1,0 +1,23 @@
+[package]
+name = "fluut-cli"
+description = "FluutCAM command line: calculate and post projects (design D01 §1)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "fluut"
+path = "src/main.rs"
+
+[dependencies]
+fluut-core.workspace = true
+fluut-model.workspace = true
+fluut-post.workspace = true
+
+[dev-dependencies]
+fluut-geom.workspace = true
+fluut-path.workspace = true
+
+[lints]
+workspace = true

@@ -59,6 +59,21 @@ pub struct Toolpath {
 }
 ```
 
+### 1.1 Setup fields of a `three_axis` Setup (M3)
+
+M3 reads these Setup keys. The other kinds, `based_on` and `region` follow in M4.
+
+| Key | Form | Meaning |
+|---|---|---|
+| `geometry` | `{ bodies = [ids] }` | bodies machined; absent = every body of every source |
+| `orientation` | `{ tool_axis = "+Z", x_axis = "+X" }` | signed model axes (±X, ±Y, ±Z) that become +Z and +X of W; picks from faces later |
+| `stock` | `{ kind = "block", margin = [x, y, z] }` | model bounds in the aligned frame grown by `x` on both X sides, `y` on both Y sides, `z` on top; the stock bottom is the model bottom |
+| `zero` | `{ method = "stock_top_corner" \| "stock_bottom_corner", corner = "front_left" … }`, `{ method = "stock_top_centre" }`, `{ method = "point", at = [x, y, z] }` | work zero; front is −Y, left is −X; `point` is in M |
+| `clearance` | `{ kind = "plane", offset = 10 }` | Setup clearance plane `offset` above the stock top (default 10 mm) |
+
+Entity ids until re-import matching (M4): body `b-<step id>`, its faces `f-<step id>.<i>` and
+edges `e-<step id>.<i>`, by index in the body. WireBody curves use the edge form.
+
 ## 2. Setup inheritance
 
 ```rust

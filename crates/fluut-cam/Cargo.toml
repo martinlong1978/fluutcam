@@ -9,7 +9,9 @@ license.workspace = true
 [dependencies]
 cavalier_contours.workspace = true
 fluut-geom.workspace = true
+fluut-model.workspace = true
 fluut-path.workspace = true
+fluut-topo.workspace = true
 libm.workspace = true
 
 [lints]
@@ -17,3 +19,4 @@ workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
+fluut-io-step.workspace = true

@@ -1,0 +1,38 @@
+format = "fluut.project/1"
+name   = "Boss"
+units  = "mm"
+
+[[geometry]]
+id   = "g1"
+path = "boss.step"
+kind = "step"
+
+  [[geometry.body]]
+  id   = "b-334"
+  name = "boss"
+
+[[setup]]
+id       = "s1"
+name     = "Top"
+kind     = "three_axis"
+material = "MDF"
+stock    = { kind = "block", margin = [5, 5, 1] }
+zero     = { method = "stock_top_corner", corner = "front_left" }
+
+  [[setup.toolpath]]
+  id   = "t1"
+  name = "Profile outside"
+  type = "contour_2d"
+  tool = "shop#flat-6"
+
+    [setup.toolpath.geometry]
+    drive_faces = [{ face = "f-334.0" }, { face = "f-334.1" }, { face = "f-334.2" }, { face = "f-334.3" }, { face = "f-334.4" }, { face = "f-334.5" }, { face = "f-334.6" }, { face = "f-334.7" }]
+
+    [setup.toolpath.passes]
+    step_down            = 4.0
+    finishing_pass_count = 1
+    finishing_stepover   = 0.5
+    tabs                 = { mode = "count", count = 4, width = 4, height = 2 }
+
+    [setup.toolpath.linking]
+    lead_in = { kind = "arc", radius = 3, length = 2 }

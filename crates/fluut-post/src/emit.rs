@@ -403,6 +403,12 @@ impl<'a> Emitter<'a> {
             }
         }
         self.block("toolpath_start");
+        // The result starts where the tool must be (D10 §4.7): rapid there
+        // first, so the first move never runs from wherever the tool change
+        // left the tool.
+        if let Some(start) = tp.result.segments().find_map(Segment::start).copied() {
+            self.motion("rapid", &start, None, Vec::new());
+        }
         let err = |what| EmitError::Unsupported {
             setup: si,
             toolpath: ti,
