@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! End to end: STEP file + TOML project → G-code from the `fluut` binary.
+//! End to end: STEP or DXF file + TOML project → G-code from the `fluut`
+//! binary.
 //! Golden output per reference project, translation invariance (spec 04
 //! §4.12.7 (3)), and the command line's exit status.
 //!
@@ -71,7 +72,11 @@ fn step_inputs_match_the_writer() {
 
 #[test]
 fn projects_are_canonical() {
-    for p in ["projects/boss/boss.fluut", "projects/block/block.fluut"] {
+    for p in [
+        "projects/boss/boss.fluut",
+        "projects/block/block.fluut",
+        "projects/plate/plate.fluut",
+    ] {
         let text = std::fs::read_to_string(here(p)).unwrap();
         let l = fluut_model::project::read(&text).unwrap();
         assert!(l.warnings.is_empty(), "{p}: {:?}", l.warnings);
@@ -137,6 +142,23 @@ fn golden_pocket_2d_and_cut_out() {
         "block-grbl.gcode",
         &w,
     );
+}
+
+#[test]
+fn golden_dxf_outline() {
+    // DXF layers drive both 2-D types: a rounded pocket and a hole on
+    // POCKET, a cut-out of lines and arcs on OUTLINE.
+    golden(
+        "projects/plate/plate.fluut",
+        "fluut/linuxcnc",
+        "plate-linuxcnc.ngc",
+        &[],
+    );
+    let o = fluut(&["calc", here("projects/plate/plate.fluut").to_str().unwrap()]);
+    let out = String::from_utf8_lossy(&o.stdout);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    assert!(out.contains("t1 \"Pocket and hole\": calculated"), "{out}");
+    assert!(out.contains("t2 \"Cut out\": calculated"), "{out}");
 }
 
 #[test]

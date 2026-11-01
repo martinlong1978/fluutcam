@@ -1,0 +1,65 @@
+format = "fluut.project/1"
+name   = "Plate"
+units  = "mm"
+
+[[geometry]]
+id   = "g1"
+path = "plate.dxf"
+kind = "dxf"
+unit = "mm"
+
+  [[geometry.body]]
+  id   = "b-1"
+  name = "OUTLINE"
+
+  [[geometry.body]]
+  id   = "b-2"
+  name = "POCKET"
+
+[[setup]]
+id       = "s1"
+name     = "Top"
+kind     = "three_axis"
+material = "MDF"
+stock    = { kind = "block", margin = [5, 5, 12] }
+zero     = { method = "stock_top_corner", corner = "front_left" }
+
+  [[setup.toolpath]]
+  id   = "t1"
+  name = "Pocket and hole"
+  type = "pocket_2d"
+  tool = "shop#flat-6"
+
+    [setup.toolpath.geometry]
+    drive_curves = [{ body = "b-2" }]
+
+    [setup.toolpath.heights]
+    top    = { ref = "stock_top", offset = 0 }
+    bottom = { ref = "stock_top", offset = -6 }
+
+    [setup.toolpath.passes]
+    stepover  = 2.4
+    step_down = 3.0
+
+    [setup.toolpath.linking]
+    ramp = { kind = "helix", angle_deg = 3, radius = 2 }
+
+  [[setup.toolpath]]
+  id   = "t2"
+  name = "Cut out"
+  type = "contour_2d"
+  tool = "shop#flat-6"
+
+    [setup.toolpath.geometry]
+    drive_curves = [{ body = "b-1" }]
+
+    [setup.toolpath.heights]
+    top    = { ref = "stock_top", offset = 0 }
+    bottom = { ref = "stock_bottom", offset = 0 }
+
+    [setup.toolpath.passes]
+    step_down = 4.0
+    tabs      = { mode = "count", count = 4, width = 6, height = 3 }
+
+    [setup.toolpath.linking]
+    lead_in = { kind = "arc", radius = 4, length = 2 }

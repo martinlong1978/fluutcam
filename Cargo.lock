@@ -403,6 +403,8 @@ version = "0.1.0"
 dependencies = [
  "fluut-cam",
  "fluut-geom",
+ "fluut-io-2d",
+ "fluut-io-mesh",
  "fluut-io-step",
  "fluut-model",
  "fluut-path",
