@@ -699,7 +699,7 @@ fn axis_is_bit_identical() {
     }
     assert_eq!(
         (m.nodes.len(), m.edges.len(), h),
-        (41, 39, 10518139422119060752)
+        (41, 39, 11594791580906904971)
     );
 }
 
@@ -788,4 +788,21 @@ fn s3_shapes() {
         let m = check(&r, holes, areas);
         assert!(!m.edges.is_empty(), "{name}");
     }
+}
+
+#[test]
+fn scalloped_badge() {
+    // Many short arcs of both senses, round a scalloped hole.
+    let ring = |rad: f64, m: usize, amp: f64| -> Vec<(f64, f64, f64)> {
+        (0..m)
+            .map(|i| {
+                let a = TAU * i as f64 / m as f64;
+                let rr = rad + if i % 2 == 0 { amp } else { -amp };
+                let b = if i % 2 == 0 { 0.15 } else { -0.15 };
+                (rr * libm::cos(a), rr * libm::sin(a), b)
+            })
+            .collect()
+    };
+    let r = region_of(vec![ring(30.0, 120, 1.0), ring(12.0, 60, 0.6)]);
+    check(&r, 1, 1);
 }

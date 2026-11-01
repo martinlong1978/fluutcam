@@ -95,9 +95,36 @@ Tracing costs O(n) per edge with a uniform grid of sites, so O(n · E) at worst 
 
 ### Task 6: Measure and close
 
-- [ ] **Step 1:** Example `medial_axis`: time of the axis on the S3 shapes A, B, C and on a text-like outline with many arcs.
-- [ ] **Step 2:** Update CH-17, D09 §2.6, D15b §8; mark this plan done with deviations; README row. Commit.
+- [x] **Step 1:** Example `medial_axis`: time of the axis on the S3 shapes A, B, C and on a text-like outline with many arcs.
+- [x] **Step 2:** Update CH-17, D09 §2.6, D15b §8; mark this plan done with deviations; README row. Commit.
 
 ### Task 7: Merge
 
 - [ ] **Step 1:** Merge `origin/main`; resolve conflicts; rerun all five checks; push.
+
+**Done.** `fluut-cam::region::medial` computes the exact medial axis of regions bounded by lines and arcs (CH-17), and `engrave` V-carves along it. Tests:
+- the axis on fixed shapes (rectangles, squares, nearly square rectangles, triangles, an L, regular polygons, discs, annuli, holes, rounded ends, touching loops, nearly tangent joints, lettering, a scalloped badge, the S3 shapes) and on random polygons and arc shapes, with and without holes. 3 000 random cases per generator passed locally; CI runs 48;
+- every `engrave` code of D15b §2.4 passes and fails;
+- the reference project `vcarve` (`crates/fluut-cli/tests/projects/vcarve/`) has golden G-code with `fluut/linuxcnc` and is translation-invariant: the G-code is identical and every coordinate is within 1e-6 mm.
+
+Axis time, best of 5 runs on one thread: 0.02–0.08 ms on the S3 shapes, 0.24 ms for three letters (24 segments), 24 ms for 120 letters (960 segments, 480 arcs). A scalloped badge of 1 500 arcs takes 278 ms: dense sites near every empty disc make it grow faster than linearly. Details are in CH-17.
+
+Deviations from this plan and from the design:
+- **Branch.** The work is on the session branch `claude/wonderful-fermat-lwkc1d`, pushed also as `medial-axis-engrave`.
+- **Line–line edges** are evaluated by interpolating their two nodes, which is exact for them. The closed form loses digits between nearly parallel lines.
+- **Neighbour sites** (the reflex point or tangent segment next to L or R) are never third sites. Where they meet L or R is an exit event, and as a three-site vertex it is ill-conditioned.
+- **Seeds** are tried at several points along the longest site of an uncovered loop, and are kept only when the disc found is empty. The midpoint can be where loops touch.
+- **Tolerance.** Distances within 1e-8 × the region size are equal. Nodes closer than four times that are one node; leaves are never merged, so loops that touch at a corner keep separate axes.
+- **Pruning** uses ρ·(1 / cos(φ/2) − 1), the distance from the disc to the corner it would reach, and not the sagitta. It also scales by 1 / tan α when that is larger, so the depth error stays under the tolerance.
+- **Step-down** levels go from `top` to the deepest point of the path, not always to `max_depth`.
+- **Codes.** `engrave` also reports `cam.geometry.drive.empty`, `cam.geometry.chain_self_intersects` and `cam.engrave.medial_axis` (D15b §8).
+- **The reference project's tests** are in their own file, `crates/fluut-cli/tests/vcarve.rs`, which writes the DXF, so that `cli.rs` stays as it is for the other sessions.
+- **Output** is lines, also where the depth is constant along an arc of the axis.
+- **In-process stock** is still not built.
+
+Follow-ups:
+- Fit arcs (or helices) where the depth along an axis edge is constant or linear.
+- Stay-down links between V paths that meet at a node.
+- The WireBody command for flat areas (D15b decision 9) in the app; `Engrave::flat_areas` gives the region.
+- Faster third-site search on dense arc chains, for example by bounding each edge's discs more tightly.
+

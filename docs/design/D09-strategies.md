@@ -117,6 +117,13 @@ fit: segments along branches (depth varies linearly on line bisectors, parabolic
      bisectors → fitted within tol)
 ```
 
+Built (2026-11-01, [plan](../plan/2026-11-01-medial-axis-engrave.md)):
+- The axis is traced edge by edge from a seed (CH-17). Edges are exact bisectors (lines, parabolas, hyperbolas, ellipses), sampled for output within `machining_tolerance / 4` in X, Y and depth.
+- Depth is (ρ − Rt) / tan α, with Rt the tip radius (D15b §2.4). Ends of corner branches shallower than the tip are dropped.
+- Corner branches are cut back while the material they alone remove is thinner than the tolerance: ρ·(1 / cos(φ/2) − 1), where φ is the angle between the two feet. This drops the long branches of nearly flat corners in fitted curves.
+- The exact axis reaches every convex corner. So corner sharpening applies to flat areas: it adds the branches from a flat area's edge to a convex corner.
+- Step-down levels stop at the deepest point of the path.
+
 ### 2.7 `chamfer_2d`
 
 Tool: V or chamfer cutter with half-angle α. For an edge chamfer of horizontal width w at a 45°
@@ -345,6 +352,6 @@ block (stop `M0`, optional stop `M1`, comment, dwell, pass-through text; [S 05 �
 ## 9. Challenges
 
 - CH-16 Adaptive clearing algorithm: robustness and speed (deferred).
-- CH-17 Exact medial axis for lines and arcs (deferred).
+- CH-17 Exact medial axis for lines and arcs (resolved: `region::medial`, edge tracing).
 - CH-18 Scallop variable-distance offsetting (deferred).
 - CH-19 Offsets in unrolled rotary coordinates (deferred).

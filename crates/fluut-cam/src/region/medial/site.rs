@@ -126,6 +126,18 @@ impl Geom {
         }
     }
 
+    /// A lower bound of the distance from `p` to the site: exact for
+    /// lines, the distance to the whole circle for arcs.
+    pub fn distance_lb(&self, p: Point2) -> f64 {
+        match *self {
+            Geom::Line { a, t, len } => {
+                let u = (p - a).dot(t).clamp(0.0, len);
+                p.distance(a + t * u)
+            }
+            Geom::Circle { c, r, .. } => (p.distance(c) - r).abs(),
+        }
+    }
+
     /// Distance from `p` when its foot lies in the cone (within `tol`) and
     /// `p` is on the region side; `None` otherwise. At the centre of a
     /// concave arc every point of the arc is a foot.
@@ -283,6 +295,16 @@ pub(crate) fn solve3(mut m: [[f64; 3]; 3], mut b: [f64; 3]) -> Option<[f64; 3]> 
 /// whole lines and circles: up to two, polished, with residuals within
 /// `tol`. Cones are not checked.
 pub fn equidistant(s: [&Geom; 3], o: Point2, tol: f64) -> Vec<(Point2, f64)> {
+    equidistant_where(s, o, tol, |_, _| true)
+}
+
+/// [`equidistant`], polishing only the raw solutions that `keep` accepts.
+pub fn equidistant_where(
+    s: [&Geom; 3],
+    o: Point2,
+    tol: f64,
+    keep: impl Fn(Point2, f64) -> bool,
+) -> Vec<(Point2, f64)> {
     let eqs = s.map(|g| equation(g, o));
     let mut rows: Vec<([f64; 3], f64)> = Vec::with_capacity(3);
     let circle = eqs.iter().position(|e| e.quad);
@@ -363,6 +385,9 @@ pub fn equidistant(s: [&Geom; 3], o: Point2, tol: f64) -> Vec<(Point2, f64)> {
     let mut out: Vec<(Point2, f64)> = Vec::with_capacity(2);
     for x in raw {
         let p = Point2::new(o.x() + x[0], o.y() + x[1]);
+        if !keep(p, x[2]) {
+            continue;
+        }
         let (p, rho) = polish(s, p, x[2]);
         if !(rho.is_finite() && p.x().is_finite() && p.y().is_finite()) || rho < -tol {
             continue;

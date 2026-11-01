@@ -20,7 +20,7 @@
 
 mod site;
 
-pub use site::{Geom, dir, equidistant};
+pub use site::{Geom, dir, equidistant, equidistant_where};
 
 use super::{Region2, Seg2};
 use crate::path2::seg_tangent;
@@ -32,6 +32,9 @@ use std::fmt;
 /// Joints that turn by less than this (radians) are tangent: no branch
 /// starts there and no point site is made.
 const TANGENT: f64 = 1e-9;
+
+/// Intervals an edge is split into for the search of third sites.
+const SPANS: usize = 16;
 
 /// A boundary element the axis keeps its distance from.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -422,6 +425,10 @@ struct Tracer {
     grid: Grid,
     stamp: Vec<u32>,
     epoch: u32,
+    /// Third sites already tried on the current trace: `tried[i] ==
+    /// traces`.
+    tried: Vec<usize>,
+    traces: usize,
     tol: f64,
     nodes: Vec<Node>,
     gaps: Vec<Vec<Gap>>,
@@ -444,6 +451,8 @@ impl Tracer {
             grid,
             stamp: vec![0; n],
             epoch: 0,
+            tried: vec![0; n],
+            traces: 0,
             tol,
             nodes: Vec::new(),
             gaps: Vec::new(),
@@ -800,9 +809,9 @@ impl Tracer {
                 }
             }
         }
-        // Third sites.
-        let (blo, bhi) = self.reach(&lg, &rg, ur, ev_u, p0);
-        let cands = self.query(blo, bhi);
+        // Third sites, searched interval by interval along the edge so
+        // that the boxes stay small; the search stops at the first
+        // interval that holds an event.
         // The sites linked to L and R meet them where a foot leaves its
         // site: those are the exit events above, not branch vertices.
         let linked = [
@@ -811,29 +820,75 @@ impl Tracer {
             self.sites[r].prev,
             self.sites[r].next,
         ];
-        for c in cands {
-            if c == l || c == r || linked.contains(&Some(c)) {
-                continue;
+        let us: Vec<f64> = (0..=SPANS)
+            .map(|i| ur + (ev_u - ur) * (i as f64 / SPANS as f64))
+            .collect();
+        let discs: Vec<Option<(Point2, f64)>> =
+            us.iter().map(|&u| rg.bisector_at(&lg, u, tol)).collect();
+        self.traces += 1;
+        let mark = self.traces;
+        for i in 0..SPANS {
+            if ev_u <= us[i] {
+                break;
             }
-            let cg = self.sites[c].geom;
-            let mut pts = equidistant([&lg, &rg, &cg], p0, tol);
-            if let Geom::Circle { c: cc, r: rad, .. } = cg
-                && cg.is_concave()
-            {
-                pts.push((cc, rad));
-            }
-            for (q, rho) in pts {
-                if rho < -tol {
+            // Sites that may come as near within this interval.
+            let (blo, bhi, near): (Point2, Point2, Vec<(Point2, f64)>) =
+                match (discs[i], discs[i + 1]) {
+                    (Some(a), Some(b)) => {
+                        let grow = 2.0 * (a.0.distance(b.0) + (a.1 - b.1).abs()) + 8.0 * tol;
+                        let (ra, rb) = (a.1.max(0.0) + grow, b.1.max(0.0) + grow);
+                        (
+                            Point2::new(
+                                (a.0.x() - ra).min(b.0.x() - rb),
+                                (a.0.y() - ra).min(b.0.y() - rb),
+                            ),
+                            Point2::new(
+                                (a.0.x() + ra).max(b.0.x() + rb),
+                                (a.0.y() + ra).max(b.0.y() + rb),
+                            ),
+                            vec![(a.0, ra), (b.0, rb)],
+                        )
+                    }
+                    _ => (self.lo, self.hi, Vec::new()),
+                };
+            let cands = self.query(blo, bhi);
+            for c in cands {
+                if c == l || c == r || linked.contains(&Some(c)) || self.tried[c] == mark {
                     continue;
                 }
-                let ok = |g: &Geom| g.cone_dist(q, tol).is_some_and(|d| (d - rho).abs() <= tol);
-                if !(ok(&lg) && ok(&rg) && ok(&cg)) {
+                let cg = self.sites[c].geom;
+                // A site clear of both discs (grown to cover the discs
+                // between them) cannot become as near here.
+                if !near.is_empty() && !near.iter().any(|&(q, reach)| cg.distance_lb(q) <= reach) {
                     continue;
                 }
-                let u = rg.param(q);
-                if ahead(u, q) && u < ev_u {
-                    ev_u = u;
-                    ev = Event::At(q, rho.max(0.0));
+                self.tried[c] = mark;
+                // Raw solutions behind the start or past the current
+                // end are not worth polishing.
+                let slack = 1e-6 * (1.0 + len_r);
+                let (lo_u, hi_u) = (ur - slack, ev_u + slack);
+                let mut pts = equidistant_where([&lg, &rg, &cg], p0, tol, |q, rho| {
+                    let u = rg.param(q);
+                    rho > -1e-6 * (1.0 + rho.abs()) - tol && u > lo_u && u < hi_u
+                });
+                if let Geom::Circle { c: cc, r: rad, .. } = cg
+                    && cg.is_concave()
+                {
+                    pts.push((cc, rad));
+                }
+                for (q, rho) in pts {
+                    if rho < -tol {
+                        continue;
+                    }
+                    let ok = |g: &Geom| g.cone_dist(q, tol).is_some_and(|d| (d - rho).abs() <= tol);
+                    if !(ok(&lg) && ok(&rg) && ok(&cg)) {
+                        continue;
+                    }
+                    let u = rg.param(q);
+                    if ahead(u, q) && u < ev_u {
+                        ev_u = u;
+                        ev = Event::At(q, rho.max(0.0));
+                    }
                 }
             }
         }
@@ -889,37 +944,6 @@ impl Tracer {
             a: v,
             b: w,
         });
-    }
-
-    /// A box holding every disc of the edge (L, R) over `[u0, u1]`: any
-    /// third site that becomes as near on it meets the box.
-    fn reach(&self, lg: &Geom, rg: &Geom, u0: f64, u1: f64, p0: Point2) -> (Point2, Point2) {
-        const K: usize = 16;
-        let tol = self.tol;
-        let mut pts: Vec<(Point2, f64)> = Vec::with_capacity(K + 1);
-        for i in 0..=K {
-            let u = u0 + (u1 - u0) * (i as f64 / K as f64);
-            if let Some(q) = rg.bisector_at(lg, u, tol) {
-                pts.push(q);
-            }
-        }
-        if pts.len() < 2 {
-            return (self.lo, self.hi);
-        }
-        let mut grow: f64 = 0.0;
-        for w in pts.windows(2) {
-            grow = grow.max(w[0].0.distance(w[1].0) + (w[0].1 - w[1].1).abs());
-        }
-        let grow = 2.0 * grow + 8.0 * tol;
-        let (mut x0, mut y0, mut x1, mut y1) = (p0.x(), p0.y(), p0.x(), p0.y());
-        for (q, rho) in pts {
-            let rr = rho.max(0.0) + grow;
-            x0 = x0.min(q.x() - rr);
-            y0 = y0.min(q.y() - rr);
-            x1 = x1.max(q.x() + rr);
-            y1 = y1.max(q.y() + rr);
-        }
-        (Point2::new(x0, y0), Point2::new(x1, y1))
     }
 }
 
