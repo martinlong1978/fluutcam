@@ -178,3 +178,107 @@ All earlier Global Constraints apply. In addition:
 
 - [x] **Step 1:** Time per output point on the largest NIST body (outside the repository), release build, one thread.
 - [x] **Step 2:** CH-03 findings in `challenges.md`; design changes in D09 §4; new codes in D15b §8. Mark this plan done with deviations; README rows. Commit and push.
+
+**Done.** The five 3-D finishing types of D15b §5 (`contour`, `horizontal`, `spiral`, `scallop`
+and `steep_and_shallow`) run on the M3 framework. Each one goes from STEP and TOML to
+G-code: the `dome` project (`crates/fluut-cli/tests/projects/dome/`) has one toolpath of each
+type, with golden `fluut/linuxcnc` output. Translation invariance holds for every type in
+`fluut-cam` and in the CLI, with identical G-code and coordinates within 1e-6 mm. The branch
+is merged with `main` (M4, M5, M6 part 1); all fifteen types are registered.
+
+- **Waterlines.** Contours of a vertical cylinder, a sphere and the block walls match the
+  closed forms within 1e-6 mm for ball, bull and flat tools, once the δ of CH-03 is allowed
+  for. The level at the block top (CH-03) gives exactly the foot of the boss wall. The seam
+  cut-offs between a drive and a check half-cylinder are within 1e-6 mm of the seam. Pocket
+  inside corners close.
+- **Scallop.** On the dome every pass point is within s + tol (3-D) of the previous pass.
+- **Timing** (release build, outside the repository). Largest NIST body
+  `nist_ctc_02_asme1_rc` (663 faces, 680 × 860 × 400 mm), Ø6 ball (Ø6 flat for `horizontal`),
+  every face a drive face, tolerance 0.01 mm. Each type ran single-threaded, but up to five
+  ran side by side on four cores, so the times are up to about 25 % high (`contour` and
+  `horizontal` were timed again, after the last fix, with only two runs):
+
+  | Type | Settings | Time | Output CL points | Per point |
+  |---|---|---|---|---|
+  | `spiral` | stepover 2 | 49.9 s | 278 608 | 179 µs |
+  | `scallop` | stepover 2 | 255.2 s | 1 048 560 | 243 µs |
+  | `contour` | step-down 20 (20 levels) | 946.8 s | 523 261 | 1 809 µs |
+  | `steep_and_shallow` | step-down 20, stepover 2 | 958.3 s | 638 595 | 1 501 µs |
+  | `horizontal` | Ø6 flat, stepover 3 | 1 212.3 s | 4 678 | (259 ms) |
+
+  `horizontal` writes few points (lines and rings on flats), so its time per point means
+  little. Its time goes into one waterline per flat height.
+
+  `spiral` and `scallop` cost about as much as `parallel` (180–197 µs, M3). Waterlines
+  cost about ten times more. Each traced point needs a bracketed search of about 30 drops,
+  and drops at walls cost 50–90 µs here, against a 16 µs mean over the body. Seeding (one
+  τ profile per line, 1.4 M drops) takes 42 s. At a 2 mm step-down (200 levels) `contour`
+  had not finished after 57 minutes and was stopped. The levels cost 15–90 s each, rising where the part
+  has more contours.
+
+  On this body many traces are lost at middle heights: 30 of 40 contours at one level end
+  inside the region and report `cam.contour.loop_open`. One level ran a single contour to
+  300 000 points before the closure fix in the last commit. The losses are probably drops
+  that are inconsistent along a contour on its free-form faces (CH-12); this is not yet
+  proven. Making the trace tolerate them is the first follow-up.
+
+  Run it with `cargo run -p fluut-cam --example finishing --release`, `FLUUT_STEP_CORPUS` set,
+  and `FLUUT_TYPES` / `FLUUT_STEP_DOWN` to choose.
+
+Deviations from this plan:
+- **No cone test.** The waterline closed forms are checked on a vertical cylinder, a sphere
+  and box walls and edges; the test parts have no cone.
+- **Region margin.** As planned, but the boundary loops of offsets start at their vertex
+  nearest the region's lower-left corner (`scallop`). The offset library's start vertex is
+  not translation invariant, and the first loop decided every later one.
+- **Cliffs.** Not planned: at a vertical wall τ jumps and the drop's contact is on top of the
+  wall. Slope and drive face then come from `SurfaceQuery::wall_at`, the face the side of the
+  tool touches at the level. Without it, drive and check faces on a boss were mixed up.
+- **Inside corners.** The tracer falls back to a circle search when the correction along the
+  contact direction finds nothing. Contours in a pocket with sharp corners were lost
+  without it.
+- **Level links** go across at the upper level, checked against that level's traced
+  contours, then straight down. A sloping 3-D link was planned, and it gouged a steep wall.
+- **Loop closure** tolerates a lap that misses its seed by up to a quarter step, heading
+  the same way, after a runaway contour on the corpus.
+- **`cam.contour.loop_open`** is also raised when a contour is cut short at a slope or
+  drive-face limit inside the region (the D15b wording), not only when a trace is lost.
+- **`horizontal`** copies the `pocket_2d` ring generator, which may not change in this part;
+  it can be shared after the merge.
+- **`spiral`.** The sampler also checks the drop at the middle of each chord of a curved
+  drive, and its sagitta. Loop drives sample their corners exactly. Closed runs are kept
+  (the `parallel` filter dropped them).
+- **`scallop` `continuous`** ends a fully cut loop one step early and stays down to the next
+  loop's nearest point. That is the blend, made with the linker's stay-down policy.
+- **`steep_and_shallow`.** As planned, but level (steep) and surface (shallow) runs are
+  never joined by a stay-down link.
+- **Gouge measure in tests.** Depth along the contact normal, (τ − z)·cos β. Level,
+  vertical and near-vertical segments (cliff chords) are measured sideways. The vertical
+  error overstates gouges on steep ground: a merged chord within tol/4 in 3-D can be 1.5·tol
+  off vertically on a 6:1 slope.
+- **Fixes outside the strategies:**
+  - flat and bull drops on a convex sphere get a closed form (D07), because the numeric
+    seeding missed near the seam;
+  - Setup bounds and face Z ranges include curved face interiors, because a sphere cap rose
+    above `model_top`;
+  - the test STEP writer told the two halves of a circle apart (`main` fixed the same bug;
+    its version is kept);
+  - `analytic_uv` is `pub(crate)`.
+  
+  No golden file of the other projects changed.
+- **New codes:** in D15b §8.
+- **Branches.** The work is on `m6-3d-finishing`; the same commits are on this session's
+  branch.
+
+Follow-ups:
+- Lost waterline traces on free-form corpus faces (see Timing). Re-seed a lost trace from
+  its last good point, and test against the CH-12 reference drop.
+- Speed. Waterlines cost a bracketed search per point (about 20–30 drops). Warm-starting
+  from the previous point's bracket, a step-size predictor from curvature, and `rayon` over
+  levels are the obvious steps. `horizontal` traces one waterline per flat height; on a
+  part with many flats that dominates.
+- The exact drive-face silhouette (D03 §5.3), for the `spiral` and `scallop` regions.
+- Arc fitting of contour loops (D08 §5), and arcs from single analytic contacts (D09 §4.4).
+- Plane sections (D03 §5.1) for `pocket_3d` and `adaptive_3d`, which can reuse the CH-03
+  findings.
+- Share the offset-ring generator between `pocket_2d` and `horizontal`.
