@@ -498,3 +498,82 @@ fn the_cap_drops_the_oldest_steps() {
     d.apply(Edit::SetName("x".into())).unwrap();
     assert!(!d.can_redo());
 }
+
+fn rename(n: &str) -> Edit {
+    Edit::SetName(n.into())
+}
+
+#[test]
+fn a_group_is_one_undo_step() {
+    let mut d = Document::new(base());
+    d.apply(rename("Before")).unwrap();
+    let start = d.project().clone();
+    d.begin_group("Script job.rhai");
+    d.apply(rename("A")).unwrap();
+    d.apply(Edit::set_setup_field("s1", "material", Some("\"Oak\"")))
+        .unwrap();
+    d.apply(Edit::RemoveToolpath("t2".into())).unwrap();
+    // Later edits see the earlier ones.
+    assert_eq!(d.project().name, "A");
+    assert_eq!(d.undo_len(), 1);
+    let out = d.end_group().unwrap();
+    assert_eq!(out.label, "Script job.rhai");
+    assert!(out.changed.contains("t2") && out.changed.contains("s1"));
+    let end = d.project().clone();
+    assert_eq!(d.undo_len(), 2);
+    assert_eq!(d.undo_labels().next(), Some("Script job.rhai"));
+    d.undo().unwrap();
+    assert_eq!(*d.project(), start);
+    d.redo().unwrap();
+    assert_eq!(*d.project(), end);
+}
+
+#[test]
+fn empty_and_failed_groups() {
+    let mut d = Document::new(base());
+    d.begin_group("Nothing");
+    assert!(d.end_group().is_none());
+    assert_eq!(d.undo_len(), 0);
+    // A failed edit leaves the group open with the edits before it.
+    d.begin_group("Half");
+    d.apply(rename("A")).unwrap();
+    assert!(d.apply(Edit::RemoveSetup("nope".into())).is_err());
+    d.end_group().unwrap();
+    assert_eq!(d.undo_len(), 1);
+    assert_eq!(d.project().name, "A");
+    d.undo().unwrap();
+    assert_eq!(*d.project(), base());
+}
+
+#[test]
+fn nested_groups_and_undo_inside_a_group() {
+    let mut d = Document::new(base());
+    d.begin_group("Outer");
+    d.apply(rename("A")).unwrap();
+    d.begin_group("Inner");
+    d.apply(rename("B")).unwrap();
+    // The inner end only closes the inner level.
+    assert!(d.end_group().is_none());
+    d.apply(rename("C")).unwrap();
+    assert_eq!(d.end_group().unwrap().label, "Outer");
+    assert_eq!(d.undo_len(), 1);
+    // Undo while a group is open closes it first, then undoes it.
+    d.begin_group("Open");
+    d.apply(rename("D")).unwrap();
+    assert_eq!(d.undo().unwrap().label, "Open");
+    assert_eq!(d.project().name, "C");
+    assert!(d.end_group().is_none());
+    assert_eq!(d.undo_len(), 1);
+}
+
+#[test]
+fn field_edits_in_a_group_do_not_coalesce_with_the_step_before() {
+    let mut d = Document::new(base());
+    d.apply_at(Edit::set_toolpath_field("t1", "name", Some("\"X\"")), 0)
+        .unwrap();
+    d.begin_group("G");
+    d.apply_at(Edit::set_toolpath_field("t1", "name", Some("\"Y\"")), 10)
+        .unwrap();
+    d.end_group().unwrap();
+    assert_eq!(d.undo_len(), 2);
+}
