@@ -4,13 +4,20 @@
 # packages them, adds an SBOM, checksums and the update manifest, and creates a
 # DRAFT GitHub release. A person publishes the draft after looking at it.
 #
-# Signing is optional. Every signing, notarisation and verification step is
-# guarded on its secrets being set; without them the workflow still makes
-# unsigned packages. The `secrets` context cannot be used in a step `if`, so
-# the `check` job reports which secrets exist as outputs (`sign_*`), and the
-# signing steps test those. Each secret is given only to the step that uses
-# it, never to a step that builds code. The secrets to provide are listed in
-# docs/plan/2026-11-01-m8-release.md.
+# Signing (docs/CODE_SIGNING.md):
+# - Windows executables: Authenticode through SignPath (SignPath Foundation
+#   open-source programme). An approver approves each request in SignPath, so
+#   the build job waits for it.
+# - macOS: ad hoc only, by decision (no Developer ID, no notarisation).
+# - Every release file: a GitHub build provenance attestation.
+# - releases.json and SHA256SUMS: minisign.
+#
+# SignPath and minisign are optional. Each step is guarded on its secrets
+# being set; without them the workflow still makes unsigned packages. The
+# `secrets` context cannot be used in a step `if`, so the `check` job reports
+# which secrets exist as outputs (`sign_*`), and the signing steps test those.
+# Each secret is given only to the step that uses it, never to a step that
+# builds code. The secrets and variables to set are listed in D14 §5.2.
 
 name: Release
 
@@ -34,8 +41,6 @@ jobs:
       epoch: ${{ steps.v.outputs.epoch }}
       prerelease: ${{ steps.v.outputs.prerelease }}
       sign_windows: ${{ steps.secrets.outputs.windows }}
-      sign_macos: ${{ steps.secrets.outputs.macos }}
-      notarise_macos: ${{ steps.secrets.outputs.notarise }}
       sign_minisign: ${{ steps.secrets.outputs.minisign }}
     steps:
       - uses: actions/checkout@v4
@@ -55,23 +60,17 @@ jobs:
       - id: secrets
         name: Which signing secrets are set?
         env:
-          WINDOWS_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
-          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
-          MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
-          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
-          MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+          SIGNPATH_ORGANIZATION_ID: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          SIGNPATH_PROJECT_SLUG: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          SIGNPATH_SIGNING_POLICY_SLUG: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
           MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
           MINISIGN_PUBLIC_KEY: ${{ secrets.MINISIGN_PUBLIC_KEY }}
         run: |
           all_set() { for v in "$@"; do [ -n "${!v}" ] || return 1; done; }
           flag() { if all_set "${@:2}"; then echo "$1=true"; else echo "$1=false"; fi; }
           {
-            flag windows WINDOWS_CERT_PFX_BASE64 WINDOWS_CERT_PASSWORD
-            flag macos MACOS_CERT_P12_BASE64 MACOS_CERT_PASSWORD MACOS_SIGN_IDENTITY
-            flag notarise MACOS_CERT_P12_BASE64 MACOS_CERT_PASSWORD MACOS_SIGN_IDENTITY APPLE_ID APPLE_TEAM_ID APPLE_APP_PASSWORD
+            flag windows SIGNPATH_API_TOKEN SIGNPATH_ORGANIZATION_ID SIGNPATH_PROJECT_SLUG SIGNPATH_SIGNING_POLICY_SLUG
             flag minisign MINISIGN_SECRET_KEY MINISIGN_PUBLIC_KEY
           } | tee -a "$GITHUB_OUTPUT"
 
@@ -107,27 +106,54 @@ jobs:
             cp "target/${{ matrix.target }}/release/$b${{ matrix.ext }}" bin/
           done
 
-      # Authenticode signs PE files, not zips, so the executables are signed
-      # here, before they are packed.
-      - name: Sign executables (Authenticode)
-        if: ${{ matrix.name == 'windows-x86_64' && needs.check.outputs.sign_windows == 'true' }}
+      # SignPath signs only files whose version resource names the product and
+      # the release version (docs/CODE_SIGNING.md), so check that first.
+      - name: Check version resources
+        if: ${{ matrix.name == 'windows-x86_64' }}
         shell: pwsh
         env:
-          WINDOWS_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
-          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+          VERSION: ${{ needs.check.outputs.version }}
         run: |
-          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" |
-            Sort-Object FullName | Select-Object -Last 1
-          [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\cert.pfx", [Convert]::FromBase64String($env:WINDOWS_CERT_PFX_BASE64))
-          try {
-            foreach ($exe in "bin\fluut.exe", "bin\fluutcam.exe") {
-              & $signtool.FullName sign /fd SHA256 /f "$env:RUNNER_TEMP\cert.pfx" /p $env:WINDOWS_CERT_PASSWORD `
-                /tr http://timestamp.digicert.com /td SHA256 $exe
-              if ($LASTEXITCODE -ne 0) { throw "signtool sign failed for $exe" }
+          foreach ($exe in "bin\fluut.exe", "bin\fluutcam.exe") {
+            $v = (Get-Item $exe).VersionInfo
+            "${exe}: $($v.ProductName) $($v.ProductVersion)"
+            if ($v.ProductName -ne "FluutCAM" -or $v.ProductVersion -ne $env:VERSION) {
+              throw "$exe has product '$($v.ProductName)' version '$($v.ProductVersion)', expected FluutCAM $env:VERSION"
             }
-          } finally {
-            Remove-Item "$env:RUNNER_TEMP\cert.pfx" -Force -ErrorAction SilentlyContinue
           }
+
+      # Authenticode signs PE files, not zips, so the executables are signed
+      # here, before they are packed. SignPath takes a GitHub artifact, signs
+      # the files its artifact configuration names
+      # (packaging/signpath/artifact-configuration.xml) and returns them.
+      - name: Upload unsigned executables
+        id: unsigned
+        if: ${{ matrix.name == 'windows-x86_64' && needs.check.outputs.sign_windows == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-${{ matrix.name }}
+          path: bin/
+          if-no-files-found: error
+      - name: Sign executables (SignPath)
+        if: ${{ matrix.name == 'windows-x86_64' && needs.check.outputs.sign_windows == 'true' }}
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          artifact-configuration-slug: ${{ vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
+          github-artifact-id: ${{ steps.unsigned.outputs.artifact-id }}
+          parameters: |
+            version: ${{ toJSON(needs.check.outputs.version) }}
+          wait-for-completion: true
+          # Each request waits for a person to approve it in SignPath.
+          wait-for-completion-timeout-in-seconds: 7200
+          output-artifact-directory: signed
+      - name: Use the signed executables
+        if: ${{ matrix.name == 'windows-x86_64' && needs.check.outputs.sign_windows == 'true' }}
+        shell: bash
+        run: cp signed/fluut.exe signed/fluutcam.exe bin/
       - name: Verify signatures
         if: ${{ matrix.name == 'windows-x86_64' && needs.check.outputs.sign_windows == 'true' }}
         shell: pwsh
@@ -194,37 +220,10 @@ jobs:
       - run: cargo xtask icons icons
       - run: cargo xtask package --platform macos-universal --bin-dir bin --icons icons --out dist
 
-      - name: Import signing certificate
-        if: ${{ needs.check.outputs.sign_macos == 'true' }}
-        env:
-          MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
-          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
-        run: |
-          kc="$RUNNER_TEMP/build.keychain"
-          pw=$(uuidgen)
-          echo "$MACOS_CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
-          security create-keychain -p "$pw" "$kc"
-          security set-keychain-settings -lut 3600 "$kc"
-          security unlock-keychain -p "$pw" "$kc"
-          security import "$RUNNER_TEMP/cert.p12" -k "$kc" -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple: -s -k "$pw" "$kc"
-          security list-keychains -d user -s "$kc" login.keychain
-          rm -f "$RUNNER_TEMP/cert.p12"
-      - name: Sign the app (Developer ID)
-        if: ${{ needs.check.outputs.sign_macos == 'true' }}
-        env:
-          MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
-        run: |
-          app=dist/FluutCAM.app
-          for f in "$app/Contents/MacOS/fluut" "$app/Contents/MacOS/fluutcam" "$app"; do
-            codesign --force --options runtime --timestamp --sign "$MACOS_SIGN_IDENTITY" "$f"
-          done
-          codesign --verify --strict --verbose=2 "$app"
+      # No Developer ID and no notarisation, by decision (docs/CODE_SIGNING.md).
       # A universal binary made by lipo has lost its signature, and Apple
-      # Silicon refuses to run unsigned code, so unsigned builds are signed
-      # ad hoc.
-      - name: Sign the app ad hoc (no certificate)
-        if: ${{ needs.check.outputs.sign_macos != 'true' }}
+      # Silicon refuses to run unsigned code, so the app is signed ad hoc.
+      - name: Sign the app ad hoc
         run: |
           app=dist/FluutCAM.app
           codesign --force --sign - "$app/Contents/MacOS/fluut"
@@ -239,27 +238,6 @@ jobs:
           hdiutil create -volname FluutCAM -srcfolder dmg -ov -format UDZO \
             "dist/fluutcam-$VERSION-macos-universal.dmg"
           rm -rf dist/FluutCAM.app dmg
-      - name: Sign the disk image
-        if: ${{ needs.check.outputs.sign_macos == 'true' }}
-        env:
-          MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
-        run: |
-          dmg="dist/fluutcam-$VERSION-macos-universal.dmg"
-          codesign --force --timestamp --sign "$MACOS_SIGN_IDENTITY" "$dmg"
-          codesign --verify --verbose=2 "$dmg"
-      - name: Notarise and staple
-        if: ${{ needs.check.outputs.notarise_macos == 'true' }}
-        env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
-        run: |
-          dmg="dist/fluutcam-$VERSION-macos-universal.dmg"
-          xcrun notarytool submit "$dmg" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
-            --password "$APPLE_APP_PASSWORD" --wait
-          xcrun stapler staple "$dmg"
-          xcrun stapler validate "$dmg"
-          spctl --assess --type open --context context:primary-signature --verbose "$dmg"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -272,6 +250,9 @@ jobs:
     runs-on: ubuntu-22.04
     permissions:
       contents: write
+      # Build provenance attestations (Sigstore keyless).
+      id-token: write
+      attestations: write
     env:
       SOURCE_DATE_EPOCH: ${{ needs.check.outputs.epoch }}
       VERSION: ${{ needs.check.outputs.version }}
@@ -326,6 +307,11 @@ jobs:
             minisign -V -P "$MINISIGN_PUBLIC_KEY" -m "dist/$f" -x "dist/$f.minisig"
           done
           rm -f "$RUNNER_TEMP/minisign.key"
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/*
 
       - name: Draft release
         env:

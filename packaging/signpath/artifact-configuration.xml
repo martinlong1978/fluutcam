@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SignPath artifact configuration for the Windows executables (docs/CODE_SIGNING.md).
+  Paste it into the SignPath project as its artifact configuration; this copy is the
+  reviewed source. The artifact is the zip that actions/upload-artifact makes of bin/.
+  The product name and version must match the version resource that build.rs writes,
+  and `version` is passed by release.yml as the release version.
+-->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <parameters>
+    <parameter name="version" />
+  </parameters>
+  <zip-file>
+    <pe-file path="fluutcam.exe" product-name="FluutCAM" product-version="${version}">
+      <authenticode-sign description="FluutCAM ${version}" />
+    </pe-file>
+    <pe-file path="fluut.exe" product-name="FluutCAM" product-version="${version}">
+      <authenticode-sign description="FluutCAM command line ${version}" />
+    </pe-file>
+  </zip-file>
+</artifact-configuration>

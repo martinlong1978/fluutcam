@@ -26,6 +26,19 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo xtask check-layers
 ```
 
+## Download
+
+Releases are on the [releases page](https://github.com/martinlong1978/fluutcam/releases).
+[Installing](docs/install.md) covers each platform, including how to open the unnotarised
+macOS app and how to uninstall.
+
+### Code signing policy
+
+Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by
+[SignPath Foundation](https://signpath.org/). Every release file also carries a GitHub build
+provenance attestation. Who approves signatures, what is signed and how to check a download:
+[Code signing policy](docs/CODE_SIGNING.md).
+
 ## Licence
 
 Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or
