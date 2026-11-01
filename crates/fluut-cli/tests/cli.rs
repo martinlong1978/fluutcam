@@ -315,6 +315,27 @@ fn errors_and_usage() {
 }
 
 #[test]
+fn an_earlier_crash_report_is_announced_once() {
+    let data = tmp("crash-data");
+    let reports = data.join("crashes");
+    std::fs::create_dir_all(&reports).unwrap();
+    std::fs::write(reports.join("crash-1-2.txt"), "report").unwrap();
+    let run = || {
+        Command::new(env!("CARGO_BIN_EXE_fluut"))
+            .arg("calc")
+            .env("FLUUT_DATA_DIR", &data)
+            .output()
+            .unwrap()
+    };
+    let first = String::from_utf8_lossy(&run().stderr).into_owned();
+    assert!(first.contains("the last run crashed"), "{first}");
+    assert!(first.contains("Nothing was sent"), "{first}");
+    assert!(reports.join("crash-1-2.seen.txt").is_file());
+    let second = String::from_utf8_lossy(&run().stderr).into_owned();
+    assert!(!second.contains("crashed"), "{second}");
+}
+
+#[test]
 fn version_names_the_workspace_version() {
     let o = fluut(&["--version"]);
     assert_eq!(

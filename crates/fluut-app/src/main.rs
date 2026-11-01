@@ -12,6 +12,7 @@ use std::time::Instant;
 
 fn main() -> eframe::Result {
     let t0 = Instant::now();
+    crash_reports();
     let open = std::env::args_os().nth(1).map(PathBuf::from);
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -33,4 +34,19 @@ fn main() -> eframe::Result {
             )))
         }),
     )
+}
+
+/// Installs the crash-report hook and notes reports from an earlier crash
+/// on stderr (D14 §6). Nothing is sent anywhere. A dialog that offers the
+/// report in the window waits for the translated texts.
+fn crash_reports() {
+    let Some(dir) = fluut_core::crash::install("fluutcam") else {
+        return;
+    };
+    let _ = fluut_core::crash::offer_to_show(
+        &dir,
+        false,
+        &mut std::io::empty(),
+        &mut std::io::stderr(),
+    );
 }

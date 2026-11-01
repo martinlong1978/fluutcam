@@ -8,6 +8,7 @@
 
 pub mod build_info;
 pub mod cache;
+pub mod crash;
 pub mod entities;
 pub mod frame;
 pub mod graph;
