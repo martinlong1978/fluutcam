@@ -10,11 +10,10 @@
 //! the rays inside the stock circle are stored.
 
 use crate::dexel::{Memory, Span, Spans, subtract};
-use crate::sim::{BATCH, ROWS, Stats, ray_range};
+use crate::sim::{BATCH, ROWS, Stats, par_tiles, ray_range};
 use crate::stock::Stock;
 use crate::sweep::Sweep;
 use glam::DVec3;
-use rayon::prelude::*;
 use std::f64::consts::{PI, TAU};
 
 /// Index of the X-ray family in [`Stats`].
@@ -260,49 +259,42 @@ impl CylDexel {
             bin.dedup();
         }
         let dirs = &self.dirs;
-        self.radial
-            .par_chunks_mut(nx * ROWS)
-            .zip(bins.par_iter())
-            .enumerate()
-            .map(|(tile, (rays, bin))| {
-                let mut st = Stats::default();
-                let row0 = tile * ROWS;
-                let rows = rays.len() / nx;
-                for &si in bin {
-                    let s = &batch[si as usize];
-                    let Some((j0, j1, ta, tb)) = reach[si as usize] else {
+        let tiles = self.radial.chunks_mut(nx * ROWS).enumerate().zip(&bins);
+        par_tiles(tiles, |(tile, rays), bin| {
+            let mut st = Stats::default();
+            let row0 = tile * ROWS;
+            let rows = rays.len() / nx;
+            for &si in bin {
+                let s = &batch[si as usize];
+                let Some((j0, j1, ta, tb)) = reach[si as usize] else {
+                    continue;
+                };
+                let Some((i0, i1)) = ray_range(s.min.x, s.max.x, x0, res, nx) else {
+                    continue;
+                };
+                for j in row0..row0 + rows {
+                    if (j as i64 - j0).rem_euclid(nt as i64) > j1 - j0 {
                         continue;
-                    };
-                    let Some((i0, i1)) = ray_range(s.min.x, s.max.x, x0, res, nx) else {
-                        continue;
-                    };
-                    for j in row0..row0 + rows {
-                        if (j as i64 - j0).rem_euclid(nt as i64) > j1 - j0 {
+                    }
+                    let (sn, cs) = dirs[j];
+                    let e = DVec3::new(0.0, sn, cs);
+                    for i in i0..=i1 {
+                        let spans: &mut Spans = &mut rays[(j - row0) * nx + i];
+                        if !spans.iter().any(|sp| sp.hi > ta && sp.lo < tb) {
                             continue;
                         }
-                        let (sn, cs) = dirs[j];
-                        let e = DVec3::new(0.0, sn, cs);
-                        for i in i0..=i1 {
-                            let spans: &mut Spans = &mut rays[(j - row0) * nx + i];
-                            if !spans.iter().any(|sp| sp.hi > ta && sp.lo < tb) {
-                                continue;
-                            }
-                            st.tests[RADIAL] += 1;
-                            let o = DVec3::new(x0 + (i as f64 + 0.5) * res, 0.0, 0.0);
-                            if let Some((t0, t1)) = s.ray(o, e)
-                                && subtract(spans, t0 as f32, t1 as f32)
-                            {
-                                st.cuts[RADIAL] += 1;
-                            }
+                        st.tests[RADIAL] += 1;
+                        let o = DVec3::new(x0 + (i as f64 + 0.5) * res, 0.0, 0.0);
+                        if let Some((t0, t1)) = s.ray(o, e)
+                            && subtract(spans, t0 as f32, t1 as f32)
+                        {
+                            st.cuts[RADIAL] += 1;
                         }
                     }
                 }
-                st
-            })
-            .reduce(Stats::default, |mut a, b| {
-                a.add(&b);
-                a
-            })
+            }
+            st
+        })
     }
 
     fn cut_x(&mut self, batch: &[Sweep]) -> Stats {
@@ -326,52 +318,45 @@ impl CylDexel {
             rest = tail;
         }
         let (first, start) = (&self.first, &self.start);
-        tiles
-            .into_par_iter()
-            .zip(bins.par_iter())
-            .map(|((rows, rays), bin)| {
-                let mut st = Stats::default();
-                let base = start[rows.start];
-                for &si in bin {
-                    let s = &batch[si as usize];
-                    let Some((i0, i1)) = ray_range(s.min.y, s.max.y, -rad, res, n) else {
+        par_tiles(tiles.into_iter().zip(&bins), |(rows, rays), bin| {
+            let mut st = Stats::default();
+            let base = start[rows.start];
+            for &si in bin {
+                let s = &batch[si as usize];
+                let Some((i0, i1)) = ray_range(s.min.y, s.max.y, -rad, res, n) else {
+                    continue;
+                };
+                let Some((j0, j1)) = ray_range(s.min.z, s.max.z, -rad, res, n) else {
+                    continue;
+                };
+                let (ta, tb) = ((s.min.x - x0) as f32, (s.max.x - x0) as f32);
+                for j in j0.max(rows.start)..=j1.min(rows.end - 1) {
+                    let (f, len) = (first[j], start[j + 1] - start[j]);
+                    let (a, b) = (i0.max(f), i1.min((f + len).saturating_sub(1)));
+                    if len == 0 || a > b {
                         continue;
-                    };
-                    let Some((j0, j1)) = ray_range(s.min.z, s.max.z, -rad, res, n) else {
-                        continue;
-                    };
-                    let (ta, tb) = ((s.min.x - x0) as f32, (s.max.x - x0) as f32);
-                    for j in j0.max(rows.start)..=j1.min(rows.end - 1) {
-                        let (f, len) = (first[j], start[j + 1] - start[j]);
-                        let (a, b) = (i0.max(f), i1.min((f + len).saturating_sub(1)));
-                        if len == 0 || a > b {
+                    }
+                    for i in a..=b {
+                        let spans: &mut Spans = &mut rays[start[j] - base + i - f];
+                        if !spans.iter().any(|sp| sp.hi > ta && sp.lo < tb) {
                             continue;
                         }
-                        for i in a..=b {
-                            let spans: &mut Spans = &mut rays[start[j] - base + i - f];
-                            if !spans.iter().any(|sp| sp.hi > ta && sp.lo < tb) {
-                                continue;
-                            }
-                            st.tests[X] += 1;
-                            let o = DVec3::new(
-                                x0,
-                                -rad + (i as f64 + 0.5) * res,
-                                -rad + (j as f64 + 0.5) * res,
-                            );
-                            if let Some((t0, t1)) = s.ray(o, DVec3::X)
-                                && subtract(spans, t0 as f32, t1 as f32)
-                            {
-                                st.cuts[X] += 1;
-                            }
+                        st.tests[X] += 1;
+                        let o = DVec3::new(
+                            x0,
+                            -rad + (i as f64 + 0.5) * res,
+                            -rad + (j as f64 + 0.5) * res,
+                        );
+                        if let Some((t0, t1)) = s.ray(o, DVec3::X)
+                            && subtract(spans, t0 as f32, t1 as f32)
+                        {
+                            st.cuts[X] += 1;
                         }
                     }
                 }
-                st
-            })
-            .reduce(Stats::default, |mut a, b| {
-                a.add(&b);
-                a
-            })
+            }
+            st
+        })
     }
 }
 

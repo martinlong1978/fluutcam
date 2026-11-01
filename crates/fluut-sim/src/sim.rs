@@ -3,8 +3,9 @@
 //! Material removal on the tri-dexel (D11 §3).
 //!
 //! Chords are applied in batches. Within a batch, each family's rays are cut
-//! in parallel by tiles of rows; every tile applies the batch's chords in
-//! program order, so the result does not depend on the thread count.
+//! in parallel by tiles of rows; only tiles that some chord reaches are
+//! scheduled. Every tile applies the batch's chords in program order, so the
+//! result does not depend on the thread count.
 
 use crate::dexel::{DexelGrid, Spans, TriDexel, subtract};
 use crate::sweep::Sweep;
@@ -87,42 +88,55 @@ fn cut_family(g: &mut DexelGrid, res: f64, origin: DVec3, batch: &[Sweep]) -> St
     }
     let mut e = DVec3::ZERO;
     e[k] = 1.0;
-    g.rays
-        .par_chunks_mut(nu * ROWS)
-        .zip(bins.par_iter())
-        .enumerate()
-        .map(|(tile, (rays, bin))| {
-            let mut st = Stats::default();
-            let row0 = tile * ROWS;
-            for &si in bin {
-                let s = &batch[si as usize];
-                let Some((i0, i1)) = ray_range(s.min[u], s.max[u], origin[u], res, nu) else {
-                    continue;
-                };
-                let Some((j0, j1)) = ray_range(s.min[v], s.max[v], origin[v], res, nv) else {
-                    continue;
-                };
-                let (ta, tb) = ((s.min[k] - origin[k]) as f32, (s.max[k] - origin[k]) as f32);
-                for j in j0.max(row0)..=j1.min(row0 + ROWS - 1) {
-                    for i in i0..=i1 {
-                        let spans: &mut Spans = &mut rays[(j - row0) * nu + i];
-                        if !spans.iter().any(|sp| sp.hi > ta && sp.lo < tb) {
-                            continue;
-                        }
-                        st.tests[k] += 1;
-                        let mut o = origin;
-                        o[u] += (i as f64 + 0.5) * res;
-                        o[v] += (j as f64 + 0.5) * res;
-                        if let Some((t0, t1)) = s.ray(o, e)
-                            && subtract(spans, t0 as f32, t1 as f32)
-                        {
-                            st.cuts[k] += 1;
-                        }
+    let tiles = g.rays.chunks_mut(nu * ROWS).enumerate().zip(&bins);
+    par_tiles(tiles, |(tile, rays), bin| {
+        let mut st = Stats::default();
+        let row0 = tile * ROWS;
+        for &si in bin {
+            let s = &batch[si as usize];
+            let Some((i0, i1)) = ray_range(s.min[u], s.max[u], origin[u], res, nu) else {
+                continue;
+            };
+            let Some((j0, j1)) = ray_range(s.min[v], s.max[v], origin[v], res, nv) else {
+                continue;
+            };
+            let (ta, tb) = ((s.min[k] - origin[k]) as f32, (s.max[k] - origin[k]) as f32);
+            for j in j0.max(row0)..=j1.min(row0 + ROWS - 1) {
+                for i in i0..=i1 {
+                    let spans: &mut Spans = &mut rays[(j - row0) * nu + i];
+                    if !spans.iter().any(|sp| sp.hi > ta && sp.lo < tb) {
+                        continue;
+                    }
+                    st.tests[k] += 1;
+                    let mut o = origin;
+                    o[u] += (i as f64 + 0.5) * res;
+                    o[v] += (j as f64 + 0.5) * res;
+                    if let Some((t0, t1)) = s.ray(o, e)
+                        && subtract(spans, t0 as f32, t1 as f32)
+                    {
+                        st.cuts[k] += 1;
                     }
                 }
             }
-            st
-        })
+        }
+        st
+    })
+}
+
+/// Cuts every tile that has chords, each as its own parallel work item, and
+/// sums the counters. On a raster a batch covers a narrow band of the grid,
+/// so most tiles are empty; leaving them out lets the busy band spread over
+/// all threads.
+pub(crate) fn par_tiles<'a, T: Send>(
+    tiles: impl Iterator<Item = (T, &'a Vec<u32>)>,
+    f: impl Fn(T, &[u32]) -> Stats + Sync,
+) -> Stats {
+    let work: Vec<(T, &[u32])> = tiles
+        .filter(|(_, bin)| !bin.is_empty())
+        .map(|(t, bin)| (t, bin.as_slice()))
+        .collect();
+    work.into_par_iter()
+        .map(|(t, bin)| f(t, bin))
         .reduce(Stats::default, |mut a, b| {
             a.add(&b);
             a

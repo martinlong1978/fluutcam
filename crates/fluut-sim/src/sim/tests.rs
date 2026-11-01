@@ -218,3 +218,46 @@ fn same_hash_on_one_and_many_threads() {
     };
     assert_eq!(run_on(1), run_on(4));
 }
+
+#[test]
+fn narrow_band_raster_matches_probe_on_any_thread_count() {
+    // More chords than one batch, each batch a narrow band of a wide grid,
+    // so most tiles are idle in every batch.
+    // Rows 0.1 apart along X, 0.5 mm lines, over 30 mm of a 200 mm grid.
+    let mut pts = Vec::new();
+    for row in 0..300 {
+        let y = 10.0 + 0.1 * f64::from(row);
+        for c in 0..=120 {
+            let c = if row % 2 == 0 { c } else { 120 - c };
+            pts.push(xyz(0.5 * f64::from(c), y, 9.0));
+        }
+    }
+    let segs: Vec<Segment> = pts.windows(2).map(|w| line(w[0], w[1])).collect();
+    let stock = boxed(60.0, 200.0, 10.0);
+    let tool = Tool::ball(1.0);
+    let chords = Chorder::new(tool, stock, false, 0.4).chords(&segs);
+    assert!(chords.len() > BATCH, "{}", chords.len());
+    let run_on = |n: usize| {
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(n)
+            .build()
+            .unwrap();
+        pool.install(|| {
+            let mut d = TriDexel::new(&stock, 0.4);
+            cut(&mut d, &chords);
+            d
+        })
+    };
+    let d = run_on(4);
+    assert_eq!(run_on(1).hash(), d.hash());
+    for k in 0..3 {
+        let g = &d.grids[k];
+        for j in (0..g.nv).step_by(5) {
+            for i in (0..g.nu).step_by(17) {
+                let p = g.ray_origin(&d, i, j);
+                let want = crate::spike::probe::probe(&stock, &chords, p, k);
+                assert_eq!(g.rays[j * g.nu + i], want, "family {k} ({i}, {j})");
+            }
+        }
+    }
+}

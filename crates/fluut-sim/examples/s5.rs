@@ -46,14 +46,14 @@ fn project(name: &str, stock: Stock, rotary: bool, stages: &[Stage], res: &[f64]
         );
     }
     println!(
-        "\n| res | stage | rays | chords | cut 1 thread (s) | cut {all} threads (s) | µs/move ({all} thr) | s per M chords ({all} thr) | memory (MB) | spilled rays | tests X/Y/Z per chord | time X/Y/Z ({all} thr, s) | removed (cm³) |"
+        "\n| res | stage | rays | chords | cut 1 thread (s) | cut {all} threads (s) | µs/move ({all} thr) | s per M chords ({all} thr) | memory (MB) | spilled rays | tests X/Y/Z per chord | time X/Y/Z (1 thr, s) | time X/Y/Z ({all} thr, s) | removed (cm³) |"
     );
-    println!("|---|---|---|---|---|---|---|---|---|---|---|---|---|");
+    println!("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|");
     for &r in res {
         let fresh = TriDexel::new(&stock, r);
         let before = fresh.memory();
         println!(
-            "| {r} | stock | {} | | | | | | {:.0} | 0 | | | |",
+            "| {r} | stock | {} | | | | | | {:.0} | 0 | | | | |",
             before.rays,
             mb(before.total())
         );
@@ -69,8 +69,8 @@ fn project(name: &str, stock: Stock, rotary: bool, stages: &[Stage], res: &[f64]
         for (st, ch) in stages.iter().zip(&chords) {
             let t1 = one.then(|| {
                 let t = Instant::now();
-                p1.install(|| cut(&mut d1, ch));
-                t.elapsed().as_secs_f64()
+                let st = p1.install(|| cut(&mut d1, ch));
+                (t.elapsed().as_secs_f64(), st.secs)
             });
             let v0 = dn.volumes()[2];
             let t = Instant::now();
@@ -79,10 +79,10 @@ fn project(name: &str, stock: Stock, rotary: bool, stages: &[Stage], res: &[f64]
             let mem = dn.memory();
             let nc = ch.len().max(1) as f64;
             println!(
-                "| {r} | {} | | {} | {} | {:.2} | {:.1} | {:.1} | {:.0} | {} | {:.0} / {:.0} / {:.0} | {:.1} / {:.1} / {:.1} | {:.1} |",
+                "| {r} | {} | | {} | {} | {:.2} | {:.1} | {:.1} | {:.0} | {} | {:.0} / {:.0} / {:.0} | {} | {:.1} / {:.1} / {:.1} | {:.1} |",
                 st.label,
                 ch.len(),
-                t1.map_or("–".to_string(), |t| format!("{t:.2}")),
+                t1.map_or("–".to_string(), |(t, _)| format!("{t:.2}")),
                 tn,
                 tn / st.segs.len() as f64 * 1e6,
                 tn / nc * 1e6,
@@ -91,6 +91,10 @@ fn project(name: &str, stock: Stock, rotary: bool, stages: &[Stage], res: &[f64]
                 stats.tests[0] as f64 / nc,
                 stats.tests[1] as f64 / nc,
                 stats.tests[2] as f64 / nc,
+                t1.map_or("–".to_string(), |(_, s)| format!(
+                    "{:.1} / {:.1} / {:.1}",
+                    s[0], s[1], s[2]
+                )),
                 stats.secs[0],
                 stats.secs[1],
                 stats.secs[2],
