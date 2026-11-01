@@ -385,6 +385,8 @@ pub struct Sample {
     pub t: f64,
     pub z: f64,
     pub cut: bool,
+    /// Slope of the contact (0 where nothing is under the tool).
+    pub slope: f64,
 }
 
 /// CL points along drive curves: drops, classification and adaptive
@@ -402,6 +404,12 @@ pub struct Sampler<'a> {
 impl Sampler<'_> {
     /// CL tip at `p` (raised to `bottom`) and whether it is cut.
     pub fn cl(&self, p: Point2) -> (f64, bool) {
+        let (z, cut, _) = self.cl_slope(p);
+        (z, cut)
+    }
+
+    /// As [`Sampler::cl`], with the contact slope.
+    pub fn cl_slope(&self, p: Point2) -> (f64, bool, f64) {
         let hit = self.q.drop(p.x(), p.y());
         let (z, slope, drive) = match hit {
             Some(Hit { tip, slope, drive }) if tip >= self.h.bottom => (tip, slope, drive),
@@ -414,12 +422,12 @@ impl Sampler<'_> {
             && slope >= self.min_slope - eps
             && slope <= self.max_slope + eps
             && z <= self.h.top + ABOVE_TOP;
-        (z, cut)
+        (z, cut, slope)
     }
 
     fn sample(&self, d: &impl Drive, t: f64) -> Sample {
-        let (z, cut) = self.cl(d.at(t));
-        Sample { t, z, cut }
+        let (z, cut, slope) = self.cl_slope(d.at(t));
+        Sample { t, z, cut, slope }
     }
 
     /// Samples of `d` over `[t0, t1]` in order: chords within `tol/4` of
@@ -507,6 +515,13 @@ impl Sampler<'_> {
     /// bridged along the CL (rounding at a limit), and stretches shorter
     /// than `tol` are dropped.
     pub fn cut_runs(&self, d: &impl Drive, t0: f64, t1: f64) -> Vec<Vec<Point3>> {
+        self.cut_runs_slope(d, t0, t1).0
+    }
+
+    /// As [`Sampler::cut_runs`], with the largest slope of the cut samples
+    /// (0 when none is cut).
+    pub fn cut_runs_slope(&self, d: &impl Drive, t0: f64, t1: f64) -> (Vec<Vec<Point3>>, f64) {
+        let mut steepest: f64 = 0.0;
         let pt = |s: &Sample| {
             let p = d.at(s.t);
             Point3::new(p.x(), p.y(), s.z)
@@ -517,6 +532,7 @@ impl Sampler<'_> {
         let mut gap: Vec<Point3> = Vec::new();
         for s in self.samples(d, t0, t1) {
             if s.cut {
+                steepest = steepest.max(s.slope);
                 if !gap.is_empty() && d.len(last_cut, s.t) > self.tol {
                     runs.push(std::mem::take(&mut cur));
                 } else {
@@ -538,10 +554,12 @@ impl Sampler<'_> {
             libm::hypot(a.x() - b.x(), a.y() - b.y()) < 1e-9
                 && r.windows(2).map(|w| (w[1] - w[0]).length()).sum::<f64>() > self.tol
         };
-        runs.into_iter()
+        let runs = runs
+            .into_iter()
             .filter(|r| r.len() >= 2 && ((r[r.len() - 1] - r[0]).length() > self.tol || closed(r)))
             .map(|r| merge(r, 0.25 * self.tol))
-            .collect()
+            .collect();
+        (runs, steepest)
     }
 
     /// The surface-following link from `a` to `b`, if every point of it is

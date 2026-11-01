@@ -101,7 +101,7 @@ impl ToolpathType for Spiral {
             }
         }
         let diags = std::mem::take(&mut st.diags);
-        link_runs(&st, input, &region, &runs, diags, "spiral", None)
+        link_runs(&st, input, &region, &runs, diags, "spiral", None, None)
     }
 }
 

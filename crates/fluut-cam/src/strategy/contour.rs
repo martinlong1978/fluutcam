@@ -19,7 +19,7 @@ use crate::waterline::{End, WPoint, Waterline};
 use fluut_geom::{Point2, Point3};
 use fluut_model::Diagnostic;
 use fluut_model::params::ToolpathTypeId;
-use fluut_model::resolve::{CutDirection, Order};
+use fluut_model::resolve::{CutDirection, Order, RetractPolicy};
 use fluut_path::ToolpathResult;
 
 #[derive(Debug)]
@@ -65,7 +65,16 @@ impl ToolpathType for Contour {
             ));
         }
         let clear = |a: Point3, b: Point3| outlines.clear(&st.q, a, b);
-        link_runs(&st, input, &region, &runs, diags, "contour", Some(&clear))
+        link_runs(
+            &st,
+            input,
+            &region,
+            &runs,
+            diags,
+            "contour",
+            Some(&clear),
+            None,
+        )
     }
 }
 
@@ -152,6 +161,8 @@ pub(crate) fn waterline<'a>(
 }
 
 /// Links runs and builds the result, with `cam.<ty>.lead.dropped`.
+/// `retract` overrides the linking policy.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn link_runs(
     st: &Setup,
     input: &StrategyInput,
@@ -160,6 +171,7 @@ pub(crate) fn link_runs(
     mut diags: Vec<Diagnostic>,
     ty: &str,
     level_clear: Option<&dyn Fn(Point3, Point3) -> bool>,
+    retract: Option<RetractPolicy>,
 ) -> Result<Generated, CamError> {
     let p = &st.params;
     let h = st.heights;
@@ -176,7 +188,7 @@ pub(crate) fn link_runs(
         pl: &pl,
         region,
         h: &h,
-        retract: p.linking.retract,
+        retract: retract.unwrap_or(p.linking.retract),
         safety: p.linking.safety_distance,
         diameter: input.tool.diameter,
         lead_in: p.linking.lead_in,

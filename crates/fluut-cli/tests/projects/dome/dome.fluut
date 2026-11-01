@@ -54,3 +54,18 @@ zero     = { method = "stock_top_corner", corner = "front_left" }
     machining_tolerance = 0.02
     stepover            = 1.5
     direction           = "outside_in"
+
+  [[setup.toolpath]]
+  id   = "t4"
+  name = "Scallop dome"
+  type = "scallop"
+  tool = "shop#ball-6"
+
+    [setup.toolpath.geometry]
+    drive_faces = [{ face = "f-262.8" }]
+    boundary    = { curves = [{ face = "f-262.8" }], tool_containment = "centre" }
+
+    [setup.toolpath.passes]
+    machining_tolerance = 0.02
+    stepover            = 2
+    continuous          = true
