@@ -84,10 +84,7 @@ impl Sweep {
             Method::Axial
         } else if self.tool.is_ball() {
             Method::Ball
-        } else if self.fixed_axis
-            && e.dot(self.p0.axis).abs() <= 1e-12
-            && (self.p1.tip - self.p0.tip).dot(self.p0.axis).abs() <= 1e-12
-        {
+        } else if self.fixed_axis && e.dot(self.p0.axis).abs() <= 1e-12 {
             Method::Side
         } else {
             Method::Gjk
@@ -170,27 +167,64 @@ impl Sweep {
         }
     }
 
-    /// Axis fixed, chord and line perpendicular to it: the line stays at one
-    /// height `h` above the tip, where the swept volume's slice is the disk of
-    /// the tool's radius at `h` swept along the chord, a 2-D capsule.
+    /// Axis fixed, line across it. The line stays at one height `h` above the
+    /// first tip. At `β` along the chord it is `h − β·Δh` above the tool's
+    /// tip, where the tool's section is a disc whose centre moves along a
+    /// line. On the straight flank the discs have radius `R` and sweep a 2-D
+    /// capsule. In the corner bands of a bull nose the radius shrinks, and the
+    /// entry and exit come from a 1-D convex search.
     fn side_ray(&self, o: DVec3, e: DVec3) -> Option<(f64, f64)> {
         let tool = &self.tool;
         let w = self.p0.axis;
         let h = (o - self.p0.tip).dot(w);
+        let d = self.p1.tip - self.p0.tip;
+        let dh = d.dot(w);
+        let dp = d - w * dh;
         let (r, len) = (tool.corner, self.p0.length);
-        // Radius of the tool at height h: bottom rim, shank, rounded top.
-        let x = if h < r {
-            r - h
-        } else if h > len {
-            h - len
-        } else {
-            0.0
-        };
-        if h < 0.0 || x > r {
-            return None;
+        let c0 = self.p0.tip + w * h;
+        if dh == 0.0 {
+            // Level chord: one radius, at height h.
+            let x = if h < r {
+                r - h
+            } else if h > len {
+                h - len
+            } else {
+                0.0
+            };
+            if h < 0.0 || x > r {
+                return None;
+            }
+            let rho = tool.core() + (r * r - x * x).max(0.0).sqrt();
+            return line_capsule(o, e, c0, c0 + dp, rho);
         }
-        let rho = tool.core() + (r * r - x * x).max(0.0).sqrt();
-        line_capsule(o, e, self.p0.tip + w * h, self.p1.tip + w * h, rho)
+        // β with the line between heights z0 and z1 above the tip.
+        let band = |z0: f64, z1: f64| -> Option<(f64, f64)> {
+            let (a, b) = ((h - z1) / dh, (h - z0) / dh);
+            let (a, b) = (a.min(b).max(0.0), a.max(b).min(1.0));
+            (a <= b).then_some((a, b))
+        };
+        let mut acc = Acc::default();
+        if let Some((b0, b1)) = band(r, len) {
+            acc.add(line_capsule(o, e, c0 + dp * b0, c0 + dp * b1, tool.radius));
+        }
+        if r > 0.0 {
+            let n = w.cross(e);
+            let m = c0 - o;
+            let band_geo = CornerBand {
+                a: (m.dot(e), dp.dot(e)),
+                b: (m.dot(n), dp.dot(n)),
+                core: tool.core(),
+                r,
+                scale: dp.length() + dh.abs(),
+            };
+            // Bottom corner below its centre, top corner above its centre.
+            for (zc, z0, z1) in [(r, 0.0, r), (len, len, len + r)] {
+                if let Some(range) = band(z0, z1) {
+                    acc.add(band_geo.ray((h - zc, -dh), range));
+                }
+            }
+        }
+        acc.get()
     }
 
     /// Flat or bull nose, axis fixed, line along the axis: the lowest bottom
@@ -269,6 +303,108 @@ fn min_profile(tool: &Tool, cp: DVec3, dp: DVec3, k: f64, b0: f64, b1: f64) -> f
         }
     }
     f(0.5 * (lo + hi))
+}
+
+/// One corner band of a bull nose seen from the side (see `Sweep::side_ray`).
+/// At `β` along the chord, the section's centre is `a0 + a1·β` along the line
+/// and `b0 + b1·β` across it.
+struct CornerBand {
+    a: (f64, f64),
+    b: (f64, f64),
+    core: f64,
+    r: f64,
+    /// Length of the chord, to set the search tolerance.
+    scale: f64,
+}
+
+impl CornerBand {
+    /// The line's interval over `β ∈ range`, where the line is `v0 + v1·β`
+    /// above the corner centre.
+    fn ray(&self, (v0, v1): (f64, f64), range: (f64, f64)) -> Option<(f64, f64)> {
+        let (r, core) = (self.r, self.core);
+        let (b0, b1) = self.b;
+        // The section reaches the line where (b, v) lies in the 2-D capsule
+        // of radius r around [−core, core] × {0}.
+        let mut acc = Acc::default();
+        for cx in [-core, core] {
+            acc.add(quad_le0(b1 * b1 + v1 * v1, (b0 - cx) * b1 + v0 * v1, {
+                let x = b0 - cx;
+                x * x + v0 * v0 - r * r
+            }));
+        }
+        acc.add(slab_1d(b0, b1, core).and_then(|(p, q)| {
+            let (s, t) = slab_1d(v0, v1, r)?;
+            let (p, q) = (p.max(s), q.min(t));
+            (p <= q).then_some((p, q))
+        }));
+        let (lo, hi) = acc.get()?;
+        let (lo, hi) = (lo.max(range.0), hi.min(range.1));
+        if lo > hi {
+            return None;
+        }
+        let (a0, a1) = self.a;
+        let half = |beta: f64| {
+            let v = v0 + v1 * beta;
+            let rho = core + (r * r - v * v).max(0.0).sqrt();
+            let b = b0 + b1 * beta;
+            (rho * rho - b * b).max(0.0).sqrt()
+        };
+        let tol = 1e-8 / self.scale.max(1e-300);
+        let t0 = convex_min(|beta| a0 + a1 * beta - half(beta), lo, hi, tol);
+        let t1 = -convex_min(|beta| -(a0 + a1 * beta) - half(beta), lo, hi, tol);
+        Some((t0, t1))
+    }
+}
+
+/// `{x : a·x² + 2b·x + c ≤ 0}` for `a ≥ 0`, as an interval.
+fn quad_le0(a: f64, b: f64, c: f64) -> Option<(f64, f64)> {
+    if a == 0.0 {
+        return (c <= 0.0).then_some((f64::NEG_INFINITY, f64::INFINITY));
+    }
+    let disc = b * b - a * c;
+    if disc < 0.0 {
+        return None;
+    }
+    let h = disc.sqrt();
+    Some(((-b - h) / a, (-b + h) / a))
+}
+
+/// `{x : |p + q·x| ≤ m}` as an interval.
+fn slab_1d(p: f64, q: f64, m: f64) -> Option<(f64, f64)> {
+    if q == 0.0 {
+        return (p.abs() <= m).then_some((f64::NEG_INFINITY, f64::INFINITY));
+    }
+    let (a, b) = ((-m - p) / q, (m - p) / q);
+    Some((a.min(b), a.max(b)))
+}
+
+/// Minimum of a convex `f` over `[lo, hi]`, by golden-section search to
+/// `tol` in the argument.
+fn convex_min(f: impl Fn(f64) -> f64, lo: f64, hi: f64, tol: f64) -> f64 {
+    const G: f64 = 0.618_033_988_749_894_8;
+    let (mut a, mut b) = (lo, hi);
+    let mut x1 = b - G * (b - a);
+    let mut x2 = a + G * (b - a);
+    let (mut f1, mut f2) = (f(x1), f(x2));
+    for _ in 0..200 {
+        if b - a <= tol {
+            break;
+        }
+        if f1 <= f2 {
+            b = x2;
+            x2 = x1;
+            f2 = f1;
+            x1 = b - G * (b - a);
+            f1 = f(x1);
+        } else {
+            a = x1;
+            x1 = x2;
+            f1 = f2;
+            x2 = a + G * (b - a);
+            f2 = f(x2);
+        }
+    }
+    f1.min(f2).min(f(lo)).min(f(hi))
 }
 
 /// Hull of intervals.

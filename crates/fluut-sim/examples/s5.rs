@@ -188,19 +188,13 @@ fn rays() {
             DVec3::X,
         ),
         (
-            "GJK, side line, ramp",
+            "side, ramp",
             Tool::bull(3.0, 1.0),
             DVec3::Z,
             DVec3::Z,
             DVec3::X,
         ),
-        (
-            "GJK, side line, ramp",
-            Tool::flat(3.0),
-            DVec3::Z,
-            DVec3::Z,
-            DVec3::X,
-        ),
+        ("side, ramp", Tool::flat(3.0), DVec3::Z, DVec3::Z, DVec3::X),
         (
             "ball, rotary chord",
             Tool::ball(3.0),
@@ -217,11 +211,7 @@ fn rays() {
         ),
     ];
     for (label, tool, w0, w1, e) in cases {
-        let d = if label.starts_with("side") {
-            level
-        } else {
-            ramp
-        };
+        let d = if label.contains("level") { level } else { ramp };
         let s = Sweep::new(tool, pose(DVec3::ZERO, w0), pose(d, w1));
         let n = 200_000;
         let mut hits = 0;
