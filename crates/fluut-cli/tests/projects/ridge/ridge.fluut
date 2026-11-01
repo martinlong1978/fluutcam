@@ -1,0 +1,52 @@
+format = "fluut.project/1"
+name   = "Ridge"
+units  = "mm"
+
+[[geometry]]
+id   = "g1"
+path = "ridge.step"
+kind = "step"
+
+  [[geometry.body]]
+  id   = "b-172"
+  name = "ridge"
+
+[[setup]]
+id       = "s1"
+name     = "Top"
+kind     = "three_axis"
+material = "MDF"
+stock    = { kind = "block", margin = [5, 5, 1] }
+zero     = { method = "stock_top_corner", corner = "front_left" }
+
+  [[setup.toolpath]]
+  id   = "t1"
+  name = "Parallel finish"
+  type = "parallel"
+  tool = "shop#ball-6"
+
+    [setup.toolpath.passes]
+    machining_tolerance = 0.02
+    scallop_height      = 0.1
+    pass_angle_deg      = 45
+    max_slope_deg       = 25
+
+  [[setup.toolpath]]
+  id   = "t2"
+  name = "Parallel slopes"
+  type = "parallel"
+  tool = "shop#ball-6"
+
+    [setup.toolpath.geometry]
+    boundary = { curves = [{ face = "f-172.0" }], tool_containment = "inside" }
+
+    [setup.toolpath.passes]
+    stepover       = 2.5
+    pass_angle_deg = 90
+    direction      = "climb"
+    min_slope_deg  = 15
+    stock_to_leave = 0.3
+
+    [setup.toolpath.linking]
+    retract = "full"
+    lead_in = { kind = "arc", radius = 2 }

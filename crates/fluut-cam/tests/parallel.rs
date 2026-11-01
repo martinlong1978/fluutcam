@@ -741,11 +741,13 @@ fn vertical_leads() {
     }
     let tl = tool("b6");
     assert_no_gouge(&g, &r, &tl, 0.0, 0.01 + 1e-9);
-    // A straight lead into a run that starts below the crest, heading down
-    // the slope, would cut into the crest behind it: it is left out.
+    // In a bowl, a run that starts at the slope limit heads down into the
+    // middle; a straight lead along its start tangent would cut into the
+    // steeper wall behind it, so it is left out.
+    let g = bowl(10.0);
     let t = tp(
         "b6",
-        "[passes]\nstepover = 5\npass_angle_deg = 90\nmin_slope_deg = 10\ndirection = \"conventional\"\n\
+        "[passes]\nstepover = 2\nmax_slope_deg = 30\n\
          [linking]\nretract = \"full\"\nlead_in = { kind = \"linear\", length = 5 }\n",
     );
     let r = run(&g, &t);

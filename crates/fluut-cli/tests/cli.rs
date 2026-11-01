@@ -67,11 +67,16 @@ fn step_inputs_match_the_writer() {
         &here("projects/block/block.step"),
         &step::pocket_block([0.0; 3]),
     );
+    check_file(&here("projects/ridge/ridge.step"), &step::ridge([0.0; 3]));
 }
 
 #[test]
 fn projects_are_canonical() {
-    for p in ["projects/boss/boss.fluut", "projects/block/block.fluut"] {
+    for p in [
+        "projects/boss/boss.fluut",
+        "projects/block/block.fluut",
+        "projects/ridge/ridge.fluut",
+    ] {
         let text = std::fs::read_to_string(here(p)).unwrap();
         let l = fluut_model::project::read(&text).unwrap();
         assert!(l.warnings.is_empty(), "{p}: {:?}", l.warnings);
@@ -140,6 +145,16 @@ fn golden_pocket_2d_and_cut_out() {
 }
 
 #[test]
+fn golden_parallel() {
+    golden(
+        "projects/ridge/ridge.fluut",
+        "fluut/linuxcnc",
+        "ridge-linuxcnc.ngc",
+        &[],
+    );
+}
+
+#[test]
 fn calc_reports_each_toolpath() {
     let o = fluut(&["calc", here("projects/block/block.fluut").to_str().unwrap()]);
     let out = String::from_utf8_lossy(&o.stdout);
@@ -149,6 +164,16 @@ fn calc_reports_each_toolpath() {
             .filter(|l| l.contains(": calculated; cut "))
             .count(),
         3,
+        "{out}"
+    );
+    let o = fluut(&["calc", here("projects/ridge/ridge.fluut").to_str().unwrap()]);
+    let out = String::from_utf8_lossy(&o.stdout);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    assert_eq!(
+        out.lines()
+            .filter(|l| l.contains(": calculated; cut "))
+            .count(),
+        2,
         "{out}"
     );
 }
@@ -179,30 +204,56 @@ fn errors_and_usage() {
     assert!(fluut(&["--version"]).status.success());
 }
 
-/// The block project in `dir` with the model moved by `shift`, and the work
+/// A reference project: its directory and STEP stem, the writer of its
+/// part, the toolpaths, and the work zero (the front left stock top
+/// corner) for an unshifted part.
+struct Reference {
+    name: &'static str,
+    part: fn([f64; 3]) -> String,
+    toolpaths: &'static [&'static str],
+    zero: [f64; 3],
+}
+
+const BLOCK: Reference = Reference {
+    name: "block",
+    part: step::pocket_block,
+    toolpaths: &["t1", "t2", "t3"],
+    zero: [10.0, 5.0, 20.0],
+};
+
+/// The stock top is 1 above the crest of the ridge (stock margin).
+const RIDGE: Reference = Reference {
+    name: "ridge",
+    part: step::ridge,
+    toolpaths: &["t1", "t2"],
+    zero: [-5.0, -5.0, 16.358983848622453],
+};
+
+/// The project `r` in `dir` with the model moved by `shift`, and the work
 /// zero given as a point moved by the same offset when `point` is set.
-fn shifted(dir: &Path, shift: [f64; 3], point: bool) -> PathBuf {
+fn shifted(r: &Reference, dir: &Path, shift: [f64; 3], point: bool) -> PathBuf {
+    let n = r.name;
     std::fs::create_dir_all(dir.join("tools")).unwrap();
-    std::fs::write(dir.join("block.step"), step::pocket_block(shift)).unwrap();
+    std::fs::write(dir.join(format!("{n}.step")), (r.part)(shift)).unwrap();
     std::fs::copy(
-        here("projects/block/tools/shop.toml"),
+        here(&format!("projects/{n}/tools/shop.toml")),
         dir.join("tools/shop.toml"),
     )
     .unwrap();
-    let mut p = std::fs::read_to_string(here("projects/block/block.fluut")).unwrap();
+    let mut p = std::fs::read_to_string(here(&format!("projects/{n}/{n}.fluut"))).unwrap();
     if point {
         p = p.replace(
             "zero     = { method = \"stock_top_corner\", corner = \"front_left\" }",
             &format!(
                 "zero     = {{ method = \"point\", at = [{:?}, {:?}, {:?}] }}",
-                10.0 + shift[0],
-                5.0 + shift[1],
-                20.0 + shift[2]
+                r.zero[0] + shift[0],
+                r.zero[1] + shift[1],
+                r.zero[2] + shift[2]
             ),
         );
         assert!(p.contains("\"point\""));
     }
-    let path = dir.join("block.fluut");
+    let path = dir.join(format!("{n}.fluut"));
     std::fs::write(&path, p).unwrap();
     path
 }
@@ -231,28 +282,31 @@ fn translation_invariance() {
     // together moves no toolpath coordinate by more than ε_s, and the
     // G-code is the same.
     let shift = [0.123457, -0.987651, 0.31];
-    for point in [true, false] {
-        let a = shifted(&tmp(&format!("inv-a-{point}")), [0.0; 3], point);
-        let b = shifted(&tmp(&format!("inv-b-{point}")), shift, point);
-        let (mut sa, ga) = post_text(&a);
-        let (mut sb, gb) = post_text(&b);
-        assert_eq!(ga, gb, "G-code differs (zero as point: {point})");
-        sa.calculate(&Targets::All);
-        sb.calculate(&Targets::All);
-        for id in ["t1", "t2", "t3"] {
-            let (ra, rb) = (sa.result(id).unwrap(), sb.result(id).unwrap());
-            let (xa, xb): (Vec<&Segment>, Vec<&Segment>) =
-                (ra.segments().collect(), rb.segments().collect());
-            assert_eq!(xa.len(), xb.len(), "{id}");
-            let mut worst: f64 = 0.0;
-            for (p, q) in xa.iter().zip(&xb) {
-                for (u, v) in [(p.start(), q.start()), (p.end(), q.end())] {
-                    if let (Some(u), Some(v)) = (u, v) {
-                        worst = worst.max(u.xyz.distance(v.xyz));
+    for r in [&BLOCK, &RIDGE] {
+        for point in [true, false] {
+            let n = r.name;
+            let a = shifted(r, &tmp(&format!("inv-{n}-a-{point}")), [0.0; 3], point);
+            let b = shifted(r, &tmp(&format!("inv-{n}-b-{point}")), shift, point);
+            let (mut sa, ga) = post_text(&a);
+            let (mut sb, gb) = post_text(&b);
+            assert_eq!(ga, gb, "{n}: G-code differs (zero as point: {point})");
+            sa.calculate(&Targets::All);
+            sb.calculate(&Targets::All);
+            for id in r.toolpaths {
+                let (ra, rb) = (sa.result(id).unwrap(), sb.result(id).unwrap());
+                let (xa, xb): (Vec<&Segment>, Vec<&Segment>) =
+                    (ra.segments().collect(), rb.segments().collect());
+                assert_eq!(xa.len(), xb.len(), "{n} {id}");
+                let mut worst: f64 = 0.0;
+                for (p, q) in xa.iter().zip(&xb) {
+                    for (u, v) in [(p.start(), q.start()), (p.end(), q.end())] {
+                        if let (Some(u), Some(v)) = (u, v) {
+                            worst = worst.max(u.xyz.distance(v.xyz));
+                        }
                     }
                 }
+                assert!(worst <= 1e-6, "{n} {id}: {worst}");
             }
-            assert!(worst <= 1e-6, "{id}: {worst}");
         }
     }
 }

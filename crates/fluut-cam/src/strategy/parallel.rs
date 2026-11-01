@@ -660,60 +660,55 @@ impl Linker<'_> {
         if hgt < bound { need } else { hgt }
     }
 
-    /// The vertical lead into (`into`) or out of a run, in the plane of the
-    /// pass.
+    /// The lead into (`into`) or out of a run, in the vertical plane of the
+    /// pass and tangent to the run's first (last) segment: a straight
+    /// extension of that segment, or a quarter arc above it after (before)
+    /// an optional straight along the arc's end tangent.
     fn lead(&self, run: &Run, into: bool) -> Option<Lead3> {
         let lead = if into { &self.lead_in } else { &self.lead_out };
+        let n = run.pts.len();
         let (p, q) = if into {
             (run.pts[0], run.pts[1])
         } else {
-            (run.pts[run.pts.len() - 1], run.pts[run.pts.len() - 2])
+            (run.pts[n - 1], run.pts[n - 2])
         };
-        // Horizontal direction of travel at the run end.
-        let d = if into { q - p } else { p - q };
-        let t = Vec3::new(d.x(), d.y(), 0.0).normalized()?.get();
-        let z = Vec3::new(0.0, 0.0, 1.0);
-        let normal = t.cross(z).normalized()?;
+        // Direction of travel at the run end, and the plane's normal.
+        let t = (if into { q - p } else { p - q }).normalized()?.get();
+        let normal = t.cross(Vec3::new(0.0, 0.0, 1.0)).normalized()?;
+        // Up in the plane of the pass, perpendicular to the travel.
+        let m = normal.get().cross(t);
         match lead.kind {
             LeadKind::None => None,
-            LeadKind::Linear if lead.length > 0.0 => {
-                let far = if into {
-                    p - t * lead.length
-                } else {
-                    p + t * lead.length
-                };
-                Some(if into {
-                    Lead3::line(far, p)
-                } else {
-                    Lead3::line(p, far)
-                })
-            }
+            LeadKind::Linear if lead.length > 0.0 => Some(if into {
+                Lead3::line(p - t * lead.length, p)
+            } else {
+                Lead3::line(p, p + t * lead.length)
+            }),
             LeadKind::Linear => None,
             LeadKind::Arc => {
                 let r = lead.radius;
-                let c = p + z * r;
-                let side = if into {
-                    p - t * r + z * r
-                } else {
-                    p + t * r + z * r
-                };
+                let c = p + m * r;
                 let arc = (c, normal, FRAC_PI_2);
-                let up = side + z * lead.length;
+                let straight = (lead.length > 0.0).then_some(lead.length);
                 Some(if into {
-                    let mut l = Lead3::line(up, side);
-                    if lead.length <= 0.0 {
-                        l.start = side;
-                        l.pieces.clear();
+                    let s = c - t * r;
+                    let mut l = Lead3 {
+                        start: straight.map_or(s, |len| s + m * len),
+                        pieces: Vec::new(),
+                    };
+                    if straight.is_some() {
+                        l.pieces.push(Piece::Line(s));
                     }
                     l.pieces.push(Piece::Arc(p, arc));
                     l
                 } else {
+                    let e = c + t * r;
                     let mut l = Lead3 {
                         start: p,
-                        pieces: vec![Piece::Arc(side, arc)],
+                        pieces: vec![Piece::Arc(e, arc)],
                     };
-                    if lead.length > 0.0 {
-                        l.pieces.push(Piece::Line(up));
+                    if let Some(len) = straight {
+                        l.pieces.push(Piece::Line(e + m * len));
                     }
                     l
                 })
