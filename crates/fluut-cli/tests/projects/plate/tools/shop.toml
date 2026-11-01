@@ -1,0 +1,19 @@
+format = "fluut.tools/1"
+id     = "shop"
+name   = "Test shop"
+
+[[tool]]
+id            = "flat-6"
+name          = "6 mm flat"
+number        = 1
+shape         = "flat"
+diameter      = 6.0
+flute_length  = 25
+
+  [[tool.preset]]
+  material  = "MDF"
+  rpm       = 18000
+  feed      = 2000
+  plunge    = 600
+  stepover  = 2.4
+  step_down = 4.0

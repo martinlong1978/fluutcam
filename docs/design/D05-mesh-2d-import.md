@@ -1,7 +1,8 @@
 # D05 — STL, DXF, SVG and Bitmap Import (`fluut-io-mesh`, `fluut-io-2d`)
 
 Implements: [S 02 §2.6, §2.6.2], [S 03 §3.2.4–3.2.5]. Depends on: `fluut-geom`, `fluut-topo`,
-`dxf` (MIT) or own reader (§3), `svgtypes` (path data parsing), `roxmltree`, `image`.
+`roxmltree` (SVG), `image` (bitmap). The DXF reader and the SVG path-data parser are our own
+(§3, §4; decided in M7).
 
 All readers treat input as untrusted (bounded sizes, no panics, fuzz targets) [S 06 §6.3].
 All ask for or confirm the unit, because none of these formats carries a reliable one
@@ -34,12 +35,18 @@ exporters write it into the header.
 ### 2.3 Welding and adjacency
 
 Vertices within `tol_model` are merged. This is an import-time cleanup step, not toolpath
-computation, so the use of a hash grid here does not conflict with DC-02.
+computation, so the use of a grid here does not conflict with DC-02.
 
 ```
-cell = 2·tol_model; hash each vertex to its cell; compare with the 27 neighbouring cells;
-union-find merge; representative = first vertex
+cell = 2·tol_model; vertices in file order; each merges into the first representative within
+tol_model in the 27 neighbouring cells, or becomes a representative; cells in a BTreeMap
 ```
+
+Representatives are more than `tol_model` apart, so each cell holds only a few of them and a fan
+of many triangles around one vertex stays linear. Union-find (as first designed) compares every
+pair of points in a cell, which is quadratic for such fans. Unlike union-find, the merge is not
+transitive: a chain of points each within `tol_model` of the next is not collapsed into one.
+`fluut_topo::mesh::weld_points` implements it; the DXF and SVG chain report uses it too.
 
 Then: build half-edges; mark boundary and non-manifold edges; compute triangle normals from
 vertex order and compare with the file's normals (majority vote decides whether to flip all, as
@@ -51,8 +58,9 @@ Binary STL writer for exporting simulation stock (D11) and debug output.
 
 ## 3. DXF (`fluut-io-2d`)
 
-ASCII and binary DXF, R12 to current. Start with the `dxf` crate; if coverage or robustness is
-inadequate in the spike, write a reader (group-code pairs are simple to parse).
+ASCII DXF, R12 to current, with an own reader of group-code pairs (M7, CH-09). It reads the
+`HEADER` (for `$INSUNITS`), `BLOCKS` and `ENTITIES` sections, and bounds every size and count.
+Binary DXF is detected and reported as unsupported for now.
 
 | Entity | Maps to |
 |---|---|
@@ -66,15 +74,24 @@ inadequate in the spike, write a reader (group-code pairs are simple to parse).
 | `3DFACE`, `MESH`, solids (`3DSOLID` ACIS) | not supported; reported |
 | `TEXT`, `MTEXT`, dimensions, hatches | ignored; reported |
 
-- Layers and colours kept as attributes, so the user can select by layer.
-- Curves are chained into wires where ends meet within tol_model; extrusion direction (OCS) is
-  applied.
-- `$INSUNITS` is shown as the suggested unit; the user confirms.
+- Each layer becomes one wire body (ids `b-1`, `b-2`, … in order of first use), so the user
+  selects by layer. Colours are not kept: `WireBody` has no attributes yet.
+- Entities on layer `0` inside a block take the layer of the `INSERT`.
+- The extrusion direction (OCS, arbitrary-axis algorithm) is applied. Curves stay in file order;
+  the report counts chains, closed chains and open ends (`tol_model`), and `fluut-cam` chains
+  them for toolpaths.
+- Circles and ellipses go through block transforms as conjugate semi-diameters, so a non-uniform
+  scale turns a circle into an ellipse and never into a spline.
+- `$INSUNITS` is shown as the suggested unit; the user confirms. The project's `unit` is
+  required.
 
 ## 4. SVG (`fluut-io-2d`)
 
-SVG path data is parsed directly with `svgtypes`, not converted by a renderer library, because
-renderers convert elliptical arcs to cubic Béziers and the arcs would be lost [S 04 §4.8].
+SVG path data is parsed directly by an own parser, not converted by a renderer library, because
+renderers convert elliptical arcs to cubic Béziers and the arcs would be lost [S 04 §4.8]. The
+grammar is small; `svgtypes` would have brought `kurbo` along (M7). The XML tree comes from
+`roxmltree`. DTDs are allowed, because Illustrator writes a `DOCTYPE`; `roxmltree` bounds
+entity expansion and loads no external entities.
 
 | SVG | Maps to |
 |---|---|
@@ -88,8 +105,11 @@ renderers convert elliptical arcs to cubic Béziers and the arcs would be lost [
 | text, images, filters, CSS styling | ignored; reported |
 
 Units: SVG user units at 96 per inch unless the root `width`/`height` carry real units
-(`mm`, `in`), in which case the `viewBox` scale is applied. The result is offered as the
-default; the user confirms.
+(`mm`, `in`), in which case the `viewBox` scale is applied (with `preserveAspectRatio`). Y is
+flipped about the viewport's bottom edge, so Y points up. The result is offered as the
+default; the user confirms. A project `unit` overrides it as mm per user unit. The whole file is
+one wire body.
+CSS and `style` are ignored, so hidden elements are imported.
 
 EPS: not in v1 (CH-10, confirmed); SVG and DXF cover 2-D input.
 
@@ -123,4 +143,5 @@ limits, not pixel positions [S 02 §2.6].
 
 ## 7. Challenges
 
-- CH-09 DXF reader choice (`dxf` crate coverage) (deferred).
+- CH-09 DXF reader coverage: own reader chosen in M7; checking it on a corpus of real exports is
+  still open (deferred).

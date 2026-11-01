@@ -9,6 +9,8 @@ license.workspace = true
 [dependencies]
 fluut-cam.workspace = true
 fluut-geom.workspace = true
+fluut-io-2d.workspace = true
+fluut-io-mesh.workspace = true
 fluut-io-step.workspace = true
 fluut-model.workspace = true
 fluut-path.workspace = true

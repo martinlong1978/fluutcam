@@ -1,0 +1,18 @@
+[package]
+name = "fluut-io-2d"
+description = "FluutCAM DXF and SVG reader (design D05 §3-§4)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+fluut-geom.workspace = true
+fluut-topo.workspace = true
+glam.workspace = true
+libm.workspace = true
+roxmltree.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

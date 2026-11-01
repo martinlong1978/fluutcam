@@ -1,6 +1,6 @@
 [package]
 name = "fluut-fuzz"
-description = "cargo-fuzz targets for the STEP reader (design D04 §10); not a workspace member"
+description = "cargo-fuzz targets for the STEP, DXF, SVG and STL readers (design D04 §10, D05); not a workspace member"
 version = "0.0.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
@@ -12,6 +12,8 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 fluut-io-step = { path = "../crates/fluut-io-step" }
+fluut-io-2d = { path = "../crates/fluut-io-2d" }
+fluut-io-mesh = { path = "../crates/fluut-io-mesh" }
 
 # Not a member of the FluutCAM workspace.
 [workspace]
@@ -26,6 +28,27 @@ bench = false
 [[bin]]
 name = "map"
 path = "fuzz_targets/map.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "dxf"
+path = "fuzz_targets/dxf.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "svg"
+path = "fuzz_targets/svg.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "stl"
+path = "fuzz_targets/stl.rs"
 test = false
 doc = false
 bench = false
