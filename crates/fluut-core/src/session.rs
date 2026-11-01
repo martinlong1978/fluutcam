@@ -8,8 +8,9 @@ use crate::graph::{Graph, NodeId};
 use crate::store::ModelStore;
 use fluut_cam::StrategyInput;
 use fluut_cam::geometry::SetupBody;
-use fluut_model::project::{Project, Setup, read};
+use fluut_model::project::{Project, read};
 use fluut_model::resolve::{Coolant, resolve};
+use fluut_model::setup::{ResolvedSetup, resolve_all};
 use fluut_model::tools::{ToolLibrary, ToolStore};
 use fluut_model::validate::{PostCaps, ValidateCx, validate};
 use fluut_model::{DefRef, DefStore, Diagnostic, Severity};
@@ -166,8 +167,8 @@ impl Session {
         self.result(toolpath).is_none()
     }
 
-    fn setup_bodies(&self, s: &Setup) -> Result<Vec<SetupBody>, Diagnostic> {
-        match &s.bodies {
+    fn setup_bodies(&self, s: &ResolvedSetup) -> Result<Vec<SetupBody>, Diagnostic> {
+        match &s.geometry.bodies {
             None => Ok(self.store.bodies().cloned().collect()),
             Some(ids) => ids
                 .iter()
@@ -197,7 +198,7 @@ impl Session {
         let graph = self.graph();
         let mut reports = Vec::new();
         let project = self.project.clone();
-        for s in &project.setups {
+        for (s, rs) in project.setups.iter().zip(resolve_all(&project)) {
             let wanted: Vec<_> = s
                 .toolpaths
                 .iter()
@@ -237,13 +238,20 @@ impl Session {
                     ));
                     continue;
                 }
-                let Some(tool) = self.tools.get(&t.tool) else {
+                let rs = match &rs {
+                    Ok(r) => r,
+                    Err(d) => {
+                        reports.push(report(JobState::Failed, vec![d.clone().on(&t.id)], None));
+                        continue;
+                    }
+                };
+                let Some(tool) = self.tools.get(t.tool_ref()) else {
                     let d = validate(t, &ValidateCx::new(None));
                     reports.push(report(JobState::Failed, d, None));
                     continue;
                 };
                 let fr = frame.get_or_insert_with(|| {
-                    self.setup_bodies(s).and_then(|b| SetupFrame::new(s, b))
+                    self.setup_bodies(rs).and_then(|b| SetupFrame::new(rs, b))
                 });
                 let fr = match fr {
                     Ok(f) => f,
@@ -256,8 +264,8 @@ impl Session {
                     toolpath: t,
                     geometry: &fr.geometry,
                     tool,
-                    material: s.material.as_deref(),
-                    setup_kind: s.kind,
+                    material: rs.material.as_deref(),
+                    setup_kind: rs.kind,
                     env: fr.height_env(),
                     to_work: fr.to_work,
                     machine: None,
@@ -317,15 +325,16 @@ impl Session {
         let mut reports = self.calculate_with(&Targets::All, Some(caps));
         // Post-dependent rules also for toolpaths taken from the cache.
         let project = self.project.clone();
-        for s in &project.setups {
+        for (s, rs) in project.setups.iter().zip(resolve_all(&project)) {
+            let material = rs.ok().and_then(|r| r.material);
             for t in s.toolpaths.iter().filter(|t| t.is_enabled()) {
                 let Some(rep) = reports.iter_mut().find(|r| r.toolpath == t.id) else {
                     continue;
                 };
                 let cx = ValidateCx {
-                    material: s.material.as_deref(),
+                    material: material.as_deref(),
                     post: Some(&caps),
-                    ..ValidateCx::new(self.tools.get(&t.tool))
+                    ..ValidateCx::new(self.tools.get(t.tool_ref()))
                 };
                 for d in validate(t, &cx) {
                     let post_rule = d.code == "param.contour_2d.compensation.post"
@@ -358,14 +367,16 @@ impl Session {
         opts: &PostOptions,
     ) -> PostJob {
         let mut setups = Vec::new();
-        for s in &self.project.setups {
+        let setups_r = resolve_all(&self.project);
+        for (s, rs) in self.project.setups.iter().zip(&setups_r) {
+            let Ok(rs) = rs else { continue };
             let mut toolpaths = Vec::new();
             for t in s.toolpaths.iter().filter(|t| t.is_enabled()) {
-                let (Some(result), Some(tool)) = (self.result(&t.id), self.tools.get(&t.tool))
+                let (Some(result), Some(tool)) = (self.result(&t.id), self.tools.get(t.tool_ref()))
                 else {
                     continue;
                 };
-                let p = resolve(&t.params, tool, s.material.as_deref());
+                let p = resolve(&t.params, tool, rs.material.as_deref());
                 let f = p.tool.feed;
                 let safe_z = result
                     .segments()
@@ -405,7 +416,7 @@ impl Session {
             setups.push(SetupJob {
                 name: s.name.clone(),
                 kind: fluut_post::SetupKind::ThreeAxis,
-                work_offset: s.work_offset().to_owned(),
+                work_offset: rs.work_offset.clone(),
                 index_a: None,
                 index_b: None,
                 toolpaths,
@@ -418,11 +429,9 @@ impl Session {
             time: opts.time.clone(),
             provenance: Provenance::of(resolved, post_id),
             machine: MachineInfo {
-                name: self
-                    .project
-                    .setups
+                name: setups_r
                     .iter()
-                    .find_map(|s| s.machine.clone())
+                    .find_map(|s| s.as_ref().ok().and_then(|s| s.machine.clone()))
                     .unwrap_or_default(),
                 tool_changer: "atc".into(),
                 has_rotary: false,

@@ -6,6 +6,7 @@
 //!   templates; D06 §4).
 //! - `params`: toolpath parameter metadata and values (D06 §3, D15).
 //! - `project`: the project document, read and written (D06 §1, §7.2).
+//! - `setup`: Setup inheritance (`based_on`, D06 §2).
 //! - `tools`: tool libraries (spec 02 §2.4).
 //! - `resolve`, `validate`, `hash`: defaults, validation codes and the
 //!   result-hash inputs (D15).
@@ -16,6 +17,7 @@ pub mod hash;
 pub mod params;
 pub mod project;
 pub mod resolve;
+pub mod setup;
 pub mod tools;
 pub mod validate;
 

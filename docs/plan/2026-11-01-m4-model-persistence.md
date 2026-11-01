@@ -66,8 +66,8 @@ All earlier Global Constraints apply. In addition:
 - `Setup`: every field `Option`; `kind`, `based_on`, `material`, `index_angle`, `region`. `SetupGeometry { bodies, scale, mirror }`. `Orientation::{ThreeAxis { tool_axis, x_axis }, Rotary { rotary_axis, a_zero_toward }}` with `AxisPick::{Axis, Face, Edge}`. `StockSpec::{Block { margin, size }, Cylinder { radius, length }, Body { body }, FromPrevious}`. `ZeroSpec` gains `OnAxis { x }`. `ClearanceSpec::{Plane { offset }, Cylinder { radius }}`. `IndexAngle { mode, value }`. `Region { floor_z }`.
 - `Project.setups: Vec<Arc<Setup>>`; `views: Vec<toml::Table>`.
 - Format: `fluut.project/1` and `/1.0`; a newer minor warns that newer keys will not be saved; migrations list; the writer writes `fluut.project/1`.
-- [ ] **Step 1:** Tests: the spec 02 §2.1 project (comments and `# …` stripped, rotary types swapped for M3 types) round-trips; every reference project round-trips; each new field form parses, rejects a wrong form and round-trips; unknown keys are warnings and are dropped on write; format versions.
-- [ ] **Step 2:** Implement; pass; commit.
+- [x] **Step 1:** Tests: the spec 02 §2.1 project (comments and `# …` stripped, rotary types swapped for M3 types) round-trips; every reference project round-trips; each new field form parses, rejects a wrong form and round-trips; unknown keys are warnings and are dropped on write; format versions.
+- [x] **Step 2:** Implement; pass; commit.
 
 ### Task 3: Setup inheritance (`fluut-model`, `fluut-core`)
 
@@ -76,8 +76,8 @@ All earlier Global Constraints apply. In addition:
 - `resolve_setup(project, id) -> Result<ResolvedSetup, Diagnostic>` with `FieldOrigin::{Local, Inherited(id), Default}`, memoised per call over the chain. Index angle: absolute, or relative to the parent's resolved angle (0 under a rotary parent).
 - Validation (spec 03 §3.9.4): `setup.based_on.missing`, `setup.based_on.order` (parent later or self), `setup.stock.from_previous.parent` (no parent), `setup.stock.from_previous.changed` (machine, geometry, orientation or zero differs from the parent's resolved value).
 - `fluut-core`: frames, the graph hash and material from the resolved Setup. A parent edit changes the child's Setup node hash.
-- [ ] **Step 1:** Tests: property test over random chains (random local fields at each level) against a manual walk; origins; relative index angles; each validation code passing and failing; a parent edit restales the child's toolpaths.
-- [ ] **Step 2:** Implement; pass; commit.
+- [x] **Step 1:** Tests: property test over random chains (random local fields at each level) against a manual walk; origins; relative index angles; each validation code passing and failing; a parent edit restales the child's toolpaths.
+- [x] **Step 2:** Implement; pass; commit.
 
 ### Task 4: Definition library: layers, machines, tools (`fluut-model`, `fluut-core`)
 

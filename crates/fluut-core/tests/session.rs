@@ -9,8 +9,10 @@ use fluut_core::{JobState, NodeId, PostOptions, Session, SetupFrame, Targets};
 use fluut_geom::Point3;
 use fluut_model::params::{Num, PValue};
 use fluut_model::project::{AxisDir, Corner, Orientation, Setup, ZeroSpec};
+use fluut_model::setup::resolve_setup;
 use fluut_post::builtin::builtin_store;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 const TOOLS: &str = r#"format = "fluut.tools/1"
 id     = "shop"
@@ -124,14 +126,14 @@ fn calculation_is_cached_by_result_hash() {
     assert!(s.is_stale("t1"));
     // A Setup edit makes every toolpath of the Setup stale.
     let g2 = s.graph();
-    s.project.setups[0].work_offset = Some("G55".into());
+    s.project.setup_mut("s1").unwrap().work_offset = Some("G55".into());
     assert!(s.graph().changed(&g2).contains(&NodeId::Setup("s1".into())));
 }
 
 #[test]
 fn missing_tool_and_geometry() {
     let mut s = open("missing");
-    s.project.setups[0].toolpaths[0].tool = "shop#nope".into();
+    s.project.toolpath_mut("t1").unwrap().tool = "shop#nope".into();
     let r = s.calculate(&Targets::All);
     assert_eq!(r[0].state, JobState::Failed);
     assert_eq!(r[0].diagnostics[0].code, "param.tool.missing");
@@ -182,14 +184,22 @@ fn post_writes_gcode() {
     assert!(s.post("fluut/nope", &builtin_store(), &opts).is_err());
 }
 
+fn try_frame(s: &Session, setup: &Setup) -> Result<SetupFrame, fluut_model::Diagnostic> {
+    let mut p = s.project.clone();
+    let i = p.setup_index(&setup.id).unwrap();
+    p.setups[i] = Arc::new(setup.clone());
+    let r = resolve_setup(&p, &setup.id)?;
+    SetupFrame::new(&r, s.store.bodies().cloned().collect())
+}
+
 fn frame(s: &Session, setup: &Setup) -> SetupFrame {
-    SetupFrame::new(setup, s.store.bodies().cloned().collect()).unwrap()
+    try_frame(s, setup).unwrap()
 }
 
 #[test]
 fn frames_place_the_zero_and_stock() {
     let s = open("frames");
-    let mut setup = s.project.setups[0].clone();
+    let mut setup = (*s.project.setups[0]).clone();
     // Default zero: stock top, front left. Boss 40 × 30 × 10, margins 5, 5, 1.
     let f = frame(&s, &setup);
     assert_eq!(f.stock.min, Point3::new(0.0, 0.0, -11.0));
@@ -208,9 +218,9 @@ fn frames_place_the_zero_and_stock() {
     );
     // Tool axis along −Y of the model: the boss's back face is on top.
     setup.zero = Some(ZeroSpec::Point([Num::int(0); 3]));
-    setup.orientation = Some(Orientation {
-        tool_axis: AxisDir::NegY,
-        x_axis: AxisDir::PosX,
+    setup.orientation = Some(Orientation::ThreeAxis {
+        tool_axis: AxisDir::NegY.into(),
+        x_axis: AxisDir::PosX.into(),
     });
     let f = frame(&s, &setup);
     assert_eq!(
@@ -218,9 +228,97 @@ fn frames_place_the_zero_and_stock() {
         Point3::new(0.0, 0.0, 1.0)
     );
     assert!((f.model.max.z() - 0.0).abs() < 1e-9 && (f.model.min.z() + 30.0).abs() < 1e-9);
-    setup.orientation = Some(Orientation {
-        tool_axis: AxisDir::PosZ,
-        x_axis: AxisDir::NegZ,
+    setup.orientation = Some(Orientation::ThreeAxis {
+        tool_axis: AxisDir::PosZ.into(),
+        x_axis: AxisDir::NegZ.into(),
     });
-    assert!(SetupFrame::new(&setup, s.store.bodies().cloned().collect()).is_err());
+    assert!(try_frame(&s, &setup).is_err());
+}
+
+/// The project with a second Setup based on the first.
+fn chained(name: &str) -> Session {
+    let (dir, id) = workspace(name);
+    let text = format!(
+        "{}\n[[setup]]\nid       = \"s2\"\nname     = \"Again\"\nbased_on = \"s1\"\nstock    = {{ kind = \"from_previous\" }}\n\n  [[setup.toolpath]]\n  id   = \"t2\"\n  name = \"Profile\"\n  type = \"contour_2d\"\n  tool = \"shop#flat-6\"\n\n    [setup.toolpath.geometry]\n    drive_curves = [{{ face = \"f-{id}.8\" }}]\n",
+        project(&id)
+    );
+    std::fs::write(dir.join("p.fluut"), text).unwrap();
+    Session::open(&dir.join("p.fluut"), &[]).unwrap()
+}
+
+#[test]
+fn child_setups_inherit_frames_and_go_stale_with_the_parent() {
+    let mut s = chained("chained");
+    let r = s.calculate(&Targets::All);
+    assert!(
+        r.iter()
+            .all(|r| r.state == JobState::Done { cached: false }),
+        "{r:?}"
+    );
+    let a = s.result("t1").unwrap();
+    let b = s.result("t2").unwrap();
+    // Same tool, parameters and inherited frame: the same path.
+    assert_eq!(a, b);
+    let p2 = (*s.project.setups[1]).clone();
+    let f = frame(&s, &p2);
+    assert_eq!(f.stock.max, Point3::new(50.0, 40.0, 0.0));
+    // A parent edit restales the child.
+    s.project.setup_mut("s1").unwrap().stock = Some(fluut_model::project::StockSpec::Block {
+        margin: Some([Num::int(6), Num::int(6), Num::int(1)]),
+        size: None,
+    });
+    assert!(s.is_stale("t2"));
+    // A broken chain fails the child's toolpaths.
+    s.project.setup_mut("s2").unwrap().based_on = Some("s9".into());
+    let r = s.calculate(&Targets::Toolpaths(vec!["t2".into()]));
+    assert_eq!(r[0].state, JobState::Failed);
+    assert_eq!(r[0].diagnostics[0].code, "setup.based_on.missing");
+}
+
+#[test]
+fn frames_take_scale_size_and_face_picks() {
+    let s = open("frames2");
+    let body = s.store.bodies().next().unwrap().id.clone();
+    let stem = body.strip_prefix("b-").unwrap();
+    let mut setup = (*s.project.setups[0]).clone();
+    setup.geometry = Some(fluut_model::project::GeometrySel {
+        scale: Some([Num::int(2); 3]),
+        mirror: Some([false, true, false]),
+        ..Default::default()
+    });
+    setup.stock = Some(fluut_model::project::StockSpec::Block {
+        margin: None,
+        size: Some([Num::int(100), Num::int(70), Num::int(25)]),
+    });
+    setup.zero = Some(ZeroSpec::StockTopCentre);
+    let f = frame(&s, &setup);
+    // The boss is 80 × 60 × 20 after scaling (mirrored in Y), centred in a
+    // 100 × 70 × 25 box standing on the model bottom.
+    assert_eq!(f.stock.max.z(), 0.0);
+    assert_eq!(f.stock.min.z(), -25.0);
+    assert!((f.stock.max.x() - 50.0).abs() < 1e-9 && (f.stock.min.y() + 35.0).abs() < 1e-9);
+    assert!((f.model.max.x() - 40.0).abs() < 1e-9, "{:?}", f.model);
+    assert!((f.model.max.y() - 30.0).abs() < 1e-9, "{:?}", f.model);
+    assert!((f.model.min.z() + 25.0).abs() < 1e-9, "{:?}", f.model);
+    // The top face of the boss as the tool axis: the same as +Z.
+    let top = (0..20).map(|i| format!("f-{stem}.{i}")).find(|id| {
+        let mut t = (*s.project.setups[0]).clone();
+        t.orientation = Some(Orientation::ThreeAxis {
+            tool_axis: fluut_model::project::AxisPick::Face(id.clone()),
+            x_axis: AxisDir::PosX.into(),
+        });
+        try_frame(&s, &t).is_ok_and(|f| f.to_work == frame(&s, &s.project.setups[0]).to_work)
+    });
+    assert!(top.is_some());
+    let mut t = (*s.project.setups[0]).clone();
+    t.orientation = Some(Orientation::ThreeAxis {
+        tool_axis: fluut_model::project::AxisPick::Face("f-nope.1".into()),
+        x_axis: AxisDir::PosX.into(),
+    });
+    assert_eq!(
+        try_frame(&s, &t).unwrap_err().code,
+        "setup.orientation.pick"
+    );
+    t.kind = Some(fluut_model::project::SetupKind::Rotary);
+    assert!(try_frame(&s, &t).is_err());
 }
