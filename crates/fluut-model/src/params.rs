@@ -15,7 +15,7 @@ pub(crate) mod value;
 mod tests;
 
 pub use meta::{Class, ConstVal, DefaultRule, FieldKind, FieldMeta, Group, ToolpathTypeId};
-pub use tables::HEIGHT_REFS;
+pub use tables::{HEIGHT_REFS, X_REFS};
 pub use value::{HeightSpec, Num, PValue, ParamMap, Sel};
 
 use std::fmt::Write;
@@ -88,6 +88,12 @@ impl Params {
                 _ => None,
             },
         }
+    }
+
+    /// The toolpath starts from the in-process stock of the earlier
+    /// toolpaths in its Setup (`rest_from = "previous"`, D15 §2.3.2).
+    pub fn reads_in_process(&self) -> bool {
+        matches!(self.get("geometry.rest_from"), Some(PValue::Enum(s)) if s == "previous")
     }
 
     pub fn is_set(&self, path: &str) -> bool {
@@ -244,8 +250,10 @@ fn fits(kind: FieldKind, v: &PValue) -> bool {
         ) => true,
         (FieldKind::Count, PValue::Num(n)) => n.int,
         (FieldKind::Bool, PValue::Bool(_)) => true,
+        (FieldKind::Text, PValue::Enum(_)) => true,
         (FieldKind::Enum(allowed), PValue::Enum(s)) => allowed.contains(&s.as_str()),
         (FieldKind::Height, PValue::Height(h)) => HEIGHT_REFS.contains(&h.reference.as_str()),
+        (FieldKind::XPos, PValue::Height(h)) => X_REFS.contains(&h.reference.as_str()),
         (FieldKind::Selection, PValue::Selection(_)) => true,
         (FieldKind::Point, PValue::Point(_)) => true,
         (FieldKind::Points, PValue::Points(_)) => true,

@@ -1,0 +1,47 @@
+format = "fluut.project/1"
+name   = "Rough 3-D"
+units  = "mm"
+
+[[geometry]]
+id   = "g1"
+path = "rough3d.step"
+kind = "step"
+
+  [[geometry.body]]
+  id   = "b-172"
+  name = "ridge"
+
+[[setup]]
+id       = "s1"
+name     = "Top"
+kind     = "three_axis"
+material = "MDF"
+stock    = { kind = "block", margin = [5, 5, 1] }
+zero     = { method = "stock_top_corner", corner = "front_left" }
+
+  [[setup.toolpath]]
+  id   = "t1"
+  name = "Adaptive rough"
+  type = "adaptive_3d"
+  tool = "shop#flat-6"
+
+    [setup.toolpath.passes]
+    machining_tolerance = 0.02
+    stock_to_leave      = 0.5
+
+  [[setup.toolpath]]
+  id   = "t2"
+  name = "Rest rough"
+  type = "pocket_3d"
+  tool = "shop#flat-3"
+
+    [setup.toolpath.geometry]
+    rest_from = "previous"
+
+    [setup.toolpath.heights]
+    bottom = { ref = "model_top", offset = -8 }
+
+    [setup.toolpath.passes]
+    machining_tolerance = 0.02
+    step_down           = 1
+    stock_to_leave      = 0.3

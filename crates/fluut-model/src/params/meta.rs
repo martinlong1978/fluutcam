@@ -73,6 +73,10 @@ pub enum FieldKind {
     Enum(&'static [&'static str]),
     /// `{ ref, offset }` (D15 §2.4).
     Height,
+    /// `{ ref, offset }` along X of W (D15b §1.4).
+    XPos,
+    /// A string (D15b §7).
+    Text,
     /// Array of `{ body | face | edge = id }` (D15 §2.3.1).
     Selection,
     /// `[x, y, z]` in the model frame, mm.
@@ -154,10 +158,18 @@ pub enum ToolpathTypeId {
     Spiral,
     Scallop,
     SteepAndShallow,
+    // 3-D roughing (D15b §4), rotary (D15b §6) and manual_nc (D15b §7).
+    Adaptive3d,
+    Pocket3d,
+    RotaryRough,
+    RotaryAlongX,
+    RotaryAroundA,
+    RotarySpiral,
+    ManualNc,
 }
 
 impl ToolpathTypeId {
-    pub const ALL: [ToolpathTypeId; 15] = [
+    pub const ALL: [ToolpathTypeId; 22] = [
         ToolpathTypeId::Contour2d,
         ToolpathTypeId::Pocket2d,
         ToolpathTypeId::Parallel,
@@ -173,6 +185,13 @@ impl ToolpathTypeId {
         ToolpathTypeId::Spiral,
         ToolpathTypeId::Scallop,
         ToolpathTypeId::SteepAndShallow,
+        ToolpathTypeId::Adaptive3d,
+        ToolpathTypeId::Pocket3d,
+        ToolpathTypeId::RotaryRough,
+        ToolpathTypeId::RotaryAlongX,
+        ToolpathTypeId::RotaryAroundA,
+        ToolpathTypeId::RotarySpiral,
+        ToolpathTypeId::ManualNc,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -192,6 +211,13 @@ impl ToolpathTypeId {
             ToolpathTypeId::Spiral => "spiral",
             ToolpathTypeId::Scallop => "scallop",
             ToolpathTypeId::SteepAndShallow => "steep_and_shallow",
+            ToolpathTypeId::Adaptive3d => "adaptive_3d",
+            ToolpathTypeId::Pocket3d => "pocket_3d",
+            ToolpathTypeId::RotaryRough => "rotary_rough",
+            ToolpathTypeId::RotaryAlongX => "rotary_along_x",
+            ToolpathTypeId::RotaryAroundA => "rotary_around_a",
+            ToolpathTypeId::RotarySpiral => "rotary_spiral",
+            ToolpathTypeId::ManualNc => "manual_nc",
         }
     }
 
@@ -217,6 +243,13 @@ impl ToolpathTypeId {
             ToolpathTypeId::Spiral => super::tables::SPIRAL,
             ToolpathTypeId::Scallop => super::tables::SCALLOP,
             ToolpathTypeId::SteepAndShallow => super::tables::STEEP_AND_SHALLOW,
+            ToolpathTypeId::Adaptive3d => super::tables::ADAPTIVE_3D,
+            ToolpathTypeId::Pocket3d => super::tables::POCKET_3D,
+            ToolpathTypeId::RotaryRough => super::tables::ROTARY_ROUGH,
+            ToolpathTypeId::RotaryAlongX => super::tables::ROTARY_ALONG_X,
+            ToolpathTypeId::RotaryAroundA => super::tables::ROTARY_AROUND_A,
+            ToolpathTypeId::RotarySpiral => super::tables::ROTARY_SPIRAL,
+            ToolpathTypeId::ManualNc => super::tables::MANUAL_NC,
         }
     }
 
@@ -232,6 +265,37 @@ impl ToolpathTypeId {
                 | ToolpathTypeId::Spiral
                 | ToolpathTypeId::Scallop
                 | ToolpathTypeId::SteepAndShallow
+        )
+    }
+
+    /// The type takes its swept material out of the in-process stock
+    /// (D15 §1.9, D15b §1.10).
+    pub fn updates_stock(self) -> bool {
+        matches!(
+            self,
+            ToolpathTypeId::Contour2d
+                | ToolpathTypeId::Pocket2d
+                | ToolpathTypeId::Face
+                | ToolpathTypeId::Trace
+                | ToolpathTypeId::Chamfer2d
+                | ToolpathTypeId::Bore
+                | ToolpathTypeId::Drill
+                | ToolpathTypeId::Adaptive2d
+                | ToolpathTypeId::Engrave
+                | ToolpathTypeId::Adaptive3d
+                | ToolpathTypeId::Pocket3d
+                | ToolpathTypeId::RotaryRough
+        )
+    }
+
+    /// Rotary types run in `rotary` Setups only (D15b §1.2, §6).
+    pub fn is_rotary(self) -> bool {
+        matches!(
+            self,
+            ToolpathTypeId::RotaryRough
+                | ToolpathTypeId::RotaryAlongX
+                | ToolpathTypeId::RotaryAroundA
+                | ToolpathTypeId::RotarySpiral
         )
     }
 

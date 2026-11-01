@@ -8,14 +8,15 @@ use crate::frame::SetupFrame;
 use crate::graph::{Graph, NodeId};
 use crate::reimport::{ReimportReport, Unmatched, belongs, match_bodies, references};
 use crate::store::ModelStore;
-use fluut_cam::StrategyInput;
 use fluut_cam::geometry::SetupBody;
+use fluut_cam::stock::{LayeredStock, Sweep};
+use fluut_cam::{RotaryAxisInfo, RotaryInfo, StrategyInput};
 use fluut_model::document::{Document, Outcome};
 use fluut_model::edit::{Edit, EditError};
 use fluut_model::journal::{Journal, file_hash, journal_path, recover};
 use fluut_model::library::{DefKind, LayerKind, Library};
 use fluut_model::machine::{BUILTIN_MACHINES, Machine};
-use fluut_model::project::{BodyEntry, Project, read};
+use fluut_model::project::{BodyEntry, Project, SetupKind, read};
 use fluut_model::resolve::{Coolant, DrillCycle, resolve};
 use fluut_model::setup::{ResolvedSetup, resolve_all};
 use fluut_model::tools::ToolStore;
@@ -494,19 +495,46 @@ impl Session {
         let mut reports = Vec::new();
         let project = self.project.clone();
         for (s, rs) in project.setups.iter().zip(resolve_all(&project)) {
-            let wanted: Vec<_> = s
+            let mut wanted: Vec<bool> = s
                 .toolpaths
                 .iter()
-                .filter(|t| match targets {
+                .map(|t| match targets {
                     Targets::All => true,
                     Targets::Toolpaths(ids) => ids.contains(&t.id),
                 })
                 .collect();
-            if wanted.is_empty() {
+            // A toolpath that reads the in-process stock needs every
+            // earlier toolpath of its Setup (D08 §7).
+            let last_reader = s
+                .toolpaths
+                .iter()
+                .zip(&wanted)
+                .rposition(|(t, w)| *w && t.is_enabled() && t.params.reads_in_process());
+            if let Some(i) = last_reader {
+                wanted[..i].iter_mut().for_each(|w| *w = true);
+            }
+            if !wanted.iter().any(|w| *w) {
                 continue;
             }
             let mut frame: Option<Result<SetupFrame, Diagnostic>> = None;
-            for t in wanted {
+            let mut stock: Option<LayeredStock> = None;
+            if last_reader.is_some()
+                && let Ok(r) = &rs
+            {
+                let fr = frame.get_or_insert_with(|| {
+                    self.setup_bodies(r).and_then(|b| SetupFrame::new(r, b))
+                });
+                if let Ok(f) = fr {
+                    stock = Some(f.initial_stock());
+                }
+            }
+            for (ti, t) in s.toolpaths.iter().enumerate() {
+                if !wanted[ti] {
+                    continue;
+                }
+                // Update the stock from this toolpath's result while a
+                // later toolpath still reads it.
+                let feeds_stock = last_reader.is_some_and(|l| ti < l) && t.kind().updates_stock();
                 let job = self.next_job;
                 self.next_job += 1;
                 let report = |state, diagnostics, stats| JobReport {
@@ -537,6 +565,12 @@ impl Session {
                     );
                 }
                 if let Some(c) = self.cache.get(&hash) {
+                    if feeds_stock
+                        && let (Some(st), Some(tool), Ok(rs)) =
+                            (stock.as_mut(), self.tools.get(t.tool_ref()), &rs)
+                    {
+                        update_stock(st, &c.result, t, tool, rs);
+                    }
                     let st = *c.result.stats();
                     reports.push(report(
                         JobState::Done { cached: true },
@@ -552,6 +586,29 @@ impl Session {
                         continue;
                     }
                 };
+                // `manual_nc` has no tool and no geometry (D15b §7).
+                if t.kind() == fluut_model::params::ToolpathTypeId::ManualNc {
+                    match fluut_cam::strategy::manual_nc(t, rs.kind) {
+                        Ok(g) => {
+                            self.calculated += 1;
+                            let st = *g.result.stats();
+                            self.cache.insert(
+                                hash,
+                                Cached {
+                                    result: Arc::new(g.result),
+                                    diagnostics: g.diagnostics.clone(),
+                                },
+                            );
+                            reports.push(report(
+                                JobState::Done { cached: false },
+                                g.diagnostics,
+                                Some(st),
+                            ));
+                        }
+                        Err(e) => reports.push(report(JobState::Failed, e.diagnostics(), None)),
+                    }
+                    continue;
+                }
                 let Some(tool) = self.tools.get(t.tool_ref()) else {
                     let d = validate(t, &ValidateCx::new(None));
                     reports.push(report(JobState::Failed, d, None));
@@ -567,6 +624,11 @@ impl Session {
                         continue;
                     }
                 };
+                let in_process = if t.params.reads_in_process() {
+                    stock.as_ref()
+                } else {
+                    None
+                };
                 let input = StrategyInput {
                     toolpath: t,
                     geometry: &fr.geometry,
@@ -578,10 +640,21 @@ impl Session {
                     to_work: fr.to_work,
                     machine: self.machine(rs.machine.as_deref()).and_then(|m| m.limits()),
                     post,
+                    in_process,
+                    rotary: fr.rotary_info().map(|i| RotaryInfo {
+                        machine_axis: rs
+                            .machine
+                            .as_deref()
+                            .map(|m| self.machine(Some(m)).and_then(|m| rotary_axis(&m))),
+                        ..i
+                    }),
                 };
                 match fluut_cam::calculate(&input) {
                     Ok(g) => {
                         self.calculated += 1;
+                        if feeds_stock && let Some(st) = stock.as_mut() {
+                            update_stock(st, &g.result, t, tool, rs);
+                        }
                         if let Some(d) = &self.disk {
                             // A cache that cannot be written only costs time.
                             let _ = d.put(&hash, &g.result, &g.diagnostics);
@@ -688,6 +761,24 @@ impl Session {
             ),
         };
         let mut reports = self.calculate_with(&targets, Some(caps));
+        // `manual_nc` needs the post's `manual_nc` block (D15b §7).
+        if !has("manual_nc") {
+            let chosen_tps = self.project.setups.iter().filter(|s| chosen(&s.id));
+            for t in chosen_tps.flat_map(|s| s.toolpaths.iter()) {
+                if t.is_enabled()
+                    && t.kind() == fluut_model::params::ToolpathTypeId::ManualNc
+                    && let Some(rep) = reports.iter_mut().find(|r| r.toolpath == t.id)
+                {
+                    rep.diagnostics.push(
+                        Diagnostic::error(
+                            "param.manual_nc.post",
+                            format!("post `{post_id}` has no manual_nc block"),
+                        )
+                        .on(&t.id),
+                    );
+                }
+            }
+        }
         // Post-dependent rules also for toolpaths taken from the cache.
         let project = self.project.clone();
         for (s, rs) in project.setups.iter().zip(resolve_all(&project)) {
@@ -755,6 +846,30 @@ impl Session {
             let Ok(rs) = rs else { continue };
             let mut toolpaths = Vec::new();
             for t in s.toolpaths.iter().filter(|t| t.is_enabled()) {
+                if t.kind() == fluut_model::params::ToolpathTypeId::ManualNc {
+                    // No tool: the post keeps the active one (D15b §9,
+                    // decision 16) and emits only the markers.
+                    let Some(result) = self.result(&t.id) else {
+                        continue;
+                    };
+                    let prev = toolpaths.last().cloned();
+                    toolpaths.push(ToolpathJob {
+                        name: t.name.clone(),
+                        kind: t.kind().as_str().to_owned(),
+                        result,
+                        ..prev.unwrap_or_else(|| ToolpathJob {
+                            name: String::new(),
+                            kind: String::new(),
+                            tool: ToolInfo::default(),
+                            spindle_rpm: 0.0,
+                            coolant: fluut_post::Coolant::Off,
+                            feeds: Feeds::default(),
+                            safe_z: 0.0,
+                            result: Arc::new(ToolpathResult::new(Vec::new()).expect("empty")),
+                        })
+                    });
+                    continue;
+                }
                 let (Some(result), Some(tool)) = (self.result(&t.id), self.tools.get(t.tool_ref()))
                 else {
                     continue;
@@ -804,7 +919,11 @@ impl Session {
             }
             setups.push(SetupJob {
                 name: s.name.clone(),
-                kind: fluut_post::SetupKind::ThreeAxis,
+                kind: match rs.kind {
+                    SetupKind::ThreeAxis => fluut_post::SetupKind::ThreeAxis,
+                    SetupKind::Rotary => fluut_post::SetupKind::Rotary,
+                    SetupKind::Indexed => fluut_post::SetupKind::Indexed,
+                },
                 work_offset: rs.work_offset.clone(),
                 index_a: None,
                 index_b: None,
@@ -839,6 +958,36 @@ impl Session {
             setups,
         }
     }
+}
+
+/// The machine's A axis (parallel to X), or `None` when it has none.
+fn rotary_axis(m: &Machine) -> Option<RotaryAxisInfo> {
+    let a = m
+        .fields
+        .axis
+        .rotary
+        .iter()
+        .find(|a| a.parallel_to.eq_ignore_ascii_case("x"))?;
+    Some(RotaryAxisInfo {
+        continuous: a.continuous,
+        limits_deg: match a.limits_deg.as_slice() {
+            [lo, hi] => Some((*lo, *hi)),
+            _ => None,
+        },
+    })
+}
+
+/// Takes what `result` cut out of `stock` (D08 §7).
+fn update_stock(
+    stock: &mut LayeredStock,
+    result: &ToolpathResult,
+    t: &fluut_model::project::Toolpath,
+    tool: &fluut_model::tools::Tool,
+    rs: &ResolvedSetup,
+) {
+    let p = resolve(&t.params, tool, rs.material.as_deref());
+    let tol = p.passes.machining_tolerance.max(1e-4);
+    stock.apply(result, Sweep::of(tool), tol);
 }
 
 /// Validation codes that depend on the post. They are checked again at

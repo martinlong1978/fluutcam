@@ -128,6 +128,8 @@ fn input<'a>(g: &'a SetupGeometry, t: &'a Toolpath, tool: &'a Tool) -> StrategyI
         to_work: Affine::identity(),
         machine: None,
         post: None,
+        in_process: None,
+        rotary: None,
     }
 }
 

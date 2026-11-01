@@ -744,7 +744,11 @@ fn markers() {
     ]);
     let nc = "[blocks.manual_nc]\nlines = [{when = \"marker.kind == 'stop'\", line = 'M0'}, {when = \"marker.kind == 'comment'\", line = '([COMMENT])'}, {when = \"marker.kind == 'dwell'\", line = 'G4 P[DWELL]'}]";
     let l = all_lines(&[nc], r.clone());
-    assert_eq!(&after(&l, "(A)")[..3], ["M0", "(check clamps)", "G4 P1.5"]);
+    // A toolpath of markers only (`manual_nc`) emits the markers and no
+    // tool change or toolpath blocks (D15b §7).
+    let i = l.iter().position(|x| x == "M0").unwrap();
+    assert_eq!(&l[i..i + 3], ["M0", "(check clamps)", "G4 P1.5"]);
+    assert!(!l.iter().any(|x| x == "(A)" || x.contains("M6")), "{l:?}");
     let out = post(&job(vec![toolpath("A", 1, r)]), &compiled("")).unwrap();
     assert_eq!(out.warnings.len(), 3);
 }

@@ -115,11 +115,18 @@ fn every_d15b_example_round_trips() {
             "chamfer_2d",
             "bore",
             "drill",
+            "adaptive_3d",
+            "pocket_3d",
             "contour",
             "horizontal",
             "spiral",
             "scallop",
-            "steep_and_shallow"
+            "steep_and_shallow",
+            "rotary_rough",
+            "rotary_along_x",
+            "rotary_around_a",
+            "rotary_spiral",
+            "manual_nc"
         ]
     );
 }
@@ -293,7 +300,7 @@ fn load_errors_and_warnings() {
             "`setup[0].clearance.radius` is missing",
         ),
         (
-            "[[setup]]\nid = \"s\"\n[[setup.toolpath]]\nid = \"t\"\ntype = \"adaptive_3d\"\ntool = \"a#b\"",
+            "[[setup]]\nid = \"s\"\n[[setup.toolpath]]\nid = \"t\"\ntype = \"lathe_turn\"\ntool = \"a#b\"",
             "not supported by this build",
         ),
         ("[[setup]]\nid = \"s\"\n[[setup]]\nid = \"s\"", "used twice"),

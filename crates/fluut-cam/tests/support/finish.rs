@@ -119,6 +119,8 @@ pub fn input<'a>(g: &'a SetupGeometry, t: &'a Toolpath, tool: &'a Tool) -> Strat
         stock: None,
         machine: None,
         post: None,
+        in_process: None,
+        rotary: None,
     }
 }
 

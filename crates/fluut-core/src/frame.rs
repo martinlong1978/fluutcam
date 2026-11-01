@@ -8,10 +8,14 @@
 //! aligned frame. The frame is built from the resolved Setup, so inherited
 //! fields count (D06 §2).
 
+use fluut_cam::RotaryInfo;
 use fluut_cam::geometry::{EdgeRef, SetupBody, SetupGeometry};
+use fluut_cam::stock::LayeredStock;
 use fluut_geom::{Aabb3, Affine, Curve3, Point3, Surface, Vec3};
 use fluut_model::Diagnostic;
-use fluut_model::project::{AxisPick, Corner, Orientation, SetupKind, StockSpec, ZeroSpec};
+use fluut_model::project::{
+    AxisPick, AxisX, ClearanceSpec, Corner, Orientation, SetupKind, StockSpec, ZeroSpec,
+};
 use fluut_model::resolve::HeightEnv;
 use fluut_model::setup::ResolvedSetup;
 use glam::{DMat3, DVec3};
@@ -28,8 +32,23 @@ pub struct SetupFrame {
     pub stock: Aabb3,
     /// Bounds of the Setup's bodies in W.
     pub model: Aabb3,
-    /// Z of the Setup clearance plane in W.
+    /// Z of the Setup clearance plane in W; in a rotary Setup the radius
+    /// of the clearance cylinder.
     pub clearance: f64,
+    /// Rotary data of a `rotary` Setup.
+    pub rotary: Option<RotaryFrame>,
+}
+
+/// The cylinder data of a `rotary` Setup, in W (X is the rotary axis).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RotaryFrame {
+    pub stock_radius: f64,
+    /// X of the stock ends.
+    pub stock_x: (f64, f64),
+    /// X extent of the bodies.
+    pub model_x: (f64, f64),
+    /// Radius range of the bodies' faces (D15b §1.3).
+    pub model_r: (f64, f64),
 }
 
 fn dvec(v: Vec3) -> DVec3 {
@@ -110,7 +129,7 @@ impl SetupFrame {
         if let Some(d) = s.diagnostics.iter().find(|d| d.is_error()) {
             return Err(d.clone());
         }
-        if s.kind != SetupKind::ThreeAxis {
+        if s.kind == SetupKind::Indexed {
             return Err(Diagnostic::error(
                 "setup.kind.unsupported",
                 format!("Setup `{}`: {} Setups are not supported yet", s.id, s.kind),
@@ -155,6 +174,9 @@ impl SetupFrame {
                     .map_err(|e| Diagnostic::error("setup.geometry.transform", e))?
             }
         };
+        if s.kind == SetupKind::Rotary {
+            return rotary_frame(s, &bodies, &scaled, scale);
+        }
         let Orientation::ThreeAxis { tool_axis, x_axis } = &s.orientation else {
             return Err(Diagnostic::error(
                 "setup.orientation.kind",
@@ -266,11 +288,43 @@ impl SetupFrame {
             clearance: stock.max.z() + offset,
             stock,
             model,
+            rotary: None,
+        })
+    }
+
+    /// The Setup stock as in-process stock, before any toolpath (D08 §7):
+    /// cylindrical layers in a rotary Setup.
+    pub fn initial_stock(&self) -> LayeredStock {
+        match &self.rotary {
+            Some(r) => LayeredStock::cylindrical(r.stock_radius, r.stock_x.0, r.stock_x.1),
+            None => LayeredStock::planar(&self.stock),
+        }
+    }
+
+    /// Rotary data for rotary types (the machine axis is left unknown);
+    /// `None` in a `three_axis` Setup.
+    pub fn rotary_info(&self) -> Option<RotaryInfo> {
+        self.rotary.map(|r| RotaryInfo {
+            stock_radius: r.stock_radius,
+            stock_x: r.stock_x,
+            model_x: r.model_x,
+            machine_axis: None,
         })
     }
 
     /// Height references of this Setup (selection left to the toolpath).
+    /// In a rotary Setup they are radii (D15b §1.3).
     pub fn height_env(&self) -> HeightEnv {
+        if let Some(r) = &self.rotary {
+            return HeightEnv {
+                setup_clearance: self.clearance,
+                stock_top: r.stock_radius,
+                stock_bottom: 0.0,
+                model_top: r.model_r.1,
+                model_bottom: r.model_r.0,
+                selection: None,
+            };
+        }
         HeightEnv {
             setup_clearance: self.clearance,
             stock_top: self.stock.max.z(),
@@ -280,4 +334,153 @@ impl SetupFrame {
             selection: None,
         }
     }
+}
+
+/// The rotary axis line of a pick, in the scaled model frame: a point and
+/// a direction (spec 03 §3.9.3).
+fn axis_line(p: &AxisPick, g: &SetupGeometry) -> Result<(DVec3, DVec3), Diagnostic> {
+    match p {
+        AxisPick::Axis(a) => Ok((DVec3::ZERO, DVec3::from(a.vector()))),
+        AxisPick::Face(id) => {
+            let (b, i) = g
+                .face(id)
+                .ok_or_else(|| pick_error(id, "is not a face of the Setup's bodies"))?;
+            let f = &b.faces[i as usize];
+            match &b.surfaces[f.surface as usize] {
+                Surface::Cylinder { frame, .. } | Surface::Cone { frame, .. } => {
+                    Ok((dvec(frame.origin - Point3::ORIGIN), dvec(frame.z.get())))
+                }
+                _ => Err(pick_error(id, "is not cylindrical or conical")),
+            }
+        }
+        AxisPick::Edge(id) => match g
+            .edge(id)
+            .ok_or_else(|| pick_error(id, "is not an edge of the Setup's bodies"))?
+        {
+            EdgeRef::Brep(b, i) => match b.edges[i as usize].curve.map(|c| &b.curves[c as usize]) {
+                Some(Curve3::Line { origin, dir }) => {
+                    Ok((dvec(*origin - Point3::ORIGIN), dvec(dir.get())))
+                }
+                _ => Err(pick_error(id, "is not a straight edge")),
+            },
+            EdgeRef::Wire(w) => match &w.curve {
+                Curve3::Line { origin, dir } => {
+                    Ok((dvec(*origin - Point3::ORIGIN), dvec(dir.get())))
+                }
+                _ => Err(pick_error(id, "is not a straight edge")),
+            },
+        },
+    }
+}
+
+/// The frame of a `rotary` Setup (spec 03 §3.9.3): X of W along the rotary
+/// axis, +Z toward `a_zero_toward` at A = 0, Y and Z of the zero on the
+/// axis. A `cylinder` stock is centred on the bodies' X extent.
+fn rotary_frame(
+    s: &ResolvedSetup,
+    bodies: &[SetupBody],
+    scaled: &SetupGeometry,
+    scale: Option<DMat3>,
+) -> Result<SetupFrame, Diagnostic> {
+    let Orientation::Rotary {
+        rotary_axis,
+        a_zero_toward,
+    } = &s.orientation
+    else {
+        return Err(Diagnostic::error(
+            "setup.orientation.kind",
+            format!("Setup `{}`: a rotary Setup needs a rotary_axis", s.id),
+        ));
+    };
+    let (p0, x) = axis_line(rotary_axis, scaled)?;
+    let x = x.normalize();
+    let z0 = match a_zero_toward {
+        Some(p) => direction(p, scaled)?,
+        None => DVec3::Z,
+    };
+    let z = z0 - x * z0.dot(x);
+    if z.length() < 1e-9 {
+        return Err(Diagnostic::error(
+            "setup.orientation.invalid",
+            "the A = 0 direction is parallel to the rotary axis",
+        )
+        .at("orientation"));
+    }
+    let z = z.normalize();
+    let y = z.cross(x);
+    let rot = DMat3::from_cols(x, y, z).transpose();
+    let lin = scale.map_or(rot, |m| rot * m);
+    // The axis line through the origin of the aligned frame.
+    let t = -(rot * p0);
+    let align = Affine::from_mat3_translation(lin, Vec3::new(t.x, t.y, t.z));
+    let aligned = SetupGeometry::transformed(bodies, &align)
+        .map_err(|e| Diagnostic::error("setup.geometry.transform", e))?;
+    let mb = aligned.bounds(BOUNDS_CHORD);
+    if mb.is_empty() {
+        return Err(Diagnostic::error(
+            "setup.geometry.empty",
+            format!("Setup `{}`: the bodies have no extent", s.id),
+        ));
+    }
+    let spec = match &s.stock {
+        Some(StockSpec::FromPrevious) => s.carried_stock.clone(),
+        st => st.clone(),
+    };
+    let (radius, x0, x1) = match spec {
+        Some(StockSpec::Cylinder { radius, length }) => {
+            let c = 0.5 * (mb.min.x() + mb.max.x());
+            (radius.v, c - 0.5 * length.v, c + 0.5 * length.v)
+        }
+        other => {
+            return Err(Diagnostic::error(
+                "setup.stock.unsupported",
+                format!(
+                    "Setup `{}`: a rotary Setup needs a cylinder stock, not {}",
+                    s.id,
+                    other.map_or("none", |o| o.kind())
+                ),
+            )
+            .at("stock"));
+        }
+    };
+    let zx = match &s.zero {
+        ZeroSpec::OnAxis { x } => match x {
+            AxisX::StockLeft => x0,
+            AxisX::StockRight => x1,
+            AxisX::At(v) => v.v,
+        },
+        _ => {
+            return Err(Diagnostic::error(
+                "setup.zero.kind",
+                format!("Setup `{}`: a rotary zero lies on the axis", s.id),
+            ));
+        }
+    };
+    let to_work = align.then(&Affine::translation(Vec3::new(-zx, 0.0, 0.0)));
+    let geometry = SetupGeometry::transformed(bodies, &to_work)
+        .map_err(|e| Diagnostic::error("setup.geometry.transform", e))?;
+    let model = geometry.bounds(BOUNDS_CHORD);
+    let model_r = fluut_cam::radial::radius_range(&geometry, BOUNDS_CHORD).unwrap_or((0.0, radius));
+    let clearance = match &s.clearance {
+        Some(ClearanceSpec::Cylinder { radius: r }) => r.v,
+        Some(c) => radius + c.plane_offset().unwrap_or(ClearanceSpec::DEFAULT_OFFSET),
+        None => radius + ClearanceSpec::DEFAULT_OFFSET,
+    };
+    let (x0, x1) = (x0 - zx, x1 - zx);
+    Ok(SetupFrame {
+        to_work,
+        geometry,
+        stock: Aabb3 {
+            min: Point3::new(x0, -radius, -radius),
+            max: Point3::new(x1, radius, radius),
+        },
+        model,
+        clearance,
+        rotary: Some(RotaryFrame {
+            stock_radius: radius,
+            stock_x: (x0, x1),
+            model_x: (model.min.x(), model.max.x()),
+            model_r,
+        }),
+    })
 }

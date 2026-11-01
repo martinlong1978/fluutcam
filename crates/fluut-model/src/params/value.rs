@@ -3,7 +3,7 @@
 //! Parameter values as stored in the document (D15 §1.3–§1.4).
 
 use super::meta::{FieldKind, FieldMeta};
-use super::tables::HEIGHT_REFS;
+use super::tables::{HEIGHT_REFS, X_REFS};
 use std::fmt::Write;
 
 /// A number as written in the file. `int` remembers the TOML integer form,
@@ -95,6 +95,7 @@ impl HeightSpec {
 pub enum PValue {
     Num(Num),
     Bool(bool),
+    /// An enum value, or the string of a `Text` field (D15b §7).
     Enum(String),
     Height(HeightSpec),
     Selection(Vec<Sel>),
@@ -255,7 +256,12 @@ pub(crate) fn convert(
             }
             _ => return Err(format!("expected a string, {}", found())),
         },
-        FieldKind::Height => PValue::Height(height(v)?),
+        FieldKind::Text => match v {
+            V::String(s) => PValue::Enum(s.clone()),
+            _ => return Err(format!("expected a string, {}", found())),
+        },
+        FieldKind::Height => PValue::Height(height(v, HEIGHT_REFS, "a height reference")?),
+        FieldKind::XPos => PValue::Height(height(v, X_REFS, "an X reference")?),
         FieldKind::Selection => PValue::Selection(selection(v)?),
         FieldKind::Point => PValue::Point(point(v)?),
         FieldKind::Points => match v {
@@ -276,7 +282,7 @@ pub(crate) fn convert(
     })
 }
 
-fn height(v: &toml::Value) -> Result<HeightSpec, String> {
+fn height(v: &toml::Value, refs: &[&str], what: &str) -> Result<HeightSpec, String> {
     let toml::Value::Table(t) = v else {
         return Err(format!(
             "expected {{ ref, offset }}, found {}",
@@ -287,12 +293,9 @@ fn height(v: &toml::Value) -> Result<HeightSpec, String> {
         return Err(format!("unknown key `{k}` in a height"));
     }
     let reference = match t.get("ref") {
-        Some(toml::Value::String(s)) if HEIGHT_REFS.contains(&s.as_str()) => s.clone(),
+        Some(toml::Value::String(s)) if refs.contains(&s.as_str()) => s.clone(),
         Some(toml::Value::String(s)) => {
-            return Err(format!(
-                "`{s}` is not a height reference ({})",
-                HEIGHT_REFS.join(", ")
-            ));
+            return Err(format!("`{s}` is not {what} ({})", refs.join(", ")));
         }
         _ => return Err("a height needs `ref`".into()),
     };
