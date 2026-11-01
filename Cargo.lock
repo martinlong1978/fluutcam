@@ -468,6 +468,7 @@ dependencies = [
  "fluut-model",
  "fluut-path",
  "fluut-post",
+ "fluut-script",
 ]
 
 [[package]]

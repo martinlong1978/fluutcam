@@ -35,6 +35,9 @@ reason, in the same words as the file reader ("`passes.stepover_x` is not a fiel
 pocket_2d"). Scripts may catch them with `try { … } catch (e) { … }`. Errors that end a run
 (limits, cancellation, `fluut.exit`) cannot be caught.
 
+Rhai cannot assign to the result of a call: write `let t = p.toolpath("t2"); t.enabled = false;`,
+not `p.toolpath("t2").enabled = false;`. Properties chain: `t.passes.stepover = 2.0` works.
+
 **Edits.** A member marked *E* applies one `Edit` (D06 §6.1) at once, so the next line sees the
 change. The whole run is one undo step (D12 §3.4); see §9.
 
