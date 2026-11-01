@@ -130,8 +130,8 @@ All earlier Global Constraints apply. In addition:
 - `DiskCache::new(dir)`, `get(hash) -> Option<Entry>`, `put(hash, &ToolpathResult, &[Diagnostic])`, `gc(referenced, now)`: unreferenced files older than 7 days are deleted. A hit refreshes the file time.
 - File: `FLUT`, schema `u16`, then postcard of `{ version, hash, passes, diagnostics }` (a mirror of the `fluut-path` types), then crc32. Decoding rebuilds `ToolpathResult::new`, so the invariants are checked again.
 - Session: memory cache, then disk, then calculate and store. `Session::save` writes the project, resets the journal and runs GC.
-- [ ] **Step 1:** Tests: encode/decode is bit-identical for every segment kind; a corrupt, truncated, wrong-schema or wrong-hash file is a miss; reload gives a cache hit with no calculation; an R edit misses and a P edit hits; GC keeps referenced and recent files.
-- [ ] **Step 2:** Implement; pass; commit.
+- [x] **Step 1:** Tests: encode/decode is bit-identical for every segment kind; a corrupt, truncated, wrong-schema or wrong-hash file is a miss; reload gives a cache hit with no calculation; an R edit misses and a P edit hits; GC keeps referenced and recent files.
+- [x] **Step 2:** Implement; pass; commit.
 
 ### Task 9: Re-import identity (`fluut-core`)
 

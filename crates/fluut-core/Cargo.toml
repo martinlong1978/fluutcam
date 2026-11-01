@@ -7,6 +7,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+crc32fast.workspace = true
 fluut-cam.workspace = true
 fluut-geom.workspace = true
 fluut-io-2d.workspace = true
@@ -17,6 +18,8 @@ fluut-path.workspace = true
 fluut-post.workspace = true
 fluut-topo.workspace = true
 glam.workspace = true
+postcard.workspace = true
+serde.workspace = true
 sha2.workspace = true
 
 [lints]

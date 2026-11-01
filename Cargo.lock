@@ -431,6 +431,7 @@ dependencies = [
 name = "fluut-core"
 version = "0.1.0"
 dependencies = [
+ "crc32fast",
  "fluut-cam",
  "fluut-geom",
  "fluut-io-2d",
@@ -441,6 +442,8 @@ dependencies = [
  "fluut-post",
  "fluut-topo",
  "glam",
+ "postcard",
+ "serde",
  "sha2",
 ]
 

@@ -82,6 +82,11 @@ impl Document {
         self
     }
 
+    /// Ends the document, handing back its journal.
+    pub fn into_journal(self) -> Option<Journal> {
+        self.journal
+    }
+
     pub fn journal_mut(&mut self) -> Option<&mut Journal> {
         self.journal.as_mut()
     }

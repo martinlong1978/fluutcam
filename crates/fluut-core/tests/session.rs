@@ -351,6 +351,7 @@ fn machines_and_posts_come_from_the_library() {
     let opts = fluut_core::OpenOptions {
         tool_files: Vec::new(),
         user_dir: Some(user.clone()),
+        ..Default::default()
     };
     let mut s = Session::open_with(&dir.join("p.fluut"), &opts).unwrap();
     assert!(s.warnings.is_empty(), "{:?}", s.warnings);

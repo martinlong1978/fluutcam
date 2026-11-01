@@ -3,11 +3,15 @@
 //! The session (D01 §5): one project, its definitions and geometry, the
 //! result cache, and calculation and post jobs.
 
+use crate::cache::DiskCache;
 use crate::frame::SetupFrame;
 use crate::graph::{Graph, NodeId};
 use crate::store::ModelStore;
 use fluut_cam::StrategyInput;
 use fluut_cam::geometry::SetupBody;
+use fluut_model::document::{Document, Outcome};
+use fluut_model::edit::{Edit, EditError};
+use fluut_model::journal::{Journal, file_hash, journal_path, recover};
 use fluut_model::library::{DefKind, LayerKind, Library};
 use fluut_model::machine::{BUILTIN_MACHINES, Machine};
 use fluut_model::project::{Project, read};
@@ -69,6 +73,12 @@ pub struct OpenOptions {
     /// The user definition folder (`posts/`, `machines/`, `templates/`,
     /// `tools/`); none when `None`.
     pub user_dir: Option<PathBuf>,
+    /// Read and write results in `<project>.fluut-cache/` (D06 §7.5).
+    pub cache: bool,
+    /// Record edits in `<project>.fluut-autosave` (D06 §7.3).
+    pub journal: bool,
+    /// Replay a journal left for this project file by a crash.
+    pub recover: bool,
 }
 
 /// The built-in layer: posts and machines embedded in the binary.
@@ -103,18 +113,29 @@ pub struct Session {
     pub tools: ToolStore,
     /// Load findings: project warnings, tool libraries, geometry.
     pub warnings: Vec<Diagnostic>,
+    /// The project file, when the session has one.
+    pub path: Option<PathBuf>,
     cache: BTreeMap<String, Cached>,
+    disk: Option<DiskCache>,
+    /// Undo history and journal; kept in step with `project` by `apply`.
+    doc: Document,
+    /// Results calculated (not taken from a cache) in this session.
+    pub calculated: usize,
     next_job: u64,
 }
 
 impl Session {
     pub fn new(project: Project, dir: PathBuf, store: ModelStore, library: Library) -> Session {
         Session {
+            doc: Document::new(project.clone()),
             project,
             dir,
             store,
             tools: library.tools(),
             library,
+            path: None,
+            disk: None,
+            calculated: 0,
             warnings: Vec::new(),
             cache: BTreeMap::new(),
             next_job: 1,
@@ -128,7 +149,7 @@ impl Session {
             path,
             &OpenOptions {
                 tool_files: tool_files.to_vec(),
-                user_dir: None,
+                ..OpenOptions::default()
             },
         )
     }
@@ -136,13 +157,13 @@ impl Session {
     /// Opens a project file with the definition layers of `opts`: built-in,
     /// then the user folder, then the folders beside the project.
     pub fn open_with(path: &Path, opts: &OpenOptions) -> Result<Session, Vec<Diagnostic>> {
-        let text = std::fs::read_to_string(path).map_err(|e| {
+        let bytes = std::fs::read(path).map_err(|e| {
             vec![Diagnostic::error(
                 "model.project.load",
                 format!("cannot read {}: {e}", path.display()),
             )]
         })?;
-        let loaded = read(&text).map_err(|e| {
+        let loaded = read(&String::from_utf8_lossy(&bytes)).map_err(|e| {
             vec![Diagnostic::error(
                 "model.project.load",
                 format!("{}: {e}", path.display()),
@@ -167,6 +188,36 @@ impl Session {
             warnings.extend(store.load(g, &dir));
         }
         let mut s = Session::new(loaded.project, dir, store, library);
+        s.path = Some(path.to_owned());
+        if opts.cache {
+            s.disk = Some(DiskCache::for_project(path));
+        }
+        let hash = file_hash(&bytes);
+        // Read the old journal before a new one replaces it.
+        let records = if opts.recover {
+            recover(&journal_path(path), &hash).ok().flatten()
+        } else {
+            None
+        };
+        if opts.journal {
+            let j = Journal::create(&journal_path(path), &hash).map_err(|e| {
+                vec![Diagnostic::error(
+                    "model.journal.create",
+                    format!("{}: {e}", journal_path(path).display()),
+                )]
+            })?;
+            let doc = std::mem::replace(&mut s.doc, Document::new(Project::new("")));
+            s.doc = doc.with_journal(j);
+        }
+        if let Some(records) = records {
+            // Replayed through the new journal, so a second crash keeps them.
+            let n = s.doc.replay(&records);
+            s.project = s.doc.project().clone();
+            warnings.push(Diagnostic::warning(
+                "model.journal.recovered",
+                format!("recovered {n} of {} unsaved changes", records.len()),
+            ));
+        }
         for (m, e) in s.machines() {
             if let Err(e) = e {
                 warnings.push(Diagnostic::warning(
@@ -177,6 +228,89 @@ impl Session {
         }
         s.warnings = warnings;
         Ok(s)
+    }
+
+    /// How many unsaved changes a crash left for the project file at
+    /// `path`, if any (D06 §7.3: offered on open).
+    pub fn pending_recovery(path: &Path) -> Option<usize> {
+        let bytes = std::fs::read(path).ok()?;
+        recover(&journal_path(path), &file_hash(&bytes))
+            .ok()
+            .flatten()
+            .map(|r| r.len())
+    }
+
+    /// Applies an edit: one undo step, journalled when the journal is on
+    /// (D01 §5: every mutation goes through here). Results whose inputs
+    /// changed become stale through their hashes.
+    pub fn apply(&mut self, edit: Edit) -> Result<Outcome, EditError> {
+        self.sync_doc();
+        let out = self.doc.apply(edit)?;
+        self.project = self.doc.project().clone();
+        Ok(out)
+    }
+
+    pub fn undo(&mut self) -> Option<Outcome> {
+        self.sync_doc();
+        let out = self.doc.undo()?;
+        self.project = self.doc.project().clone();
+        Some(out)
+    }
+
+    pub fn redo(&mut self) -> Option<Outcome> {
+        self.sync_doc();
+        let out = self.doc.redo()?;
+        self.project = self.doc.project().clone();
+        Some(out)
+    }
+
+    /// A project changed directly (not through `apply`) starts a new
+    /// history from its current state.
+    fn sync_doc(&mut self) {
+        if *self.doc.project() != self.project {
+            let mut doc = Document::new(self.project.clone());
+            if let Some(j) = self.doc_journal_take() {
+                doc = doc.with_journal(j);
+            }
+            self.doc = doc;
+        }
+    }
+
+    fn doc_journal_take(&mut self) -> Option<Journal> {
+        let doc = std::mem::replace(&mut self.doc, Document::new(Project::new("")));
+        doc.into_journal()
+    }
+
+    /// Saves the project to its file (atomic, with `.bak`; D06 §7.2),
+    /// starts the journal afresh and removes cache files no longer needed
+    /// (D06 §7.5).
+    pub fn save(&mut self) -> Result<(), Diagnostic> {
+        let path = self.path.clone().ok_or_else(|| {
+            Diagnostic::error("model.project.save", "the session has no project file")
+        })?;
+        let saved = fluut_model::persist::save(&path, &self.project).map_err(|e| {
+            Diagnostic::error("model.project.save", format!("{}: {e}", path.display()))
+        })?;
+        if let Some(j) = self.doc.journal_mut() {
+            j.reset(&file_hash(&saved.bytes)).map_err(|e| {
+                Diagnostic::error(
+                    "model.journal.reset",
+                    format!("{}: {e}", j.path().display()),
+                )
+            })?;
+        }
+        if let Some(d) = &self.disk {
+            let g = self.graph();
+            let referenced = g
+                .nodes
+                .iter()
+                .filter(|(k, _)| matches!(k, NodeId::Result(_)))
+                .map(|(_, n)| n.hash.clone())
+                .collect();
+            d.gc(&referenced, std::time::SystemTime::now())
+                .map_err(|e| Diagnostic::warning("model.cache.gc", e.to_string()))?;
+        }
+        Ok(())
     }
 
     /// Every machine the Setups name, resolved, by reference.
@@ -282,6 +416,18 @@ impl Session {
                     .hash(&NodeId::Result(t.id.clone()))
                     .unwrap_or_default()
                     .to_owned();
+                if !self.cache.contains_key(&hash)
+                    && let Some((result, diagnostics)) =
+                        self.disk.as_ref().and_then(|d| d.get(&hash))
+                {
+                    self.cache.insert(
+                        hash.clone(),
+                        Cached {
+                            result: Arc::new(result),
+                            diagnostics,
+                        },
+                    );
+                }
                 if let Some(c) = self.cache.get(&hash) {
                     let st = *c.result.stats();
                     reports.push(report(
@@ -326,6 +472,11 @@ impl Session {
                 };
                 match fluut_cam::calculate(&input) {
                     Ok(g) => {
+                        self.calculated += 1;
+                        if let Some(d) = &self.disk {
+                            // A cache that cannot be written only costs time.
+                            let _ = d.put(&hash, &g.result, &g.diagnostics);
+                        }
                         let st = *g.result.stats();
                         self.cache.insert(
                             hash,
