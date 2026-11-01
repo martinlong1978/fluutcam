@@ -77,7 +77,7 @@ Not in the original report, found while reproducing:
 
 **Files:** this plan, `docs/plan/README.md`.
 
-- [ ] **Step 1:** Merge `main`, run all checks, mark done, add the README row.
+- [x] **Step 1:** Merge `main`, run all checks, mark done, add the README row.
 
 ## Re-blessed golden files
 
@@ -88,3 +88,14 @@ Each change replaces a rapid through material, or a move into the part, with a f
 | `block-linuxcnc.ngc`, `block-grbl.gcode` | t2: the 7 `G0 Z-5.9` after each rapid at Z 1 (the first from Z 10) are gone; the `G1 Z-7.9 F600` plunge now starts at Z 1 | The tool feeds through the 0.2 mm of wall stock t1 left instead of rapiding through it (finding 1) |
 | `holes-linuxcnc.ngc`, `holes-grbl.gcode` | t2, hole at (40, 25): R plane −1 → 1 (`G0 Z1`, `R1`; GRBL's expanded pecks retract to Z 1) | The drill no longer rapids 1 mm into the unmachined Ø10 counterbore (finding 2) |
 | `plate2d-linuxcnc.ngc` | t4: one stay-down link `G1 X52.483 Y34.949` at Z −9 becomes a retract to Z 1, a rapid and a plunge at the same point | The link cut 0.15 mm into the island, 8 mm deep (finding 3) |
+
+**Done.** All reference projects simulate without unexpected findings. Deviations from this plan:
+- Tasks 2–4 were committed together.
+- The CLI test uses the default 0.2 mm rays, not a coarse resolution: at 0.5 mm the 0.15 mm island gouge is missed. It runs one `fluut sim` per project in parallel, about 40 s in a debug build.
+- The `plate2d` t4 stay-down link was not the pass entry move the first diagnosis named; it was the linker trusting the shrunk cleared region. Both are fixed. The pass now starts with a plunge at its start point, at plunge feed, 8 mm deep with partial engagement. A better entry there is open.
+- Intersecting every adaptive safe region with the tool-centre region about doubles `clears_the_plate_pocket` in a debug build (3.7 s to 8 s); release calculation of `plate2d` is unchanged within noise.
+
+Open:
+- `dome` t5 (finding 4): `follow.rs` rapids to just above each entry. It is on the test's allowed list until the 3-D linker gets the same rapid floor; the change belongs with the work on `follow.rs` in another branch.
+- `shaft` is not simulated: rotary Setups need cylinder stock and rotary kinematics in `Session::simulate` (D11 §10).
+- The rapid floor ignores the in-process stock: where an earlier toolpath is known to have cleared the material above `top`, the tool could rapid lower. `adaptive::shrink` can return a region that reaches outside the tool-centre region; its callers now clip it, but the cause is not found.
