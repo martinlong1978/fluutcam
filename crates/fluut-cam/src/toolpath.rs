@@ -3,7 +3,9 @@
 //! The strategy interface and registry (D08 §1, D09 §1).
 
 use crate::geometry::SetupGeometry;
-use crate::strategy::{Contour, Contour2d, Horizontal, Parallel, Pocket2d, Scallop, Spiral};
+use crate::strategy::{
+    Contour, Contour2d, Horizontal, Parallel, Pocket2d, Scallop, Spiral, SteepAndShallow,
+};
 use fluut_geom::{Affine, Point2, Point3};
 use fluut_model::params::{FieldMeta, ToolpathTypeId};
 use fluut_model::project::{SetupKind, Toolpath};
@@ -113,7 +115,8 @@ static CONTOUR: Contour = Contour;
 static HORIZONTAL: Horizontal = Horizontal;
 static SPIRAL: Spiral = Spiral;
 static SCALLOP: Scallop = Scallop;
-static REGISTRY: [&dyn ToolpathType; 7] = [
+static STEEP_AND_SHALLOW: SteepAndShallow = SteepAndShallow;
+static REGISTRY: [&dyn ToolpathType; 8] = [
     &CONTOUR_2D,
     &POCKET_2D,
     &PARALLEL,
@@ -121,6 +124,7 @@ static REGISTRY: [&dyn ToolpathType; 7] = [
     &HORIZONTAL,
     &SPIRAL,
     &SCALLOP,
+    &STEEP_AND_SHALLOW,
 ];
 
 /// Every type of this build (D09 §1).
@@ -137,28 +141,7 @@ pub fn find(id: ToolpathTypeId) -> &'static dyn ToolpathType {
         ToolpathTypeId::Horizontal => &HORIZONTAL,
         ToolpathTypeId::Spiral => &SPIRAL,
         ToolpathTypeId::Scallop => &SCALLOP,
-        ToolpathTypeId::SteepAndShallow => &Pending(ToolpathTypeId::SteepAndShallow),
-    }
-}
-
-/// A type with parameters but no strategy in this build yet.
-#[derive(Debug)]
-struct Pending(ToolpathTypeId);
-
-impl ToolpathType for Pending {
-    fn id(&self) -> ToolpathTypeId {
-        self.0
-    }
-
-    fn role(&self) -> Role {
-        Role::Finish
-    }
-
-    fn generate(&self, _: &StrategyInput) -> Result<Generated, CamError> {
-        Err(CamError::Unavailable(format!(
-            "{} cannot be calculated by this build",
-            self.0
-        )))
+        ToolpathTypeId::SteepAndShallow => &STEEP_AND_SHALLOW,
     }
 }
 

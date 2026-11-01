@@ -10,6 +10,7 @@ mod parallel;
 mod pocket_2d;
 mod scallop;
 mod spiral;
+mod steep_and_shallow;
 
 pub use contour::Contour;
 pub use contour_2d::Contour2d;
@@ -18,3 +19,4 @@ pub use parallel::Parallel;
 pub use pocket_2d::Pocket2d;
 pub use scallop::Scallop;
 pub use spiral::Spiral;
+pub use steep_and_shallow::SteepAndShallow;

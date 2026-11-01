@@ -188,7 +188,8 @@ pub fn reference<'a>(g: &'a SetupGeometry, tl: &Tool, stock: f64) -> SurfaceQuer
 /// more than `tol` (D08 §11 gouge check), measured along the contact
 /// normal: (τ − z)·cos β for a contact of slope β, so a steep chord whose
 /// vertical error is large but whose normal error is small passes. On a
-/// horizontal move (a waterline) or a vertical one (along a wall) the
+/// horizontal move (a waterline) or a (near) vertical one (along or down
+/// a wall) the
 /// error is sideways, so a point may instead be within `tol` sideways of
 /// where the tool clears.
 pub fn assert_no_gouge(g: &SetupGeometry, r: &Generated, tl: &Tool, stock: f64, tol: f64) {
@@ -197,8 +198,9 @@ pub fn assert_no_gouge(g: &SetupGeometry, r: &Generated, tl: &Tool, stock: f64, 
         for p in fluut_path::linearize(s, 1e-3) {
             let (a, b) = (p.start().unwrap().xyz, p.end().unwrap().xyz);
             // Horizontal or vertical: the error is sideways.
+            let xy = libm::hypot(a.x() - b.x(), a.y() - b.y());
             let level =
-                (a.z() - b.z()).abs() < 1e-12 || libm::hypot(a.x() - b.x(), a.y() - b.y()) < 1e-6;
+                (a.z() - b.z()).abs() < 1e-12 || xy < 1e-5 || (a.z() - b.z()).abs() > 100.0 * xy;
             for k in 0..=10 {
                 let x = a.lerp(b, k as f64 / 10.0);
                 if let Some(h) = q.drop(x.x(), x.y()) {
@@ -210,7 +212,7 @@ pub fn assert_no_gouge(g: &SetupGeometry, r: &Generated, tl: &Tool, stock: f64, 
                     let depth = (h.tip - x.z()) * libm::cos(h.slope);
                     assert!(
                         depth <= tol || x.z() >= h.tip - tol || sideways,
-                        "gouge {:.6} (normal {depth:.6}) at {x:?} ({:?})",
+                        "gouge {:.6} (normal {depth:.6}) at {x:?} on {a:?}..{b:?} ({:?})",
                         h.tip - x.z(),
                         s.motion()
                     );

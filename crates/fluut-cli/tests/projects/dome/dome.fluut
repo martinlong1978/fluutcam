@@ -69,3 +69,16 @@ zero     = { method = "stock_top_corner", corner = "front_left" }
     machining_tolerance = 0.02
     stepover            = 2
     continuous          = true
+
+  [[setup.toolpath]]
+  id   = "t5"
+  name = "Steep and shallow"
+  type = "steep_and_shallow"
+  tool = "shop#ball-6"
+
+    [setup.toolpath.passes]
+    machining_tolerance = 0.02
+    threshold_deg       = 40
+    overlap             = 1
+    steep               = { step_down = 2 }
+    shallow             = { stepover = 3, pass_angle_deg = 45 }
