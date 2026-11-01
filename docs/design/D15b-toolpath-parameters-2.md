@@ -1092,3 +1092,307 @@ shallow settings are inline tables; each key is optional on its own.
     steep         = { step_down = 0.4 }
     shallow       = { pattern = "parallel", scallop_height = 0.01, pass_angle_deg = 45 }
 ```
+
+## 6. Rotary types
+
+Run only in `rotary` Setups (§1.2). The work frame has the rotary axis along X; the tool
+approaches radially; the drive domain is the unrolled cylinder (x, θ) (D09 §5). Heights are radii
+(§1.3); the region is [`x_start`, `x_end`] × A (§1.4).
+
+**Common fields used (all four):** item keys; all of `tool_params`; `drive_faces` (empty = all
+faces of the Setup's bodies), `check_faces`, `excluded_faces`, `x_start`, `x_end`; all heights
+(as radii); `machining_tolerance`, `max_segment_length`, `output_arcs`, `stock_to_leave`
+(normal offset, §1.7); `retract`, `safety_distance`, `transitions`, `lead_in`, `lead_out`.
+**Not used:** `drive_curves`, `boundary` (no boundary curves on the cylinder in v1),
+`stock_to_leave_axial`, `order`. `rest_from`, `pass_layout` and `ramp` as each type says.
+
+**Type defaults for common fields:** `heights.top = { ref = "model_top" }`,
+`heights.bottom = { ref = "model_bottom" }`, `lead_in.kind = "none"` †. CL radii below `bottom`
+are raised to `bottom`.
+
+**Feed** in rotary moves is resolved by the post's `feed.rotary_method` from the CL radius on
+each RotarySegment [S 04 §4.7.5]; the feeds in `tool_params` are surface feeds.
+
+**Scallop height in rotary types** gives the stepover from the worst-case convex curvature across
+the passes, as OQ-05; angular steps are converted at the largest model radius in the range, so
+the scallop is never exceeded at smaller radii.
+
+**Validation (all four):**
+
+| Code | Sev | Rule |
+|---|---|---|
+| `param.type.setup_kind` | E | the Setup is not `rotary` |
+| `param.rotary.machine_axis` | E | the Setup's machine has no rotary axis [S 02 §2.3] |
+| `param.rotary.limits` | E | the A motion needs more rotation than the axis allows (not `continuous` and `limits_deg` too narrow) |
+
+### 6.1 `rotary_rough`
+
+Radial layers at constant radius, each cleared from the section of the bodies by a cylinder
+(D09 §5.1). Roughing type.
+
+Also uses `rest_from` (cylindrical in-process stock), `pass_layout` (X positions), `ramp`.
+**Type defaults:** `heights.top = { ref = "stock_top" }`, `ramp.kind = "plunge"` (allowed:
+`plunge`, `helix`: a radial descent while A turns, at `ramp.angle_deg`), `stock_to_leave = 0`.
+
+#### Fields (`passes`)
+
+| Key | Type | Range | Default | Expr | Depends on | Class |
+|---|---|---|---|---|---|---|
+| `radial_step_down` | Length | > 0 | preset `step_down` | yes | tool, material | R |
+| `stepover_x` | Length | (0, D] | preset `stepover` | yes | tool, material | R |
+| `direction` | Enum `zigzag` \| `climb` \| `conventional` | | `zigzag` † | — | — | R |
+
+Keys as in the [S 02 §2.1] example.
+
+- **Radii.** `layout(top, bottom, radial_step_down)` in even mode, plus the exact radius of
+  every cylindrical face coaxial with the rotary axis (as flat levels in Z, [S 04 §4.7.3]).
+- **Per radius r:** the section of the bodies by the cylinder r, unrolled to (x, r·θ), offset by
+  R + `stock_to_leave` (CH-19); the rest of the band [`x_start`, `x_end`] × full A that still
+  holds stock is cleared with full A sweeps at X positions `stepover_x` apart, laid out by
+  `pass_layout` (§9, question 8).
+- **Direction.** `zigzag` alternates the A sense between sweeps; `climb` and `conventional`
+  keep one sense (the uncut side on the right of travel for climb, spindle M3).
+- **Starting stock** as §1.10: the stock cylinder, the carried stock, or with `rest_from` the
+  stock after earlier toolpaths.
+
+#### Validation
+
+| Code | Sev | Rule |
+|---|---|---|
+| `param.passes.stepover.max` | E | `stepover_x` > tool diameter |
+| `param.passes.step_down.flute` | W | `radial_step_down` > flute length |
+| `cam.rotary_rough.unrolled_offset` | W | R > 0.2 × the layer radius †: the unrolled offset is approximate (CH-19) |
+
+#### Example
+
+As [S 02 §2.1]:
+
+```toml
+  [[setup.toolpath]]
+  id   = "t1"
+  name = "Rotary rough"
+  type = "rotary_rough"
+  tool = "user/router-bits#flat-6"
+
+    [setup.toolpath.heights]
+    clearance = { ref = "setup_clearance" }
+    top       = { ref = "stock_top" }
+
+    [setup.toolpath.passes]
+    machining_tolerance = 0.01
+    radial_step_down    = 2.0
+    stepover_x          = 2.4
+    pass_layout         = "even"
+    stock_to_leave      = 0.3
+
+    [setup.toolpath.linking]
+    retract = "minimum"
+    ramp    = { kind = "helix", angle_deg = 3 }
+```
+
+**In-process stock:** updates (cylindrical layers); reads always (§1.10).
+
+### 6.2 `rotary_along_x`
+
+Passes along X at fixed A, with A indexed between passes (D09 §5.2). Finishing type.
+
+Also uses `pass_layout` (A positions over a partial range). **Not used:** `rest_from`, `ramp`.
+
+#### Fields (`passes`)
+
+| Key | Type | Range | Default | Expr | Depends on | Class |
+|---|---|---|---|---|---|---|
+| `stepover_deg` | Angle | (0, 90] | preset `stepover` / r_max, in degrees | yes | tool, material, heights | R |
+| `scallop_height` | Length | (0, r) | absent | yes | tool shape | R |
+| `a_start_deg` | Angle | [0, 360) | `0` | yes | — | R |
+| `a_end_deg` | Angle | (`a_start_deg`, `a_start_deg` + 360] | `a_start_deg + 360` | yes | `a_start_deg` | R |
+| `direction` | Enum `zigzag` \| `climb` \| `conventional` | | `zigzag` † | — | — | R |
+
+- r_max is the resolved `top` radius. The surface step at radius r is r·Δθ, so it is largest at
+  r_max.
+- **A positions.** A full turn (`a_end_deg − a_start_deg` = 360) is split into
+  n = ceil(360 / `stepover_deg`) equal steps, with no pass repeated at 360. A partial range is
+  laid out by `pass_layout`, first and last pass on the range ends.
+- Each pass: a drive line along X between `x_start` and `x_end`, sampled with the radial drop;
+  output is linear moves with A fixed per pass.
+- `direction`: `zigzag` alternates X direction; `climb`/`conventional` cut one way.
+
+#### Validation
+
+| Code | Sev | Rule |
+|---|---|---|
+| `param.rotary_along_x.stepover_and_scallop` | E | `stepover_deg` and `scallop_height` both set locally |
+| `param.rotary_along_x.scallop.radius` | E | `scallop_height` set and the tool has no corner radius |
+| `param.rotary_along_x.scallop.range` | E | `scallop_height` ≥ corner radius |
+| `param.rotary_along_x.a_range` | E | `a_end_deg` ≤ `a_start_deg` or the range exceeds 360° |
+| `param.passes.stepover.max` | E | r_max · Δθ > tool diameter |
+
+#### Example
+
+```toml
+  [[setup.toolpath]]
+  id   = "t19"
+  name = "Along X finish"
+  type = "rotary_along_x"
+  tool = "user/router-bits#ball-6"
+
+    [setup.toolpath.geometry]
+    x_start = { ref = "model_left", offset = -3 }
+    x_end   = { ref = "model_right", offset = 3 }
+
+    [setup.toolpath.passes]
+    scallop_height = 0.01
+    direction      = "zigzag"
+```
+
+**In-process stock:** does not update; does not read.
+
+### 6.3 `rotary_around_a`
+
+Full A sweeps at fixed X, with X stepped between sweeps. On faces coaxial with the axis a sweep
+is one RotarySegment (D09 §5.3, [S 04 §4.7.3]). Finishing type.
+
+Also uses `pass_layout` (X positions). **Not used:** `rest_from`, `ramp`.
+
+#### Fields (`passes`)
+
+| Key | Type | Range | Default | Expr | Depends on | Class |
+|---|---|---|---|---|---|---|
+| `stepover_x` | Length | (0, D] | preset `stepover` | yes | tool, material; not with `scallop_height` | R |
+| `scallop_height` | Length | (0, r) | absent | yes | tool shape | R |
+| `direction` | Enum `zigzag` \| `climb` \| `conventional` | | `climb` † | — | machine axis `continuous` | R |
+| `ring_link` | Enum `step` \| `helical` | | `step` † | — | — | R |
+
+- **X positions** from `x_start` to `x_end`, laid out by `pass_layout` with `stepover_x`.
+- **Sweep.** θ over a full turn with the radial drop; a sweep that stays on one coaxial face is
+  one RotarySegment; otherwise CL points (θ, r) are fitted to rotary segments within tolerance.
+- **Direction.** `climb`/`conventional` turn A the same way on every ring and need a continuous
+  axis; `zigzag` reverses A on each ring, so no unwinding is needed.
+- **Ring link.** `step`: move along X at the current A, staying down. `helical`: the X step is
+  spread over the last part of the ring (one tool radius of arc †), so the path has no corner.
+
+#### Validation
+
+| Code | Sev | Rule |
+|---|---|---|
+| `param.rotary_around_a.stepover_and_scallop` | E | `stepover_x` and `scallop_height` both set locally |
+| `param.rotary_around_a.scallop.radius` | E | `scallop_height` set and the tool has no corner radius |
+| `param.rotary_around_a.scallop.range` | E | `scallop_height` ≥ corner radius |
+| `param.rotary_around_a.direction.unwind` | E | `climb`/`conventional` and the A axis is not continuous |
+| `param.passes.stepover.max` | E | given or computed `stepover_x` > tool diameter |
+
+#### Example
+
+```toml
+  [[setup.toolpath]]
+  id   = "t2"
+  name = "Rotary finish"
+  type = "rotary_around_a"
+  tool = "user/router-bits#ball-6"
+
+    [setup.toolpath.passes]
+    stepover_x = 0.4
+    direction  = "climb"
+    ring_link  = "helical"
+```
+
+**In-process stock:** does not update; does not read.
+
+### 6.4 `rotary_spiral`
+
+Continuous A with X advancing a set distance per turn: one helical pass, no retracts (D09 §5.4).
+On a coaxial cylinder the whole spiral is one RotarySegment. Finishing type.
+
+**Not used:** `rest_from`, `pass_layout` (the advance is made even), `ramp`.
+
+#### Fields (`passes`)
+
+| Key | Type | Range | Default | Expr | Depends on | Class |
+|---|---|---|---|---|---|---|
+| `advance` | Length | (0, D] | preset `stepover` | yes | tool, material; not with `scallop_height` | R |
+| `scallop_height` | Length | (0, r) | absent | yes | tool shape | R |
+| `direction` | Enum `climb` \| `conventional` | | `climb` | — | — | R |
+| `start` | Enum `x_start` \| `x_end` | | `x_start` | — | — | R |
+
+- **Helix** x = x0 ± p'·θ/2π, from `start` to the other end. p' = L / ceil(L / `advance`),
+  L = `x_end − x_start`, so the spiral ends exactly at the far end of the range.
+- `direction` sets the A sense (climb: the uncut side on the right of travel, spindle M3).
+- Needs a continuous A axis, or limits that allow L / p' turns (`param.rotary.limits`).
+
+#### Validation
+
+| Code | Sev | Rule |
+|---|---|---|
+| `param.rotary_spiral.stepover_and_scallop` | E | `advance` and `scallop_height` both set locally |
+| `param.rotary_spiral.scallop.radius` | E | `scallop_height` set and the tool has no corner radius |
+| `param.rotary_spiral.scallop.range` | E | `scallop_height` ≥ corner radius |
+| `param.passes.stepover.max` | E | given or computed `advance` > tool diameter |
+
+#### Example
+
+```toml
+  [[setup.toolpath]]
+  id   = "t20"
+  name = "Spiral finish"
+  type = "rotary_spiral"
+  tool = "user/router-bits#ball-6"
+
+    [setup.toolpath.passes]
+    advance   = 0.5
+    direction = "climb"
+```
+
+**In-process stock:** does not update; does not read.
+
+## 7. `manual_nc`
+
+Inserts one block in the program at its place in the Setup: stop, optional stop, comment, dwell,
+or pass-through text (D09 §6.1). Utility type; no geometry, no motion. The result is one pass
+with a `Marker` segment (D08 §2); the post emits the `manual_nc` block [S 05 §5.4.1].
+
+**Common fields used:** `id`, `name`, `type`, `enabled`, `template`. **Not used:** `tool`
+(`param.tool.missing` and `param.tool.diameter` do not apply; the active tool is unchanged and
+no tool change is emitted); all of `tool_params`, `geometry`, `heights`, `linking`; all common
+Passes fields (`machining_tolerance` included: there is no geometry).
+
+#### Fields (`passes`)
+
+| Key | Type | Range | Default | Expr | Depends on | Class |
+|---|---|---|---|---|---|---|
+| `kind` | Enum `stop` \| `optional_stop` \| `comment` \| `dwell` \| `pass_through` | | `optional_stop` † | — | — | R |
+| `text` | string | non-empty for `comment`, `pass_through` | absent | — | `kind` | R |
+| `dwell_s` | Duration | > 0 | `1` † | yes | `kind` = `dwell` | R |
+
+- `stop` and `optional_stop` emit the post's stop blocks (`M0`, `M1` in common dialects).
+  `text` on them is emitted as a comment before the stop.
+- `comment` emits `text` through the post's comment format (the post escapes or strips
+  characters its dialect forbids).
+- `pass_through` emits `text` verbatim, one output line per line of `text`. FluutCAM does not
+  check it; the user is responsible for it.
+- `dwell` emits a dwell of `dwell_s`.
+- All fields are R because the Marker holds them; recalculation is trivial and nothing
+  downstream depends on it.
+
+#### Validation
+
+| Code | Sev | Rule |
+|---|---|---|
+| `param.manual_nc.text.required` | E | `kind` is `comment` or `pass_through` and `text` is absent or empty |
+| `param.manual_nc.text.unused` | W | `text` set with `kind = "dwell"` (ignored) |
+| `param.manual_nc.post` | E | the resolved post has no `manual_nc` block for the kind |
+| `param.manual_nc.dwell.range` | E | `dwell_s` ≤ 0 |
+
+#### Example
+
+```toml
+  [[setup.toolpath]]
+  id   = "t21"
+  name = "Check clamps"
+  type = "manual_nc"
+
+    [setup.toolpath.passes]
+    kind = "stop"
+    text = "Move the clamps clear of the outline"
+```
+
+**In-process stock:** does not update; does not read.
