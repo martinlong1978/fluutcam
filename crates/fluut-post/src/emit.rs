@@ -380,6 +380,16 @@ impl<'a> Emitter<'a> {
     }
 
     fn toolpath(&mut self, si: usize, ti: usize, tp: &ToolpathJob) -> Result<(), EmitError> {
+        // A toolpath of markers only (`manual_nc`) emits its blocks and
+        // nothing else: no tool change, spindle or toolpath blocks.
+        if tp.result.segments().all(|s| s.start().is_none()) {
+            for seg in tp.result.segments() {
+                if let Segment::Marker { kind } = seg {
+                    self.marker(kind);
+                }
+            }
+            return Ok(());
+        }
         self.toolpath_values(ti, tp);
         if self.tool != Some(tp.tool.number) {
             self.stop_spindle_and_coolant();

@@ -26,8 +26,9 @@ fn sample(kind: FieldKind) -> PValue {
         | FieldKind::Angle
         | FieldKind::Duration => PValue::Num(Num::float(7.25)),
         FieldKind::Bool => PValue::Bool(false),
+        FieldKind::Text => PValue::Enum("M1".into()),
         FieldKind::Enum(e) => PValue::Enum(e[e.len() - 1].to_owned()),
-        FieldKind::Height => PValue::Height(HeightSpec::new("work_zero", 1.5)),
+        FieldKind::Height | FieldKind::XPos => PValue::Height(HeightSpec::new("work_zero", 1.5)),
         FieldKind::Selection => PValue::Selection(vec![Sel::Face("f-9".into())]),
         FieldKind::Point => PValue::Point([Num::int(1), Num::int(2), Num::int(3)]),
         FieldKind::Points => PValue::Points(vec![[Num::int(1), Num::int(2), Num::int(3)]]),
@@ -44,7 +45,10 @@ fn p_fields_keep_the_result_hash_and_r_fields_change_it() {
         let r0 = toolpath_r_text(&base, Some(&t), m);
         let p0 = toolpath_p_text(&base, Some(&t), m);
         let fields = Params::leaf_fields(kind);
-        assert!(fields.iter().any(|(_, f)| f.class == Class::P));
+        // `manual_nc` has no tool and no P fields (D15b §7).
+        assert!(
+            kind == ToolpathTypeId::ManualNc || fields.iter().any(|(_, f)| f.class == Class::P)
+        );
         for (path, f) in fields {
             let mut tp = base.clone();
             tp.params.set(&path, Some(sample(f.kind))).unwrap();

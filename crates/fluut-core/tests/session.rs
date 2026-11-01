@@ -389,6 +389,88 @@ fn machines_and_posts_come_from_the_library() {
 }
 
 #[test]
+fn rest_toolpaths_depend_on_earlier_stock_updates() {
+    let (dir, id) = workspace("rest-hash");
+    let extra = format!(
+        r#"
+  [[setup.toolpath]]
+  id   = "t2"
+  name = "Finish"
+  type = "parallel"
+  tool = "shop#flat-6"
+
+  [[setup.toolpath]]
+  id   = "t3"
+  name = "Rest"
+  type = "pocket_2d"
+  tool = "shop#flat-6"
+
+    [setup.toolpath.geometry]
+    drive_curves = [{{ face = "f-{id}.8" }}]
+    rest_from    = "previous"
+"#
+    );
+    std::fs::write(dir.join("p.fluut"), project(&id) + &extra).unwrap();
+    let mut s = Session::open(&dir.join("p.fluut"), &[]).unwrap();
+    let g0 = s.graph();
+    assert!(
+        g0.nodes[&NodeId::Result("t3".into())]
+            .deps
+            .contains(&NodeId::Result("t1".into()))
+    );
+    // An R edit of t1 (which updates stock) reaches t3, not t2 (parallel
+    // does not read the stock).
+    s.project
+        .toolpath_mut("t1")
+        .unwrap()
+        .params
+        .set("passes.stock_to_leave", Some(PValue::Num(Num::float(0.5))))
+        .unwrap();
+    let g1 = s.graph();
+    let changed = g1.changed(&g0);
+    assert!(
+        changed.contains(&NodeId::Result("t3".into())),
+        "{changed:?}"
+    );
+    assert!(
+        !changed.contains(&NodeId::Result("t2".into())),
+        "{changed:?}"
+    );
+    // A P edit of t1 does not; disabling it does.
+    s.project
+        .toolpath_mut("t1")
+        .unwrap()
+        .params
+        .set("tool_params.feed.cut", Some(PValue::Num(Num::int(1500))))
+        .unwrap();
+    assert!(
+        !s.graph()
+            .changed(&g1)
+            .contains(&NodeId::Result("t3".into()))
+    );
+    let g2 = s.graph();
+    s.project.toolpath_mut("t1").unwrap().enabled = Some(false);
+    assert!(
+        s.graph()
+            .changed(&g2)
+            .contains(&NodeId::Result("t3".into()))
+    );
+    // Editing t2 (no stock update) does not reach t3.
+    let g3 = s.graph();
+    s.project
+        .toolpath_mut("t2")
+        .unwrap()
+        .params
+        .set("passes.stock_to_leave", Some(PValue::Num(Num::float(0.5))))
+        .unwrap();
+    assert!(
+        !s.graph()
+            .changed(&g3)
+            .contains(&NodeId::Result("t3".into()))
+    );
+}
+
+#[test]
 fn an_edit_group_is_one_undo_step() {
     use fluut_model::edit::Edit;
     let mut s = open("group");

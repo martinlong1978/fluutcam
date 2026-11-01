@@ -83,6 +83,8 @@ fn run(g: &SetupGeometry, t: &Toolpath, top: f64) -> Generated {
         to_work: Affine::identity(),
         machine: None,
         post: None,
+        in_process: None,
+        rotary: None,
     };
     calculate(&input).unwrap_or_else(|e| panic!("{e}"))
 }
@@ -100,6 +102,8 @@ fn run_err(g: &SetupGeometry, t: &Toolpath) -> Vec<String> {
         to_work: Affine::identity(),
         machine: None,
         post: None,
+        in_process: None,
+        rotary: None,
     };
     calculate(&input)
         .unwrap_err()

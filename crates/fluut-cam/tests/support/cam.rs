@@ -6,6 +6,7 @@
 #![allow(dead_code)]
 
 use fluut_cam::geometry::{BodyGeom, SetupBody, SetupGeometry};
+use fluut_cam::stock::{LayeredStock, Sweep};
 use fluut_cam::{Generated, StrategyInput, calculate};
 use fluut_geom::{Aabb3, Affine, Point2, Point3};
 use fluut_model::project::{SetupKind, Toolpath, read};
@@ -164,6 +165,28 @@ pub fn try_run_with(
     s: Stock,
     post: Option<PostCaps>,
 ) -> Result<Generated, Vec<String>> {
+    try_run_full(g, t, s, post, None)
+}
+
+/// As [`run`], starting from the in-process stock `stock`.
+pub fn run_rest(g: &SetupGeometry, t: &Toolpath, s: Stock, stock: &LayeredStock) -> Generated {
+    try_run_full(g, t, s, None, Some(stock)).unwrap_or_else(|e| panic!("{e:?}"))
+}
+
+/// `stock` with the cuts of `r` (made with tool `tool`) taken out.
+pub fn after(stock: &LayeredStock, r: &Generated, tool_id: &str) -> LayeredStock {
+    let mut st = stock.clone();
+    st.apply(&r.result, Sweep::of(&tool(tool_id)), 0.01);
+    st
+}
+
+pub fn try_run_full(
+    g: &SetupGeometry,
+    t: &Toolpath,
+    s: Stock,
+    post: Option<PostCaps>,
+    in_process: Option<&LayeredStock>,
+) -> Result<Generated, Vec<String>> {
     let tool = tool(t.tool.split('#').nth(1).unwrap());
     let input = StrategyInput {
         toolpath: t,
@@ -176,6 +199,8 @@ pub fn try_run_with(
         to_work: Affine::identity(),
         machine: None,
         post,
+        in_process,
+        rotary: None,
     };
     calculate(&input).map_err(|e| e.diagnostics().into_iter().map(|d| d.code).collect())
 }

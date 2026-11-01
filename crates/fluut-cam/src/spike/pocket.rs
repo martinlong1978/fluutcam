@@ -31,7 +31,10 @@ pub fn swept_loop(l: &Loop2, r: f64) -> Region2 {
 
 /// The region a tool of radius `r` sweeps along an open polyline.
 pub fn swept_path(pts: &[Point2], r: f64) -> Region2 {
-    let mut parts: Vec<Region2> = pts.windows(2).map(|w| stadium(w[0], w[1], r)).collect();
+    let mut parts: Vec<Region2> = pts
+        .windows(2)
+        .map(|w| stadium(w[0], w[1], r).cleaned())
+        .collect();
     if parts.is_empty() {
         return pts
             .first()
@@ -42,20 +45,22 @@ pub fn swept_path(pts: &[Point2], r: f64) -> Region2 {
         parts = parts
             .chunks(2)
             .map(|c| match c {
-                [a, b] => a.union(b),
+                [a, b] => a.union(b).cleaned(),
                 [a] => a.clone(),
                 _ => unreachable!(),
             })
             .collect();
     }
-    parts.pop().unwrap_or_default()
+    parts.pop().unwrap_or_default().cleaned()
 }
 
 /// A segment from `a` to `b` widened by `r` with round ends.
 pub fn stadium(a: Point2, b: Point2, r: f64) -> Region2 {
     let d = b - a;
     let len = d.length();
-    if len == 0.0 {
+    // A move shorter than the region tolerance is a disc: thinner
+    // stadiums trip `cavalier_contours`.
+    if len <= 1e-7 {
         return Region2::circle(a.x(), a.y(), r);
     }
     let n = Vec2::new(-d.y(), d.x()) * (r / len);

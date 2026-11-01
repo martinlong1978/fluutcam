@@ -1439,6 +1439,14 @@ Passes fields (`machining_tolerance` included: there is no geometry).
     slope or drive-face limit, or where the trace is lost.
   - `param.passes.step_down.flute` also checks `steep.step_down`.
   - `top` = `bottom` is allowed for all five, as for `parallel`.
+- Built in M6 for §4, §6 and §7 ([plan](../plan/2026-11-01-m6-roughing-rotary.md)):
+  - `x_start` and `x_end` are a new field kind (`XPos`) with the §1.4 references.
+  - `manual_nc.text` is a new field kind (`Text`).
+  - `param.rotary.*`, `param.rotary_around_a.direction.unwind` and `param.geometry.x_range.*`
+    are checked at calculation start, where the machine and the X range are known.
+    `param.manual_nc.post` is checked at post time.
+  - `rotary_rough` uses radial drops instead of an unrolled offset, so
+    `cam.rotary_rough.unrolled_offset` is never raised.
 
 ## 9. Decisions
 

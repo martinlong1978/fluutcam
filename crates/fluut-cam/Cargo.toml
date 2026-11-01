@@ -12,6 +12,7 @@ fluut-geom.workspace = true
 fluut-model.workspace = true
 fluut-path.workspace = true
 fluut-topo.workspace = true
+glam.workspace = true
 libm.workspace = true
 
 [lints]

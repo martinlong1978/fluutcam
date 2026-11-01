@@ -67,6 +67,8 @@ fn run_tool(
         to_work: Affine::identity(),
         machine: None,
         post: None,
+        in_process: None,
+        rotary: None,
     };
     calculate(&input).map_err(|e| e.diagnostics().into_iter().map(|d| d.code).collect())
 }
@@ -189,6 +191,8 @@ fn wide_shapes_leave_a_flat_area() {
         to_work: Affine::identity(),
         machine: None,
         post: None,
+        in_process: None,
+        rotary: None,
     };
     let flat = Engrave::flat_areas(&input).unwrap();
     assert!((flat.area() - 21.8 * 21.8).abs() < 1e-6, "{}", flat.area());

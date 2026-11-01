@@ -225,6 +225,6 @@ mod tests {
             assert!(window.contains(&literal), "{code}: {text:?} not found");
             n += 1;
         }
-        assert_eq!(n, 20);
+        assert_eq!(n, 19);
     }
 }

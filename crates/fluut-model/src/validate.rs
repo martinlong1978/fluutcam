@@ -89,6 +89,10 @@ impl<'a> ValidateCx<'a> {
 /// Validates one toolpath. The diagnostics carry the toolpath id.
 pub fn validate(tp: &Toolpath, cx: &ValidateCx) -> Vec<Diagnostic> {
     let mut out = Vec::new();
+    if tp.kind() == ToolpathTypeId::ManualNc {
+        manual_nc(tp, &mut out);
+        return tag(out, tp);
+    }
     let Some(tool) = cx.tool else {
         out.push(
             Diagnostic::error(
@@ -140,8 +144,60 @@ pub fn validate(tp: &Toolpath, cx: &ValidateCx) -> Vec<Diagnostic> {
         ToolpathTypeId::Spiral => v.spiral(),
         ToolpathTypeId::Scallop => v.scallop(),
         ToolpathTypeId::SteepAndShallow => v.steep_and_shallow(),
+        ToolpathTypeId::Adaptive3d => v.adaptive_3d(),
+        ToolpathTypeId::Pocket3d => {}
+        ToolpathTypeId::RotaryRough => v.rotary_rough(),
+        ToolpathTypeId::RotaryAlongX => v.rotary_along_x(),
+        ToolpathTypeId::RotaryAroundA => v.rotary_around_a(),
+        ToolpathTypeId::RotarySpiral => v.rotary_spiral(),
+        ToolpathTypeId::ManualNc => {}
     }
     tag(out, tp)
+}
+
+/// `manual_nc` has no tool and no geometry (D15b §7). The post rule
+/// `param.manual_nc.post` is checked at post time.
+fn manual_nc(tp: &Toolpath, out: &mut Vec<Diagnostic>) {
+    let kind = match tp.params.get("passes.kind") {
+        Some(PValue::Enum(s)) => s.as_str(),
+        _ => "optional_stop",
+    };
+    let text = match tp.params.get("passes.text") {
+        Some(PValue::Enum(t)) => Some(t.as_str()),
+        _ => None,
+    };
+    if matches!(kind, "comment" | "pass_through") && text.is_none_or(str::is_empty) {
+        out.push(
+            Diagnostic::error(
+                "param.manual_nc.text.required",
+                format!("a `{kind}` item needs a text"),
+            )
+            .at("passes.text"),
+        );
+    }
+    if kind == "dwell" && text.is_some() {
+        out.push(
+            Diagnostic::warning(
+                "param.manual_nc.text.unused",
+                "the text of a dwell is ignored",
+            )
+            .at("passes.text"),
+        );
+    }
+    let dwell = tp
+        .params
+        .get("passes.dwell_s")
+        .and_then(PValue::num)
+        .unwrap_or(1.0);
+    if dwell <= 0.0 {
+        out.push(
+            Diagnostic::error(
+                "param.manual_nc.dwell.range",
+                format!("dwell {dwell} s must be above 0"),
+            )
+            .at("passes.dwell_s"),
+        );
+    }
 }
 
 fn tag(out: Vec<Diagnostic>, tp: &Toolpath) -> Vec<Diagnostic> {
@@ -195,7 +251,17 @@ impl V<'_, '_> {
     }
 
     fn item(&mut self) {
-        if !matches!(
+        // D15b §1.2: rotary types in rotary Setups, the others in
+        // three_axis and indexed Setups.
+        if self.r.kind.is_rotary() {
+            if self.cx.setup_kind != SetupKind::Rotary {
+                self.e(
+                    "param.type.setup_kind",
+                    "type",
+                    format!("{} runs in rotary Setups only", self.ty()),
+                );
+            }
+        } else if !matches!(
             self.cx.setup_kind,
             SetupKind::ThreeAxis | SetupKind::Indexed
         ) {
@@ -323,13 +389,6 @@ impl V<'_, '_> {
                 && !matches!((lo, hi), (Some(a), Some(b)) if a > b);
             self.range("geometry", "geometry.hole_diameter", ok, "0 ≤ min ≤ max");
         }
-        if g.rest_previous {
-            self.e(
-                "param.geometry.rest_from.unsupported",
-                "geometry.rest_from",
-                "rest machining from previous toolpaths is not available yet".into(),
-            );
-        }
     }
 
     fn heights(&mut self) {
@@ -383,7 +442,19 @@ impl V<'_, '_> {
                 ),
             );
         }
-        if let Some(sb) = self.cx.stock_bottom
+        if self.cx.setup_kind == SetupKind::Rotary {
+            // Heights are radii (D15b §1.3).
+            if has_bottom && z.bottom < 0.0 {
+                self.w(
+                    "param.heights.below_axis",
+                    "heights.bottom",
+                    format!(
+                        "bottom radius {} is below the rotary axis and is taken as 0",
+                        z.bottom
+                    ),
+                );
+            }
+        } else if let Some(sb) = self.cx.stock_bottom
             && has_bottom
             && z.bottom < sb
         {
@@ -426,7 +497,9 @@ impl V<'_, '_> {
             }
         }
         let stl = p.stock_to_leave;
-        let two_d = !self.r.kind.follows_surface();
+        // 3-D finishing and rotary types offset along the surface normal
+        // (D15b §1.7).
+        let two_d = !self.r.kind.follows_surface() && !self.r.kind.is_rotary();
         let (bad, bound) = if two_d {
             (stl <= -self.tool.radius(), "−R")
         } else {
@@ -957,36 +1030,141 @@ impl V<'_, '_> {
             return;
         };
         self.required("passes.step_down", a.step_down);
+        self.engagement(a.optimal_load, a.min_cutting_radius);
+    }
+
+    fn adaptive_3d(&mut self) {
+        let Some(a) = self.r.adaptive_3d().cloned() else {
+            return;
+        };
+        self.required("passes.step_down", a.step_down);
+        self.engagement(a.optimal_load, a.min_cutting_radius);
+        if let (Some(f), Some(sd)) = (a.fine_step_down, a.step_down)
+            && !(f > 0.0 && f < sd)
+        {
+            self.e(
+                "param.adaptive_3d.fine_step_down.range",
+                "passes.fine_step_down",
+                format!("fine step-down {f} must be above 0 and below the step-down {sd}"),
+            );
+        }
+    }
+
+    fn rotary_rough(&mut self) {
+        let Some(t) = self.r.rotary_rough().cloned() else {
+            return;
+        };
+        self.required("passes.radial_step_down", t.radial_step_down);
+        self.required("passes.stepover_x", t.stepover_x);
+    }
+
+    /// The stepover / scallop height pair of rotary finishing types
+    /// (D15b §1.8, §6). `step_key` is the type's stepover field.
+    fn scallop_pair(&mut self, step_key: &str, step: Option<f64>, scallop: Option<f64>) {
+        let ty = self.ty();
+        let r = self.tool.corner_radius();
+        if self.p.is_set(&format!("passes.{step_key}")) && self.p.is_set("passes.scallop_height") {
+            self.e(
+                &format!("param.{ty}.stepover_and_scallop"),
+                "passes.scallop_height",
+                format!("set either {step_key} or scallop_height, not both"),
+            );
+        }
+        match scallop {
+            None => self.required(&format!("passes.{step_key}"), step),
+            Some(h) => {
+                if r <= 0.0 {
+                    self.e(
+                        &format!("param.{ty}.scallop.radius"),
+                        "passes.scallop_height",
+                        "scallop height needs a tool with a corner radius".into(),
+                    );
+                } else if !(h > 0.0 && h < r) {
+                    self.e(
+                        &format!("param.{ty}.scallop.range"),
+                        "passes.scallop_height",
+                        format!(
+                            "scallop height {h} must be above 0 and below the corner radius {r}"
+                        ),
+                    );
+                }
+            }
+        }
+    }
+
+    fn rotary_along_x(&mut self) {
+        let Some(t) = self.r.rotary_along_x().cloned() else {
+            return;
+        };
+        // The default comes from the preset stepover (D15b §6.2).
+        let preset = self.tool.preset(self.cx.material).and_then(|p| p.stepover);
+        let step = t.stepover_deg.or(preset);
+        self.scallop_pair("stepover_deg", step, t.scallop_height);
+        let (a0, a1) = (t.a_start_deg, t.a_end_deg);
+        if a1 <= a0 || a1 - a0 > 360.0 {
+            self.e(
+                "param.rotary_along_x.a_range",
+                "passes.a_end_deg",
+                format!("the A range {a0}° to {a1}° must be increasing and at most 360°"),
+            );
+        }
+        if let (Some(deg), Some(z)) = (t.stepover_deg, self.cx.heights) {
+            let d = self.tool.diameter;
+            let s = z.top * deg.to_radians();
+            if s > d {
+                self.e(
+                    "param.passes.stepover.max",
+                    "passes.stepover_deg",
+                    format!(
+                        "stepover {deg}° is {s:.3} mm at the top radius {}, more than the tool \
+                         diameter {d}",
+                        z.top
+                    ),
+                );
+            }
+        }
+    }
+
+    fn rotary_around_a(&mut self) {
+        let Some(t) = self.r.rotary_around_a().cloned() else {
+            return;
+        };
+        self.scallop_pair("stepover_x", t.stepover_x, t.scallop_height);
+    }
+
+    fn rotary_spiral(&mut self) {
+        let Some(t) = self.r.rotary_spiral().cloned() else {
+            return;
+        };
+        self.scallop_pair("advance", t.advance, t.scallop_height);
+    }
+
+    /// Load and smoothing rules of the adaptive types (D15b §2.2, §4.1).
+    fn engagement(&mut self, load: f64, min_radius: f64) {
+        let ty = self.ty();
         let d = self.tool.diameter;
-        let load = a.optimal_load;
         if load <= 0.0 || load > 0.5 * d {
             self.e(
-                "param.adaptive_2d.optimal_load.range",
+                &format!("param.{ty}.optimal_load.range"),
                 "passes.optimal_load",
                 format!("optimal load {load} must be above 0 and at most half the tool diameter"),
             );
         } else if load > 0.3 * d {
             self.w(
-                "param.adaptive_2d.optimal_load.high",
+                &format!("param.{ty}.optimal_load.high"),
                 "passes.optimal_load",
                 format!("optimal load {load} is more than 30 % of the tool diameter"),
             );
         }
-        if a.min_cutting_radius < 0.0 {
-            self.range(
-                "adaptive_2d",
-                "passes.min_cutting_radius",
-                false,
-                "0 or more",
-            );
-        } else if a.min_cutting_radius > self.tool.radius() {
+        if min_radius < 0.0 {
+            self.range(ty, "passes.min_cutting_radius", false, "0 or more");
+        } else if min_radius > self.tool.radius() {
             self.w(
-                "param.adaptive_2d.min_cutting_radius.large",
+                &format!("param.{ty}.min_cutting_radius.large"),
                 "passes.min_cutting_radius",
                 format!(
-                    "min cutting radius {} is more than the tool radius: narrow parts may be \
-                     left uncut",
-                    a.min_cutting_radius
+                    "min cutting radius {min_radius} is more than the tool radius: narrow parts \
+                     may be left uncut"
                 ),
             );
         }

@@ -4,7 +4,6 @@
 # English text that fluut-model writes, until diagnostics carry arguments.
 param-tool-diameter = the tool diameter must be above 0
 param-geometry-drive-empty = select drive curves or drive faces
-param-geometry-rest_from-unsupported = rest machining from previous toolpaths is not available yet
 param-heights-reference-empty = a height refers to the selection, but the drive selection is empty
 param-tool_params-coolant-unsupported = the post has no coolant_on block, so coolant is not switched on
 param-linking-ramp-plunge_tool = the tool is not centre cutting and should not plunge

@@ -140,6 +140,8 @@ fn main() {
             stock: None,
             machine: None,
             post: None,
+            in_process: None,
+            rotary: None,
         };
         let t = Instant::now();
         let r = calculate(&input);

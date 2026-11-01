@@ -91,35 +91,33 @@ impl Graph {
                     deps,
                 },
             );
-            let mut sim = format!(
-                "{ALGORITHM_VERSION} sim
-{setup_hash}
-"
-            );
+            let mut sim = format!("{ALGORITHM_VERSION} sim\n{setup_hash}\n");
             let mut sim_deps = vec![setup.clone()];
+            // Earlier toolpaths that change the in-process stock: a
+            // toolpath that reads it depends on their results (D15 §1.8).
+            let mut stock_text = String::new();
+            let mut stock_deps = Vec::new();
             for t in &s.toolpaths {
                 let tool = tools.get(t.tool_ref());
                 let m = material.as_deref();
-                let r =
-                    sha256_hex(format!("{setup_hash}\n{}", toolpath_r_text(t, tool, m)).as_bytes());
+                let mut text = format!("{setup_hash}\n{}", toolpath_r_text(t, tool, m));
+                let mut deps = vec![setup.clone()];
+                if t.params.reads_in_process() {
+                    text.push_str(&format!("in_process:\n{stock_text}"));
+                    deps.extend(stock_deps.iter().cloned());
+                }
+                let r = sha256_hex(text.as_bytes());
                 let rid = NodeId::Result(t.id.clone());
+                if t.kind().updates_stock() {
+                    stock_text.push_str(&format!("{} {} {r}\n", t.id, t.is_enabled()));
+                    stock_deps.push(rid.clone());
+                }
                 let post = sha256_hex(format!("{r}\n{}", toolpath_p_text(t, tool, m)).as_bytes());
-                nodes.insert(
-                    rid.clone(),
-                    Node {
-                        hash: r,
-                        deps: vec![setup.clone()],
-                    },
-                );
+                nodes.insert(rid.clone(), Node { hash: r, deps });
                 if t.is_enabled() {
                     // The whole tool: flute length, shank and holder are
                     // checked, and they need not change the result.
-                    sim.push_str(&format!(
-                        "{} = {post}
-{tool:?}
-",
-                        t.id
-                    ));
+                    sim.push_str(&format!("{} = {post}\n{tool:?}\n", t.id));
                     sim_deps.push(NodeId::Post(t.id.clone()));
                 }
                 nodes.insert(

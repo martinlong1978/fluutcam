@@ -25,7 +25,7 @@ pub enum Mv {
 }
 
 impl Mv {
-    fn info(self, tol: f32) -> MotionInfo {
+    pub(crate) fn info(self, tol: f32) -> MotionInfo {
         let (m, f) = match self {
             Mv::Rapid => (Motion::Rapid, FeedRef::Rapid),
             Mv::Retract => (Motion::Retract, FeedRef::Rapid),

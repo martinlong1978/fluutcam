@@ -3,9 +3,11 @@
 //! The strategy interface and registry (D08 §1, D09 §1).
 
 use crate::geometry::SetupGeometry;
+use crate::stock::LayeredStock;
 use crate::strategy::{
-    Adaptive2d, Bore, Chamfer2d, Contour, Contour2d, Drill, Engrave, Face, Horizontal, Parallel,
-    Pocket2d, Scallop, Spiral, SteepAndShallow, Trace,
+    Adaptive2d, Adaptive3d, Bore, Chamfer2d, Contour, Contour2d, Drill, Engrave, Face, Horizontal,
+    ManualNc, Parallel, Pocket2d, Pocket3d, RotaryAlongX, RotaryAroundA, RotaryRough, RotarySpiral,
+    Scallop, Spiral, SteepAndShallow, Trace,
 };
 use fluut_geom::{Aabb3, Affine, Point2, Point3};
 use fluut_model::params::{FieldMeta, ToolpathTypeId};
@@ -43,6 +45,34 @@ pub struct StrategyInput<'a> {
     pub to_work: Affine,
     pub machine: Option<MachineLimits>,
     pub post: Option<PostCaps>,
+    /// The in-process stock after the earlier enabled toolpaths of the
+    /// Setup (D08 §7); set for toolpaths with `rest_from = "previous"`.
+    pub in_process: Option<&'a LayeredStock>,
+    /// Rotary data of a `rotary` Setup.
+    pub rotary: Option<RotaryInfo>,
+}
+
+/// What rotary types need of a `rotary` Setup (spec 03 §3.9). Heights in
+/// `StrategyInput::env` are radii there (D15b §1.3).
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub struct RotaryInfo {
+    /// Radius of the stock cylinder.
+    pub stock_radius: f64,
+    /// X of the stock cylinder ends.
+    pub stock_x: (f64, f64),
+    /// X extent of the Setup's bodies.
+    pub model_x: (f64, f64),
+    /// The machine's rotary axis: `None` when the Setup names no machine,
+    /// `Some(None)` when its machine has no rotary axis.
+    pub machine_axis: Option<Option<RotaryAxisInfo>>,
+}
+
+/// The machine's A axis (spec 02 §2.3).
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub struct RotaryAxisInfo {
+    pub continuous: bool,
+    /// `[min, max]` in degrees; `None` when unlimited.
+    pub limits_deg: Option<(f64, f64)>,
 }
 
 impl StrategyInput<'_> {
@@ -126,7 +156,14 @@ static HORIZONTAL: Horizontal = Horizontal;
 static SPIRAL: Spiral = Spiral;
 static SCALLOP: Scallop = Scallop;
 static STEEP_AND_SHALLOW: SteepAndShallow = SteepAndShallow;
-static REGISTRY: [&dyn ToolpathType; 15] = [
+static ADAPTIVE_3D: Adaptive3d = Adaptive3d;
+static POCKET_3D: Pocket3d = Pocket3d;
+static ROTARY_ROUGH: RotaryRough = RotaryRough;
+static ROTARY_ALONG_X: RotaryAlongX = RotaryAlongX;
+static ROTARY_AROUND_A: RotaryAroundA = RotaryAroundA;
+static ROTARY_SPIRAL: RotarySpiral = RotarySpiral;
+static MANUAL_NC: ManualNc = ManualNc;
+static REGISTRY: [&dyn ToolpathType; 22] = [
     &CONTOUR_2D,
     &POCKET_2D,
     &PARALLEL,
@@ -142,6 +179,13 @@ static REGISTRY: [&dyn ToolpathType; 15] = [
     &SPIRAL,
     &SCALLOP,
     &STEEP_AND_SHALLOW,
+    &ADAPTIVE_3D,
+    &POCKET_3D,
+    &ROTARY_ROUGH,
+    &ROTARY_ALONG_X,
+    &ROTARY_AROUND_A,
+    &ROTARY_SPIRAL,
+    &MANUAL_NC,
 ];
 
 /// Every type of this build (D09 §1).
@@ -166,6 +210,13 @@ pub fn find(id: ToolpathTypeId) -> &'static dyn ToolpathType {
         ToolpathTypeId::Spiral => &SPIRAL,
         ToolpathTypeId::Scallop => &SCALLOP,
         ToolpathTypeId::SteepAndShallow => &STEEP_AND_SHALLOW,
+        ToolpathTypeId::Adaptive3d => &ADAPTIVE_3D,
+        ToolpathTypeId::Pocket3d => &POCKET_3D,
+        ToolpathTypeId::RotaryRough => &ROTARY_ROUGH,
+        ToolpathTypeId::RotaryAlongX => &ROTARY_ALONG_X,
+        ToolpathTypeId::RotaryAroundA => &ROTARY_AROUND_A,
+        ToolpathTypeId::RotarySpiral => &ROTARY_SPIRAL,
+        ToolpathTypeId::ManualNc => &MANUAL_NC,
     }
 }
 

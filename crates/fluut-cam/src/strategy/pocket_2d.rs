@@ -16,12 +16,16 @@ use fluut_geom::{Point2, Vec2};
 use fluut_model::Diagnostic;
 use fluut_model::params::ToolpathTypeId;
 use fluut_model::resolve::{
-    BoundarySide, Containment, CutDirection, OffsetOrder, Order, PassLayout, Pattern, resolve,
+    BoundarySide, Containment, CutDirection, OffsetOrder, Order, PassLayout, Pattern,
+    Pocket2d as Pocket2dParams, resolve,
 };
 use fluut_path::ToolpathResult;
 
 #[derive(Debug)]
 pub struct Pocket2d;
+
+/// The areas of one level: an index into the safe regions and the passes.
+type LevelPlan = Vec<(usize, Vec<Path2>)>;
 
 /// Safety cap on rings per level.
 const MAX_RINGS: usize = 10_000;
@@ -144,74 +148,58 @@ impl ToolpathType for Pocket2d {
                 ));
             }
         }
-        let parts = areas(&centre);
         let stepover = pk.stepover.unwrap_or(0.4 * d);
         let bottom = h.bottom + p.passes.stock_to_leave_axial;
         let zs = levels(h.top, bottom, pk.step_down, None);
         let climb = pk.direction == CutDirection::Climb;
         let turn = if climb { Turn::Left } else { Turn::Right };
-        let orient = |path: Path2| if climb { path } else { path.reversed() };
-        // The passes of one area at one level, before Z.
-        let area_paths = |a: &Region2| -> Vec<Path2> {
-            let mut v = Vec::new();
-            match pk.pattern {
-                Pattern::Offset => {
-                    let rings = offset_rings(a, stepover, tol);
-                    let mut rings: Vec<Vec<Path2>> = rings
-                        .iter()
-                        .map(|ls| ls.iter().map(|l| orient(Path2::from_loop(l))).collect())
-                        .collect();
-                    if pk.offset_order == OffsetOrder::InsideOut {
-                        rings.reverse();
-                    }
-                    v.extend(rings.into_iter().flatten());
-                }
-                Pattern::Raster => {
-                    let ang = pk.pass_angle_deg.to_radians();
-                    let (sn, cs) = libm::sincos(ang);
-                    let u = Vec2::new(cs, sn);
-                    let n = Vec2::new(-sn, cs);
-                    let (lo, hi) = a.support(n);
-                    let pos = match p.passes.pass_layout {
-                        PassLayout::Even => layout_even(lo, hi, stepover),
-                        PassLayout::FixedFromEdge => layout_fixed(lo, hi, stepover),
-                    };
-                    let mut k = 0;
-                    for off in pos {
-                        let o = Point2::new(n.x() * off, n.y() * off);
-                        let mut lines: Vec<Path2> = a
-                            .clip_line(o, u)
-                            .into_iter()
-                            .filter(|(t0, t1)| t1 - t0 > tol)
-                            .map(|(t0, t1)| {
-                                Path2::open(vec![Seg2 {
-                                    a: o + u * t0,
-                                    b: o + u * t1,
-                                    bulge: 0.0,
-                                }])
-                            })
-                            .collect();
-                        if k % 2 == 1 {
-                            lines.reverse();
-                            lines = lines.into_iter().map(|l| l.reversed()).collect();
-                        }
-                        if !lines.is_empty() {
-                            k += 1;
-                        }
-                        v.extend(lines);
-                    }
-                    v.extend(a.loops.iter().map(|l| orient(Path2::from_loop(l))));
-                }
-            }
-            v
+        let area_paths = |a: &Region2| area_passes(a, &pk, stepover, p.passes.pass_layout, tol);
+        // With rest machining each level clears only the tool-centre
+        // positions within R of the stock left between it and the level
+        // above (D15 §4); levels that meet the same stock share passes.
+        let windows = match (p.geometry.rest_previous, input.in_process) {
+            (true, Some(st)) => Some(
+                st.windows(&zs)
+                    .iter()
+                    .map(|w| crate::stock::rest_material(w, &clear, tol))
+                    .collect::<Vec<_>>(),
+            ),
+            _ => None,
         };
-        let per_area: Vec<Vec<Path2>> = parts.iter().map(area_paths).collect();
+        let mut safe: Vec<Region2> = Vec::new();
+        // Per level: indices into `safe` and the passes of each area.
+        let mut plans: Vec<LevelPlan> = Vec::new();
+        let mut seen: Vec<(Option<Region2>, LevelPlan)> = Vec::new();
+        for li in 0..zs.len() {
+            let w = windows.as_ref().map(|w| w[li].clone());
+            if let Some((_, plan)) = seen.iter().find(|(k, _)| *k == w) {
+                plans.push(plan.clone());
+                continue;
+            }
+            let parts = match &w {
+                None => areas(&centre),
+                Some(w) => areas(&centre.intersect(&w.offset(r)))
+                    .into_iter()
+                    .filter(|a| a.area() > tol * tol)
+                    .collect(),
+            };
+            let plan: LevelPlan = parts
+                .iter()
+                .map(|a| {
+                    safe.push(a.clone());
+                    (safe.len() - 1, area_paths(a))
+                })
+                .collect();
+            seen.push((w, plan.clone()));
+            plans.push(plan);
+        }
         let mut cuts = Vec::new();
         let mut prev_end: Option<Point2> = None;
-        let mut emit = |ai: usize, li: usize, cuts: &mut Vec<Cut>| {
+        let mut emit = |li: usize, ai: usize, cuts: &mut Vec<Cut>| {
             let z = zs[li];
             let ramp_from = if li == 0 { h.top } else { zs[li - 1] };
-            for path in &per_area[ai] {
+            let (si, paths) = &plans[li][ai];
+            for path in paths {
                 let mut path = path.clone();
                 if path.closed
                     && let Some(q) = prev_end
@@ -220,23 +208,26 @@ impl ToolpathType for Pocket2d {
                 }
                 prev_end = Some(path.end());
                 cuts.push(Cut {
-                    area: Some(ai),
+                    area: Some(*si),
                     ..Cut::flat(path, z, turn, ramp_from)
                 });
             }
         };
+        // Areas change from level to level with rest machining, so
+        // `by_area` keeps them only without it.
         match p.linking.order {
-            Order::ByLevel => {
-                for li in 0..zs.len() {
-                    for ai in 0..parts.len() {
-                        emit(ai, li, &mut cuts);
+            Order::ByArea if windows.is_none() => {
+                for ai in 0..plans.first().map_or(0, Vec::len) {
+                    for li in 0..zs.len() {
+                        emit(li, ai, &mut cuts);
                     }
                 }
             }
-            Order::ByArea => {
-                for ai in 0..parts.len() {
-                    for li in 0..zs.len() {
-                        emit(ai, li, &mut cuts);
+            _ => {
+                let counts: Vec<usize> = plans.iter().map(Vec::len).collect();
+                for (li, n) in counts.into_iter().enumerate() {
+                    for ai in 0..n {
+                        emit(li, ai, &mut cuts);
                     }
                 }
             }
@@ -247,7 +238,7 @@ impl ToolpathType for Pocket2d {
             linking: &p.linking,
             tool_diameter: d,
             tol,
-            safe: &parts,
+            safe: &safe,
         };
         let passes = link(&cuts, &cx, &mut diags);
         let passes = finish(
@@ -262,6 +253,70 @@ impl ToolpathType for Pocket2d {
             diagnostics: tag(diags, tp),
         })
     }
+}
+
+/// The passes of one area `a` of the tool-centre region at one level,
+/// before Z: offset rings or a raster with a final contour (D15 §4.1).
+pub(crate) fn area_passes(
+    a: &Region2,
+    pk: &Pocket2dParams,
+    stepover: f64,
+    layout: PassLayout,
+    tol: f64,
+) -> Vec<Path2> {
+    let climb = pk.direction == CutDirection::Climb;
+    let orient = |path: Path2| if climb { path } else { path.reversed() };
+    let mut v = Vec::new();
+    match pk.pattern {
+        Pattern::Offset => {
+            let rings = offset_rings(a, stepover, tol);
+            let mut rings: Vec<Vec<Path2>> = rings
+                .iter()
+                .map(|ls| ls.iter().map(|l| orient(Path2::from_loop(l))).collect())
+                .collect();
+            if pk.offset_order == OffsetOrder::InsideOut {
+                rings.reverse();
+            }
+            v.extend(rings.into_iter().flatten());
+        }
+        Pattern::Raster => {
+            let ang = pk.pass_angle_deg.to_radians();
+            let (sn, cs) = libm::sincos(ang);
+            let u = Vec2::new(cs, sn);
+            let n = Vec2::new(-sn, cs);
+            let (lo, hi) = a.support(n);
+            let pos = match layout {
+                PassLayout::Even => layout_even(lo, hi, stepover),
+                PassLayout::FixedFromEdge => layout_fixed(lo, hi, stepover),
+            };
+            let mut k = 0;
+            for off in pos {
+                let o = Point2::new(n.x() * off, n.y() * off);
+                let mut lines: Vec<Path2> = a
+                    .clip_line(o, u)
+                    .into_iter()
+                    .filter(|(t0, t1)| t1 - t0 > tol)
+                    .map(|(t0, t1)| {
+                        Path2::open(vec![Seg2 {
+                            a: o + u * t0,
+                            b: o + u * t1,
+                            bulge: 0.0,
+                        }])
+                    })
+                    .collect();
+                if k % 2 == 1 {
+                    lines.reverse();
+                    lines = lines.into_iter().map(|l| l.reversed()).collect();
+                }
+                if !lines.is_empty() {
+                    k += 1;
+                }
+                v.extend(lines);
+            }
+            v.extend(a.loops.iter().map(|l| orient(Path2::from_loop(l))));
+        }
+    }
+    v
 }
 
 /// Offset rings of the tool-centre region `a`, outermost first: rings at

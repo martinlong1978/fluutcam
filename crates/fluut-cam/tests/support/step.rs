@@ -566,3 +566,22 @@ pub fn dome(shift: [f64; 3]) -> String {
     w.sphere_face(&[(a, b, arc), (b, a, arc)], [cx, cy, DOME_SHOULDER], r);
     w.finish("dome")
 }
+
+/// A shaft along Z for rotary Setups: Ø30 from Z 0 to 30, a 20 × 20 square
+/// from 30 to 55, Ø16 from 55 to 80, all on the Z axis. Faces: 0–1 the
+/// Ø30 cylinder, 2 the Z 0 end, 3–6 the square's sides, 7 the step at
+/// Z 30, 8–9 the Ø16 cylinder, 10 the step at Z 55, 11 the Z 80 end.
+pub fn shaft(shift: [f64; 3]) -> String {
+    let mut w = Writer::new(shift);
+    let big = Profile::circle(0.0, 0.0, 15.0);
+    let square = Profile::rect(-10.0, -10.0, 10.0, 10.0);
+    let small = Profile::circle(0.0, 0.0, 8.0);
+    w.walls(&big, 0.0, 30.0, true);
+    w.cap(&big, &[], 0.0, false);
+    w.walls(&square, 30.0, 55.0, true);
+    w.cap(&big, std::slice::from_ref(&square), 30.0, true);
+    w.walls(&small, 55.0, 80.0, true);
+    w.cap(&square, std::slice::from_ref(&small), 55.0, true);
+    w.cap(&small, &[], 80.0, true);
+    w.finish("shaft")
+}
