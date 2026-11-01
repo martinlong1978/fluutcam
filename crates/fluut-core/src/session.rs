@@ -10,6 +10,7 @@ use crate::reimport::{ReimportReport, Unmatched, belongs, match_bodies, referenc
 use crate::store::ModelStore;
 use fluut_cam::StrategyInput;
 use fluut_cam::geometry::SetupBody;
+use fluut_cam::stock::{LayeredStock, Sweep};
 use fluut_model::document::{Document, Outcome};
 use fluut_model::edit::{Edit, EditError};
 use fluut_model::journal::{Journal, file_hash, journal_path, recover};
@@ -481,19 +482,46 @@ impl Session {
         let mut reports = Vec::new();
         let project = self.project.clone();
         for (s, rs) in project.setups.iter().zip(resolve_all(&project)) {
-            let wanted: Vec<_> = s
+            let mut wanted: Vec<bool> = s
                 .toolpaths
                 .iter()
-                .filter(|t| match targets {
+                .map(|t| match targets {
                     Targets::All => true,
                     Targets::Toolpaths(ids) => ids.contains(&t.id),
                 })
                 .collect();
-            if wanted.is_empty() {
+            // A toolpath that reads the in-process stock needs every
+            // earlier toolpath of its Setup (D08 §7).
+            let last_reader = s
+                .toolpaths
+                .iter()
+                .zip(&wanted)
+                .rposition(|(t, w)| *w && t.is_enabled() && t.params.reads_in_process());
+            if let Some(i) = last_reader {
+                wanted[..i].iter_mut().for_each(|w| *w = true);
+            }
+            if !wanted.iter().any(|w| *w) {
                 continue;
             }
             let mut frame: Option<Result<SetupFrame, Diagnostic>> = None;
-            for t in wanted {
+            let mut stock: Option<LayeredStock> = None;
+            if last_reader.is_some()
+                && let Ok(r) = &rs
+            {
+                let fr = frame.get_or_insert_with(|| {
+                    self.setup_bodies(r).and_then(|b| SetupFrame::new(r, b))
+                });
+                if let Ok(f) = fr {
+                    stock = Some(f.initial_stock());
+                }
+            }
+            for (ti, t) in s.toolpaths.iter().enumerate() {
+                if !wanted[ti] {
+                    continue;
+                }
+                // Update the stock from this toolpath's result while a
+                // later toolpath still reads it.
+                let feeds_stock = last_reader.is_some_and(|l| ti < l) && t.kind().updates_stock();
                 let job = self.next_job;
                 self.next_job += 1;
                 let report = |state, diagnostics, stats| JobReport {
@@ -524,6 +552,12 @@ impl Session {
                     );
                 }
                 if let Some(c) = self.cache.get(&hash) {
+                    if feeds_stock
+                        && let (Some(st), Some(tool), Ok(rs)) =
+                            (stock.as_mut(), self.tools.get(t.tool_ref()), &rs)
+                    {
+                        update_stock(st, &c.result, t, tool, rs);
+                    }
                     let st = *c.result.stats();
                     reports.push(report(
                         JobState::Done { cached: true },
@@ -554,6 +588,11 @@ impl Session {
                         continue;
                     }
                 };
+                let in_process = if t.params.reads_in_process() {
+                    stock.as_ref()
+                } else {
+                    None
+                };
                 let input = StrategyInput {
                     toolpath: t,
                     geometry: &fr.geometry,
@@ -565,10 +604,15 @@ impl Session {
                     to_work: fr.to_work,
                     machine: self.machine(rs.machine.as_deref()).and_then(|m| m.limits()),
                     post,
+                    in_process,
+                    rotary: fr.rotary_info(),
                 };
                 match fluut_cam::calculate(&input) {
                     Ok(g) => {
                         self.calculated += 1;
+                        if feeds_stock && let Some(st) = stock.as_mut() {
+                            update_stock(st, &g.result, t, tool, rs);
+                        }
                         if let Some(d) = &self.disk {
                             // A cache that cannot be written only costs time.
                             let _ = d.put(&hash, &g.result, &g.diagnostics);
@@ -776,6 +820,19 @@ impl Session {
             setups,
         }
     }
+}
+
+/// Takes what `result` cut out of `stock` (D08 §7).
+fn update_stock(
+    stock: &mut LayeredStock,
+    result: &ToolpathResult,
+    t: &fluut_model::project::Toolpath,
+    tool: &fluut_model::tools::Tool,
+    rs: &ResolvedSetup,
+) {
+    let p = resolve(&t.params, tool, rs.material.as_deref());
+    let tol = p.passes.machining_tolerance.max(1e-4);
+    stock.apply(result, Sweep::of(tool), tol);
 }
 
 /// Validation codes that depend on the post. They are checked again at

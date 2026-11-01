@@ -16,11 +16,13 @@ pub mod path2;
 pub mod region;
 pub mod scallop;
 pub mod spike;
+pub mod stock;
 pub mod strategy;
 pub mod surface;
 pub mod toolpath;
 
 pub use region::{Inside, Loop2, Region2, Seg2, Vertex};
 pub use toolpath::{
-    CamError, Generated, Role, StrategyInput, ToolpathType, calculate, find, registry,
+    CamError, Generated, Role, RotaryAxisInfo, RotaryInfo, StrategyInput, ToolpathType, calculate,
+    find, registry,
 };

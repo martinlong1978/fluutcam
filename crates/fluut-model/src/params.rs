@@ -90,6 +90,12 @@ impl Params {
         }
     }
 
+    /// The toolpath starts from the in-process stock of the earlier
+    /// toolpaths in its Setup (`rest_from = "previous"`, D15 §2.3.2).
+    pub fn reads_in_process(&self) -> bool {
+        matches!(self.get("geometry.rest_from"), Some(PValue::Enum(s)) if s == "previous")
+    }
+
     pub fn is_set(&self, path: &str) -> bool {
         self.get(path).is_some()
     }

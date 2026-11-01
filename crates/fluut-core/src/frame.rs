@@ -8,7 +8,9 @@
 //! aligned frame. The frame is built from the resolved Setup, so inherited
 //! fields count (D06 §2).
 
+use fluut_cam::RotaryInfo;
 use fluut_cam::geometry::{EdgeRef, SetupBody, SetupGeometry};
+use fluut_cam::stock::LayeredStock;
 use fluut_geom::{Aabb3, Affine, Curve3, Point3, Surface, Vec3};
 use fluut_model::Diagnostic;
 use fluut_model::project::{AxisPick, Corner, Orientation, SetupKind, StockSpec, ZeroSpec};
@@ -267,6 +269,16 @@ impl SetupFrame {
             stock,
             model,
         })
+    }
+
+    /// The Setup stock as in-process stock, before any toolpath (D08 §7).
+    pub fn initial_stock(&self) -> LayeredStock {
+        LayeredStock::planar(&self.stock)
+    }
+
+    /// Rotary data for rotary types; `None` in a `three_axis` Setup.
+    pub fn rotary_info(&self) -> Option<RotaryInfo> {
+        None
     }
 
     /// Height references of this Setup (selection left to the toolpath).

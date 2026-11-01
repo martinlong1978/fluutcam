@@ -132,6 +132,8 @@ fn main() {
             to_work: Affine::identity(),
             machine: None,
             post: None,
+            in_process: None,
+            rotary: None,
         };
         let t = Instant::now();
         let r = match calculate(&input) {

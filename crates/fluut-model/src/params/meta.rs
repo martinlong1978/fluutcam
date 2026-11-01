@@ -199,6 +199,23 @@ impl ToolpathTypeId {
         }
     }
 
+    /// The type takes its swept material out of the in-process stock
+    /// (D15 §1.9, D15b §1.10).
+    pub fn updates_stock(self) -> bool {
+        matches!(
+            self,
+            ToolpathTypeId::Contour2d
+                | ToolpathTypeId::Pocket2d
+                | ToolpathTypeId::Face
+                | ToolpathTypeId::Trace
+                | ToolpathTypeId::Chamfer2d
+                | ToolpathTypeId::Bore
+                | ToolpathTypeId::Drill
+                | ToolpathTypeId::Adaptive2d
+                | ToolpathTypeId::Engrave
+        )
+    }
+
     /// The fields of one group.
     pub fn group_fields(self, g: Group) -> impl Iterator<Item = &'static FieldMeta> + Clone {
         self.fields().iter().filter(move |f| f.group == g)

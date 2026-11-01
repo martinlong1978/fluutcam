@@ -176,6 +176,8 @@ pub fn try_run_with(
         to_work: Affine::identity(),
         machine: None,
         post,
+        in_process: None,
+        rotary: None,
     };
     calculate(&input).map_err(|e| e.diagnostics().into_iter().map(|d| d.code).collect())
 }

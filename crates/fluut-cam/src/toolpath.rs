@@ -3,6 +3,7 @@
 //! The strategy interface and registry (D08 §1, D09 §1).
 
 use crate::geometry::SetupGeometry;
+use crate::stock::LayeredStock;
 use crate::strategy::{
     Adaptive2d, Bore, Chamfer2d, Contour2d, Drill, Engrave, Face, Parallel, Pocket2d, Trace,
 };
@@ -42,6 +43,33 @@ pub struct StrategyInput<'a> {
     pub to_work: Affine,
     pub machine: Option<MachineLimits>,
     pub post: Option<PostCaps>,
+    /// The in-process stock after the earlier enabled toolpaths of the
+    /// Setup (D08 §7); set for toolpaths with `rest_from = "previous"`.
+    pub in_process: Option<&'a LayeredStock>,
+    /// Rotary data of a `rotary` Setup.
+    pub rotary: Option<RotaryInfo>,
+}
+
+/// What rotary types need of a `rotary` Setup (spec 03 §3.9). Heights in
+/// `StrategyInput::env` are radii there (D15b §1.3).
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub struct RotaryInfo {
+    /// Radius of the stock cylinder.
+    pub stock_radius: f64,
+    /// X of the stock cylinder ends.
+    pub stock_x: (f64, f64),
+    /// X extent of the Setup's bodies.
+    pub model_x: (f64, f64),
+    /// The machine's rotary axis; `None` when it has none.
+    pub axis: Option<RotaryAxisInfo>,
+}
+
+/// The machine's A axis (spec 02 §2.3).
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub struct RotaryAxisInfo {
+    pub continuous: bool,
+    /// `[min, max]` in degrees; `None` when unlimited.
+    pub limits_deg: Option<(f64, f64)>,
 }
 
 impl StrategyInput<'_> {
