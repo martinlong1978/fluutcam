@@ -424,6 +424,25 @@ fn calc_reports_each_toolpath() {
 }
 
 #[test]
+fn calc_prints_times_and_sim_verifies() {
+    let o = fluut(&["calc", here("projects/boss/boss.fluut").to_str().unwrap()]);
+    let out = String::from_utf8_lossy(&o.stdout);
+    assert!(
+        out.contains("t1 \"Profile outside\": calculated; cut "),
+        "{out}"
+    );
+    assert!(out.contains(", time 0:"), "{out}");
+    let o = fluut(&["sim", here("projects/boss/boss.fluut").to_str().unwrap()]);
+    let out = String::from_utf8_lossy(&o.stdout);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    assert!(out.contains("s1 \"Top\": simulated at 0.2 mm"), "{out}");
+    // The floor raster of `block` rapids through the stock its pocket left.
+    let o = fluut(&["sim", here("projects/block/block.fluut").to_str().unwrap()]);
+    assert_eq!(o.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&o.stderr).contains("error [t2] sim.rapid_in_stock"));
+}
+
+#[test]
 fn errors_and_usage() {
     let d = tmp("errors");
     let text = std::fs::read_to_string(here("projects/boss/boss.fluut"))

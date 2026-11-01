@@ -6,6 +6,7 @@
 
 pub mod entry;
 pub mod inspector;
+pub mod playback;
 pub mod ribbon;
 pub mod status;
 pub mod tree;

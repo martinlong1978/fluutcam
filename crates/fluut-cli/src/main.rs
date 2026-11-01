@@ -4,9 +4,14 @@
 //!
 //! ```text
 //! fluut calc <project> [--tools <file>]...
+//! fluut sim <project> [--tools <file>]... [--error <mm>]
 //! fluut post <project> --post <id> -o <file> [--tools <file>]... [--date <d>] [--time <t>]
 //! fluut run <script> [<project>] [--tools <file>]... [--date <d>] [--time <t>] [-- <args>...]
 //! ```
+//!
+//! `calc` prints each toolpath's estimated machining time. `sim`
+//! calculates, then simulates each Setup and verifies it (D11): it prints
+//! the findings and fails when one is an error.
 //!
 //! `run` runs a script headless (spec 09 §9.2, D12 §4). It may read and
 //! write the project's folder and the paths given after `--`, and import
@@ -23,6 +28,7 @@ use std::process::ExitCode;
 
 const USAGE: &str = "usage:
   fluut calc <project> [--tools <file>]...
+  fluut sim <project> [--tools <file>]... [--error <mm>]
   fluut post <project> --post <id> -o <file> [--tools <file>]... [--date <yyyy-mm-dd>] [--time <hh:mm:ss>]
   fluut run <script> [<project>] [--tools <file>]... [--date <yyyy-mm-dd>] [--time <hh:mm:ss>] [-- <args>...]";
 
@@ -35,6 +41,8 @@ struct Args {
     output: Option<PathBuf>,
     date: Option<String>,
     time: Option<String>,
+    /// Simulation error target, mm.
+    error: Option<f64>,
 }
 
 fn parse(mut it: impl Iterator<Item = String>) -> Result<Args, String> {
@@ -51,6 +59,15 @@ fn parse(mut it: impl Iterator<Item = String>) -> Result<Args, String> {
             "-o" | "--output" => a.output = Some(value("-o")?.into()),
             "--date" => a.date = Some(value("--date")?),
             "--time" => a.time = Some(value("--time")?),
+            "--error" => {
+                let v = value("--error")?;
+                a.error = Some(
+                    v.parse()
+                        .ok()
+                        .filter(|e: &f64| *e > 0.0)
+                        .ok_or(format!("--error needs a positive number, not {v}"))?,
+                );
+            }
             s if s.starts_with('-') => return Err(format!("unknown option {s}")),
             s if project.is_none() => project = Some(PathBuf::from(s)),
             s => return Err(format!("unexpected argument {s}")),
@@ -109,6 +126,7 @@ fn main() -> ExitCode {
     };
     match a.command.as_str() {
         "calc" => calc(&a),
+        "sim" => sim(&a),
         "post" => post(&a),
         c => {
             eprintln!("fluut: unknown command {c}\n{USAGE}");
@@ -260,9 +278,12 @@ fn report(s: &Session, r: &JobReport) {
         JobState::Failed => "failed",
         JobState::Skipped => "disabled",
     };
+    let time = s
+        .time_estimate(&r.toolpath)
+        .map_or_else(String::new, |t| format!(", time {}", clock(t)));
     match &r.stats {
         Some(st) => println!(
-            "{} \"{name}\": {state}; cut {:.1} mm, rapid {:.1} mm",
+            "{} \"{name}\": {state}; cut {:.1} mm, rapid {:.1} mm{time}",
             r.toolpath, st.cut_length, st.rapid_length
         ),
         None => println!("{} \"{name}\": {state}", r.toolpath),
@@ -279,6 +300,67 @@ fn calc(a: &Args) -> ExitCode {
     for r in &reports {
         report(&s, r);
         failed |= print_diags(&r.diagnostics);
+    }
+    if failed {
+        ExitCode::from(1)
+    } else {
+        ExitCode::SUCCESS
+    }
+}
+
+/// `m:ss`, or `h:mm:ss` from an hour, rounded to the second.
+fn clock(secs: f64) -> String {
+    let s = secs.max(0.0).round() as u64;
+    if s >= 3600 {
+        format!("{}:{:02}:{:02}", s / 3600, s / 60 % 60, s % 60)
+    } else {
+        format!("{}:{:02}", s / 60, s % 60)
+    }
+}
+
+fn sim(a: &Args) -> ExitCode {
+    let mut s = match open(a) {
+        Ok(s) => s,
+        Err(c) => return c,
+    };
+    let mut failed = false;
+    for r in &s.calculate(&Targets::All) {
+        report(&s, r);
+        failed |= print_diags(&r.diagnostics);
+    }
+    if failed {
+        return ExitCode::from(1);
+    }
+    let settings = fluut_core::SimSettings {
+        error: a.error.unwrap_or(fluut_core::SimSettings::default().error),
+        ..fluut_core::SimSettings::default()
+    };
+    let ids: Vec<(String, String)> = s
+        .project
+        .setups
+        .iter()
+        .map(|x| (x.id.clone(), x.name.clone()))
+        .collect();
+    for (id, name) in ids {
+        let t = std::time::Instant::now();
+        match s.simulate(&id, &settings, &fluut_core::fluut_sim::Quiet) {
+            Ok(r) => {
+                let sim = &r.sim;
+                let rest = sim.rest.unwrap_or_default();
+                println!(
+                    "{id} \"{name}\": simulated at {} mm in {:.2} s; {} toolpaths, time {}; rest {:.1} mm³ on the part (up to {:.3} mm), {:.1} mm³ off it",
+                    sim.res,
+                    t.elapsed().as_secs_f64(),
+                    sim.toolpaths.len(),
+                    clock(sim.duration()),
+                    rest.on_part,
+                    rest.max,
+                    rest.off_part,
+                );
+                failed |= print_diags(&r.diagnostics);
+            }
+            Err(d) => failed |= print_diags(&d),
+        }
     }
     if failed {
         ExitCode::from(1)
@@ -394,6 +476,15 @@ mod tests {
         assert!(parse(["calc"].into_iter().map(String::from)).is_err());
         assert!(parse(["calc", "a", "b"].into_iter().map(String::from)).is_err());
         assert!(parse(["calc", "a", "--x"].into_iter().map(String::from)).is_err());
+        let a = parse(
+            ["sim", "p.fluut", "--error", "0.05"]
+                .into_iter()
+                .map(String::from),
+        );
+        assert_eq!(a.unwrap().error, Some(0.05));
+        assert!(parse(["sim", "p", "--error", "-1"].into_iter().map(String::from)).is_err());
+        assert_eq!(clock(59.6), "1:00");
+        assert_eq!(clock(3725.0), "1:02:05");
         assert_eq!(
             numbered(std::path::Path::new("d/out.ngc"), 2),
             PathBuf::from("d/out.2.ngc")

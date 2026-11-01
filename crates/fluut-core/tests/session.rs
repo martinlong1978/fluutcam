@@ -110,7 +110,10 @@ fn calculation_is_cached_by_result_hash() {
         .set("tool_params.feed.cut", Some(PValue::Num(Num::int(1500))))
         .unwrap();
     let g1 = s.graph();
-    assert_eq!(g1.changed(&g0), [NodeId::Post("t1".into())]);
+    assert_eq!(
+        g1.changed(&g0),
+        [NodeId::Post("t1".into()), NodeId::Simulation("s1".into())]
+    );
     assert!(!s.is_stale("t1"));
     // An R edit (stock to leave) makes it stale.
     s.project
@@ -121,7 +124,11 @@ fn calculation_is_cached_by_result_hash() {
         .unwrap();
     assert_eq!(
         s.graph().changed(&g1),
-        [NodeId::Result("t1".into()), NodeId::Post("t1".into())]
+        [
+            NodeId::Result("t1".into()),
+            NodeId::Post("t1".into()),
+            NodeId::Simulation("s1".into())
+        ]
     );
     assert!(s.is_stale("t1"));
     // A Setup edit makes every toolpath of the Setup stale.

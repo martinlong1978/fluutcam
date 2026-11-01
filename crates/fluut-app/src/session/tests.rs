@@ -186,3 +186,47 @@ fn numbered_files() {
     let (d, t) = now_utc();
     assert_eq!((d.len(), t.len()), (10, 8));
 }
+
+#[test]
+fn simulate_then_scrub_through_the_worker() {
+    use crate::vm::playback::{Playback, PlaybackVm};
+    let mut j = opened("boss");
+    j.simulate("s1");
+    assert_eq!(j.wait(), Some(Outcome::Simulated { findings: 0 }));
+    let s = j.snapshot.clone().unwrap();
+    // Calculated on the way, with its time estimate.
+    assert_eq!(s.status("t1"), ToolpathStatus::Done);
+    let v = s.sims["s1"].clone();
+    assert!((v.duration - s.times["t1"]).abs() < 1e-9 && v.duration > 0.0);
+    // The final stock arrives as a frame.
+    while j.frame.is_none() {
+        assert!(j.wait_event());
+    }
+    let end = j.frame.clone().unwrap();
+    let full = end.mesh.as_ref().unwrap().volume();
+    // Scrubbing to the start gives the uncut stock: more material.
+    j.scrub("s1", 0.0);
+    while j.scrubbing > 0 {
+        assert!(j.wait_event());
+    }
+    let start = j.frame.clone().unwrap();
+    assert_eq!(start.t, 0.0);
+    assert!(start.mesh.as_ref().unwrap().volume() > full + 100.0);
+    // The playback view model over this simulation.
+    let mut p = Playback::default();
+    p.reset("s1", v.duration);
+    let vm = PlaybackVm::new(&v, &p);
+    assert_eq!(vm.clips.len(), 1);
+    assert!(vm.clips[0].current && vm.clips[0].to == 1.0);
+    assert!(vm.findings.is_empty());
+    assert_eq!(vm.play_label, "Play");
+    p.toggle(v.duration);
+    assert_eq!(PlaybackVm::new(&v, &p).play_label, "Pause");
+    // An edit of the toolpath makes the simulation stale.
+    j.edit(Edit::SetParam {
+        toolpath: "t1".into(),
+        path: "passes.step_down".into(),
+        value: Some(PValue::Num(Num::float(3.0))),
+    });
+    assert!(j.wait_snapshot().unwrap().sims.is_empty());
+}

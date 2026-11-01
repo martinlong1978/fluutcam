@@ -52,7 +52,7 @@ fn probe_matches_grid_at_ray_positions() {
         for j in (0..g.nv).step_by(7) {
             for i in (0..g.nu).step_by(5) {
                 let p = g.ray_origin(&d, i, j);
-                assert_eq!(probe(&stock, &chords, p, k), g.rays[j * g.nu + i]);
+                assert_eq!(probe(&stock, &chords, p, k), *g.ray(i, j));
             }
         }
     }

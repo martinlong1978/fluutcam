@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, TryRecvError};
 
-pub use crate::session::Snapshot;
+pub use crate::session::{Frame, Snapshot};
 
 /// Job number, unique per [`Jobs`].
 pub type JobId = u64;
@@ -46,6 +46,12 @@ impl Progress {
 
     pub fn advance(&self) {
         self.done.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Sets both counts at once (a job that reports its own steps).
+    pub fn set(&self, done: u64, total: u64) {
+        self.total.store(total, Ordering::Relaxed);
+        self.done.store(done, Ordering::Relaxed);
     }
 
     /// `(done, total)`.
@@ -108,6 +114,14 @@ pub enum Request {
     Open(JobCx, PathBuf),
     Calculate(JobCx, CalcTargets),
     Post(JobCx, PostRequest),
+    /// Calculates what is stale in the Setup, then simulates it.
+    Simulate(JobCx, String),
+    /// The stock of a simulated Setup at a program time, s. Only the
+    /// latest of several waiting requests is served.
+    Scrub {
+        setup: String,
+        t: f64,
+    },
     Edit(Edit),
 }
 
@@ -116,6 +130,7 @@ pub enum JobKind {
     Open,
     Calculate,
     Post,
+    Simulate,
 }
 
 /// How a job ended.
@@ -129,6 +144,9 @@ pub enum Outcome {
     },
     Posted {
         files: Vec<PathBuf>,
+    },
+    Simulated {
+        findings: usize,
     },
     Cancelled,
     /// The diagnostics that stopped it.
@@ -144,6 +162,8 @@ pub enum Event {
     },
     /// The document or its results changed.
     Snapshot(Arc<Snapshot>),
+    /// A stock mesh for scrubbing.
+    Frame(Arc<Frame>),
     Finished {
         job: JobId,
         outcome: Outcome,
@@ -171,6 +191,10 @@ pub struct Jobs {
     pub snapshot: Option<Arc<Snapshot>>,
     /// Outcome of the last finished job.
     pub last: Option<(JobKind, Outcome)>,
+    /// The latest stock frame.
+    pub frame: Option<Arc<Frame>>,
+    /// Scrub requests sent and not yet answered.
+    pub scrubbing: usize,
 }
 
 impl Jobs {
@@ -185,6 +209,8 @@ impl Jobs {
             running: None,
             snapshot: None,
             last: None,
+            frame: None,
+            scrubbing: 0,
         }
     }
 
@@ -246,6 +272,27 @@ impl Jobs {
         self.start_job(JobKind::Post, subject, |cx| Request::Post(cx, req));
     }
 
+    /// Starts simulating a Setup. Ignored while a job runs or with no
+    /// project.
+    pub fn simulate(&mut self, setup: &str) {
+        if self.is_busy() || self.snapshot.is_none() {
+            return;
+        }
+        let setup = setup.to_owned();
+        self.start_job(JobKind::Simulate, setup.clone(), |cx| {
+            Request::Simulate(cx, setup)
+        });
+    }
+
+    /// Asks for the stock of `setup` at time `t`.
+    pub fn scrub(&mut self, setup: &str, t: f64) {
+        self.scrubbing += 1;
+        let _ = self.tx.send(Request::Scrub {
+            setup: setup.to_owned(),
+            t,
+        });
+    }
+
     pub fn edit(&mut self, e: Edit) {
         let _ = self.tx.send(Request::Edit(e));
     }
@@ -288,6 +335,10 @@ impl Jobs {
                 }
             }
             Event::Snapshot(s) => self.snapshot = Some(s),
+            Event::Frame(f) => {
+                self.scrubbing = self.scrubbing.saturating_sub(f.requests);
+                self.frame = Some(f);
+            }
             Event::Finished { job, outcome } => {
                 if let Some(r) = self.running.take_if(|r| r.cx.id == job) {
                     self.last = Some((r.kind, outcome));

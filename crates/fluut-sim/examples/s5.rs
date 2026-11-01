@@ -205,8 +205,7 @@ fn error(name: &str, stock: Stock, tool: Tool, rotary: bool, segs: &[Segment], r
         let mut d = TriDexel::new(&stock, r);
         // Only the Z family is measured; drop the others to save time.
         for k in 0..2 {
-            d.grids[k].rays.clear();
-            d.grids[k].nv = 0;
+            d.grids[k].clear();
         }
         let chords = Chorder::new(tool, stock, rotary, r).chords(segs);
         let t = Instant::now();

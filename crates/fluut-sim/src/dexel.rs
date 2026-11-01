@@ -5,11 +5,19 @@
 //! Family `k` holds rays along axis `k`. Ray `(i, j)` of a family lies at
 //! `u = min_u + (i + ½)·res`, `v = min_v + (j + ½)·res`, where `u = (k + 1) % 3`
 //! and `v = (k + 2) % 3`. Its spans are `f32` offsets from `min_k`.
+//!
+//! Rays are stored in tiles of [`ROWS`] grid rows, each behind an `Arc`. A
+//! clone of the stock shares every tile, and a cut copies only the tiles it
+//! changes, so checkpoints are cheap (D11 §4).
 
 use crate::stock::Stock;
 use fluut_geom::Point3;
 use glam::DVec3;
 use smallvec::SmallVec;
+use std::sync::Arc;
+
+/// Grid rows per tile: the unit of parallel work and of copy-on-write.
+pub const ROWS: usize = 2;
 
 /// A material span `[lo, hi]` along a ray, `lo < hi`.
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -21,6 +29,9 @@ pub struct Span {
 /// Spans of one ray: sorted, disjoint, non-empty.
 pub type Spans = SmallVec<[Span; 2]>;
 
+/// The rays of [`ROWS`] grid rows, row-major.
+pub type Tile = Vec<Spans>;
+
 /// One family of parallel rays.
 #[derive(Clone, Debug)]
 pub struct DexelGrid {
@@ -28,8 +39,8 @@ pub struct DexelGrid {
     pub axis: usize,
     pub nu: usize,
     pub nv: usize,
-    /// Row-major: index `j·nu + i`.
-    pub rays: Vec<Spans>,
+    /// Tile `t` holds rows `t·ROWS..` (fewer in the last tile).
+    tiles: Vec<Arc<Tile>>,
 }
 
 /// Three dexel grids over the same stock box.
@@ -103,11 +114,66 @@ impl DexelGrid {
 
     /// Total span length over all rays.
     pub fn length(&self) -> f64 {
-        self.rays
-            .iter()
+        self.rays()
             .flat_map(|r| r.iter())
             .map(|s| f64::from(s.hi) - f64::from(s.lo))
             .sum()
+    }
+
+    /// The spans of ray `(i, j)`.
+    pub fn ray(&self, i: usize, j: usize) -> &Spans {
+        &self.tiles[j / ROWS][(j % ROWS) * self.nu + i]
+    }
+
+    /// The spans of ray `(i, j)`, copying its tile first if a checkpoint
+    /// shares it.
+    pub fn ray_mut(&mut self, i: usize, j: usize) -> &mut Spans {
+        let nu = self.nu;
+        &mut Arc::make_mut(&mut self.tiles[j / ROWS])[(j % ROWS) * nu + i]
+    }
+
+    /// Every ray, row by row.
+    pub fn rays(&self) -> impl Iterator<Item = &Spans> {
+        self.tiles.iter().flat_map(|t| t.iter())
+    }
+
+    pub fn ray_count(&self) -> usize {
+        self.nu * self.nv
+    }
+
+    /// Drops every ray (measurements that need one family only).
+    pub fn clear(&mut self) {
+        self.tiles.clear();
+        self.nv = 0;
+    }
+
+    pub(crate) fn tiles_mut(&mut self) -> &mut [Arc<Tile>] {
+        &mut self.tiles
+    }
+
+    /// Bytes of the tiles not in `seen`, which then holds them.
+    pub(crate) fn unique_bytes(&self, seen: &mut std::collections::BTreeSet<usize>) -> usize {
+        let mut n = 0;
+        for t in &self.tiles {
+            if seen.insert(Arc::as_ptr(t) as usize) {
+                n += t.len() * size_of::<Spans>();
+                n += t
+                    .iter()
+                    .filter(|r| r.spilled())
+                    .map(|r| r.capacity() * size_of::<Span>())
+                    .sum::<usize>();
+            }
+        }
+        n
+    }
+
+    /// Tiles held in common with `other`, for tests of copy-on-write.
+    pub fn shared_tiles(&self, other: &DexelGrid) -> usize {
+        self.tiles
+            .iter()
+            .zip(&other.tiles)
+            .filter(|(a, b)| Arc::ptr_eq(a, b))
+            .count()
     }
 }
 
@@ -128,26 +194,30 @@ impl TriDexel {
                 axis,
                 nu: n((axis + 1) % 3),
                 nv: n((axis + 2) % 3),
-                rays: Vec::new(),
+                tiles: Vec::new(),
             }),
         };
         for k in 0..3 {
             let g = &d.grids[k];
-            let mut rays = Vec::with_capacity(g.nu * g.nv);
-            for j in 0..g.nv {
-                for i in 0..g.nu {
-                    let p = g.ray_origin(&d, i, j);
-                    let mut spans = Spans::new();
-                    if let Some((lo, hi)) = stock.chord(p, k) {
-                        spans.push(Span {
-                            lo: lo as f32,
-                            hi: hi as f32,
-                        });
+            let mut tiles = Vec::with_capacity(g.nv.div_ceil(ROWS));
+            for j0 in (0..g.nv).step_by(ROWS) {
+                let mut rays = Vec::with_capacity(g.nu * ROWS);
+                for j in j0..(j0 + ROWS).min(g.nv) {
+                    for i in 0..g.nu {
+                        let p = g.ray_origin(&d, i, j);
+                        let mut spans = Spans::new();
+                        if let Some((lo, hi)) = stock.chord(p, k) {
+                            spans.push(Span {
+                                lo: lo as f32,
+                                hi: hi as f32,
+                            });
+                        }
+                        rays.push(spans);
                     }
-                    rays.push(spans);
                 }
+                tiles.push(Arc::new(rays));
             }
-            d.grids[k].rays = rays;
+            d.grids[k].tiles = tiles;
         }
         d
     }
@@ -166,9 +236,9 @@ impl TriDexel {
     pub fn memory(&self) -> Memory {
         let mut m = Memory::default();
         for g in &self.grids {
-            m.rays += g.rays.len();
-            m.inline += g.rays.capacity() * size_of::<Spans>();
-            for r in &g.rays {
+            m.rays += g.ray_count();
+            m.inline += g.ray_count() * size_of::<Spans>();
+            for r in g.rays() {
                 if r.spilled() {
                     m.spilled += 1;
                     m.heap += r.capacity() * size_of::<Span>();
@@ -188,7 +258,7 @@ impl TriDexel {
             }
         };
         for g in &self.grids {
-            for r in &g.rays {
+            for r in g.rays() {
                 eat(r.len() as u32);
                 for s in r {
                     eat(s.lo.to_bits());
@@ -266,7 +336,12 @@ mod tests {
         let mut d = TriDexel::new(&stock, 0.5);
         let h = d.hash();
         assert_eq!(h, d.clone().hash());
-        subtract(&mut d.grids[2].rays[0], 1.0, 2.0);
+        let before = d.clone();
+        subtract(d.grids[2].ray_mut(0, 0), 1.0, 2.0);
         assert_ne!(h, d.hash());
+        // Only the changed tile was copied; the clone still has the old one.
+        assert_eq!(before.hash(), h);
+        let g = &d.grids[2];
+        assert_eq!(g.shared_tiles(&before.grids[2]), g.nv.div_ceil(ROWS) - 1);
     }
 }
