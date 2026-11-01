@@ -273,3 +273,60 @@ fn bore_codes() {
         "[geometry]\nhole_diameter = { min = 5, max = 4 }\n",
     );
 }
+
+const DRILLS: &str = "[geometry]\nhole_diameter = { min = 4.9, max = 5.1 }\n";
+
+fn drill(passes: &str) -> String {
+    format!("{DRILLS}[passes]\n{passes}")
+}
+
+#[test]
+fn drill_codes() {
+    clean("drill", "drill-5", DRILLS);
+    case_with(
+        "param.drill.tool_shape",
+        ("drill", "drill-5", DRILLS, None),
+        ("drill", "flat-6", DRILLS, None),
+    );
+    case_with(
+        "param.drill.pitch.required",
+        ("drill", "tap-6", &drill("cycle = \"tap\"\n"), None),
+        ("drill", "drill-5", &drill("cycle = \"tap\"\n"), None),
+    );
+    case_with(
+        "param.drill.pitch.override",
+        (
+            "drill",
+            "tap-6",
+            &drill("cycle = \"tap\"\npitch = 1.0\n"),
+            None,
+        ),
+        (
+            "drill",
+            "tap-6",
+            &drill("cycle = \"tap\"\npitch = 1.25\n"),
+            None,
+        ),
+    );
+    let tap = drill("cycle = \"tap\"\n");
+    case_with(
+        "param.drill.tap.post",
+        ("drill", "tap-6", &tap, Some(post(true, &["tap"]))),
+        ("drill", "tap-6", &tap, Some(post(true, &["drill", "peck"]))),
+    );
+    // `dwell` is posted as a spot cycle.
+    let dwell = drill("cycle = \"dwell\"\n");
+    case_with(
+        "param.drill.cycle.expanded",
+        ("drill", "drill-5", &dwell, Some(post(true, &["spot"]))),
+        ("drill", "drill-5", &dwell, Some(post(true, &["drill"]))),
+    );
+    case(
+        "param.drill.peck_depth.deep",
+        "drill",
+        "drill-5",
+        &drill("cycle = \"peck\"\npeck_depth = 30\n"),
+        &drill("cycle = \"peck\"\npeck_depth = 31\n"),
+    );
+    case("param.geometry.drive.empty", "drill", "drill-5", DRILLS, "");
+}

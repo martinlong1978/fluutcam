@@ -671,6 +671,91 @@ pub(crate) const BORE: &[FieldMeta] = &[
     lead_out(LEAD_ARC),
 ];
 
+// ── drill (D15b §3.1) ────────────────────────────────────────────────
+
+pub(crate) const DRILL: &[FieldMeta] = &[
+    SPINDLE_RPM,
+    FEEDS,
+    COOLANT,
+    DRIVE_FACES,
+    DRIVE_CURVES,
+    HOLE_DIAMETER,
+    BOUNDARY,
+    CLEARANCE,
+    RETRACT_H,
+    FEED_H,
+    top("selection"),
+    bottom("selection"),
+    MACHINING_TOLERANCE,
+    f(
+        "cycle",
+        Passes,
+        Enum(&[
+            "drill",
+            "spot",
+            "dwell",
+            "peck",
+            "chip_break",
+            "tap",
+            "ream",
+            "bore",
+        ]),
+        text("drill"),
+        R,
+        false,
+    ),
+    f(
+        "peck_depth",
+        Passes,
+        Length,
+        Computed("tool.diameter"),
+        R,
+        true,
+    ),
+    f("chip_break_retract", Passes, Length, num(0.5), R, true),
+    f(
+        "dwell_s",
+        Passes,
+        Duration,
+        Computed("0.5 for dwell, spot and bore; else 0"),
+        R,
+        true,
+    ),
+    f(
+        "pitch",
+        Passes,
+        Length,
+        Computed("the tool's pitch"),
+        R,
+        true,
+    ),
+    f(
+        "depth_to",
+        Passes,
+        Enum(&["tip", "full_diameter"]),
+        text("tip"),
+        R,
+        false,
+    ),
+    f("to_cone_tip", Passes, Bool, flag(false), R, false),
+    f(
+        "retract_mode",
+        Passes,
+        Enum(&["retract", "feed"]),
+        text("retract"),
+        R,
+        false,
+    ),
+    f(
+        "hole_order",
+        Passes,
+        Enum(&["shortest", "selection"]),
+        text("shortest"),
+        R,
+        false,
+    ),
+];
+
 /// Whether `key` is a field of `group` for some type. Used to tell an
 /// undeclared common field (an error, spec 03 §3.10.3) from an unknown key.
 pub fn known_in_any_type(group: Group, key: &str) -> bool {

@@ -145,10 +145,11 @@ pub enum ToolpathTypeId {
     Trace,
     Chamfer2d,
     Bore,
+    Drill,
 }
 
 impl ToolpathTypeId {
-    pub const ALL: [ToolpathTypeId; 7] = [
+    pub const ALL: [ToolpathTypeId; 8] = [
         ToolpathTypeId::Contour2d,
         ToolpathTypeId::Pocket2d,
         ToolpathTypeId::Parallel,
@@ -156,6 +157,7 @@ impl ToolpathTypeId {
         ToolpathTypeId::Trace,
         ToolpathTypeId::Chamfer2d,
         ToolpathTypeId::Bore,
+        ToolpathTypeId::Drill,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -167,6 +169,7 @@ impl ToolpathTypeId {
             ToolpathTypeId::Trace => "trace",
             ToolpathTypeId::Chamfer2d => "chamfer_2d",
             ToolpathTypeId::Bore => "bore",
+            ToolpathTypeId::Drill => "drill",
         }
     }
 
@@ -184,6 +187,7 @@ impl ToolpathTypeId {
             ToolpathTypeId::Trace => super::tables::TRACE,
             ToolpathTypeId::Chamfer2d => super::tables::CHAMFER_2D,
             ToolpathTypeId::Bore => super::tables::BORE,
+            ToolpathTypeId::Drill => super::tables::DRILL,
         }
     }
 

@@ -3,7 +3,7 @@
 //! The strategy interface and registry (D08 §1, D09 §1).
 
 use crate::geometry::SetupGeometry;
-use crate::strategy::{Bore, Chamfer2d, Contour2d, Face, Parallel, Pocket2d, Trace};
+use crate::strategy::{Bore, Chamfer2d, Contour2d, Drill, Face, Parallel, Pocket2d, Trace};
 use fluut_geom::{Aabb3, Affine, Point2, Point3};
 use fluut_model::params::{FieldMeta, ToolpathTypeId};
 use fluut_model::project::{SetupKind, Toolpath};
@@ -115,7 +115,8 @@ static FACE: Face = Face;
 static TRACE: Trace = Trace;
 static CHAMFER_2D: Chamfer2d = Chamfer2d;
 static BORE: Bore = Bore;
-static REGISTRY: [&dyn ToolpathType; 7] = [
+static DRILL: Drill = Drill;
+static REGISTRY: [&dyn ToolpathType; 8] = [
     &CONTOUR_2D,
     &POCKET_2D,
     &PARALLEL,
@@ -123,6 +124,7 @@ static REGISTRY: [&dyn ToolpathType; 7] = [
     &TRACE,
     &CHAMFER_2D,
     &BORE,
+    &DRILL,
 ];
 
 /// Every type of this build (D09 §1).
@@ -139,6 +141,7 @@ pub fn find(id: ToolpathTypeId) -> &'static dyn ToolpathType {
         ToolpathTypeId::Trace => &TRACE,
         ToolpathTypeId::Chamfer2d => &CHAMFER_2D,
         ToolpathTypeId::Bore => &BORE,
+        ToolpathTypeId::Drill => &DRILL,
     }
 }
 

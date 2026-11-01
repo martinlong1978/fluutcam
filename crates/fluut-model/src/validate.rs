@@ -7,7 +7,7 @@
 //! `param.` code.
 
 use crate::diag::Diagnostic;
-use crate::params::{Params, ToolpathTypeId};
+use crate::params::{PValue, Params, ToolpathTypeId};
 use crate::project::{SetupKind, Toolpath};
 use crate::resolve::{
     Compensation, LeadKind, RampKind, ResolvedHeights, ResolvedParams, Side, TabMode, resolve,
@@ -128,6 +128,7 @@ pub fn validate(tp: &Toolpath, cx: &ValidateCx) -> Vec<Diagnostic> {
         ToolpathTypeId::Trace => v.trace(),
         ToolpathTypeId::Chamfer2d => v.chamfer(),
         ToolpathTypeId::Bore => v.bore(),
+        ToolpathTypeId::Drill => v.drill(),
     }
     tag(out, tp)
 }
@@ -272,6 +273,7 @@ impl V<'_, '_> {
                 | ToolpathTypeId::Trace
                 | ToolpathTypeId::Chamfer2d
                 | ToolpathTypeId::Bore
+                | ToolpathTypeId::Drill
         );
         // A hole filter selects holes by itself (D15b §1.5).
         if two_d
@@ -821,6 +823,86 @@ impl V<'_, '_> {
                 "the post has no helix support: the helices are posted as lines".into(),
             );
         }
+    }
+
+    fn drill(&mut self) {
+        use crate::resolve::DrillCycle;
+        let Some(dr) = self.r.drill().cloned() else {
+            return;
+        };
+        let t = self.tool;
+        if t.shape != ToolShape::Drill {
+            let extra = if t.shape == ToolShape::Flat && !t.centre_cutting {
+                ", and it is not centre cutting"
+            } else {
+                ""
+            };
+            self.w(
+                "param.drill.tool_shape",
+                "tool",
+                format!("the tool is not a drill{extra}"),
+            );
+        }
+        let tap = dr.cycle == DrillCycle::Tap;
+        if tap && dr.pitch.is_none() {
+            self.e(
+                "param.drill.pitch.required",
+                "passes.pitch",
+                "a tap cycle needs a pitch on the toolpath or on the tool".into(),
+            );
+        }
+        if let (Some(PValue::Num(n)), Some(tp)) = (self.p.get("passes.pitch"), t.pitch)
+            && n.v != tp
+        {
+            self.w(
+                "param.drill.pitch.override",
+                "passes.pitch",
+                format!("the pitch {} differs from the tool's pitch {tp}", n.v),
+            );
+        }
+        if let Some(p) = dr.pitch {
+            self.range("drill", "passes.pitch", p > 0.0, "above 0");
+        }
+        if let Some(post) = self.cx.post {
+            let name = dr.cycle.post_name();
+            if tap && !post.cycles.contains(name) {
+                self.e(
+                    "param.drill.tap.post",
+                    "passes.cycle",
+                    "the post cannot emit a tap cycle, and taps cannot be expanded".into(),
+                );
+            } else if !tap && !post.cycles.contains(name) {
+                self.w(
+                    "param.drill.cycle.expanded",
+                    "passes.cycle",
+                    format!("the post has no `{name}` cycle: it is expanded into moves"),
+                );
+            }
+        }
+        if matches!(dr.cycle, DrillCycle::Peck | DrillCycle::ChipBreak) {
+            self.range("drill", "passes.peck_depth", dr.peck_depth > 0.0, "above 0");
+            if let Some(fl) = t.flute_length
+                && dr.peck_depth > fl
+            {
+                self.w(
+                    "param.drill.peck_depth.deep",
+                    "passes.peck_depth",
+                    format!(
+                        "peck depth {} is more than the flute length {fl}",
+                        dr.peck_depth
+                    ),
+                );
+            }
+        }
+        if dr.cycle == DrillCycle::ChipBreak {
+            self.range(
+                "drill",
+                "passes.chip_break_retract",
+                dr.chip_break_retract > 0.0,
+                "above 0",
+            );
+        }
+        self.range("drill", "passes.dwell_s", dr.dwell_s >= 0.0, "0 or more");
     }
 
     fn trace(&mut self) {

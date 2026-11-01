@@ -170,12 +170,76 @@ fn golden_2d_types() {
 
 #[test]
 fn golden_hole_types() {
+    // LinuxCNC has a native peck cycle; Grbl has no cycles, so the drill
+    // toolpath is expanded into moves (D10 §5).
     golden(
         "projects/holes/holes.fluut",
         "fluut/linuxcnc",
         "holes-linuxcnc.ngc",
         &[],
     );
+    golden(
+        "projects/holes/holes.fluut",
+        "fluut/grbl",
+        "holes-grbl.gcode",
+        &["param.drill.cycle.expanded"],
+    );
+}
+
+/// A post that extends `fluut/gcode` with a tap cycle.
+const TAP_POST: &str = r#"format  = "fluut.post/1"
+id      = "test/tap"
+version = "1.0"
+name    = "Tap test"
+extends = "fluut/gcode@1"
+
+[cycles]
+enabled   = true
+supported = ["drill", "tap"]
+
+[blocks.cycle_start]
+lines = [{ when = "cycle.kind == 'tap'", line = "G84 [X] [Y] Z[CYCLE_Z] R[CYCLE_R] [F]" }]
+"#;
+
+#[test]
+fn taps_feed_at_rpm_times_pitch() {
+    let d = tmp("tap");
+    std::fs::create_dir_all(d.join("tools")).unwrap();
+    std::fs::copy(here("projects/holes/holes.step"), d.join("holes.step")).unwrap();
+    let tools = std::fs::read_to_string(here("projects/holes/tools/shop.toml"))
+        .unwrap()
+        .replace(
+            "shape         = \"drill\"",
+            "shape         = \"drill\"\npitch         = 0.8",
+        );
+    std::fs::write(d.join("tools/shop.toml"), tools).unwrap();
+    let text = std::fs::read_to_string(here("projects/holes/holes.fluut")).unwrap();
+    let text = text
+        .replace("cycle        = \"peck\"", "cycle        = \"tap\"")
+        .replace("type = \"bore\"", "type = \"bore\"\n  enabled = false");
+    std::fs::write(d.join("holes.fluut"), text).unwrap();
+    let mut s = Session::open(&d.join("holes.fluut"), &[]).unwrap();
+    let mut store = fluut_post::builtin::builtin_store();
+    store.insert_toml(TAP_POST).unwrap();
+    let opts = PostOptions {
+        date: "2026-11-01".into(),
+        time: "12:00:00".into(),
+        notes: String::new(),
+    };
+    let (out, _) = s.post("test/tap", &store, &opts).unwrap();
+    let g = out.files.concat();
+    // 3000 rev/min × 0.8 mm.
+    let tap = g.lines().find(|l| l.starts_with("G84")).unwrap();
+    assert!(tap.ends_with("F2400"), "{tap}");
+    // A post without a tap cycle cannot post it.
+    let e = s
+        .post(
+            "fluut/linuxcnc",
+            &fluut_post::builtin::builtin_store(),
+            &opts,
+        )
+        .unwrap_err();
+    assert!(e.iter().any(|d| d.code == "param.drill.tap.post"), "{e:?}");
 }
 
 #[test]
@@ -255,7 +319,7 @@ const PLATE: Reference = Reference {
 const HOLES: Reference = Reference {
     name: "holes",
     part: step::holes,
-    toolpaths: &["t1"],
+    toolpaths: &["t1", "t2"],
     zero: [0.0, 0.0, 15.0],
 };
 

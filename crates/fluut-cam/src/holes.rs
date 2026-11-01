@@ -335,6 +335,60 @@ pub fn shortest_order(pts: &[Point2], from: Point2) -> Vec<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cutter::synth::Builder;
+    use fluut_geom::{Frame, Interval, Point3, UvBox, Vec3};
+
+    #[test]
+    fn cone_tip_below_a_hole() {
+        // A 118° drill point: semi-angle 59°, radius 2.5 at Z 7.
+        let f = Frame::new(
+            Point3::new(10.0, 5.0, 7.0),
+            Vec3::new(0.0, 0.0, 1.0),
+            Vec3::new(1.0, 0.0, 0.0),
+        )
+        .unwrap();
+        let semi = 59f64.to_radians();
+        let depth = 2.5 / libm::tan(semi);
+        let mut b = Builder::new("c");
+        b.patch(
+            Surface::cone(f, 2.5, semi).unwrap(),
+            UvBox::new(
+                Interval {
+                    lo: 0.0,
+                    hi: std::f64::consts::TAU,
+                },
+                Interval {
+                    lo: -depth,
+                    hi: 0.0,
+                },
+            ),
+        );
+        let body = b.build();
+        let tip = cone_below(&body, Point2::new(10.0, 5.0), 7.0, 0.01).unwrap();
+        assert!((tip - (7.0 - depth)).abs() < 1e-9, "{tip}");
+        assert!(cone_below(&body, Point2::new(11.0, 5.0), 7.0, 0.01).is_none());
+        assert!(cone_below(&body, Point2::new(10.0, 5.0), 8.0, 0.01).is_none());
+    }
+
+    #[test]
+    fn counterbore_stack_takes_the_deepest_wide_cylinder() {
+        let c = |r: f64, lo: f64, hi: f64| Cyl {
+            centre: Point2::new(1.0, 1.0),
+            radius: r,
+            lo,
+            hi,
+            boss: false,
+            cone_tip: None,
+            circle: false,
+        };
+        // Ø10 counterbore over a Ø5 hole, and a Ø3 pilot below.
+        let cyls = [c(5.0, 12.0, 15.0), c(2.5, 4.0, 12.0), c(1.5, 0.0, 4.0)];
+        let s = stacks(&cyls, 5.0, 1e-6);
+        assert_eq!(s.len(), 1);
+        assert_eq!((s[0].top, s[0].bottom, s[0].diameter), (15.0, 4.0, 5.0));
+        let s = stacks(&cyls, 8.0, 1e-6);
+        assert_eq!((s[0].bottom, s[0].diameter), (12.0, 10.0));
+    }
 
     #[test]
     fn two_opt_untangles_a_crossing() {

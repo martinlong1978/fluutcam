@@ -9,7 +9,7 @@ use crate::store::ModelStore;
 use fluut_cam::StrategyInput;
 use fluut_cam::geometry::SetupBody;
 use fluut_model::project::{Project, Setup, read};
-use fluut_model::resolve::{Coolant, resolve};
+use fluut_model::resolve::{Coolant, DrillCycle, resolve};
 use fluut_model::tools::{ToolLibrary, ToolStore};
 use fluut_model::validate::{CycleSet, PostCaps, ValidateCx, validate};
 use fluut_model::{DefRef, DefStore, Diagnostic, Severity};
@@ -380,6 +380,12 @@ impl Session {
                 };
                 let p = resolve(&t.params, tool, s.material.as_deref());
                 let f = p.tool.feed;
+                let rpm = p.tool.spindle_rpm.unwrap_or(0.0);
+                // A tap feeds at rpm × pitch, set at post time (D15b §3.1).
+                let plunge = match p.drill() {
+                    Some(d) if d.cycle == DrillCycle::Tap => rpm * d.pitch.unwrap_or(0.0),
+                    _ => f.plunge.unwrap_or(0.0),
+                };
                 let safe_z = result
                     .segments()
                     .find_map(|x| x.start())
@@ -405,7 +411,7 @@ impl Session {
                     },
                     feeds: Feeds {
                         cut: f.cut.unwrap_or(0.0),
-                        plunge: f.plunge.unwrap_or(0.0),
+                        plunge,
                         ramp: f.ramp.unwrap_or(0.0),
                         lead_in: f.lead_in.unwrap_or(0.0),
                         lead_out: f.lead_out.unwrap_or(0.0),
@@ -451,6 +457,8 @@ const POST_RULES: &[&str] = &[
     "param.contour_2d.compensation.post",
     "param.tool_params.coolant.unsupported",
     "param.bore.helix.post",
+    "param.drill.tap.post",
+    "param.drill.cycle.expanded",
 ];
 
 /// The spec 05 §5.5 name of a post cycle.

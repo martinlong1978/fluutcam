@@ -400,6 +400,69 @@ pub struct Bore {
     pub bottom_circle: bool,
 }
 
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum DrillCycle {
+    Drill,
+    Spot,
+    Dwell,
+    Peck,
+    ChipBreak,
+    Tap,
+    Ream,
+    Bore,
+}
+
+impl DrillCycle {
+    /// The spec 05 §5.5 cycle the post emits: `dwell` is a spot drill with
+    /// a dwell.
+    pub fn post_name(self) -> &'static str {
+        match self {
+            DrillCycle::Drill => "drill",
+            DrillCycle::Spot | DrillCycle::Dwell => "spot",
+            DrillCycle::Peck => "peck",
+            DrillCycle::ChipBreak => "chip_break",
+            DrillCycle::Tap => "tap",
+            DrillCycle::Ream => "ream",
+            DrillCycle::Bore => "bore",
+        }
+    }
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum DepthTo {
+    Tip,
+    FullDiameter,
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum RetractMode {
+    /// Back to `heights.retract` between holes (G98).
+    Retract,
+    /// Back to `heights.feed`, the R plane (G99).
+    Feed,
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum HoleOrder {
+    Shortest,
+    Selection,
+}
+
+/// `drill` (D15b §3.1).
+#[derive(Clone, PartialEq, Debug)]
+pub struct Drill {
+    pub cycle: DrillCycle,
+    pub peck_depth: f64,
+    pub chip_break_retract: f64,
+    pub dwell_s: f64,
+    /// The toolpath's pitch, else the tool's.
+    pub pitch: Option<f64>,
+    pub depth_to: DepthTo,
+    pub to_cone_tip: bool,
+    pub retract_mode: RetractMode,
+    pub hole_order: HoleOrder,
+}
+
 #[derive(Clone, PartialEq, Debug)]
 pub enum TypeParams {
     Contour2d(Contour2d),
@@ -409,6 +472,7 @@ pub enum TypeParams {
     Trace(Trace),
     Chamfer2d(Chamfer2d),
     Bore(Bore),
+    Drill(Drill),
 }
 
 /// Every parameter of a toolpath with defaults applied.
@@ -473,6 +537,13 @@ impl ResolvedParams {
         }
     }
 
+    pub fn drill(&self) -> Option<&Drill> {
+        match &self.ty {
+            TypeParams::Drill(c) => Some(c),
+            _ => None,
+        }
+    }
+
     /// Step-down of the type, if it has one.
     pub fn step_down(&self) -> Option<f64> {
         match &self.ty {
@@ -480,7 +551,10 @@ impl ResolvedParams {
             TypeParams::Pocket2d(p) => p.step_down,
             TypeParams::Face(p) => p.step_down,
             TypeParams::Trace(p) => p.step_down,
-            TypeParams::Parallel(_) | TypeParams::Chamfer2d(_) | TypeParams::Bore(_) => None,
+            TypeParams::Parallel(_)
+            | TypeParams::Chamfer2d(_)
+            | TypeParams::Bore(_)
+            | TypeParams::Drill(_) => None,
         }
     }
 
@@ -493,7 +567,8 @@ impl ResolvedParams {
             TypeParams::Contour2d(_)
             | TypeParams::Trace(_)
             | TypeParams::Chamfer2d(_)
-            | TypeParams::Bore(_) => None,
+            | TypeParams::Bore(_)
+            | TypeParams::Drill(_) => None,
         }
     }
 }
@@ -797,6 +872,42 @@ pub fn resolve(p: &Params, tool: &Tool, material: Option<&str>) -> ResolvedParam
             step_down: g.or_preset("passes.step_down", "step_down"),
             final_step_down: g.num("passes.final_step_down"),
         }),
+        ToolpathTypeId::Drill => {
+            let cycle = match g.text("passes.cycle") {
+                "spot" => DrillCycle::Spot,
+                "dwell" => DrillCycle::Dwell,
+                "peck" => DrillCycle::Peck,
+                "chip_break" => DrillCycle::ChipBreak,
+                "tap" => DrillCycle::Tap,
+                "ream" => DrillCycle::Ream,
+                "bore" => DrillCycle::Bore,
+                _ => DrillCycle::Drill,
+            };
+            let dwell = match cycle {
+                DrillCycle::Dwell | DrillCycle::Spot | DrillCycle::Bore => 0.5,
+                _ => 0.0,
+            };
+            TypeParams::Drill(Drill {
+                cycle,
+                peck_depth: g.num_or("passes.peck_depth", d),
+                chip_break_retract: g.num_or("passes.chip_break_retract", 0.5),
+                dwell_s: g.num_or("passes.dwell_s", dwell),
+                pitch: g.num("passes.pitch").or(tool.pitch),
+                depth_to: match g.text("passes.depth_to") {
+                    "full_diameter" => DepthTo::FullDiameter,
+                    _ => DepthTo::Tip,
+                },
+                to_cone_tip: g.flag("passes.to_cone_tip", false),
+                retract_mode: match g.text("passes.retract_mode") {
+                    "feed" => RetractMode::Feed,
+                    _ => RetractMode::Retract,
+                },
+                hole_order: match g.text("passes.hole_order") {
+                    "selection" => HoleOrder::Selection,
+                    _ => HoleOrder::Shortest,
+                },
+            })
+        }
         ToolpathTypeId::Bore => TypeParams::Bore(Bore {
             feature: match g.text("passes.feature") {
                 "boss" => BoreFeature::Boss,
