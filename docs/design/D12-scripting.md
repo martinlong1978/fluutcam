@@ -77,7 +77,7 @@ field:
 
 ### 3.3 Functions
 
-As listed in [S 09 §9.4]. Additions found necessary during design:
+As listed in [S 09 §9.4]; the full member list with types is [D12b](D12b-scripting-api.md). Additions found necessary during design:
 
 | Function | Reason |
 |---|---|

@@ -48,6 +48,7 @@ the product owner straight away.
 | [D10](D10-post-engine.md) | Post engine and importers | `fluut-post`, `fluut-post-import` | 05 |
 | [D11](D11-simulation.md) | Simulation and time estimate | `fluut-sim` | 04 §4.10 |
 | [D12](D12-scripting.md) | Scripting engine | `fluut-script` | 09 |
+| [D12b](D12b-scripting-api.md) | Scripting API member list | `fluut-script` | 09 §9.4, §9.7 |
 | [D13](D13-ui-architecture.md) | UI architecture | `fluut-app` | 08 |
 | [D14](D14-build-test-release.md) | Build, test, release | CI | 01 §1.8, 06 |
 | [D15](D15-toolpath-parameters.md) | Toolpath parameter definitions (common, `contour_2d`, `pocket_2d`, `parallel`) | `fluut-model`, `fluut-cam` | 02 §2.1, 03 §3.10, 04 §4.13.7 |

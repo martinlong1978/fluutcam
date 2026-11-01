@@ -48,7 +48,7 @@ These must be written before the milestone that needs them:
 
 | Item | Needed by |
 |---|---|
-| Scripting API member list | M7 |
+| ~~Scripting API member list~~ | M7: done, [D12b](../design/D12b-scripting-api.md) |
 | Tool-library field mapping (Vectric/Fusion/DeskProto) | M7 |
 | Vectric unsupported-feature list | M7 (after CH-21 samples) |
 | Telemetry policy, release channels | M8 |
