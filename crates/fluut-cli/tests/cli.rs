@@ -74,6 +74,10 @@ fn step_inputs_match_the_writer() {
         &step::plate([0.0; 3]),
     );
     check_file(&here("projects/holes/holes.step"), &step::holes([0.0; 3]));
+    check_file(
+        &here("projects/rough3d/rough3d.step"),
+        &step::ridge([0.0; 3]),
+    );
 }
 
 #[test]
@@ -85,6 +89,7 @@ fn projects_are_canonical() {
         "projects/plate/plate.fluut",
         "projects/plate2d/plate2d.fluut",
         "projects/holes/holes.fluut",
+        "projects/rough3d/rough3d.fluut",
     ] {
         let text = std::fs::read_to_string(here(p)).unwrap();
         let l = fluut_model::project::read(&text).unwrap();
@@ -205,6 +210,19 @@ fn golden_hole_types() {
         "fluut/grbl",
         "holes-grbl.gcode",
         &["param.drill.cycle.expanded"],
+    );
+}
+
+#[test]
+fn golden_roughing_3d() {
+    // An adaptive roughing, then a rest roughing with a smaller tool that
+    // starts from the in-process stock. Some rest areas are too small for
+    // the helix.
+    golden(
+        "projects/rough3d/rough3d.fluut",
+        "fluut/linuxcnc",
+        "rough3d-linuxcnc.ngc",
+        &["cam.linking.ramp_fallback"],
     );
 }
 
@@ -353,6 +371,14 @@ const RIDGE: Reference = Reference {
     zero: [-5.0, -5.0, 16.358983848622453],
 };
 
+/// The ridge again, roughed in 3-D.
+const ROUGH3D: Reference = Reference {
+    name: "rough3d",
+    part: step::ridge,
+    toolpaths: &["t1", "t2"],
+    zero: [-5.0, -5.0, 16.358983848622453],
+};
+
 /// The project `r` in `dir` with the model moved by `shift`, and the work
 /// zero given as a point moved by the same offset when `point` is set.
 fn shifted(r: &Reference, dir: &Path, shift: [f64; 3], point: bool) -> PathBuf {
@@ -406,7 +432,7 @@ fn translation_invariance() {
     // together moves no toolpath coordinate by more than ε_s, and the
     // G-code is the same.
     let shift = [0.123457, -0.987651, 0.31];
-    for r in [&BLOCK, &RIDGE, &PLATE, &HOLES] {
+    for r in [&BLOCK, &RIDGE, &PLATE, &HOLES, &ROUGH3D] {
         for point in [true, false] {
             let n = r.name;
             let a = shifted(r, &tmp(&format!("inv-{n}-a-{point}")), [0.0; 3], point);

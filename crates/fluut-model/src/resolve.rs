@@ -483,6 +483,25 @@ pub struct Engrave {
     pub corner_sharpening: bool,
 }
 
+/// `adaptive_3d` (D15b §4.1).
+#[derive(Clone, PartialEq, Debug)]
+pub struct Adaptive3d {
+    pub optimal_load: f64,
+    pub step_down: Option<f64>,
+    /// `None`: no fine levels.
+    pub fine_step_down: Option<f64>,
+    pub min_cutting_radius: f64,
+    pub direction: CutDirection,
+    pub flat_detection: bool,
+}
+
+/// `pocket_3d` (D15b §4.2): the `pocket_2d` patterns per level.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Pocket3d {
+    pub pocket: Pocket2d,
+    pub flat_detection: bool,
+}
+
 #[derive(Clone, PartialEq, Debug)]
 pub enum TypeParams {
     Contour2d(Contour2d),
@@ -495,6 +514,8 @@ pub enum TypeParams {
     Drill(Drill),
     Adaptive2d(Adaptive2d),
     Engrave(Engrave),
+    Adaptive3d(Adaptive3d),
+    Pocket3d(Pocket3d),
 }
 
 /// Every parameter of a toolpath with defaults applied.
@@ -580,6 +601,20 @@ impl ResolvedParams {
         }
     }
 
+    pub fn adaptive_3d(&self) -> Option<&Adaptive3d> {
+        match &self.ty {
+            TypeParams::Adaptive3d(c) => Some(c),
+            _ => None,
+        }
+    }
+
+    pub fn pocket_3d(&self) -> Option<&Pocket3d> {
+        match &self.ty {
+            TypeParams::Pocket3d(c) => Some(c),
+            _ => None,
+        }
+    }
+
     /// Step-down of the type, if it has one.
     pub fn step_down(&self) -> Option<f64> {
         match &self.ty {
@@ -589,6 +624,8 @@ impl ResolvedParams {
             TypeParams::Trace(p) => p.step_down,
             TypeParams::Adaptive2d(p) => p.step_down,
             TypeParams::Engrave(p) => p.step_down,
+            TypeParams::Adaptive3d(p) => p.step_down,
+            TypeParams::Pocket3d(p) => p.pocket.step_down,
             TypeParams::Parallel(_)
             | TypeParams::Chamfer2d(_)
             | TypeParams::Bore(_)
@@ -602,6 +639,8 @@ impl ResolvedParams {
             TypeParams::Pocket2d(p) => p.stepover,
             TypeParams::Parallel(p) => p.stepover,
             TypeParams::Face(p) => p.stepover,
+            TypeParams::Pocket3d(p) => p.pocket.stepover,
+            TypeParams::Adaptive3d(_) => None,
             TypeParams::Contour2d(_)
             | TypeParams::Trace(_)
             | TypeParams::Chamfer2d(_)
@@ -752,6 +791,24 @@ fn direction(s: &str) -> CutDirection {
     }
 }
 
+/// The `pocket_2d` pattern fields (D15 §4.1), shared with `pocket_3d`.
+fn pocket(g: &Get) -> Pocket2d {
+    Pocket2d {
+        pattern: match g.text("passes.pattern") {
+            "raster" => Pattern::Raster,
+            _ => Pattern::Offset,
+        },
+        stepover: g.or_preset("passes.stepover", "stepover"),
+        step_down: g.or_preset("passes.step_down", "step_down"),
+        direction: direction(g.text("passes.direction")),
+        offset_order: match g.text("passes.offset_order") {
+            "outside_in" => OffsetOrder::OutsideIn,
+            _ => OffsetOrder::InsideOut,
+        },
+        pass_angle_deg: g.num_or("passes.pass_angle_deg", 0.0),
+    }
+}
+
 /// Applies the D15 defaults. `material` is the Setup's material, which
 /// selects the tool preset.
 pub fn resolve(p: &Params, tool: &Tool, material: Option<&str>) -> ResolvedParams {
@@ -882,19 +939,20 @@ pub fn resolve(p: &Params, tool: &Tool, material: Option<&str>) -> ResolvedParam
                 ramp_angle_deg: g.num_or("passes.tabs.ramp_angle_deg", 45.0),
             },
         }),
-        ToolpathTypeId::Pocket2d => TypeParams::Pocket2d(Pocket2d {
-            pattern: match g.text("passes.pattern") {
-                "raster" => Pattern::Raster,
-                _ => Pattern::Offset,
-            },
-            stepover: g.or_preset("passes.stepover", "stepover"),
+        ToolpathTypeId::Pocket2d => TypeParams::Pocket2d(pocket(&g)),
+        ToolpathTypeId::Pocket3d => TypeParams::Pocket3d(Pocket3d {
+            pocket: pocket(&g),
+            flat_detection: g.flag("passes.flat_detection", true),
+        }),
+        ToolpathTypeId::Adaptive3d => TypeParams::Adaptive3d(Adaptive3d {
+            optimal_load: g
+                .or_preset("passes.optimal_load", "optimal_load")
+                .unwrap_or(0.1 * d),
             step_down: g.or_preset("passes.step_down", "step_down"),
+            fine_step_down: g.num("passes.fine_step_down"),
+            min_cutting_radius: g.num_or("passes.min_cutting_radius", 0.1 * d),
             direction: direction(g.text("passes.direction")),
-            offset_order: match g.text("passes.offset_order") {
-                "outside_in" => OffsetOrder::OutsideIn,
-                _ => OffsetOrder::InsideOut,
-            },
-            pass_angle_deg: g.num_or("passes.pass_angle_deg", 0.0),
+            flat_detection: g.flag("passes.flat_detection", true),
         }),
         ToolpathTypeId::Parallel => TypeParams::Parallel(Parallel {
             stepover: g.or_preset("passes.stepover", "stepover"),

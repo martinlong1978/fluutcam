@@ -15,6 +15,7 @@ pub mod moves;
 pub mod path2;
 pub mod region;
 pub mod scallop;
+pub mod section;
 pub mod spike;
 pub mod stock;
 pub mod strategy;

@@ -353,16 +353,126 @@ impl Region2 {
     }
 
     pub fn union(&self, o: &Region2) -> Region2 {
-        boolean::boolean(self, o, boolean::Op::Union)
+        self.guarded(o, boolean::Op::Union)
     }
 
     pub fn intersect(&self, o: &Region2) -> Region2 {
-        boolean::boolean(self, o, boolean::Op::Intersect)
+        self.guarded(o, boolean::Op::Intersect)
     }
 
     /// This region minus `o`.
     pub fn subtract(&self, o: &Region2) -> Region2 {
-        boolean::boolean(self, o, boolean::Op::Subtract)
+        self.guarded(o, boolean::Op::Subtract)
+    }
+
+    /// A boolean that survives `cavalier_contours` assertions on nearly
+    /// degenerate input (collinear segments within rounding): it is
+    /// retried with `o` moved by a nanometre, which is far below any
+    /// tolerance.
+    fn guarded(&self, o: &Region2, op: boolean::Op) -> Region2 {
+        let run = |o: &Region2| {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                boolean::boolean(self, o, op)
+            }))
+        };
+        let mut last = match run(o) {
+            Ok(r) => return r,
+            Err(e) => e,
+        };
+        for (dx, dy) in [(1e-9, 0.7e-9), (-0.7e-9, 1e-9), (0.3e-9, -1e-9)] {
+            match run(&o.translated(Vec2::new(dx, dy))) {
+                Ok(r) => return r,
+                Err(e) => last = e,
+            }
+        }
+        // Then with almost-collinear vertices removed from both.
+        let (a, b) = (self.cleaned(), o.cleaned());
+        for (dx, dy) in [(0.0, 0.0), (1e-9, 0.7e-9)] {
+            let b = b.translated(Vec2::new(dx, dy));
+            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                boolean::boolean(&a, &b, op)
+            })) {
+                Ok(r) => return r,
+                Err(e) => last = e,
+            }
+        }
+        if let Ok(path) = std::env::var("FLUUT_DUMP") {
+            let _ = std::fs::write(path, format!("{:?}\n{:?}\n", self, o));
+        }
+        std::panic::resume_unwind(last)
+    }
+
+    /// The region with arcs flatter than 1e-7 mm turned into lines and
+    /// line vertices within 1e-7 mm of the chord of their neighbours
+    /// removed (a shape change below any tolerance).
+    pub fn cleaned(&self) -> Region2 {
+        const FLAT: f64 = 1e-7;
+        let loops = self
+            .loops
+            .iter()
+            .map(|l| {
+                let n = l.verts.len();
+                let mut v: Vec<Vertex> = l
+                    .verts
+                    .iter()
+                    .enumerate()
+                    .map(|(i, x)| {
+                        let next = l.verts[(i + 1) % n].p;
+                        // Sagitta of an arc ≈ chord · bulge / 2.
+                        if (x.p.distance(next) * x.bulge).abs() * 0.5 <= FLAT {
+                            Vertex { bulge: 0.0, ..*x }
+                        } else {
+                            *x
+                        }
+                    })
+                    .collect();
+                let mut changed = true;
+                while changed && v.len() > 3 {
+                    changed = false;
+                    let mut i = 0;
+                    while i < v.len() && v.len() > 3 {
+                        let m = v.len();
+                        let (pr, cu, nx) = (v[(i + m - 1) % m], v[i], v[(i + 1) % m]);
+                        let d = nx.p - pr.p;
+                        let len = d.length();
+                        let off = if len > 0.0 {
+                            ((cu.p - pr.p).x() * d.y() - (cu.p - pr.p).y() * d.x()).abs() / len
+                        } else {
+                            cu.p.distance(pr.p)
+                        };
+                        let between = (cu.p - pr.p).dot(d) >= 0.0 && (nx.p - cu.p).dot(d) >= 0.0;
+                        if pr.bulge == 0.0 && cu.bulge == 0.0 && off <= FLAT && between {
+                            v.remove(i);
+                            changed = true;
+                        } else {
+                            i += 1;
+                        }
+                    }
+                }
+                Loop2 { verts: v }
+            })
+            .collect();
+        Region2 { loops }
+    }
+
+    /// The region moved by `d`.
+    pub fn translated(&self, d: Vec2) -> Region2 {
+        Region2 {
+            loops: self
+                .loops
+                .iter()
+                .map(|l| Loop2 {
+                    verts: l
+                        .verts
+                        .iter()
+                        .map(|v| Vertex {
+                            p: v.p + d,
+                            bulge: v.bulge,
+                        })
+                        .collect(),
+                })
+                .collect(),
+        }
     }
 
     /// Parameter intervals `(t0, t1)` where the line `p + t · dir` lies in

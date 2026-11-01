@@ -135,6 +135,8 @@ pub fn validate(tp: &Toolpath, cx: &ValidateCx) -> Vec<Diagnostic> {
         ToolpathTypeId::Drill => v.drill(),
         ToolpathTypeId::Adaptive2d => v.adaptive(),
         ToolpathTypeId::Engrave => v.engrave(),
+        ToolpathTypeId::Adaptive3d => v.adaptive_3d(),
+        ToolpathTypeId::Pocket3d => {}
     }
     tag(out, tp)
 }
@@ -945,36 +947,52 @@ impl V<'_, '_> {
             return;
         };
         self.required("passes.step_down", a.step_down);
+        self.engagement(a.optimal_load, a.min_cutting_radius);
+    }
+
+    fn adaptive_3d(&mut self) {
+        let Some(a) = self.r.adaptive_3d().cloned() else {
+            return;
+        };
+        self.required("passes.step_down", a.step_down);
+        self.engagement(a.optimal_load, a.min_cutting_radius);
+        if let (Some(f), Some(sd)) = (a.fine_step_down, a.step_down)
+            && !(f > 0.0 && f < sd)
+        {
+            self.e(
+                "param.adaptive_3d.fine_step_down.range",
+                "passes.fine_step_down",
+                format!("fine step-down {f} must be above 0 and below the step-down {sd}"),
+            );
+        }
+    }
+
+    /// Load and smoothing rules of the adaptive types (D15b §2.2, §4.1).
+    fn engagement(&mut self, load: f64, min_radius: f64) {
+        let ty = self.ty();
         let d = self.tool.diameter;
-        let load = a.optimal_load;
         if load <= 0.0 || load > 0.5 * d {
             self.e(
-                "param.adaptive_2d.optimal_load.range",
+                &format!("param.{ty}.optimal_load.range"),
                 "passes.optimal_load",
                 format!("optimal load {load} must be above 0 and at most half the tool diameter"),
             );
         } else if load > 0.3 * d {
             self.w(
-                "param.adaptive_2d.optimal_load.high",
+                &format!("param.{ty}.optimal_load.high"),
                 "passes.optimal_load",
                 format!("optimal load {load} is more than 30 % of the tool diameter"),
             );
         }
-        if a.min_cutting_radius < 0.0 {
-            self.range(
-                "adaptive_2d",
-                "passes.min_cutting_radius",
-                false,
-                "0 or more",
-            );
-        } else if a.min_cutting_radius > self.tool.radius() {
+        if min_radius < 0.0 {
+            self.range(ty, "passes.min_cutting_radius", false, "0 or more");
+        } else if min_radius > self.tool.radius() {
             self.w(
-                "param.adaptive_2d.min_cutting_radius.large",
+                &format!("param.{ty}.min_cutting_radius.large"),
                 "passes.min_cutting_radius",
                 format!(
-                    "min cutting radius {} is more than the tool radius: narrow parts may be \
-                     left uncut",
-                    a.min_cutting_radius
+                    "min cutting radius {min_radius} is more than the tool radius: narrow parts \
+                     may be left uncut"
                 ),
             );
         }
