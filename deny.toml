@@ -35,7 +35,16 @@ unknown-git = "deny"
 
 [advisories]
 yanked = "deny"
+# Unmaintained (not vulnerable) crates under the UI toolkit (M5). Revisit when
+# eframe moves to zbus 6 and egui_dock drops `paste`.
 ignore = [
+    # paste: proc macro used by egui_dock.
+    { id = "RUSTSEC-2024-0436", reason = "build-time macro of egui_dock; no maintained replacement upstream yet" },
+    # zbus_names, zvariant, zvariant_derive: merged into zbus 6; reached through
+    # accesskit_unix (AT-SPI accessibility on Linux) in eframe 0.36.
+    { id = "RUSTSEC-2026-0371", reason = "zbus 5 crate under accesskit_unix; merged into zbus 6" },
+    { id = "RUSTSEC-2026-0370", reason = "zbus 5 crate under accesskit_unix; merged into zbus 6" },
+    { id = "RUSTSEC-2026-0372", reason = "zbus 5 crate under accesskit_unix; merged into zbus 6" },
     # smartstring is unmaintained (not a vulnerability). rhai 1.27, the
     # latest, still requires it; revisit when rhai moves to compact_str.
     { id = "RUSTSEC-2026-0249", reason = "unmaintained only; required by rhai (M7 scripting)" },
