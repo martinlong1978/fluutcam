@@ -16,10 +16,12 @@ kind = \"three_axis\"
 
 /// The ```toml blocks of D15, by the heading they follow.
 fn d15_examples() -> Vec<(String, String)> {
-    let path = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../docs/design/D15-toolpath-parameters.md"
-    );
+    doc_examples("D15-toolpath-parameters.md")
+}
+
+/// The ```toml blocks of a design document, by the heading they follow.
+fn doc_examples(file: &str) -> Vec<(String, String)> {
+    let path = format!("{}/../../docs/design/{file}", env!("CARGO_MANIFEST_DIR"));
     let doc = std::fs::read_to_string(path).unwrap();
     let mut out = Vec::new();
     let mut heading = String::new();
@@ -80,6 +82,41 @@ fn every_d15_example_round_trips() {
         assert!(loaded.warnings.is_empty(), "{h}: {:?}", loaded.warnings);
         assert_eq!(write(&loaded.project), src, "{h}");
     }
+}
+
+/// The type of an example toolpath, if this build has it.
+fn example_type(block: &str) -> Option<ToolpathTypeId> {
+    let line = block.lines().find(|l| l.trim_start().starts_with("type"))?;
+    let v = line.split('"').nth(1)?;
+    ToolpathTypeId::parse(v)
+}
+
+#[test]
+fn every_d15b_example_round_trips() {
+    // D15b §2–§3 examples of the types this build has (D15 §6 test).
+    let mut seen = Vec::new();
+    for (h, block) in doc_examples("D15b-toolpath-parameters-2.md") {
+        let Some(kind) = example_type(&block) else {
+            continue;
+        };
+        seen.push(kind.as_str());
+        let src = format!("{HEADER}\n{}", strip_comments(&block));
+        let loaded = read(&src).unwrap_or_else(|e| panic!("{h}: {e}"));
+        assert!(loaded.warnings.is_empty(), "{h}: {:?}", loaded.warnings);
+        assert_eq!(write(&loaded.project), src, "{h}");
+    }
+    assert_eq!(
+        seen,
+        [
+            "face",
+            "adaptive_2d",
+            "trace",
+            "engrave",
+            "chamfer_2d",
+            "bore",
+            "drill"
+        ]
+    );
 }
 
 const FULL: &str = r#"format = "fluut.project/1"

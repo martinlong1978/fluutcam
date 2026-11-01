@@ -498,6 +498,7 @@ name = "fluut-model"
 version = "0.1.0"
 dependencies = [
  "crc32fast",
+ "libm",
  "postcard",
  "proptest",
  "serde",

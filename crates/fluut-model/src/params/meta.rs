@@ -65,6 +65,8 @@ pub enum FieldKind {
     Speed,
     /// Degrees in the file.
     Angle,
+    /// Seconds (D15b §1.1).
+    Duration,
     Count,
     Bool,
     /// One of the listed snake_case strings.
@@ -133,19 +135,33 @@ impl FieldMeta {
     }
 }
 
-/// Toolpath types with parameter definitions (D15 §3–§5).
+/// Toolpath types with parameter definitions (D15 §3–§5, D15b §2–§3).
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub enum ToolpathTypeId {
     Contour2d,
     Pocket2d,
     Parallel,
+    Face,
+    Trace,
+    Chamfer2d,
+    Bore,
+    Drill,
+    Adaptive2d,
+    Engrave,
 }
 
 impl ToolpathTypeId {
-    pub const ALL: [ToolpathTypeId; 3] = [
+    pub const ALL: [ToolpathTypeId; 10] = [
         ToolpathTypeId::Contour2d,
         ToolpathTypeId::Pocket2d,
         ToolpathTypeId::Parallel,
+        ToolpathTypeId::Face,
+        ToolpathTypeId::Trace,
+        ToolpathTypeId::Chamfer2d,
+        ToolpathTypeId::Bore,
+        ToolpathTypeId::Drill,
+        ToolpathTypeId::Adaptive2d,
+        ToolpathTypeId::Engrave,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -153,6 +169,13 @@ impl ToolpathTypeId {
             ToolpathTypeId::Contour2d => "contour_2d",
             ToolpathTypeId::Pocket2d => "pocket_2d",
             ToolpathTypeId::Parallel => "parallel",
+            ToolpathTypeId::Face => "face",
+            ToolpathTypeId::Trace => "trace",
+            ToolpathTypeId::Chamfer2d => "chamfer_2d",
+            ToolpathTypeId::Bore => "bore",
+            ToolpathTypeId::Drill => "drill",
+            ToolpathTypeId::Adaptive2d => "adaptive_2d",
+            ToolpathTypeId::Engrave => "engrave",
         }
     }
 
@@ -166,6 +189,13 @@ impl ToolpathTypeId {
             ToolpathTypeId::Contour2d => super::tables::CONTOUR_2D,
             ToolpathTypeId::Pocket2d => super::tables::POCKET_2D,
             ToolpathTypeId::Parallel => super::tables::PARALLEL,
+            ToolpathTypeId::Face => super::tables::FACE,
+            ToolpathTypeId::Trace => super::tables::TRACE,
+            ToolpathTypeId::Chamfer2d => super::tables::CHAMFER_2D,
+            ToolpathTypeId::Bore => super::tables::BORE,
+            ToolpathTypeId::Drill => super::tables::DRILL,
+            ToolpathTypeId::Adaptive2d => super::tables::ADAPTIVE_2D,
+            ToolpathTypeId::Engrave => super::tables::ENGRAVE,
         }
     }
 

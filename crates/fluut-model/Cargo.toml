@@ -8,6 +8,7 @@ license.workspace = true
 
 [dependencies]
 crc32fast.workspace = true
+libm.workspace = true
 postcard.workspace = true
 serde.workspace = true
 serde_ignored.workspace = true

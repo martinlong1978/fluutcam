@@ -7,7 +7,7 @@
 //! `param.` code.
 
 use crate::diag::Diagnostic;
-use crate::params::{Params, ToolpathTypeId};
+use crate::params::{PValue, Params, ToolpathTypeId};
 use crate::project::{SetupKind, Toolpath};
 use crate::resolve::{
     Compensation, LeadKind, RampKind, ResolvedHeights, ResolvedParams, Side, TabMode, resolve,
@@ -26,6 +26,38 @@ pub struct MachineLimits {
 pub struct PostCaps {
     pub cutter_comp: bool,
     pub coolant: bool,
+    /// Helices are posted as helices (else linearized).
+    pub helix: bool,
+    /// Canned cycles the post emits natively (D10 §5).
+    pub cycles: CycleSet,
+}
+
+/// A set of canned cycle names: `drill`, `spot`, `peck`, `chip_break`,
+/// `tap`, `ream`, `bore` (spec 05 §5.5).
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
+pub struct CycleSet(u8);
+
+impl CycleSet {
+    pub const NAMES: [&'static str; 7] =
+        ["drill", "spot", "peck", "chip_break", "tap", "ream", "bore"];
+
+    /// The set of the known names in `names`; others are ignored.
+    pub fn of(names: &[&str]) -> CycleSet {
+        let mut bits = 0;
+        for (i, n) in CycleSet::NAMES.iter().enumerate() {
+            if names.contains(n) {
+                bits |= 1 << i;
+            }
+        }
+        CycleSet(bits)
+    }
+
+    pub fn contains(self, name: &str) -> bool {
+        CycleSet::NAMES
+            .iter()
+            .position(|n| *n == name)
+            .is_some_and(|i| self.0 & (1 << i) != 0)
+    }
 }
 
 /// Inputs beyond the parameters. Rules whose input is `None` are skipped.
@@ -96,6 +128,13 @@ pub fn validate(tp: &Toolpath, cx: &ValidateCx) -> Vec<Diagnostic> {
         ToolpathTypeId::Contour2d => v.contour(),
         ToolpathTypeId::Pocket2d => v.pocket(),
         ToolpathTypeId::Parallel => v.parallel(),
+        ToolpathTypeId::Face => v.face(),
+        ToolpathTypeId::Trace => v.trace(),
+        ToolpathTypeId::Chamfer2d => v.chamfer(),
+        ToolpathTypeId::Bore => v.bore(),
+        ToolpathTypeId::Drill => v.drill(),
+        ToolpathTypeId::Adaptive2d => v.adaptive(),
+        ToolpathTypeId::Engrave => v.engrave(),
     }
     tag(out, tp)
 }
@@ -235,9 +274,21 @@ impl V<'_, '_> {
         let g = &self.r.geometry;
         let two_d = matches!(
             self.r.kind,
-            ToolpathTypeId::Contour2d | ToolpathTypeId::Pocket2d
+            ToolpathTypeId::Contour2d
+                | ToolpathTypeId::Pocket2d
+                | ToolpathTypeId::Adaptive2d
+                | ToolpathTypeId::Engrave
+                | ToolpathTypeId::Trace
+                | ToolpathTypeId::Chamfer2d
+                | ToolpathTypeId::Bore
+                | ToolpathTypeId::Drill
         );
-        if two_d && g.drive_curves.is_empty() && g.drive_faces.is_empty() {
+        // A hole filter selects holes by itself (D15b §1.5).
+        if two_d
+            && g.drive_curves.is_empty()
+            && g.drive_faces.is_empty()
+            && g.hole_diameter.is_none()
+        {
             self.e(
                 "param.geometry.drive.empty",
                 "geometry.drive_curves",
@@ -261,6 +312,12 @@ impl V<'_, '_> {
                 }
             }
         }
+        if let Some((lo, hi)) = g.hole_diameter {
+            let ok = lo.is_none_or(|v| v >= 0.0)
+                && hi.is_none_or(|v| v >= 0.0)
+                && !matches!((lo, hi), (Some(a), Some(b)) if a > b);
+            self.range("geometry", "geometry.hole_diameter", ok, "0 ≤ min ≤ max");
+        }
         if g.rest_previous {
             self.e(
                 "param.geometry.rest_from.unsupported",
@@ -273,7 +330,11 @@ impl V<'_, '_> {
     fn heights(&mut self) {
         let h = &self.r.heights;
         let g = &self.r.geometry;
-        if h.uses_selection() && g.drive_curves.is_empty() && g.drive_faces.is_empty() {
+        if h.uses_selection()
+            && g.drive_curves.is_empty()
+            && g.drive_faces.is_empty()
+            && g.hole_diameter.is_none()
+        {
             self.e(
                 "param.heights.reference.empty",
                 "heights",
@@ -283,7 +344,16 @@ impl V<'_, '_> {
         let Some(z) = self.cx.heights.copied() else {
             return;
         };
-        let top_ok = if self.r.kind == ToolpathTypeId::Parallel {
+        // In `trace` curve mode the heights do not set the cut depth.
+        let curve_mode = self
+            .r
+            .trace()
+            .is_some_and(|t| t.depth_mode == crate::resolve::DepthMode::Curve);
+        // Types without `bottom` check clearance ≥ retract ≥ feed ≥ top only.
+        let has_bottom = Params::meta(self.r.kind, "heights.bottom").is_some();
+        let top_ok = if !has_bottom {
+            true
+        } else if self.r.kind == ToolpathTypeId::Parallel || curve_mode {
             z.top >= z.bottom
         } else {
             z.top > z.bottom
@@ -309,6 +379,7 @@ impl V<'_, '_> {
             );
         }
         if let Some(sb) = self.cx.stock_bottom
+            && has_bottom
             && z.bottom < sb
         {
             self.w(
@@ -443,7 +514,7 @@ impl V<'_, '_> {
                 );
             }
         }
-        let uses_ramp = self.r.kind != ToolpathTypeId::Parallel;
+        let uses_ramp = Params::meta(self.r.kind, "linking.ramp").is_some();
         if uses_ramp {
             let a = l.ramp.angle_deg;
             if l.ramp.kind != RampKind::Plunge && !(a > 0.0 && a <= 90.0) {
@@ -624,6 +695,327 @@ impl V<'_, '_> {
                 "param.pocket_2d.tool_shape",
                 "tool",
                 "the tool is not flat or bull nosed: the floor will be scalloped".into(),
+            );
+        }
+    }
+
+    fn face(&mut self) {
+        let Some(f) = self.r.face().cloned() else {
+            return;
+        };
+        self.required("passes.stepover", f.stepover);
+        self.required("passes.step_down", f.step_down);
+        let r = self.tool.radius();
+        if f.overlap < 0.0 {
+            self.range("face", "passes.overlap", false, "0 or more");
+        } else if f.overlap < r {
+            self.w(
+                "param.face.overlap.short",
+                "passes.overlap",
+                format!(
+                    "overlap {} is less than the tool radius {r}: the tool does not clear the \
+                     stock edge at the pass ends",
+                    f.overlap
+                ),
+            );
+        }
+        if let Some(fs) = f.final_step_down {
+            let over = f.step_down.is_some_and(|sd| fs > sd);
+            if fs <= 0.0 || over {
+                self.e(
+                    "param.face.final_step_down.range",
+                    "passes.final_step_down",
+                    format!("final step-down {fs} must be above 0 and at most the step-down"),
+                );
+            }
+        }
+        if !matches!(self.tool.shape, ToolShape::Flat | ToolShape::Bull) {
+            self.w(
+                "param.face.tool_shape",
+                "tool",
+                "the tool is not flat or bull nosed: the face will be scalloped".into(),
+            );
+        }
+    }
+
+    /// The V tool of `engrave` and `chamfer_2d`: half-angle and tip radius,
+    /// or `param.<type>.tool_shape` (D15b §1.9).
+    fn v_tool(&mut self) -> Option<(f64, f64)> {
+        let a = self.tool.v_angle();
+        if a.is_none() {
+            self.e(
+                &format!("param.{}.tool_shape", self.ty()),
+                "tool",
+                format!(
+                    "{} needs a V tool (shape v or taper with a half_angle_deg)",
+                    self.ty()
+                ),
+            );
+        }
+        Some((a?, self.tool.tip_radius()))
+    }
+
+    fn engrave(&mut self) {
+        let Some(e) = self.r.engrave().cloned() else {
+            return;
+        };
+        if self.v_tool().is_none() {
+            return;
+        }
+        let Some(md) = e.max_depth else {
+            return;
+        };
+        self.range("engrave", "passes.max_depth", md > 0.0, "above 0");
+        if let Some(cone) = self.tool.cone_height()
+            && md > cone + 1e-9
+        {
+            self.e(
+                "param.engrave.max_depth.cone",
+                "passes.max_depth",
+                format!(
+                    "max depth {md} is more than the cone height {cone}: the shank would cut \
+                     the walls"
+                ),
+            );
+        }
+        if let Some(fl) = self.tool.flute_length
+            && md > fl
+        {
+            self.w(
+                "param.engrave.max_depth.flute",
+                "passes.max_depth",
+                format!("max depth {md} is more than the flute length {fl}"),
+            );
+        }
+    }
+
+    fn chamfer(&mut self) {
+        let Some(c) = self.r.chamfer().cloned() else {
+            return;
+        };
+        self.range(
+            "chamfer_2d",
+            "passes.chamfer_width",
+            c.chamfer_width > 0.0,
+            "above 0",
+        );
+        self.range(
+            "chamfer_2d",
+            "passes.tip_offset",
+            c.tip_offset >= 0.0,
+            "0 or more",
+        );
+        let Some((alpha, rt)) = self.v_tool() else {
+            return;
+        };
+        let (d, o) = c.depth_and_offset(alpha, rt);
+        let r = self.tool.radius();
+        if o + c.chamfer_width > r {
+            self.e(
+                "param.chamfer_2d.width.tool",
+                "passes.chamfer_width",
+                format!(
+                    "the chamfer needs {} mm of cone from the tool axis, more than the tool \
+                     radius {r}",
+                    o + c.chamfer_width
+                ),
+            );
+        }
+        if let Some(fl) = self.tool.flute_length
+            && d > fl
+        {
+            self.w(
+                "param.chamfer_2d.depth.flute",
+                "passes.chamfer_width",
+                format!("the tip depth {d} is more than the flute length {fl}"),
+            );
+        }
+    }
+
+    fn bore(&mut self) {
+        let Some(b) = self.r.bore().cloned() else {
+            return;
+        };
+        let d = self.tool.diameter;
+        self.range("bore", "passes.pitch", b.pitch > 0.0, "above 0");
+        if b.finishing_pass {
+            if b.finishing_stepover > d {
+                self.e(
+                    "param.bore.finishing_stepover.max",
+                    "passes.finishing_stepover",
+                    format!(
+                        "finishing stepover {} is more than the tool diameter {d}",
+                        b.finishing_stepover
+                    ),
+                );
+            }
+            self.range(
+                "bore",
+                "passes.finishing_stepover",
+                b.finishing_stepover > 0.0,
+                "above 0",
+            );
+        }
+        if let Some(post) = self.cx.post
+            && !post.helix
+        {
+            self.w(
+                "param.bore.helix.post",
+                "passes.pitch",
+                "the post has no helix support: the helices are posted as lines".into(),
+            );
+        }
+    }
+
+    fn drill(&mut self) {
+        use crate::resolve::DrillCycle;
+        let Some(dr) = self.r.drill().cloned() else {
+            return;
+        };
+        let t = self.tool;
+        if t.shape != ToolShape::Drill {
+            let extra = if t.shape == ToolShape::Flat && !t.centre_cutting {
+                ", and it is not centre cutting"
+            } else {
+                ""
+            };
+            self.w(
+                "param.drill.tool_shape",
+                "tool",
+                format!("the tool is not a drill{extra}"),
+            );
+        }
+        let tap = dr.cycle == DrillCycle::Tap;
+        if tap && dr.pitch.is_none() {
+            self.e(
+                "param.drill.pitch.required",
+                "passes.pitch",
+                "a tap cycle needs a pitch on the toolpath or on the tool".into(),
+            );
+        }
+        if let (Some(PValue::Num(n)), Some(tp)) = (self.p.get("passes.pitch"), t.pitch)
+            && n.v != tp
+        {
+            self.w(
+                "param.drill.pitch.override",
+                "passes.pitch",
+                format!("the pitch {} differs from the tool's pitch {tp}", n.v),
+            );
+        }
+        if let Some(p) = dr.pitch {
+            self.range("drill", "passes.pitch", p > 0.0, "above 0");
+        }
+        if let Some(post) = self.cx.post {
+            let name = dr.cycle.post_name();
+            if tap && !post.cycles.contains(name) {
+                self.e(
+                    "param.drill.tap.post",
+                    "passes.cycle",
+                    "the post cannot emit a tap cycle, and taps cannot be expanded".into(),
+                );
+            } else if !tap && !post.cycles.contains(name) {
+                self.w(
+                    "param.drill.cycle.expanded",
+                    "passes.cycle",
+                    format!("the post has no `{name}` cycle: it is expanded into moves"),
+                );
+            }
+        }
+        if matches!(dr.cycle, DrillCycle::Peck | DrillCycle::ChipBreak) {
+            self.range("drill", "passes.peck_depth", dr.peck_depth > 0.0, "above 0");
+            if let Some(fl) = t.flute_length
+                && dr.peck_depth > fl
+            {
+                self.w(
+                    "param.drill.peck_depth.deep",
+                    "passes.peck_depth",
+                    format!(
+                        "peck depth {} is more than the flute length {fl}",
+                        dr.peck_depth
+                    ),
+                );
+            }
+        }
+        if dr.cycle == DrillCycle::ChipBreak {
+            self.range(
+                "drill",
+                "passes.chip_break_retract",
+                dr.chip_break_retract > 0.0,
+                "above 0",
+            );
+        }
+        self.range("drill", "passes.dwell_s", dr.dwell_s >= 0.0, "0 or more");
+    }
+
+    fn adaptive(&mut self) {
+        let Some(a) = self.r.adaptive().cloned() else {
+            return;
+        };
+        self.required("passes.step_down", a.step_down);
+        let d = self.tool.diameter;
+        let load = a.optimal_load;
+        if load <= 0.0 || load > 0.5 * d {
+            self.e(
+                "param.adaptive_2d.optimal_load.range",
+                "passes.optimal_load",
+                format!("optimal load {load} must be above 0 and at most half the tool diameter"),
+            );
+        } else if load > 0.3 * d {
+            self.w(
+                "param.adaptive_2d.optimal_load.high",
+                "passes.optimal_load",
+                format!("optimal load {load} is more than 30 % of the tool diameter"),
+            );
+        }
+        if a.min_cutting_radius < 0.0 {
+            self.range(
+                "adaptive_2d",
+                "passes.min_cutting_radius",
+                false,
+                "0 or more",
+            );
+        } else if a.min_cutting_radius > self.tool.radius() {
+            self.w(
+                "param.adaptive_2d.min_cutting_radius.large",
+                "passes.min_cutting_radius",
+                format!(
+                    "min cutting radius {} is more than the tool radius: narrow parts may be \
+                     left uncut",
+                    a.min_cutting_radius
+                ),
+            );
+        }
+    }
+
+    fn trace(&mut self) {
+        let Some(t) = self.r.trace().cloned() else {
+            return;
+        };
+        if self.p.is_set("passes.step_down") && self.p.is_set("passes.depth_count") {
+            self.e(
+                "param.trace.depths.both",
+                "passes.depth_count",
+                "set either step_down or depth_count, not both".into(),
+            );
+        }
+        let curve = t.depth_mode == crate::resolve::DepthMode::Curve;
+        if t.depth_count.is_none() && (!curve || t.curve_depth > 0.0) {
+            self.required("passes.step_down", t.step_down);
+        }
+        if let Some(n) = t.depth_count {
+            self.range("trace", "passes.depth_count", n >= 1, "1 or more");
+        }
+        self.range(
+            "trace",
+            "passes.curve_depth",
+            t.curve_depth >= 0.0,
+            "0 or more",
+        );
+        if !curve && self.p.is_set("passes.curve_depth") {
+            self.w(
+                "param.trace.curve_depth.unused",
+                "passes.curve_depth",
+                "curve_depth is ignored with depth_mode = \"heights\"".into(),
             );
         }
     }

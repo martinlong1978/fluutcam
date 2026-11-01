@@ -92,15 +92,15 @@ pub(super) fn boolean(a: &Region2, b: &Region2, op: Op) -> Region2 {
 }
 
 /// A region's segments with a bounding-box index over them.
-struct Indexed {
-    segs: Vec<Seg2>,
+pub(crate) struct Indexed {
+    pub(crate) segs: Vec<Seg2>,
     /// Segment boxes grown by [`JOIN`].
     boxes: Vec<Box2>,
     index: Option<StaticAABB2DIndex<f64>>,
 }
 
 impl Indexed {
-    fn new(r: &Region2) -> Self {
+    pub(crate) fn new(r: &Region2) -> Self {
         let segs: Vec<Seg2> = r.segs().collect();
         let boxes: Vec<Box2> = segs.iter().map(seg_box).collect();
         let index = if boxes.is_empty() {
@@ -117,7 +117,7 @@ impl Indexed {
     }
 
     /// Indices of the segments whose box meets `b`, in ascending order.
-    fn query(&self, b: &Box2) -> Vec<usize> {
+    pub(crate) fn query(&self, b: &Box2) -> Vec<usize> {
         let Some(index) = &self.index else {
             return Vec::new();
         };
@@ -138,7 +138,7 @@ impl Indexed {
 
     /// [`Region2::contains`], looking only at the segments that can change
     /// the answer: those near `p` and those that meet the ray to its right.
-    fn contains(&self, p: Point2) -> Inside {
+    pub(crate) fn contains(&self, p: Point2) -> Inside {
         let Some(index) = &self.index else {
             return Inside::Out;
         };
@@ -493,7 +493,7 @@ fn repeated(v: &[Vertex]) -> Option<(usize, usize)> {
     best
 }
 
-type Box2 = (f64, f64, f64, f64);
+pub(crate) type Box2 = (f64, f64, f64, f64);
 
 fn seg_box(s: &Seg2) -> Box2 {
     let (x0, x1) = s.support_x();

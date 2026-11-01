@@ -37,6 +37,7 @@ pub enum ToolShape {
     Bull,
     V,
     Taper,
+    Drill,
 }
 
 #[derive(Clone, PartialEq, Debug, Deserialize)]
@@ -59,6 +60,14 @@ pub struct Tool {
     pub flute_length: Option<f64>,
     #[serde(default = "yes")]
     pub centre_cutting: bool,
+    /// V and taper tools: half the included angle, degrees (D07 §1).
+    pub half_angle_deg: Option<f64>,
+    /// V and taper tools: diameter of the tip (0 = sharp).
+    pub tip_diameter: Option<f64>,
+    /// Drill tools: included point angle, degrees; 118 when absent.
+    pub point_angle_deg: Option<f64>,
+    /// Taps: thread pitch, mm.
+    pub pitch: Option<f64>,
     pub overall_length: Option<f64>,
     pub shank_diameter: Option<f64>,
     pub holder: Option<Holder>,
@@ -81,6 +90,8 @@ pub struct Preset {
     pub plunge: Option<f64>,
     pub stepover: Option<f64>,
     pub step_down: Option<f64>,
+    /// Radial width of cut for adaptive types (D15b §9, decision 1).
+    pub optimal_load: Option<f64>,
 }
 
 impl Preset {
@@ -92,6 +103,7 @@ impl Preset {
             "plunge" => self.plunge,
             "stepover" => self.stepover,
             "step_down" => self.step_down,
+            "optimal_load" => self.optimal_load,
             _ => None,
         }
     }
@@ -107,9 +119,36 @@ impl Tool {
     pub fn corner_radius(&self) -> f64 {
         match self.shape {
             ToolShape::Ball => self.radius(),
-            ToolShape::Flat | ToolShape::V => 0.0,
+            ToolShape::Flat | ToolShape::V | ToolShape::Drill => 0.0,
             ToolShape::Bull | ToolShape::Taper => self.corner_radius.unwrap_or(0.0),
         }
+    }
+
+    /// Half-angle α in radians of a V or taper tool with `half_angle_deg`
+    /// above 0; `None` for other tools (D15b §1.9).
+    pub fn v_angle(&self) -> Option<f64> {
+        match (self.shape, self.half_angle_deg) {
+            (ToolShape::V | ToolShape::Taper, Some(a)) if a > 0.0 && a < 90.0 => {
+                Some(a.to_radians())
+            }
+            _ => None,
+        }
+    }
+
+    /// Tip radius Rt of a V or taper tool.
+    pub fn tip_radius(&self) -> f64 {
+        0.5 * self.tip_diameter.unwrap_or(0.0).max(0.0)
+    }
+
+    /// Height of the cone of a V tool: (R − Rt) / tan α (D15b §2.4).
+    pub fn cone_height(&self) -> Option<f64> {
+        let a = self.v_angle()?;
+        Some((self.radius() - self.tip_radius()) / libm::tan(a))
+    }
+
+    /// Point angle of a drill in degrees (default 118, D15b §9 decision 3).
+    pub fn point_angle(&self) -> f64 {
+        self.point_angle_deg.unwrap_or(118.0)
     }
 
     /// The preset for `material`, if the Setup has one and the tool lists it.
@@ -289,6 +328,37 @@ colour = "red"
         assert!(b.centre_cutting);
         assert!(s.get("user/router-bits#nope").is_none());
         assert!(s.get("no-hash").is_none());
+    }
+
+    #[test]
+    fn drill_v_and_adaptive_keys() {
+        // Spec 02 §2.4 additions of D15b §9 (decisions 1, 3, 4), and the V
+        // tool angle and tip that engrave and chamfer_2d need.
+        let src = "format = \"fluut.tools/1\"\nid = \"l\"\n\
+                   [[tool]]\nid = \"d5\"\nshape = \"drill\"\ndiameter = 5\n\
+                   [[tool]]\nid = \"tap\"\nshape = \"drill\"\ndiameter = 6\npitch = 1.0\n\
+                   point_angle_deg = 135\n\
+                   [[tool]]\nid = \"v90\"\nshape = \"v\"\ndiameter = 12\nhalf_angle_deg = 45\n\
+                   tip_diameter = 0.2\n[[tool.preset]]\nmaterial = \"MDF\"\noptimal_load = 0.6\n\
+                   [[tool]]\nid = \"v0\"\nshape = \"v\"\ndiameter = 12\n";
+        let (lib, w) = ToolLibrary::parse(src).unwrap();
+        assert!(w.is_empty(), "{w:?}");
+        let d = lib.tool("d5").unwrap();
+        assert_eq!(d.shape, ToolShape::Drill);
+        assert_eq!(d.point_angle(), 118.0);
+        assert_eq!(d.corner_radius(), 0.0);
+        assert!(d.v_angle().is_none() && d.pitch.is_none());
+        let t = lib.tool("tap").unwrap();
+        assert_eq!((t.point_angle(), t.pitch), (135.0, Some(1.0)));
+        let v = lib.tool("v90").unwrap();
+        assert!((v.v_angle().unwrap() - std::f64::consts::FRAC_PI_4).abs() < 1e-15);
+        assert_eq!(v.tip_radius(), 0.1);
+        assert!((v.cone_height().unwrap() - 5.9).abs() < 1e-12);
+        assert_eq!(
+            v.preset(Some("MDF")).unwrap().get("optimal_load"),
+            Some(0.6)
+        );
+        assert!(lib.tool("v0").unwrap().v_angle().is_none());
     }
 
     #[test]

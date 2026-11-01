@@ -16,10 +16,10 @@ use fluut_model::journal::{Journal, file_hash, journal_path, recover};
 use fluut_model::library::{DefKind, LayerKind, Library};
 use fluut_model::machine::{BUILTIN_MACHINES, Machine};
 use fluut_model::project::{BodyEntry, Project, read};
-use fluut_model::resolve::{Coolant, resolve};
+use fluut_model::resolve::{Coolant, DrillCycle, resolve};
 use fluut_model::setup::{ResolvedSetup, resolve_all};
 use fluut_model::tools::ToolStore;
-use fluut_model::validate::{PostCaps, ValidateCx, validate};
+use fluut_model::validate::{CycleSet, PostCaps, ValidateCx, validate};
 use fluut_model::{DefRef, DefStore, Diagnostic, Severity};
 use fluut_path::{PathStats, ToolpathResult};
 use fluut_post::{
@@ -561,6 +561,7 @@ impl Session {
                     material: rs.material.as_deref(),
                     setup_kind: rs.kind,
                     env: fr.height_env(),
+                    stock: Some(fr.stock),
                     to_work: fr.to_work,
                     machine: self.machine(rs.machine.as_deref()).and_then(|m| m.limits()),
                     post,
@@ -627,6 +628,19 @@ impl Session {
                 && has("cutter_comp_right")
                 && has("cutter_comp_off"),
             coolant: has("coolant_on"),
+            helix: cp.post.helix.enabled,
+            cycles: if cp.post.cycles.enabled && has("cycle_start") {
+                CycleSet::of(
+                    &cp.post
+                        .cycles
+                        .supported
+                        .iter()
+                        .map(|c| cycle_name(*c))
+                        .collect::<Vec<_>>(),
+                )
+            } else {
+                CycleSet::default()
+            },
         };
         let mut reports = self.calculate_with(&Targets::All, Some(caps));
         // Post-dependent rules also for toolpaths taken from the cache.
@@ -643,8 +657,7 @@ impl Session {
                     ..ValidateCx::new(self.tools.get(t.tool_ref()))
                 };
                 for d in validate(t, &cx) {
-                    let post_rule = d.code == "param.contour_2d.compensation.post"
-                        || d.code == "param.tool_params.coolant.unsupported";
+                    let post_rule = POST_RULES.contains(&d.code.as_str());
                     if post_rule && !rep.diagnostics.contains(&d) {
                         rep.diagnostics.push(d);
                     }
@@ -685,6 +698,12 @@ impl Session {
                 };
                 let p = resolve(&t.params, tool, rs.material.as_deref());
                 let f = p.tool.feed;
+                let rpm = p.tool.spindle_rpm.unwrap_or(0.0);
+                // A tap feeds at rpm × pitch, set at post time (D15b §3.1).
+                let plunge = match p.drill() {
+                    Some(d) if d.cycle == DrillCycle::Tap => rpm * d.pitch.unwrap_or(0.0),
+                    _ => f.plunge.unwrap_or(0.0),
+                };
                 let safe_z = result
                     .segments()
                     .find_map(|x| x.start())
@@ -710,7 +729,7 @@ impl Session {
                     },
                     feeds: Feeds {
                         cut: f.cut.unwrap_or(0.0),
-                        plunge: f.plunge.unwrap_or(0.0),
+                        plunge,
                         ramp: f.ramp.unwrap_or(0.0),
                         lead_in: f.lead_in.unwrap_or(0.0),
                         lead_out: f.lead_out.unwrap_or(0.0),
@@ -756,5 +775,29 @@ impl Session {
             },
             setups,
         }
+    }
+}
+
+/// Validation codes that depend on the post. They are checked again at
+/// post time for toolpaths taken from the cache.
+const POST_RULES: &[&str] = &[
+    "param.contour_2d.compensation.post",
+    "param.tool_params.coolant.unsupported",
+    "param.bore.helix.post",
+    "param.drill.tap.post",
+    "param.drill.cycle.expanded",
+];
+
+/// The spec 05 §5.5 name of a post cycle.
+fn cycle_name(c: fluut_post::post::CycleName) -> &'static str {
+    use fluut_post::post::CycleName as C;
+    match c {
+        C::Drill => "drill",
+        C::Spot => "spot",
+        C::Peck => "peck",
+        C::ChipBreak => "chip_break",
+        C::Tap => "tap",
+        C::Ream => "ream",
+        C::Bore => "bore",
     }
 }

@@ -128,6 +128,7 @@ fn main() {
             material: Some("MDF"),
             setup_kind: SetupKind::ThreeAxis,
             env,
+            stock: None,
             to_work: Affine::identity(),
             machine: None,
             post: None,

@@ -1,0 +1,52 @@
+format = "fluut.project/1"
+name   = "Holes"
+units  = "mm"
+
+[[geometry]]
+id   = "g1"
+path = "holes.step"
+kind = "step"
+
+  [[geometry.body]]
+  id   = "b-612"
+  name = "holes"
+
+[[setup]]
+id       = "s1"
+name     = "Top"
+kind     = "three_axis"
+material = "MDF"
+stock    = { kind = "block", margin = [0, 0, 0] }
+zero     = { method = "stock_top_corner", corner = "front_left" }
+
+  [[setup.toolpath]]
+  id   = "t1"
+  name = "Bore 22 mm"
+  type = "bore"
+  tool = "shop#flat-12"
+
+    [setup.toolpath.geometry]
+    hole_diameter = { min = 21.9, max = 22.1 }
+
+    [setup.toolpath.passes]
+    pitch              = 1.0
+    finishing_pass     = true
+    finishing_stepover = 0.2
+
+  [[setup.toolpath]]
+  id   = "t2"
+  name = "Drill 5 mm"
+  type = "drill"
+  tool = "shop#drill-5"
+
+    [setup.toolpath.geometry]
+    hole_diameter = { min = 4.9, max = 5.1 }
+
+    [setup.toolpath.heights]
+    feed = { ref = "selection", offset = 2 }
+
+    [setup.toolpath.passes]
+    cycle        = "peck"
+    peck_depth   = 4
+    depth_to     = "full_diameter"
+    retract_mode = "feed"

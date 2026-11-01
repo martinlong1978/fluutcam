@@ -7,7 +7,9 @@
 use crate::path2::Path2;
 use crate::region::Seg2;
 use fluut_geom::{Point2, Point3, UnitVec3};
-use fluut_path::{AxisPos, CompSide, FeedRef, Motion, MotionInfo, Pass, PassKind, Segment};
+use fluut_path::{
+    AxisPos, CompSide, CycleParams, FeedRef, Motion, MotionInfo, Pass, PassKind, Segment,
+};
 
 /// Motion and feed of a move (D08 §9).
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -194,6 +196,18 @@ impl Out {
         for s in &path.segs {
             self.seg(s, z, mv);
         }
+    }
+
+    /// A drilling cycle at the current point (the R plane above the hole).
+    pub fn cycle(&mut self, cycle: CycleParams) {
+        let Some(at) = self.cur else {
+            return;
+        };
+        self.segs.push(Segment::Cycle {
+            at,
+            cycle,
+            m: Mv::Plunge.info(self.tol),
+        });
     }
 
     /// Closes the segments so far into a pass.

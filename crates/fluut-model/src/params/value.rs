@@ -235,9 +235,11 @@ pub(crate) fn convert(
     use toml::Value as V;
     let found = || format!("found {}", v.type_str());
     Ok(match m.kind {
-        FieldKind::Length | FieldKind::Feed | FieldKind::Speed | FieldKind::Angle => {
-            PValue::Num(Num::from_toml(v)?)
-        }
+        FieldKind::Length
+        | FieldKind::Feed
+        | FieldKind::Speed
+        | FieldKind::Angle
+        | FieldKind::Duration => PValue::Num(Num::from_toml(v)?),
         FieldKind::Count => match v {
             V::Integer(i) => PValue::Num(Num::int(*i)),
             _ => return Err(format!("expected an integer, {}", found())),

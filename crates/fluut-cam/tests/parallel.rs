@@ -124,6 +124,7 @@ fn input<'a>(g: &'a SetupGeometry, t: &'a Toolpath, tool: &'a Tool) -> StrategyI
         material: Some("MDF"),
         setup_kind: SetupKind::ThreeAxis,
         env: env(g),
+        stock: None,
         to_work: Affine::identity(),
         machine: None,
         post: None,

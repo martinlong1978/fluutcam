@@ -365,7 +365,7 @@ fn edit_errors() {
             Edit::DuplicateAs {
                 toolpath: "t1".into(),
                 new_id: "t9".into(),
-                new_type: "drill".into(),
+                new_type: "no_such_type".into(),
             },
             "not a toolpath type",
         ),

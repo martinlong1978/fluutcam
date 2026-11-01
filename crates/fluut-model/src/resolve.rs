@@ -62,6 +62,8 @@ pub struct GeometryGroup {
     pub excluded_faces: Vec<Sel>,
     pub boundary: Option<Boundary>,
     pub rest_previous: bool,
+    /// `hole_diameter` (D15b §1.5): `(min, max)`, each side optional.
+    pub hole_diameter: Option<(Option<f64>, Option<f64>)>,
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -324,11 +326,175 @@ pub struct Parallel {
     pub max_slope_deg: f64,
 }
 
+/// `face` (D15b §2.1).
+#[derive(Clone, PartialEq, Debug)]
+pub struct Face {
+    pub stepover: Option<f64>,
+    pub direction: ParallelDirection,
+    pub pass_angle_deg: f64,
+    pub overlap: f64,
+    pub step_down: Option<f64>,
+    pub final_step_down: Option<f64>,
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum DepthMode {
+    Heights,
+    Curve,
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum TraceDirection {
+    Any,
+    Selection,
+    Reversed,
+}
+
+/// `trace` (D15b §2.3).
+#[derive(Clone, PartialEq, Debug)]
+pub struct Trace {
+    pub depth_mode: DepthMode,
+    pub curve_depth: f64,
+    pub side_offset: f64,
+    pub step_down: Option<f64>,
+    pub depth_count: Option<i64>,
+    pub direction: TraceDirection,
+}
+
+/// `chamfer_2d` (D15b §2.5).
+#[derive(Clone, PartialEq, Debug)]
+pub struct Chamfer2d {
+    pub chamfer_width: f64,
+    pub tip_offset: f64,
+    /// `None`: `outside` for closed chains, `right` for open ones.
+    pub side: Option<Side>,
+    pub direction: CutDirection,
+}
+
+impl Chamfer2d {
+    /// Tip depth d below `top` and tool-axis offset o from the edge for a
+    /// V tool of half-angle `alpha` and tip radius `rt` (D15b §2.5).
+    pub fn depth_and_offset(&self, alpha: f64, rt: f64) -> (f64, f64) {
+        let tan = libm::tan(alpha);
+        (
+            self.chamfer_width / tan + self.tip_offset,
+            rt + self.tip_offset * tan,
+        )
+    }
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum BoreFeature {
+    Hole,
+    Boss,
+}
+
+/// `bore` (D15b §2.6).
+#[derive(Clone, PartialEq, Debug)]
+pub struct Bore {
+    pub feature: BoreFeature,
+    pub pitch: f64,
+    pub direction: CutDirection,
+    pub finishing_pass: bool,
+    pub finishing_stepover: f64,
+    pub bottom_circle: bool,
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum DrillCycle {
+    Drill,
+    Spot,
+    Dwell,
+    Peck,
+    ChipBreak,
+    Tap,
+    Ream,
+    Bore,
+}
+
+impl DrillCycle {
+    /// The spec 05 §5.5 cycle the post emits: `dwell` is a spot drill with
+    /// a dwell.
+    pub fn post_name(self) -> &'static str {
+        match self {
+            DrillCycle::Drill => "drill",
+            DrillCycle::Spot | DrillCycle::Dwell => "spot",
+            DrillCycle::Peck => "peck",
+            DrillCycle::ChipBreak => "chip_break",
+            DrillCycle::Tap => "tap",
+            DrillCycle::Ream => "ream",
+            DrillCycle::Bore => "bore",
+        }
+    }
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum DepthTo {
+    Tip,
+    FullDiameter,
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum RetractMode {
+    /// Back to `heights.retract` between holes (G98).
+    Retract,
+    /// Back to `heights.feed`, the R plane (G99).
+    Feed,
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum HoleOrder {
+    Shortest,
+    Selection,
+}
+
+/// `drill` (D15b §3.1).
+#[derive(Clone, PartialEq, Debug)]
+pub struct Drill {
+    pub cycle: DrillCycle,
+    pub peck_depth: f64,
+    pub chip_break_retract: f64,
+    pub dwell_s: f64,
+    /// The toolpath's pitch, else the tool's.
+    pub pitch: Option<f64>,
+    pub depth_to: DepthTo,
+    pub to_cone_tip: bool,
+    pub retract_mode: RetractMode,
+    pub hole_order: HoleOrder,
+}
+
+/// `adaptive_2d` (D15b §2.2).
+#[derive(Clone, PartialEq, Debug)]
+pub struct Adaptive2d {
+    /// Radial width of cut in a straight cut.
+    pub optimal_load: f64,
+    pub step_down: Option<f64>,
+    pub min_cutting_radius: f64,
+    pub direction: CutDirection,
+}
+
+/// `engrave` (D15b §2.4).
+#[derive(Clone, PartialEq, Debug)]
+pub struct Engrave {
+    /// `None` when the tool is not a V tool and the key is absent.
+    pub max_depth: Option<f64>,
+    /// `None`: one pass.
+    pub step_down: Option<f64>,
+    pub corner_sharpening: bool,
+}
+
 #[derive(Clone, PartialEq, Debug)]
 pub enum TypeParams {
     Contour2d(Contour2d),
     Pocket2d(Pocket2d),
     Parallel(Parallel),
+    Face(Face),
+    Trace(Trace),
+    Chamfer2d(Chamfer2d),
+    Bore(Bore),
+    Drill(Drill),
+    Adaptive2d(Adaptive2d),
+    Engrave(Engrave),
 }
 
 /// Every parameter of a toolpath with defaults applied.
@@ -365,12 +531,68 @@ impl ResolvedParams {
         }
     }
 
+    pub fn face(&self) -> Option<&Face> {
+        match &self.ty {
+            TypeParams::Face(c) => Some(c),
+            _ => None,
+        }
+    }
+
+    pub fn trace(&self) -> Option<&Trace> {
+        match &self.ty {
+            TypeParams::Trace(c) => Some(c),
+            _ => None,
+        }
+    }
+
+    pub fn chamfer(&self) -> Option<&Chamfer2d> {
+        match &self.ty {
+            TypeParams::Chamfer2d(c) => Some(c),
+            _ => None,
+        }
+    }
+
+    pub fn bore(&self) -> Option<&Bore> {
+        match &self.ty {
+            TypeParams::Bore(c) => Some(c),
+            _ => None,
+        }
+    }
+
+    pub fn drill(&self) -> Option<&Drill> {
+        match &self.ty {
+            TypeParams::Drill(c) => Some(c),
+            _ => None,
+        }
+    }
+
+    pub fn adaptive(&self) -> Option<&Adaptive2d> {
+        match &self.ty {
+            TypeParams::Adaptive2d(c) => Some(c),
+            _ => None,
+        }
+    }
+
+    pub fn engrave(&self) -> Option<&Engrave> {
+        match &self.ty {
+            TypeParams::Engrave(c) => Some(c),
+            _ => None,
+        }
+    }
+
     /// Step-down of the type, if it has one.
     pub fn step_down(&self) -> Option<f64> {
         match &self.ty {
             TypeParams::Contour2d(c) => c.step_down,
             TypeParams::Pocket2d(p) => p.step_down,
-            TypeParams::Parallel(_) => None,
+            TypeParams::Face(p) => p.step_down,
+            TypeParams::Trace(p) => p.step_down,
+            TypeParams::Adaptive2d(p) => p.step_down,
+            TypeParams::Engrave(p) => p.step_down,
+            TypeParams::Parallel(_)
+            | TypeParams::Chamfer2d(_)
+            | TypeParams::Bore(_)
+            | TypeParams::Drill(_) => None,
         }
     }
 
@@ -379,7 +601,14 @@ impl ResolvedParams {
         match &self.ty {
             TypeParams::Pocket2d(p) => p.stepover,
             TypeParams::Parallel(p) => p.stepover,
-            TypeParams::Contour2d(_) => None,
+            TypeParams::Face(p) => p.stepover,
+            TypeParams::Contour2d(_)
+            | TypeParams::Trace(_)
+            | TypeParams::Chamfer2d(_)
+            | TypeParams::Bore(_)
+            | TypeParams::Drill(_)
+            | TypeParams::Adaptive2d(_)
+            | TypeParams::Engrave(_) => None,
         }
     }
 }
@@ -495,6 +724,27 @@ fn lead_kind(s: &str) -> LeadKind {
     }
 }
 
+fn side(v: Option<&PValue>) -> Option<Side> {
+    match v {
+        Some(PValue::Enum(s)) => Some(match s.as_str() {
+            "inside" => Side::Inside,
+            "left" => Side::Left,
+            "right" => Side::Right,
+            "on" => Side::On,
+            _ => Side::Outside,
+        }),
+        _ => None,
+    }
+}
+
+fn parallel_direction(s: &str) -> ParallelDirection {
+    match s {
+        "climb" => ParallelDirection::Climb,
+        "conventional" => ParallelDirection::Conventional,
+        _ => ParallelDirection::Zigzag,
+    }
+}
+
 fn direction(s: &str) -> CutDirection {
     match s {
         "conventional" => CutDirection::Conventional,
@@ -541,6 +791,12 @@ pub fn resolve(p: &Params, tool: &Tool, material: Option<&str>) -> ResolvedParam
         excluded_faces: g.sel("geometry.excluded_faces").unwrap_or_default(),
         boundary,
         rest_previous: g.text("geometry.rest_from") == "previous",
+        hole_diameter: g.p.get("geometry.hole_diameter").map(|_| {
+            (
+                g.num("geometry.hole_diameter.min"),
+                g.num("geometry.hole_diameter.max"),
+            )
+        }),
     };
     let heights = HeightsGroup {
         clearance: g.height("heights.clearance"),
@@ -597,16 +853,7 @@ pub fn resolve(p: &Params, tool: &Tool, material: Option<&str>) -> ResolvedParam
     };
     let ty = match p.kind() {
         ToolpathTypeId::Contour2d => TypeParams::Contour2d(Contour2d {
-            side: match g.p.get("passes.side") {
-                Some(PValue::Enum(s)) => Some(match s.as_str() {
-                    "inside" => Side::Inside,
-                    "left" => Side::Left,
-                    "right" => Side::Right,
-                    "on" => Side::On,
-                    _ => Side::Outside,
-                }),
-                _ => None,
-            },
+            side: side(g.p.get("passes.side")),
             direction: direction(g.text("passes.direction")),
             compensation: match g.text("passes.compensation") {
                 "control" => Compensation::Control,
@@ -653,13 +900,99 @@ pub fn resolve(p: &Params, tool: &Tool, material: Option<&str>) -> ResolvedParam
             stepover: g.or_preset("passes.stepover", "stepover"),
             scallop_height: g.num("passes.scallop_height"),
             pass_angle_deg: g.num_or("passes.pass_angle_deg", 0.0),
-            direction: match g.text("passes.direction") {
-                "climb" => ParallelDirection::Climb,
-                "conventional" => ParallelDirection::Conventional,
-                _ => ParallelDirection::Zigzag,
-            },
+            direction: parallel_direction(g.text("passes.direction")),
             min_slope_deg: g.num_or("passes.min_slope_deg", 0.0),
             max_slope_deg: g.num_or("passes.max_slope_deg", 90.0),
+        }),
+        ToolpathTypeId::Face => TypeParams::Face(Face {
+            stepover: g.or_preset("passes.stepover", "stepover"),
+            direction: parallel_direction(g.text("passes.direction")),
+            pass_angle_deg: g.num_or("passes.pass_angle_deg", 0.0),
+            overlap: g.num_or("passes.overlap", 0.6 * d),
+            step_down: g.or_preset("passes.step_down", "step_down"),
+            final_step_down: g.num("passes.final_step_down"),
+        }),
+        ToolpathTypeId::Engrave => TypeParams::Engrave(Engrave {
+            max_depth: g.num("passes.max_depth").or(tool.cone_height()),
+            step_down: g.num("passes.step_down"),
+            corner_sharpening: g.flag("passes.corner_sharpening", false),
+        }),
+        ToolpathTypeId::Adaptive2d => TypeParams::Adaptive2d(Adaptive2d {
+            // D15b §9, decision 1: the preset, else 0.1 · D.
+            optimal_load: g
+                .or_preset("passes.optimal_load", "optimal_load")
+                .unwrap_or(0.1 * d),
+            step_down: g.or_preset("passes.step_down", "step_down"),
+            min_cutting_radius: g.num_or("passes.min_cutting_radius", 0.1 * d),
+            direction: direction(g.text("passes.direction")),
+        }),
+        ToolpathTypeId::Drill => {
+            let cycle = match g.text("passes.cycle") {
+                "spot" => DrillCycle::Spot,
+                "dwell" => DrillCycle::Dwell,
+                "peck" => DrillCycle::Peck,
+                "chip_break" => DrillCycle::ChipBreak,
+                "tap" => DrillCycle::Tap,
+                "ream" => DrillCycle::Ream,
+                "bore" => DrillCycle::Bore,
+                _ => DrillCycle::Drill,
+            };
+            let dwell = match cycle {
+                DrillCycle::Dwell | DrillCycle::Spot | DrillCycle::Bore => 0.5,
+                _ => 0.0,
+            };
+            TypeParams::Drill(Drill {
+                cycle,
+                peck_depth: g.num_or("passes.peck_depth", d),
+                chip_break_retract: g.num_or("passes.chip_break_retract", 0.5),
+                dwell_s: g.num_or("passes.dwell_s", dwell),
+                pitch: g.num("passes.pitch").or(tool.pitch),
+                depth_to: match g.text("passes.depth_to") {
+                    "full_diameter" => DepthTo::FullDiameter,
+                    _ => DepthTo::Tip,
+                },
+                to_cone_tip: g.flag("passes.to_cone_tip", false),
+                retract_mode: match g.text("passes.retract_mode") {
+                    "feed" => RetractMode::Feed,
+                    _ => RetractMode::Retract,
+                },
+                hole_order: match g.text("passes.hole_order") {
+                    "selection" => HoleOrder::Selection,
+                    _ => HoleOrder::Shortest,
+                },
+            })
+        }
+        ToolpathTypeId::Bore => TypeParams::Bore(Bore {
+            feature: match g.text("passes.feature") {
+                "boss" => BoreFeature::Boss,
+                _ => BoreFeature::Hole,
+            },
+            pitch: g.num_or("passes.pitch", 0.1 * d),
+            direction: direction(g.text("passes.direction")),
+            finishing_pass: g.flag("passes.finishing_pass", false),
+            finishing_stepover: g.num_or("passes.finishing_stepover", 0.1 * d),
+            bottom_circle: g.flag("passes.bottom_circle", true),
+        }),
+        ToolpathTypeId::Chamfer2d => TypeParams::Chamfer2d(Chamfer2d {
+            chamfer_width: g.num_or("passes.chamfer_width", 1.0),
+            tip_offset: g.num_or("passes.tip_offset", 0.5),
+            side: side(g.p.get("passes.side")),
+            direction: direction(g.text("passes.direction")),
+        }),
+        ToolpathTypeId::Trace => TypeParams::Trace(Trace {
+            depth_mode: match g.text("passes.depth_mode") {
+                "curve" => DepthMode::Curve,
+                _ => DepthMode::Heights,
+            },
+            curve_depth: g.num_or("passes.curve_depth", 0.0),
+            side_offset: g.num_or("passes.side_offset", 0.0),
+            step_down: g.or_preset("passes.step_down", "step_down"),
+            depth_count: g.int("passes.depth_count"),
+            direction: match g.text("passes.direction") {
+                "selection" => TraceDirection::Selection,
+                "reversed" => TraceDirection::Reversed,
+                _ => TraceDirection::Any,
+            },
         }),
     };
     ResolvedParams {

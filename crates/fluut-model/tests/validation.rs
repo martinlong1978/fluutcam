@@ -7,7 +7,7 @@
 use fluut_model::project::{SetupKind, Toolpath, read};
 use fluut_model::resolve::ResolvedHeights;
 use fluut_model::tools::{Tool, ToolLibrary};
-use fluut_model::validate::{MachineLimits, PostCaps, ValidateCx, validate};
+use fluut_model::validate::{CycleSet, MachineLimits, PostCaps, ValidateCx, validate};
 
 fn tools() -> Vec<Tool> {
     let src = r#"
@@ -251,6 +251,8 @@ fn tool_group_codes() {
         post: Some(PostCaps {
             cutter_comp: false,
             coolant: false,
+            helix: true,
+            cycles: CycleSet::default(),
         }),
         ..Cx::default()
     };
@@ -485,6 +487,8 @@ fn contour_2d_codes() {
             post: Some(PostCaps {
                 cutter_comp: true,
                 coolant: true,
+                helix: true,
+                cycles: CycleSet::default(),
             }),
             ..Cx::default()
         },
@@ -492,6 +496,8 @@ fn contour_2d_codes() {
             post: Some(PostCaps {
                 cutter_comp: false,
                 coolant: true,
+                helix: true,
+                cycles: CycleSet::default(),
             }),
             ..Cx::default()
         },

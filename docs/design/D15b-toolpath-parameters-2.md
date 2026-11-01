@@ -1411,6 +1411,17 @@ Passes fields (`machining_tolerance` included: there is no geometry).
 - Tests as D15 §6: every example parses, resolves and re-serialises byte-identically; every
   code has a passing and a failing case; P fields leave the result hash unchanged and R fields
   change it.
+- Built in M6 for §2–§3 ([plan](../plan/2026-11-01-m6-2d-holes.md)):
+  - V tools need `half_angle_deg` and `tip_diameter` on the tool (spec 02 §2.4); a `v` or
+    `taper` tool without `half_angle_deg` is not a V tool (§1.9).
+  - Codes added: `param.geometry.hole_diameter.range` (E, `min` > `max` or below 0), and
+    `cam.geometry.drive.empty` (E) for every type here when the selection gives nothing.
+  - `cam.adaptive_2d.incomplete` is raised when material thicker than twice the machining
+    tolerance is left after the final contour.
+  - `heights.order` checks only down to `top` for types without `bottom` (`chamfer_2d`,
+    `engrave`), and allows `top` = `bottom` for `trace` in `curve` mode.
+  - `engrave` waits for the exact medial axis (CH-17): its parameters are validated and
+    `generate` reports `cam.type.unavailable`.
 
 ## 9. Decisions
 

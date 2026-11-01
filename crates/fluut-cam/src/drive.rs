@@ -165,6 +165,17 @@ pub fn wall_pieces(
     excluded: &[Sel],
     tol: f64,
 ) -> Result<Vec<Piece>, Diagnostic> {
+    wall_edges(g, sels, excluded, tol, false)
+}
+
+/// Bottom (or, with `top`, top) edges of vertical wall faces.
+pub fn wall_edges(
+    g: &SetupGeometry,
+    sels: &[Sel],
+    excluded: &[Sel],
+    tol: f64,
+    top: bool,
+) -> Result<Vec<Piece>, Diagnostic> {
     let mut out = Vec::new();
     let ztol = g.tol_model().max(1e-6) * 10.0;
     for (b, f, id) in faces(g, sels, excluded, "geometry.drive_faces")? {
@@ -176,7 +187,8 @@ pub fn wall_pieces(
             )
             .at("geometry.drive_faces"));
         }
-        let lo = face_z_range(b, f, tol).lo;
+        let zr = face_z_range(b, f, tol);
+        let lo = if top { zr.hi } else { zr.lo };
         for &l in &face.loops {
             for &c in &b.loops[l as usize].coedges {
                 let ce = &b.coedges[c as usize];
@@ -290,4 +302,51 @@ pub fn areas(r: &Region2) -> Vec<Region2> {
         }
     }
     out
+}
+
+/// The selected curves as 3-D polylines `chord` apart, for Z lookups along
+/// 3-D drive curves (`trace` curve mode). Same selections as
+/// [`curve_pieces`].
+pub fn curve_points(
+    g: &SetupGeometry,
+    sels: &[Sel],
+    chord: f64,
+    field: &str,
+) -> Result<Vec<Vec<fluut_geom::Point3>>, Diagnostic> {
+    let mut out = Vec::new();
+    let loops = |b: &BrepBody, f: &fluut_topo::Face, out: &mut Vec<Vec<_>>| {
+        for &l in &f.loops {
+            for &c in &b.loops[l as usize].coedges {
+                let e = b.coedges[c as usize].edge;
+                out.push(edge_points(EdgeRef::Brep(b, e), chord));
+            }
+        }
+    };
+    for s in sels {
+        match s {
+            Sel::Edge(id) => {
+                let e = g.edge(id).ok_or_else(|| missing(id, field))?;
+                out.push(edge_points(e, chord));
+            }
+            Sel::Face(id) => {
+                let (b, f) = g.face(id).ok_or_else(|| missing(id, field))?;
+                loops(b, &b.faces[f as usize], &mut out);
+            }
+            Sel::Body(id) => match &g.body(id).ok_or_else(|| missing(id, field))?.geom {
+                BodyGeom::Wire(w) => {
+                    for c in w.curves.iter() {
+                        out.push(edge_points(EdgeRef::Wire(c), chord));
+                    }
+                }
+                BodyGeom::Brep(b) => {
+                    for f in &b.faces {
+                        if is_horizontal_plane(&b.surfaces[f.surface as usize]) {
+                            loops(b, f, &mut out);
+                        }
+                    }
+                }
+            },
+        }
+    }
+    Ok(out)
 }
