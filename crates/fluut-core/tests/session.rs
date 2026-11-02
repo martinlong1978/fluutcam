@@ -586,3 +586,57 @@ fn linking_toolpaths_depend_on_earlier_stock_updates() {
     let ids: Vec<&str> = r.iter().map(|r| r.toolpath.as_str()).collect();
     assert_eq!(ids, ["t1", "t2", "t3"]);
 }
+
+#[test]
+fn a_child_setup_starts_from_the_parent_stock() {
+    // Setup 2 (`from_previous`) profiles the boss again from 5 mm below
+    // the stock top. Setup 1 cut the ring round the boss, so the child's
+    // rapids go down to its feed height there, not to the stock top +
+    // the safety distance.
+    let (dir, id) = workspace("child-stock");
+    let text = format!(
+        "{}\n[[setup]]\nid       = \"s2\"\nname     = \"Again\"\nbased_on = \"s1\"\nstock    = {{ kind = \"from_previous\" }}\n\n  [[setup.toolpath]]\n  id   = \"t2\"\n  name = \"Lower\"\n  type = \"contour_2d\"\n  tool = \"shop#flat-6\"\n\n    [setup.toolpath.geometry]\n    drive_curves = [{{ face = \"f-{id}.8\" }}]\n\n    [setup.toolpath.heights]\n    top = {{ ref = \"stock_top\", offset = -5 }}\n",
+        project(&id)
+    );
+    std::fs::write(dir.join("p.fluut"), &text).unwrap();
+    let mut s = Session::open(&dir.join("p.fluut"), &[]).unwrap();
+    let g0 = s.graph();
+    assert!(
+        g0.nodes[&NodeId::Result("t2".into())]
+            .deps
+            .contains(&NodeId::Result("t1".into()))
+    );
+    // Calculating the child alone calculates the parent first.
+    let r = s.calculate(&Targets::Toolpaths(vec!["t2".into()]));
+    let ids: Vec<&str> = r.iter().map(|r| r.toolpath.as_str()).collect();
+    assert_eq!(ids, ["t1", "t2"]);
+    assert!(
+        r.iter().all(|r| matches!(r.state, JobState::Done { .. })),
+        "{r:?}"
+    );
+    let low = |s: &Session| {
+        s.result("t2")
+            .unwrap()
+            .segments()
+            .filter(|x| {
+                x.motion()
+                    .is_some_and(|m| m.motion == fluut_path::Motion::Rapid)
+            })
+            .map(|x| x.end().unwrap().xyz.z())
+            .fold(f64::INFINITY, f64::min)
+    };
+    // Stock top 0 in W (the zero is on it): the feed height −3.
+    assert_eq!(low(&s), -3.0);
+    // A parent edit restales the child.
+    s.project
+        .toolpath_mut("t1")
+        .unwrap()
+        .params
+        .set("passes.stock_to_leave", Some(PValue::Num(Num::float(0.5))))
+        .unwrap();
+    assert!(s.is_stale("t2"));
+    // Without the parent's toolpath the child sees the whole stock.
+    s.project.toolpath_mut("t1").unwrap().enabled = Some(false);
+    s.calculate(&Targets::All);
+    assert_eq!(low(&s), 1.0);
+}
