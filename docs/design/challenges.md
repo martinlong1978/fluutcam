@@ -24,7 +24,7 @@ Problems found during detailed design. Each has a status:
 | CH-13 | B-spline boundaries through a lines-and-arcs offset library | D08 §3.1 | deferred |
 | CH-14 | 3-D finishing toolpaths do not update in-process stock | D08 §7 | deferred |
 | CH-15 | Reframing layered stock between indexed Setups | D08 §7 | resolved (conservative reframe) |
-| CH-16 | Adaptive clearing: robustness and speed | D09 §2.3 | deferred |
+| CH-16 | Constant-engagement clearing (optimised load): robustness and speed | D09 §2.3 | deferred |
 | CH-17 | Exact medial axis for lines and arcs | D09 §2.6 | resolved (M6) |
 | CH-18 | Scallop variable-distance offsetting | D09 §4.7 | deferred |
 | CH-19 | Offsets in unrolled rotary coordinates | D09 §5.1 | deferred |
@@ -46,7 +46,7 @@ CH-21); see each challenge's resolution below.
 | Spike | Challenges |
 |---|---|
 | Kernel / STEP spike (OQ-01) | CH-03, CH-04, CH-08, CH-12 |
-| 2-D geometry spike (offsets, medial axis, adaptive) | CH-13, CH-16, CH-17, CH-18, CH-19 |
+| 2-D geometry spike (offsets, medial axis, optimised load) | CH-13, CH-16, CH-17, CH-18, CH-19 |
 | Importer spike | CH-09 |
 | UI prototype (OQ-09) | CH-02, CH-23 |
 | Simulation prototype | CH-22 |
@@ -150,7 +150,7 @@ plane sections ([plan](../plan/2026-11-01-m6-3d-finishing.md)). Findings:
   sharp inside corner. A circle search around the last point (from the open side to the
   material side) fixes it.
 
-Plane sections (D03 §5.1) are still owed for `pocket_3d` and `adaptive_3d`; these findings
+Plane sections (D03 §5.1) are still owed for `pocket_3d` and `optimised_load_3d`; these findings
 apply to them too.
 
 ### CH-04 Self-intersecting offsets of free-form surfaces
@@ -341,10 +341,10 @@ high; rotary parents become planar slices of their revolved outline. The simulat
 starts from the parent's simulated stock for multiples of 90°. Other angles and rotary parents
 start the simulation from the full stock (`sim.stock.full`).
 
-### CH-16 Adaptive clearing: robustness and speed
+### CH-16 Constant-engagement clearing (optimised load): robustness and speed
 
 **Problem.** Constant-engagement clearing is the hardest v1 strategy. Published and open-source
-implementations (e.g. FreeCAD's Adaptive) track the cleared area on an integer polygon grid,
+implementations track the cleared area on an integer polygon grid,
 which DC-02 rules out. Exact arc-based engagement computation must stay fast with thousands of
 steps per level, and the marching must not stall in narrow necks or leave uncut slivers.
 
@@ -356,9 +356,9 @@ trochoidal slotting in necks, offset-pattern fallback with feed reduction).
 
 **S3 (2026-10-31).** Prototype on exact arc regions works on 3 test shapes: path length near ideal, ≈0.2 % sliver area before the final contour pass, no grid. Engagement must also exclude the current pass's own earlier tool positions. Speed is 12–30 s per level against a target under 1 s; fixes are listed in the [S3 report](../plan/spikes/s3-region-2d.md) §5.
 
-**S3 follow-up (2026-10-31).** The region booleans now use a spatial index and a junction rule and stay consistent on every union of the adaptive runs. Sweeps and unions take under 1 % of a level, so speed now depends only on the engagement fixes of §5. The prototype's statistics move by a few degrees of RMS error depending on where loops start, because start points are sampled along K's loops; M6 should choose start points in a way that does not depend on that ([S3 report](../plan/spikes/s3-region-2d.md#follow-ups-2026-10-31)).
+**S3 follow-up (2026-10-31).** The region booleans now use a spatial index and a junction rule and stay consistent on every union of the optimised-load runs. Sweeps and unions take under 1 % of a level, so speed now depends only on the engagement fixes of §5. The prototype's statistics move by a few degrees of RMS error depending on where loops start, because start points are sampled along K's loops; M6 should choose start points in a way that does not depend on that ([S3 report](../plan/spikes/s3-region-2d.md#follow-ups-2026-10-31)).
 
-**M6 (2026-11-01).** `adaptive_2d` is built on the spike ([plan](../plan/2026-11-01-m6-2d-holes.md)). A level on the S3 shapes takes 0.65–1.04 s, against a target under 1 s. Three findings:
+**M6 (2026-11-01).** `optimised_load_2d` is built on the spike ([plan](../plan/2026-11-01-m6-2d-holes.md)). A level on the S3 shapes takes 0.65–1.04 s, against a target under 1 s. Three findings:
 - The spike's bisection could step into walls. Steps now follow the tool-centre region's edge, which raises the engagement RMS error to 18–25°.
 - Thin slivers (up to about 0.4 mm) stay between passes. A rest phase at lower engagement and one short move per remaining sliver take them.
 - `cavalier_contours` can return only empty loops when it offsets a region with tiny holes, and one long swept loop failed at R − 1e-6 although it offset at R. Cleared-region offsets therefore go loop by loop, with a retry up to 0.01 mm less deep.

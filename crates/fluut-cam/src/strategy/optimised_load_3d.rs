@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! `adaptive_3d` (D15b §4).
+//! `optimised_load_3d` (D15b §4).
 
 use crate::toolpath::{CamError, Generated, Role, StrategyInput, ToolpathType};
 use fluut_model::params::ToolpathTypeId;
 
 #[derive(Debug)]
-pub struct Adaptive3d;
+pub struct OptimisedLoad3d;
 
-impl ToolpathType for Adaptive3d {
+impl ToolpathType for OptimisedLoad3d {
     fn id(&self) -> ToolpathTypeId {
-        ToolpathTypeId::Adaptive3d
+        ToolpathTypeId::OptimisedLoad3d
     }
 
     fn role(&self) -> Role {

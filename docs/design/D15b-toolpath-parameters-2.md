@@ -21,9 +21,9 @@ Types:
 
 | Group | Types | Section |
 |---|---|---|
-| 2-D | `face`, `adaptive_2d`, `trace`, `engrave`, `chamfer_2d`, `bore` | §2 |
+| 2-D | `face`, `optimised_load_2d`, `trace`, `engrave`, `chamfer_2d`, `bore` | §2 |
 | Holes | `drill` | §3 |
-| 3-D roughing | `adaptive_3d`, `pocket_3d` | §4 |
+| 3-D roughing | `optimised_load_3d`, `pocket_3d` | §4 |
 | 3-D finishing | `contour`, `horizontal`, `spiral`, `scallop`, `steep_and_shallow` | §5 |
 | Rotary | `rotary_rough`, `rotary_along_x`, `rotary_around_a`, `rotary_spiral` | §6 |
 | Utility | `manual_nc` | §7 |
@@ -108,7 +108,7 @@ circle, `selection` gives the circle's Z for both. Other references resolve once
 
 ### 1.7 Common Passes fields: wider use
 
-- `stock_to_leave_axial` (D15 §2.5) is also used by `adaptive_3d`, `pocket_3d` and
+- `stock_to_leave_axial` (D15 §2.5) is also used by `optimised_load_3d`, `pocket_3d` and
   `horizontal`. It applies to the horizontal faces of the model: flats are cut at their Z +
   `stock_to_leave_axial`; elsewhere the radial `stock_to_leave` applies.
 - In rotary types `stock_to_leave` is a uniform normal offset, as for 3-D types, with the same
@@ -145,13 +145,13 @@ region at each level; 3-D and rotary finishing types do not (CH-14).
 | Type | Updates in-process stock | Reads it |
 |---|---|---|
 | `face` | yes | no |
-| `adaptive_2d` | yes | when `rest_from` is set |
+| `optimised_load_2d` | yes | when `rest_from` is set |
 | `trace` | yes | no |
 | `engrave` | yes (swept width = V width at each level) | no |
 | `chamfer_2d` | yes | no |
 | `bore` | yes | no |
 | `drill` | yes (a disc of tool radius at each level down to the hole bottom) | no |
-| `adaptive_3d` | yes | always (§4) |
+| `optimised_load_3d` | yes | always (§4) |
 | `pocket_3d` | yes | always (§4) |
 | `contour`, `horizontal`, `spiral`, `scallop`, `steep_and_shallow` | no (CH-14) | no |
 | `rotary_rough` | yes (cylindrical layers) | always (§6.1) |
@@ -233,7 +233,7 @@ their outline joins the area and the highest one sets `selection`), `boundary`; 
 
 **In-process stock:** updates; does not read.
 
-### 2.2 `adaptive_2d`
+### 2.2 `optimised_load_2d`
 
 Clears closed regions in Z steps with constant tool engagement: no full-width cuts, smooth
 direction changes (D09 §2.3). Roughing type.
@@ -275,13 +275,13 @@ direction changes (D09 §2.3). Roughing type.
 
 | Code | Sev | Rule |
 |---|---|---|
-| `param.adaptive_2d.optimal_load.range` | E | `optimal_load` > 50 % of tool diameter (D09 §7) |
-| `param.adaptive_2d.optimal_load.high` | W | `optimal_load` > 30 % of tool diameter |
-| `param.adaptive_2d.min_cutting_radius.large` | W | `min_cutting_radius` > tool radius (narrow parts may be left uncut) |
+| `param.optimised_load_2d.optimal_load.range` | E | `optimal_load` > 50 % of tool diameter (D09 §7) |
+| `param.optimised_load_2d.optimal_load.high` | W | `optimal_load` > 30 % of tool diameter |
+| `param.optimised_load_2d.min_cutting_radius.large` | W | `min_cutting_radius` > tool radius (narrow parts may be left uncut) |
 | `param.passes.step_down.flute` | W | `step_down` > flute length |
 | `cam.pocket_2d.region.open` | E | a drive chain is not closed (code shared with `pocket_2d`) |
-| `cam.adaptive_2d.region.unreachable` | W | part of a region is narrower than the tool and is left uncut |
-| `cam.adaptive_2d.incomplete` | W | material above tolerance is left after the path search stops (CH-16) |
+| `cam.optimised_load_2d.region.unreachable` | W | part of a region is narrower than the tool and is left uncut |
+| `cam.optimised_load_2d.incomplete` | W | material above tolerance is left after the path search stops (CH-16) |
 | `cam.linking.ramp_fallback` | W | the helix does not fit and a plunge was used |
 
 #### Example
@@ -289,8 +289,8 @@ direction changes (D09 §2.3). Roughing type.
 ```toml
   [[setup.toolpath]]
   id   = "t2"
-  name = "Adaptive pocket"
-  type = "adaptive_2d"
+  name = "Optimised load pocket"
+  type = "optimised_load_2d"
   tool = "user/router-bits#flat-6"
 
     [setup.toolpath.geometry]
@@ -696,9 +696,9 @@ pocket).
 bottom [S 04 §4.4]. Flat levels use CH-03 handling (D09 §4.1). Mesh bodies find flats by the
 heuristic of [S 04 §4.4].
 
-### 4.1 `adaptive_3d`
+### 4.1 `optimised_load_3d`
 
-Constant-engagement clearing per level, with the `adaptive_2d` algorithm (§2.2). Roughing type.
+Constant-engagement clearing per level, with the `optimised_load_2d` algorithm (§2.2). Roughing type.
 
 Allowed ramps: `helix`, `plunge` (fallback helix → plunge). Open regions (reaching outside the
 stock) are entered from outside.
@@ -717,18 +717,18 @@ stock) are entered from outside.
 - **Fine step-down.** Between main levels, intermediate levels every `fine_step_down` clear only
   the stepped material left on shallow areas: where the remaining stock at that level differs
   from machinable(z) by more than `fine_step_down` (D09 §4.2). They do not cut full-width.
-- Engagement, smoothing and the final contour pass at each level are as `adaptive_2d`.
+- Engagement, smoothing and the final contour pass at each level are as `optimised_load_2d`.
 
 #### Validation
 
 | Code | Sev | Rule |
 |---|---|---|
-| `param.adaptive_3d.optimal_load.range` | E | `optimal_load` > 50 % of tool diameter |
-| `param.adaptive_3d.optimal_load.high` | W | `optimal_load` > 30 % of tool diameter |
-| `param.adaptive_3d.fine_step_down.range` | E | `fine_step_down` ≥ `step_down` |
-| `param.adaptive_3d.min_cutting_radius.large` | W | `min_cutting_radius` > tool radius |
+| `param.optimised_load_3d.optimal_load.range` | E | `optimal_load` > 50 % of tool diameter |
+| `param.optimised_load_3d.optimal_load.high` | W | `optimal_load` > 30 % of tool diameter |
+| `param.optimised_load_3d.fine_step_down.range` | E | `fine_step_down` ≥ `step_down` |
+| `param.optimised_load_3d.min_cutting_radius.large` | W | `min_cutting_radius` > tool radius |
 | `param.passes.step_down.flute` | W | `step_down` > flute length |
-| `cam.adaptive_3d.incomplete` | W | material above tolerance is left after the path search stops (CH-16) |
+| `cam.optimised_load_3d.incomplete` | W | material above tolerance is left after the path search stops (CH-16) |
 | `cam.linking.ramp_fallback` | W | the helix does not fit and a plunge was used |
 
 #### Example
@@ -736,8 +736,8 @@ stock) are entered from outside.
 ```toml
   [[setup.toolpath]]
   id   = "t12"
-  name = "Adaptive rough"
-  type = "adaptive_3d"
+  name = "Optimised load rough"
+  type = "optimised_load_3d"
   tool = "user/router-bits#flat-10"
 
     [setup.toolpath.passes]
@@ -1416,7 +1416,7 @@ Passes fields (`machining_tolerance` included: there is no geometry).
     `taper` tool without `half_angle_deg` is not a V tool (§1.9).
   - Codes added: `param.geometry.hole_diameter.range` (E, `min` > `max` or below 0), and
     `cam.geometry.drive.empty` (E) for every type here when the selection gives nothing.
-  - `cam.adaptive_2d.incomplete` is raised when material thicker than twice the machining
+  - `cam.optimised_load_2d.incomplete` is raised when material thicker than twice the machining
     tolerance is left after the final contour.
   - `heights.order` checks only down to `top` for types without `bottom` (`chamfer_2d`,
     `engrave`), and allows `top` = `bottom` for `trace` in `curve` mode.
@@ -1455,7 +1455,7 @@ decisions 1, 3 and 4 differ from the first draft and changed spec 02 §2.4 the s
 
 | # | Question | Decision |
 |---|---|---|
-| 1 | Default `optimal_load` (`adaptive_2d`, `adaptive_3d`): a constant, or a new preset key? | Preset key `optimal_load` in `[[tool.preset]]` [S 02 §2.4]; `0.1 · tool.diameter` † when the preset has none |
+| 1 | Default `optimal_load` (`optimised_load_2d`, `optimised_load_3d`): a constant, or a new preset key? | Preset key `optimal_load` in `[[tool.preset]]` [S 02 §2.4]; `0.1 · tool.diameter` † when the preset has none |
 | 2 | Rotary height references (§1.3): `stock_bottom` and `work_zero` both resolve to the axis | As §1.3 |
 | 3 | The tool format has no drill shape and no point angle (`drill`, `depth_to`) | `shape = "drill"` and `point_angle_deg` (default `118`) added to [S 02 §2.4] |
 | 4 | Tap `pitch`: on the toolpath or on the tool? | On the tool (`pitch` in [S 02 §2.4]); the toolpath may override it, with a warning |

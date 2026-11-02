@@ -350,7 +350,7 @@ fn disc_tangent_to_hole() {
 
 #[test]
 fn union_of_nearly_collinear_stadiums() {
-    // Two consecutive steps of an adaptive pass, swept by R = 3: their
+    // Two consecutive steps of an optimised-load pass, swept by R = 3: their
     // straight sides are almost collinear and overlap.
     let a = Region2 {
         loops: vec![Loop2 {

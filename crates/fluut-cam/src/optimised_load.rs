@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Constant-engagement clearing (D09 §2.3, CH-16), promoted from the S3
-//! spike (`spike/adaptive.rs`).
+//! spike (`spike/optimised_load.rs`).
 //!
 //! The cleared region `K` grows pass by pass. Each pass starts half a tool
 //! radius inside the edge of `K`, where the tool meets enough material,

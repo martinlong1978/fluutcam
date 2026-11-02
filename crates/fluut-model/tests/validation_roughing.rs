@@ -104,7 +104,7 @@ fn case(code: &str, kind: &str, tool_id: &str, pass: &str, fail: &str) {
 
 #[test]
 fn defaults_are_clean() {
-    for kind in ["adaptive_3d", "pocket_3d"] {
+    for kind in ["optimised_load_3d", "pocket_3d"] {
         assert_eq!(
             codes(&tp(kind, ""), "flat-10"),
             Vec::<String>::new(),
@@ -114,31 +114,31 @@ fn defaults_are_clean() {
 }
 
 #[test]
-fn adaptive_3d_codes() {
-    let k = "adaptive_3d";
+fn optimised_load_3d_codes() {
+    let k = "optimised_load_3d";
     case(
-        "param.adaptive_3d.optimal_load.range",
+        "param.optimised_load_3d.optimal_load.range",
         k,
         "flat-10",
         "[passes]\noptimal_load = 5\n",
         "[passes]\noptimal_load = 5.1\n",
     );
     case(
-        "param.adaptive_3d.optimal_load.high",
+        "param.optimised_load_3d.optimal_load.high",
         k,
         "flat-10",
         "[passes]\noptimal_load = 3\n",
         "[passes]\noptimal_load = 3.1\n",
     );
     case(
-        "param.adaptive_3d.fine_step_down.range",
+        "param.optimised_load_3d.fine_step_down.range",
         k,
         "flat-10",
         "[passes]\nstep_down = 6\nfine_step_down = 5.9\n",
         "[passes]\nstep_down = 6\nfine_step_down = 6\n",
     );
     case(
-        "param.adaptive_3d.min_cutting_radius.large",
+        "param.optimised_load_3d.min_cutting_radius.large",
         k,
         "flat-10",
         "[passes]\nmin_cutting_radius = 5\n",
@@ -189,7 +189,7 @@ fn rest_and_kinds() {
         setup_kind: SetupKind::Rotary,
         ..ValidateCx::new(Some(&tool))
     };
-    let d: Vec<String> = validate(&tp("adaptive_3d", ""), &cx)
+    let d: Vec<String> = validate(&tp("optimised_load_3d", ""), &cx)
         .into_iter()
         .map(|d| d.code)
         .collect();

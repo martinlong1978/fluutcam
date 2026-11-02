@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! 3-D roughing in Z levels (D15b §4, D09 §4.1–§4.2): `adaptive_3d` and
+//! 3-D roughing in Z levels (D15b §4, D09 §4.1–§4.2): `optimised_load_3d` and
 //! `pocket_3d`.
 //!
 //! At each level z, from the top down:
@@ -12,22 +12,22 @@
 //!   forbidden(z);
 //! - material(z): the stock left above z within reach of centres(z);
 //! - clear(z): centres(z) within R of material(z), cleared with the
-//!   `adaptive_2d` engine or the `pocket_2d` patterns.
+//!   `optimised_load_2d` engine or the `pocket_2d` patterns.
 //!
 //! The stock is the Setup's (or with `rest_from` the in-process stock) and
-//! is updated after each level, so `adaptive_3d` fine levels (cut after the
+//! is updated after each level, so `optimised_load_3d` fine levels (cut after the
 //! main level below them) see only the steps left on shallow areas.
 
-use super::adaptive_2d::{AreaPlan, plan_area};
 use super::boundary::{apply_boundary, boundary_region};
+use super::optimised_load_2d::{AreaPlan, plan_area};
 use super::pocket_2d::area_passes;
-use crate::adaptive::Params as AdParams;
 use crate::chain::Piece;
 use crate::drive::{areas, faces, is_horizontal_plane};
 use crate::geometry::{BodyGeom, face_z_range};
 use crate::layout::levels;
 use crate::link::{Cut, LinkCx, StockFloor, Turn, link_over};
 use crate::moves::finish;
+use crate::optimised_load::Params as OlParams;
 use crate::path2::Path2;
 use crate::region::Region2;
 use crate::section::{Section, Sectioner};
@@ -46,7 +46,7 @@ pub const DELTA: f64 = 1e-4;
 
 /// The clearing method of a level.
 enum Method {
-    Adaptive { params: AdParams, fine: Option<f64> },
+    OptimisedLoad { params: OlParams, fine: Option<f64> },
     Pocket { pk: Pocket2d, stepover: f64 },
 }
 
@@ -129,7 +129,7 @@ pub fn generate(input: &StrategyInput) -> Result<Generated, CamError> {
     let sta = p.passes.stock_to_leave_axial;
     let (method, step, flats) = method(p, kind, r, d)?;
     let climb = match &method {
-        Method::Adaptive { params, .. } => params.climb,
+        Method::OptimisedLoad { params, .. } => params.climb,
         Method::Pocket { pk, .. } => pk.direction == CutDirection::Climb,
     };
     let lv = layout(input, p, h.top, h.bottom, step, flats, &method, tol);
@@ -193,7 +193,7 @@ pub fn generate(input: &StrategyInput) -> Result<Generated, CamError> {
         let centres = region.subtract(forbidden_at(l.z));
         let reach = centres.offset(r);
         let mut mat = rest_material(&stock.above(l.z), &reach, tol);
-        if let (true, Method::Adaptive { fine: Some(f), .. }) = (l.fine, &method) {
+        if let (true, Method::OptimisedLoad { fine: Some(f), .. }) = (l.fine, &method) {
             // Only steps wider than the fine step-down (D15b §4.1).
             mat = mat.offset(-0.5 * f);
             if !mat.is_empty() {
@@ -225,7 +225,7 @@ pub fn generate(input: &StrategyInput) -> Result<Generated, CamError> {
         let mut swept = Vec::new();
         for a in &parts {
             match &method {
-                Method::Adaptive { params, .. } => {
+                Method::OptimisedLoad { params, .. } => {
                     let out = plan_area(a, Some(&mat), params, &p.linking.ramp, tol, &mut safe);
                     incomplete |= out.incomplete;
                     fell_back |= out.fell_back;
@@ -302,14 +302,14 @@ fn method(
     r: f64,
     d: f64,
 ) -> Result<(Method, Option<f64>, bool), CamError> {
-    if let Some(a) = p.adaptive_3d() {
-        let params = AdParams {
+    if let Some(a) = p.optimised_load_3d() {
+        let params = OlParams {
             min_radius: a.min_cutting_radius,
             climb: a.direction == CutDirection::Climb,
-            ..AdParams::new(r, a.optimal_load)
+            ..OlParams::new(r, a.optimal_load)
         };
         return Ok((
-            Method::Adaptive {
+            Method::OptimisedLoad {
                 params,
                 fine: a.fine_step_down,
             },
@@ -372,7 +372,7 @@ fn layout(
     main.sort_by(|a, b| b.total_cmp(a));
     main.dedup_by(|a, b| (*a - *b).abs() <= 1e-9);
     let fine = match method {
-        Method::Adaptive { fine: Some(f), .. } => Some(*f),
+        Method::OptimisedLoad { fine: Some(f), .. } => Some(*f),
         _ => None,
     };
     let mut out = Vec::new();
@@ -449,7 +449,7 @@ fn swept_piece(p: &Piece, w: f64) -> Region2 {
     union_all(parts)
 }
 
-/// Adds the cuts of one adaptive area plan at level `l`.
+/// Adds the cuts of one optimised-load area plan at level `l`.
 fn emit_plan(plan: &AreaPlan, l: &Level, turn: Turn, cuts: &mut Vec<Cut>) {
     if let Some((path, s)) = &plan.entry {
         cuts.push(Cut {

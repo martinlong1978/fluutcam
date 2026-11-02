@@ -487,9 +487,9 @@ pub struct Drill {
     pub hole_order: HoleOrder,
 }
 
-/// `adaptive_2d` (D15b §2.2).
+/// `optimised_load_2d` (D15b §2.2).
 #[derive(Clone, PartialEq, Debug)]
-pub struct Adaptive2d {
+pub struct OptimisedLoad2d {
     /// Radial width of cut in a straight cut.
     pub optimal_load: f64,
     pub step_down: Option<f64>,
@@ -595,9 +595,9 @@ pub struct SteepAndShallow {
     pub shallow: Shallow,
 }
 
-/// `adaptive_3d` (D15b §4.1).
+/// `optimised_load_3d` (D15b §4.1).
 #[derive(Clone, PartialEq, Debug)]
-pub struct Adaptive3d {
+pub struct OptimisedLoad3d {
     pub optimal_load: f64,
     pub step_down: Option<f64>,
     /// `None`: no fine levels.
@@ -687,14 +687,14 @@ pub enum TypeParams {
     Chamfer2d(Chamfer2d),
     Bore(Bore),
     Drill(Drill),
-    Adaptive2d(Adaptive2d),
+    OptimisedLoad2d(OptimisedLoad2d),
     Engrave(Engrave),
     Contour(Contour),
     Horizontal(Horizontal),
     Spiral(Spiral),
     Scallop(Scallop),
     SteepAndShallow(SteepAndShallow),
-    Adaptive3d(Adaptive3d),
+    OptimisedLoad3d(OptimisedLoad3d),
     Pocket3d(Pocket3d),
     RotaryRough(RotaryRough),
     RotaryAlongX(RotaryAlongX),
@@ -807,9 +807,9 @@ impl ResolvedParams {
         }
     }
 
-    pub fn adaptive(&self) -> Option<&Adaptive2d> {
+    pub fn optimised_load_2d(&self) -> Option<&OptimisedLoad2d> {
         match &self.ty {
-            TypeParams::Adaptive2d(c) => Some(c),
+            TypeParams::OptimisedLoad2d(c) => Some(c),
             _ => None,
         }
     }
@@ -821,9 +821,9 @@ impl ResolvedParams {
         }
     }
 
-    pub fn adaptive_3d(&self) -> Option<&Adaptive3d> {
+    pub fn optimised_load_3d(&self) -> Option<&OptimisedLoad3d> {
         match &self.ty {
-            TypeParams::Adaptive3d(c) => Some(c),
+            TypeParams::OptimisedLoad3d(c) => Some(c),
             _ => None,
         }
     }
@@ -877,10 +877,10 @@ impl ResolvedParams {
             TypeParams::Pocket2d(p) => p.step_down,
             TypeParams::Face(p) => p.step_down,
             TypeParams::Trace(p) => p.step_down,
-            TypeParams::Adaptive2d(p) => p.step_down,
+            TypeParams::OptimisedLoad2d(p) => p.step_down,
             TypeParams::Engrave(p) => p.step_down,
             TypeParams::Contour(c) => Some(c.step_down),
-            TypeParams::Adaptive3d(p) => p.step_down,
+            TypeParams::OptimisedLoad3d(p) => p.step_down,
             TypeParams::Pocket3d(p) => p.pocket.step_down,
             TypeParams::RotaryRough(p) => p.radial_step_down,
             TypeParams::RotaryAlongX(_)
@@ -913,7 +913,7 @@ impl ResolvedParams {
             TypeParams::RotaryAroundA(p) => p.stepover_x,
             TypeParams::RotarySpiral(p) => p.advance,
             TypeParams::Contour(_)
-            | TypeParams::Adaptive3d(_)
+            | TypeParams::OptimisedLoad3d(_)
             | TypeParams::RotaryAlongX(_)
             | TypeParams::ManualNc(_)
             | TypeParams::Contour2d(_)
@@ -921,7 +921,7 @@ impl ResolvedParams {
             | TypeParams::Chamfer2d(_)
             | TypeParams::Bore(_)
             | TypeParams::Drill(_)
-            | TypeParams::Adaptive2d(_)
+            | TypeParams::OptimisedLoad2d(_)
             | TypeParams::Engrave(_) => None,
         }
     }
@@ -1273,7 +1273,7 @@ pub fn resolve(p: &Params, tool: &Tool, material: Option<&str>) -> ResolvedParam
             pocket: pocket(&g),
             flat_detection: g.flag("passes.flat_detection", true),
         }),
-        ToolpathTypeId::Adaptive3d => TypeParams::Adaptive3d(Adaptive3d {
+        ToolpathTypeId::OptimisedLoad3d => TypeParams::OptimisedLoad3d(OptimisedLoad3d {
             optimal_load: g
                 .or_preset("passes.optimal_load", "optimal_load")
                 .unwrap_or(0.1 * d),
@@ -1374,7 +1374,7 @@ pub fn resolve(p: &Params, tool: &Tool, material: Option<&str>) -> ResolvedParam
             step_down: g.num("passes.step_down"),
             corner_sharpening: g.flag("passes.corner_sharpening", false),
         }),
-        ToolpathTypeId::Adaptive2d => TypeParams::Adaptive2d(Adaptive2d {
+        ToolpathTypeId::OptimisedLoad2d => TypeParams::OptimisedLoad2d(OptimisedLoad2d {
             // D15b §9, decision 1: the preset, else 0.1 · D.
             optimal_load: g
                 .or_preset("passes.optimal_load", "optimal_load")

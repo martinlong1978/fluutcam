@@ -12,7 +12,7 @@ G54
 T1 M6
 G43 H1
 S18000 M3
-(Adaptive rough)
+(Optimised load rough)
 G0 X35 Y-2.96 Z10
 G0 Z2
 G1 Z-3.272 F600

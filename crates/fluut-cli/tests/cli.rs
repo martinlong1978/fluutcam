@@ -245,7 +245,7 @@ fn golden_hole_types() {
 
 #[test]
 fn golden_roughing_3d() {
-    // An adaptive roughing, then a rest roughing with a smaller tool that
+    // An optimised-load roughing, then a rest roughing with a smaller tool that
     // starts from the in-process stock. Some rest areas are too small for
     // the helix.
     golden(
@@ -536,7 +536,7 @@ const ALLOWED_FINDINGS: &[(&str, &str, &str, &str)] = &[
 fn reference_projects_simulate_clean() {
     // Every reference project through the simulation's checks: rapids in
     // stock, gouges, holder and shank collisions. The default 0.2 mm rays:
-    // the adaptive pocket of `plate2d` once cut 0.15 mm into its island,
+    // the optimised-load pocket of `plate2d` once cut 0.15 mm into its island,
     // which 0.5 mm rays miss. One thread per project.
     let projects = [
         "boss", "block", "ridge", "plate", "plate2d", "holes", "dome", "rough3d", "shaft",

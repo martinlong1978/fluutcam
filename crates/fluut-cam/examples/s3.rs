@@ -3,7 +3,7 @@
 //! Spike S3 measurements: `cargo run -p fluut-cam --example s3 --release`.
 
 use fluut_cam::Region2;
-use fluut_cam::spike::{adaptive, pocket, shapes};
+use fluut_cam::spike::{optimised_load, pocket, shapes};
 use std::time::Instant;
 
 fn main() {
@@ -56,16 +56,16 @@ fn main() {
             d.area()
         );
     }
-    let p = adaptive::Params {
+    let p = optimised_load::Params {
         r,
         phi: 60f64.to_radians(),
         step: r / 4.0,
         max_steps: 4000,
         max_passes: 400,
     };
-    println!("Adaptive, R = {r}, target 60°, step {}", p.step);
+    println!("Optimised load, R = {r}, target 60°, step {}", p.step);
     for (name, clear) in shapes::all() {
-        let a = adaptive::adaptive(&clear, &p);
+        let a = optimised_load::optimised_load(&clear, &p);
         let s = &a.stats;
         println!(
             "  {name}: {} passes, {} steps, length {:.1}, err max {:.1}° rms {:.1}°, \

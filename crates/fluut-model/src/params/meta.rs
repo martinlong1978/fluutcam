@@ -150,7 +150,7 @@ pub enum ToolpathTypeId {
     Chamfer2d,
     Bore,
     Drill,
-    Adaptive2d,
+    OptimisedLoad2d,
     Engrave,
     // 3-D finishing (D15b §5).
     Contour,
@@ -159,7 +159,7 @@ pub enum ToolpathTypeId {
     Scallop,
     SteepAndShallow,
     // 3-D roughing (D15b §4), rotary (D15b §6) and manual_nc (D15b §7).
-    Adaptive3d,
+    OptimisedLoad3d,
     Pocket3d,
     RotaryRough,
     RotaryAlongX,
@@ -178,14 +178,14 @@ impl ToolpathTypeId {
         ToolpathTypeId::Chamfer2d,
         ToolpathTypeId::Bore,
         ToolpathTypeId::Drill,
-        ToolpathTypeId::Adaptive2d,
+        ToolpathTypeId::OptimisedLoad2d,
         ToolpathTypeId::Engrave,
         ToolpathTypeId::Contour,
         ToolpathTypeId::Horizontal,
         ToolpathTypeId::Spiral,
         ToolpathTypeId::Scallop,
         ToolpathTypeId::SteepAndShallow,
-        ToolpathTypeId::Adaptive3d,
+        ToolpathTypeId::OptimisedLoad3d,
         ToolpathTypeId::Pocket3d,
         ToolpathTypeId::RotaryRough,
         ToolpathTypeId::RotaryAlongX,
@@ -204,14 +204,14 @@ impl ToolpathTypeId {
             ToolpathTypeId::Chamfer2d => "chamfer_2d",
             ToolpathTypeId::Bore => "bore",
             ToolpathTypeId::Drill => "drill",
-            ToolpathTypeId::Adaptive2d => "adaptive_2d",
+            ToolpathTypeId::OptimisedLoad2d => "optimised_load_2d",
             ToolpathTypeId::Engrave => "engrave",
             ToolpathTypeId::Contour => "contour",
             ToolpathTypeId::Horizontal => "horizontal",
             ToolpathTypeId::Spiral => "spiral",
             ToolpathTypeId::Scallop => "scallop",
             ToolpathTypeId::SteepAndShallow => "steep_and_shallow",
-            ToolpathTypeId::Adaptive3d => "adaptive_3d",
+            ToolpathTypeId::OptimisedLoad3d => "optimised_load_3d",
             ToolpathTypeId::Pocket3d => "pocket_3d",
             ToolpathTypeId::RotaryRough => "rotary_rough",
             ToolpathTypeId::RotaryAlongX => "rotary_along_x",
@@ -236,14 +236,14 @@ impl ToolpathTypeId {
             ToolpathTypeId::Chamfer2d => super::tables::CHAMFER_2D,
             ToolpathTypeId::Bore => super::tables::BORE,
             ToolpathTypeId::Drill => super::tables::DRILL,
-            ToolpathTypeId::Adaptive2d => super::tables::ADAPTIVE_2D,
+            ToolpathTypeId::OptimisedLoad2d => super::tables::OPTIMISED_LOAD_2D,
             ToolpathTypeId::Engrave => super::tables::ENGRAVE,
             ToolpathTypeId::Contour => super::tables::CONTOUR,
             ToolpathTypeId::Horizontal => super::tables::HORIZONTAL,
             ToolpathTypeId::Spiral => super::tables::SPIRAL,
             ToolpathTypeId::Scallop => super::tables::SCALLOP,
             ToolpathTypeId::SteepAndShallow => super::tables::STEEP_AND_SHALLOW,
-            ToolpathTypeId::Adaptive3d => super::tables::ADAPTIVE_3D,
+            ToolpathTypeId::OptimisedLoad3d => super::tables::OPTIMISED_LOAD_3D,
             ToolpathTypeId::Pocket3d => super::tables::POCKET_3D,
             ToolpathTypeId::RotaryRough => super::tables::ROTARY_ROUGH,
             ToolpathTypeId::RotaryAlongX => super::tables::ROTARY_ALONG_X,
@@ -280,9 +280,9 @@ impl ToolpathTypeId {
                 | ToolpathTypeId::Chamfer2d
                 | ToolpathTypeId::Bore
                 | ToolpathTypeId::Drill
-                | ToolpathTypeId::Adaptive2d
+                | ToolpathTypeId::OptimisedLoad2d
                 | ToolpathTypeId::Engrave
-                | ToolpathTypeId::Adaptive3d
+                | ToolpathTypeId::OptimisedLoad3d
                 | ToolpathTypeId::Pocket3d
         )
     }
@@ -299,9 +299,9 @@ impl ToolpathTypeId {
                 | ToolpathTypeId::Chamfer2d
                 | ToolpathTypeId::Bore
                 | ToolpathTypeId::Drill
-                | ToolpathTypeId::Adaptive2d
+                | ToolpathTypeId::OptimisedLoad2d
                 | ToolpathTypeId::Engrave
-                | ToolpathTypeId::Adaptive3d
+                | ToolpathTypeId::OptimisedLoad3d
                 | ToolpathTypeId::Pocket3d
                 | ToolpathTypeId::RotaryRough
         )

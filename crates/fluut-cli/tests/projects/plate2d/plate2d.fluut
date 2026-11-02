@@ -32,8 +32,8 @@ zero     = { method = "stock_top_corner", corner = "front_left" }
 
   [[setup.toolpath]]
   id   = "t4"
-  name = "Adaptive pocket"
-  type = "adaptive_2d"
+  name = "Optimised load pocket"
+  type = "optimised_load_2d"
   tool = "shop#flat-6"
 
     [setup.toolpath.geometry]

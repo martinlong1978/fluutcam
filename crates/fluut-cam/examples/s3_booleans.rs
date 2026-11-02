@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! Boolean consistency on the regions adaptive clearing builds:
+//! Boolean consistency on the regions optimised-load clearing builds:
 //! `cargo run -p fluut-cam --example s3_booleans --release`.
 //!
-//! Replays the swept-region unions of every adaptive pass on the S3 shapes
+//! Replays the swept-region unions of every optimised-load pass on the S3 shapes
 //! and checks `area(A ∪ B) + area(A ∩ B) = area(A) + area(B)` and
 //! `area(A ∖ B) = area(A) − area(A ∩ B)` for each pair. Consecutive steps
 //! give stadiums with nearly collinear edges and nearly tangent caps.
 
 use fluut_cam::Region2;
-use fluut_cam::spike::{adaptive, pocket, shapes};
+use fluut_cam::spike::{optimised_load, pocket, shapes};
 
 fn main() {
-    let p = adaptive::Params {
+    let p = optimised_load::Params {
         r: 3.0,
         phi: 60f64.to_radians(),
         step: 0.75,
@@ -20,7 +20,7 @@ fn main() {
         max_passes: 400,
     };
     for (name, clear) in shapes::all() {
-        let a = adaptive::adaptive(&clear, &p);
+        let a = optimised_load::optimised_load(&clear, &p);
         let (mut pairs, mut bad, mut worst) = (0, 0, 0.0f64);
         let mut check = |x: &Region2, y: &Region2| -> Region2 {
             let (u, i, d) = (x.union(y), x.intersect(y), x.subtract(y));

@@ -3,7 +3,6 @@
 //! Toolpath framework: 2-D regions, cutter queries and strategies (design
 //! D07–D09).
 
-pub mod adaptive;
 pub mod chain;
 pub mod cutter;
 pub mod drive;
@@ -13,6 +12,7 @@ pub mod holes;
 pub mod layout;
 pub mod link;
 pub mod moves;
+pub mod optimised_load;
 pub mod path2;
 pub mod radial;
 pub mod region;

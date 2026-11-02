@@ -338,39 +338,39 @@ fn drill_codes() {
 }
 
 #[test]
-fn adaptive_2d_codes() {
-    clean("adaptive_2d", "flat-6", CURVES);
+fn optimised_load_2d_codes() {
+    clean("optimised_load_2d", "flat-6", CURVES);
     case(
-        "param.adaptive_2d.optimal_load.range",
-        "adaptive_2d",
+        "param.optimised_load_2d.optimal_load.range",
+        "optimised_load_2d",
         "flat-6",
         &format!("{CURVES}[passes]\noptimal_load = 3\n"),
         &format!("{CURVES}[passes]\noptimal_load = 3.1\n"),
     );
     case(
-        "param.adaptive_2d.optimal_load.high",
-        "adaptive_2d",
+        "param.optimised_load_2d.optimal_load.high",
+        "optimised_load_2d",
         "flat-6",
         &format!("{CURVES}[passes]\noptimal_load = 1.7\n"),
         &format!("{CURVES}[passes]\noptimal_load = 1.9\n"),
     );
     case(
-        "param.adaptive_2d.min_cutting_radius.large",
-        "adaptive_2d",
+        "param.optimised_load_2d.min_cutting_radius.large",
+        "optimised_load_2d",
         "flat-6",
         &format!("{CURVES}[passes]\nmin_cutting_radius = 3\n"),
         &format!("{CURVES}[passes]\nmin_cutting_radius = 3.5\n"),
     );
     case(
         "param.passes.step_down.flute",
-        "adaptive_2d",
+        "optimised_load_2d",
         "flat-6",
         &format!("{CURVES}[passes]\nstep_down = 22\n"),
         &format!("{CURVES}[passes]\nstep_down = 23\n"),
     );
     case(
         "param.geometry.drive.empty",
-        "adaptive_2d",
+        "optimised_load_2d",
         "flat-6",
         CURVES,
         "",

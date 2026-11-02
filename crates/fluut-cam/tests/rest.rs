@@ -135,11 +135,11 @@ fn rest_levels_follow_the_stock() {
 }
 
 #[test]
-fn adaptive_rest_clears_the_gaps_only() {
+fn optimised_load_rest_clears_the_gaps_only() {
     let g = load(&step::pocket_block([0.0; 3]));
     let (st, _) = after_big(&g);
     let t = tp(
-        "adaptive_2d",
+        "optimised_load_2d",
         "f6",
         &format!(
             "{}rest_from = \"previous\"\n[passes]\noptimal_load = 1.5\nstep_down = 8\n",

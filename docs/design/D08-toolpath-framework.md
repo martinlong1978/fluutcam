@@ -286,7 +286,7 @@ finishing linker (`follow.rs`) takes the same floor ([waterline plan](../plan/20
 its lifts between runs go at least `safety_distance` above the material top, and its descents
 stop there and plunge.
 
-**Rapid floor from the in-process stock (2026-11-01).** The 2-D types, `adaptive_3d`,
+**Rapid floor from the in-process stock (2026-11-01).** The 2-D types, `optimised_load_3d`,
 `pocket_3d`, `drill` and `bore` get the in-process stock (`links_over_stock`). A rapid down to
 an entry at p then stops at `max(feed, top_near(p, R) + safety_distance)`: the key of the
 highest slab whose material comes within the tool radius R of p, or the feed height when none
@@ -296,7 +296,7 @@ higher than the plain one. The drill's R plane and `bore`'s approach use it per 
 between holes at the R plane still check against the stock top. The result hash of these types
 includes the earlier stock-updating toolpaths of the Setup and of its `from_previous` ancestors.
 
-**Adaptive links (2026-11-01).** The straight entry move of an adaptive pass, its sliver moves
+**Optimised-load links (2026-11-01).** The straight entry move of an optimised-load pass, its sliver moves
 and the safe regions its stay-down links use are kept inside the tool-centre region; the shrunk
 cleared region alone can reach across an island.
 

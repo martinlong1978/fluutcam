@@ -22,7 +22,7 @@ Project
    ├─ workOffset         G54 … (controller work offset)
    ├─ region, clearance  machining box / clearance plane or cylinder
    └─ Toolpath[]         ordered                                            
-      ├─ type            fixed at creation, e.g. adaptive_3d, parallel     
+      ├─ type            fixed at creation, e.g. optimised_load_3d, parallel     
       ├─ parameters      common groups + the type's own group (§3.10)      
       ├─ FaceSelection   drive faces, check faces, excluded faces      
       ├─ machiningTolerance                                           
@@ -398,7 +398,7 @@ offset. The project file form is in 02 §2.1.
 
 ### 3.10.1 Principle
 
-The user adds a **specific toolpath type** (e.g. "3D Adaptive Clearing",
+The user adds a **specific toolpath type** (e.g. "3D Optimised Load Clearing",
 "Parallel", "2D Contour"), as in Fusion. Then:
 
 1. The type is fixed at creation. Changing type means creating a new toolpath; "Duplicate as…"
@@ -440,7 +440,7 @@ pub struct Toolpath {
 #[serde(tag = "type")]
 pub enum ToolpathKind {
     Face(FaceParams),
-    Adaptive2d(Adaptive2dParams),
+    OptimisedLoad2d(OptimisedLoad2dParams),
     Pocket2d(Pocket2dParams),
     Contour2d(Contour2dParams),
     Parallel(ParallelParams),
@@ -462,7 +462,7 @@ Unknown keys for a type in the project file are errors (02 §2.0).
 
 | Role | Types | Rule |
 |---|---|---|
-| Roughing | `face`, `adaptive_2d`, `pocket_2d`, `adaptive_3d`, `pocket_3d`, `rotary_rough` | Remove bulk stock, in layers, down to `stock_to_leave`. |
+| Roughing | `face`, `optimised_load_2d`, `pocket_2d`, `optimised_load_3d`, `pocket_3d`, `rotary_rough` | Remove bulk stock, in layers, down to `stock_to_leave`. |
 | Finishing | all 3D finishing, rotary finishing, `contour_2d`, `trace`, `engrave`, `chamfer_2d`, `bore` | Cut to the final surface (`stock_to_leave` default 0). No stock-clearing layers. |
 
 A finishing type MAY have repeated passes of its own pattern: multiple depths on a 2D contour,
