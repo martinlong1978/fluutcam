@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! Adaptive clearing prototype (design D09 §2.3, CH-16) on exact regions.
+//! Constant-engagement clearing (optimised load) prototype (design D09 §2.3, CH-16) on exact regions.
 //!
 //! The tool enters on a helix at the deepest point and the cleared region
 //! `K` starts as that helix's disc. Each pass marches from a start point on
@@ -47,19 +47,19 @@ pub struct Stats {
 }
 
 #[derive(Debug, Clone)]
-pub struct Adaptive {
+pub struct OptimisedLoad {
     pub passes: Vec<Vec<Point2>>,
     pub cleared: Region2,
     pub stats: Stats,
 }
 
-pub fn adaptive(clear: &Region2, p: &Params) -> Adaptive {
+pub fn optimised_load(clear: &Region2, p: &Params) -> OptimisedLoad {
     let t0 = Instant::now();
     let centres = clear.offset(-p.r);
     let mut stats = Stats::default();
     let Some(entry) = deepest(&centres, p.step) else {
         stats.stop = "tool does not fit";
-        return Adaptive {
+        return OptimisedLoad {
             passes: vec![],
             cleared: Region2::empty(),
             stats,
@@ -108,7 +108,7 @@ pub fn adaptive(clear: &Region2, p: &Params) -> Adaptive {
     };
     stats.uncut_area = clear.subtract(&k).area();
     stats.millis = t0.elapsed().as_millis();
-    Adaptive {
+    OptimisedLoad {
         passes,
         cleared: k,
         stats,

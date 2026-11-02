@@ -5,9 +5,9 @@
 use crate::geometry::SetupGeometry;
 use crate::stock::LayeredStock;
 use crate::strategy::{
-    Adaptive2d, Adaptive3d, Bore, Chamfer2d, Contour, Contour2d, Drill, Engrave, Face, Horizontal,
-    ManualNc, Parallel, Pocket2d, Pocket3d, RotaryAlongX, RotaryAroundA, RotaryRough, RotarySpiral,
-    Scallop, Spiral, SteepAndShallow, Trace,
+    Bore, Chamfer2d, Contour, Contour2d, Drill, Engrave, Face, Horizontal, ManualNc,
+    OptimisedLoad2d, OptimisedLoad3d, Parallel, Pocket2d, Pocket3d, RotaryAlongX, RotaryAroundA,
+    RotaryRough, RotarySpiral, Scallop, Spiral, SteepAndShallow, Trace,
 };
 use fluut_geom::{Aabb3, Affine, Point2, Point3};
 use fluut_model::params::{FieldMeta, ToolpathTypeId};
@@ -149,14 +149,14 @@ static TRACE: Trace = Trace;
 static CHAMFER_2D: Chamfer2d = Chamfer2d;
 static BORE: Bore = Bore;
 static DRILL: Drill = Drill;
-static ADAPTIVE_2D: Adaptive2d = Adaptive2d;
+static OPTIMISED_LOAD_2D: OptimisedLoad2d = OptimisedLoad2d;
 static ENGRAVE: Engrave = Engrave;
 static CONTOUR: Contour = Contour;
 static HORIZONTAL: Horizontal = Horizontal;
 static SPIRAL: Spiral = Spiral;
 static SCALLOP: Scallop = Scallop;
 static STEEP_AND_SHALLOW: SteepAndShallow = SteepAndShallow;
-static ADAPTIVE_3D: Adaptive3d = Adaptive3d;
+static OPTIMISED_LOAD_3D: OptimisedLoad3d = OptimisedLoad3d;
 static POCKET_3D: Pocket3d = Pocket3d;
 static ROTARY_ROUGH: RotaryRough = RotaryRough;
 static ROTARY_ALONG_X: RotaryAlongX = RotaryAlongX;
@@ -172,14 +172,14 @@ static REGISTRY: [&dyn ToolpathType; 22] = [
     &CHAMFER_2D,
     &BORE,
     &DRILL,
-    &ADAPTIVE_2D,
+    &OPTIMISED_LOAD_2D,
     &ENGRAVE,
     &CONTOUR,
     &HORIZONTAL,
     &SPIRAL,
     &SCALLOP,
     &STEEP_AND_SHALLOW,
-    &ADAPTIVE_3D,
+    &OPTIMISED_LOAD_3D,
     &POCKET_3D,
     &ROTARY_ROUGH,
     &ROTARY_ALONG_X,
@@ -203,14 +203,14 @@ pub fn find(id: ToolpathTypeId) -> &'static dyn ToolpathType {
         ToolpathTypeId::Chamfer2d => &CHAMFER_2D,
         ToolpathTypeId::Bore => &BORE,
         ToolpathTypeId::Drill => &DRILL,
-        ToolpathTypeId::Adaptive2d => &ADAPTIVE_2D,
+        ToolpathTypeId::OptimisedLoad2d => &OPTIMISED_LOAD_2D,
         ToolpathTypeId::Engrave => &ENGRAVE,
         ToolpathTypeId::Contour => &CONTOUR,
         ToolpathTypeId::Horizontal => &HORIZONTAL,
         ToolpathTypeId::Spiral => &SPIRAL,
         ToolpathTypeId::Scallop => &SCALLOP,
         ToolpathTypeId::SteepAndShallow => &STEEP_AND_SHALLOW,
-        ToolpathTypeId::Adaptive3d => &ADAPTIVE_3D,
+        ToolpathTypeId::OptimisedLoad3d => &OPTIMISED_LOAD_3D,
         ToolpathTypeId::Pocket3d => &POCKET_3D,
         ToolpathTypeId::RotaryRough => &ROTARY_ROUGH,
         ToolpathTypeId::RotaryAlongX => &ROTARY_ALONG_X,

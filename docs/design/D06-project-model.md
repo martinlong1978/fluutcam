@@ -142,7 +142,7 @@ time, so changing a tool preset updates every toolpath that uses its defaults.
 #[serde(tag = "type", content = "passes", rename_all = "snake_case")]
 pub enum ToolpathKind {
     Face(FacePasses),
-    Adaptive2d(Adaptive2dPasses),
+    OptimisedLoad2d(OptimisedLoad2dPasses),
     // … all v1 types (D09 §1)
 }
 ```
@@ -224,9 +224,9 @@ format  = "fluut.template/1"
 id      = "user/mdf-roughing"
 version = "1.0"
 kind    = "toolpath"                # toolpath | setup
-extends = "fluut/adaptive-default@1"
+extends = "fluut/optimised-load-default@1"
 [toolpath]
-type = "adaptive_3d"
+type = "optimised_load_3d"
 [toolpath.passes]
 optimal_load = "0.4*tool.diameter"
 ```

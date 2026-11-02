@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! Speed of the adaptive clearing engine on the S3 shapes (S3 report §5,
-//! target < 1 s per level): `cargo run -p fluut-cam --example adaptive_2d
+//! Speed of the constant-engagement clearing (optimised load) engine on the S3 shapes (S3 report §5,
+//! target < 1 s per level): `cargo run -p fluut-cam --example optimised_load_2d
 //! --release`.
 
 use fluut_cam::Region2;
-use fluut_cam::adaptive::{Params, clear};
+use fluut_cam::optimised_load::{Params, clear};
 use fluut_cam::spike::shapes;
 use fluut_geom::Point2;
 use std::time::Instant;

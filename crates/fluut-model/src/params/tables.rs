@@ -765,11 +765,11 @@ pub(crate) const DRILL: &[FieldMeta] = &[
     ),
 ];
 
-// ── adaptive_2d (D15b §2.2) ──────────────────────────────────────────
+// ── optimised_load_2d (D15b §2.2) ──────────────────────────────────────────
 
-const ADAPTIVE_RAMP: &[FieldMeta] = &ramp_fields(&["helix", "plunge"], "helix");
+const OPTIMISED_LOAD_RAMP: &[FieldMeta] = &ramp_fields(&["helix", "plunge"], "helix");
 
-pub(crate) const ADAPTIVE_2D: &[FieldMeta] = &[
+pub(crate) const OPTIMISED_LOAD_2D: &[FieldMeta] = &[
     SPINDLE_RPM,
     FEEDS,
     COOLANT,
@@ -818,7 +818,14 @@ pub(crate) const ADAPTIVE_2D: &[FieldMeta] = &[
     TRANSITIONS,
     lead_in(LEAD_NONE),
     lead_out(LEAD_NONE),
-    f("ramp", Linking, Table(ADAPTIVE_RAMP), NoDefault, R, false),
+    f(
+        "ramp",
+        Linking,
+        Table(OPTIMISED_LOAD_RAMP),
+        NoDefault,
+        R,
+        false,
+    ),
     ORDER,
 ];
 
@@ -1056,7 +1063,7 @@ pub(crate) const STEEP_AND_SHALLOW: &[FieldMeta] = finishing![
 
 const FLAT_DETECTION: FieldMeta = f("flat_detection", Passes, Bool, flag(true), R, false);
 
-pub(crate) const ADAPTIVE_3D: &[FieldMeta] = &[
+pub(crate) const OPTIMISED_LOAD_3D: &[FieldMeta] = &[
     SPINDLE_RPM,
     FEEDS,
     COOLANT,
@@ -1107,7 +1114,14 @@ pub(crate) const ADAPTIVE_3D: &[FieldMeta] = &[
     TRANSITIONS,
     lead_in(LEAD_NONE),
     lead_out(LEAD_NONE),
-    f("ramp", Linking, Table(ADAPTIVE_RAMP), NoDefault, R, false),
+    f(
+        "ramp",
+        Linking,
+        Table(OPTIMISED_LOAD_RAMP),
+        NoDefault,
+        R,
+        false,
+    ),
     ORDER,
 ];
 

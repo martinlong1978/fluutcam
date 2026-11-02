@@ -261,7 +261,7 @@ names       = { de = "6 mm Schaftfräser" }    # localized names
   plunge     = 800
   stepover   = 2.4
   step_down  = 3.0
-  optimal_load = 0.6                          # adaptive radial engagement (optional)
+  optimal_load = 0.6                          # radial engagement of the optimised-load types (optional)
 ```
 
 ## 2.5 Imported definition formats

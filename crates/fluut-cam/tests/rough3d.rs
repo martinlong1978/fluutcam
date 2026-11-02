@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! 3-D roughing (D15b §4, D09 §4.1–§4.2): `pocket_3d` and `adaptive_3d` on
+//! 3-D roughing (D15b §4, D09 §4.1–§4.2): `pocket_3d` and `optimised_load_3d` on
 //! the pocket block and the ridge.
 
 mod support;
@@ -98,10 +98,10 @@ fn pocket_3d_codes() {
 }
 
 #[test]
-fn adaptive_3d_on_a_curved_top() {
+fn optimised_load_3d_on_a_curved_top() {
     let g = load(&step::ridge([0.0; 3]));
     let t = tp(
-        "adaptive_3d",
+        "optimised_load_3d",
         "f6",
         "[passes]\noptimal_load = 1.5\nstep_down = 3\nstock_to_leave = 0.3\n",
     );
@@ -113,15 +113,15 @@ fn adaptive_3d_on_a_curved_top() {
 }
 
 #[test]
-fn adaptive_3d_fine_levels_cut_less() {
+fn optimised_load_3d_fine_levels_cut_less() {
     let g = load(&step::ridge([0.0; 3]));
     let coarse = tp(
-        "adaptive_3d",
+        "optimised_load_3d",
         "f6",
         "[passes]\noptimal_load = 1.5\nstep_down = 4\n",
     );
     let fine = tp(
-        "adaptive_3d",
+        "optimised_load_3d",
         "f6",
         "[passes]\noptimal_load = 1.5\nstep_down = 4\nfine_step_down = 1\n",
     );
@@ -146,30 +146,30 @@ fn adaptive_3d_fine_levels_cut_less() {
 }
 
 #[test]
-fn adaptive_3d_incomplete_code() {
+fn optimised_load_3d_incomplete_code() {
     let g = load(&step::pocket_block([0.0; 3]));
     let t = tp(
-        "adaptive_3d",
+        "optimised_load_3d",
         "f6",
         "[passes]\noptimal_load = 1.5\nstep_down = 8\nmin_cutting_radius = 40\n",
     );
     let r = run(&g, &t, block_stock());
     assert!(
-        codes(&r).contains(&"cam.adaptive_3d.incomplete".into()),
+        codes(&r).contains(&"cam.optimised_load_3d.incomplete".into()),
         "{:?}",
         codes(&r)
     );
     // The ridge clears completely (the passing case is also in
-    // `adaptive_3d_on_a_curved_top`).
+    // `optimised_load_3d_on_a_curved_top`).
     let g = load(&step::ridge([0.0; 3]));
     let t = tp(
-        "adaptive_3d",
+        "optimised_load_3d",
         "f6",
         "[passes]\noptimal_load = 1.5\nstep_down = 4\n",
     );
     let r = run(&g, &t, ridge_stock());
     assert!(
-        !codes(&r).contains(&"cam.adaptive_3d.incomplete".into()),
+        !codes(&r).contains(&"cam.optimised_load_3d.incomplete".into()),
         "{:?}",
         codes(&r)
     );
@@ -201,7 +201,7 @@ fn rest_after_roughing_cuts_little() {
         "f20",
     );
     let rest = tp(
-        "adaptive_3d",
+        "optimised_load_3d",
         "f6",
         "[geometry]\nrest_from = \"previous\"\n[passes]\noptimal_load = 1.5\nstep_down = 8\n",
     );

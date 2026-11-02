@@ -429,7 +429,7 @@ run in `three_axis` and `indexed` Setups.
 | Type id | Role | Description | Fusion | Release |
 |---|---|---|---|---|
 | `face` | rough/finish | Clear the stock top to a flat Z | Face | v1 |
-| `adaptive_2d` | rough | Constant tool engagement clearing; no full-width cuts; smooth direction changes | 2D Adaptive Clearing | v1 |
+| `optimised_load_2d` | rough | Constant tool engagement clearing; no full-width cuts; smooth direction changes | 2D Optimised Load Clearing | v1 |
 | `pocket_2d` | rough | Offset or raster pocket clearing in Z steps | 2D Pocket | v1 |
 | `contour_2d` | finish | Profile along curves or walls; multiple depths, finishing passes, tabs, lead-in/out | 2D Contour | v1 |
 | `trace` | finish | Follow curves at their Z or a set depth; optional side offset | Trace | v1 |
@@ -454,7 +454,7 @@ Drive geometry: B-rep and mesh faces (DC-01). 3D types run in `three_axis` and `
 
 | Type id | Role | Description | Fusion | Release |
 |---|---|---|---|---|
-| `adaptive_3d` | rough | Constant engagement clearing per Z level against the 3D model | Adaptive Clearing | v1 |
+| `optimised_load_3d` | rough | Constant engagement clearing per Z level against the 3D model | 3D Optimised Load Clearing | v1 |
 | `pocket_3d` | rough | Offset or raster clearing per Z level (§4.4 algorithm) | Pocket Clearing | v1 |
 | `parallel` | finish | Parallel passes in XY following the surface in Z (§4.3, §4.12) | Parallel | v1 |
 | `contour` | finish | Constant-Z (waterline) passes for steep walls (§4.5) | Contour | v1 |
@@ -503,7 +503,7 @@ Passes-group parameters per v1 type. Common groups are in 03 §3.10.2. Every typ
 | Type id | Passes-group parameters |
 |---|---|
 | `face` | stepover, direction (climb/conventional), pass angle, overlap beyond stock, step-down + final step-down |
-| `adaptive_2d` | optimal load (radial engagement), step-down, stock to leave (radial, axial), min cutting radius, direction |
+| `optimised_load_2d` | optimal load (radial engagement), step-down, stock to leave (radial, axial), min cutting radius, direction |
 | `pocket_2d` | pattern (offset/raster), stepover, step-down, stock to leave, direction |
 | `contour_2d` | side (inside/outside for closed chains, left/right for open, on), finish every level, compensation (computer / control / wear), multiple depths (count, step), finishing passes (count, stepover), tabs (positions, width, height) |
 | `trace` | depth (curve Z or set depth), side offset, multiple depths |
@@ -511,7 +511,7 @@ Passes-group parameters per v1 type. Common groups are in 03 §3.10.2. Every typ
 | `chamfer_2d` | chamfer width, tip offset, side |
 | `bore` | pitch per turn, direction, finishing pass, bottom clean-up circle |
 | `drill` | cycle (drill, spot, dwell, peck, chip-break, tap, ream, bore), peck depth, dwell, retract mode, hole order |
-| `adaptive_3d` | optimal load, step-down, fine step-down (intermediate flat levels), stock to leave (radial, axial), flat-area detection |
+| `optimised_load_3d` | optimal load, step-down, fine step-down (intermediate flat levels), stock to leave (radial, axial), flat-area detection |
 | `pocket_3d` | pattern, stepover, step-down, stock to leave, flat-area detection |
 | `parallel` | stepover or scallop height, pass angle, direction (one-way/zigzag, climb/conventional), slope limits (min/max angle) |
 | `contour` | max step-down + scallop-adaptive levels (§4.5), slope limits, direction, order (by level / by area) |
