@@ -525,14 +525,6 @@ const ALLOWED_FINDINGS: &[(&str, &str, &str, &str)] = &[
         "the chamfer is cut into the model's sharp outer edge by design",
     ),
     (
-        "dome",
-        "t5",
-        "sim.rapid_in_stock",
-        "open: the 3-D finishing linker (follow.rs) rapids to just above \
-         each entry, assuming a roughed surface, and `dome` has no roughing \
-         (docs/plan/2026-11-01-sim-findings.md, finding 4)",
-    ),
-    (
         "shaft",
         "",
         "sim.setup.rotary",

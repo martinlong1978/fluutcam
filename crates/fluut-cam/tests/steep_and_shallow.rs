@@ -196,3 +196,29 @@ fn translation_invariance() {
     );
     assert_translation_invariant(step::dome, &t);
 }
+
+#[test]
+fn rapids_stay_above_the_stock() {
+    // The 3-D finishing linker cannot see what earlier toolpaths left, so
+    // no rapid goes below stock top + safety distance (1); below that it
+    // plunges (the rapid floor of D08 §8.2). The dome has no roughing.
+    let g = dome();
+    let floor = env(&g).stock_top + 1.0;
+    for t in [
+        tp(
+            "steep_and_shallow",
+            "b6",
+            "[passes]\nsteep = { step_down = 3 }\nshallow = { stepover = 2 }\n",
+        ),
+        tp("parallel", "b6", "[passes]\nstepover = 2\n"),
+        tp("contour", "b6", "[passes]\nstep_down = 3\n"),
+    ] {
+        let r = run(&g, &t);
+        for s in with_motion(&r, fluut_path::Motion::Rapid) {
+            let (a, b) = (s.start().unwrap().xyz, s.end().unwrap().xyz);
+            if b.z() <= a.z() {
+                assert!(b.z() >= floor - 1e-9, "{}: rapid to {b:?}", tool_of(&t));
+            }
+        }
+    }
+}

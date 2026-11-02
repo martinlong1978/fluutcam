@@ -102,6 +102,7 @@ impl ToolpathType for Parallel {
             lead_in: p.linking.lead_in,
             lead_out: p.linking.lead_out,
             level_clear: None,
+            material_top: input.env.stock_top.max(h.top),
         };
         let (passes, dropped) = lk.link(&runs);
         if dropped {

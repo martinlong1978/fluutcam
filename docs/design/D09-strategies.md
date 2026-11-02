@@ -247,7 +247,20 @@ emits an arc directly (D08 §4.3).
 - *Links* between levels go across at the upper level, checked against that level's traced
   contours, then straight down.
 - *`by_area`* joins loops at adjacent levels whose boxes overlap.
-- *Not built:* arcs from single analytic contacts, and `rayon`.
+- *Not built:* arcs from single analytic contacts.
+
+**Follow-up (2026-11-02,** [plan](../plan/2026-11-01-waterline-robust.md)**).**
+- *Corrector.* Classifying drops are exact within a window of 4 max steps about the level and
+  stop early beyond it. A Newton step on τ − z from the contact slope (|∇τ| = tan β along the
+  contact direction) with a ±5 % bracket comes first. At a cliff, the inside contact holds the
+  tip up until it leaves the footprint, so the next trial is just past that exit point.
+  Regula falsi and bisection finish the bracket to 10⁻⁷ mm.
+- *Predictor.* Along the arc of the last step's curvature; steps obey the chord rule ahead.
+- *Seeds* are skipped when they lie on a traced segment (a contour along a seed line was
+  traced twice).
+- *Slivers.* A lost contour around material less than tol/4 high is dropped (CH-03).
+- *Parallel.* Seed lines and levels run on `rayon`, collected in order (D01 §6).
+- *Linking.* Lifts and rapids keep the rapid floor of D08 §8.2.
 
 ### 4.5 `horizontal`
 

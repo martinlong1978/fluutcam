@@ -140,5 +140,5 @@ None. The new rapid floor changes no existing reference project: their entries l
 Follow-ups:
 - Clearance for the index turn: retract to a cylinder round the turning stock before `rotary_index`.
 - Simulating a child from its parent at angles that are not multiples of 90° (resampled dexels), and from a rotary parent once rotary Setups simulate.
-- The rapid floor in the 3-D linker (`follow.rs`, `dome` t5), changed in another branch.
+- The 3-D finishing linker (`follow.rs`) now has the stock-top floor (merged from `waterline-robust`); it does not read the in-process stock yet.
 - A planar parent under a rotary child starts the child from its full cylinder; slicing the planar stock by cylinders would be tighter.

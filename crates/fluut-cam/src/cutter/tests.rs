@@ -7,7 +7,7 @@ use super::reference::{Density, reference};
 use super::solve::{Axis, SolveStats};
 use super::synth::{Builder, Lcg, bspline_square, cuboid, tiled};
 use super::*;
-use fluut_geom::{Aabb3, Frame, Interval, Point3, Surface, UvBox, Vec3};
+use fluut_geom::{Aabb3, Curve3, Frame, Interval, Point3, Surface, UvBox, Vec3};
 use fluut_topo::BrepBody;
 
 fn iv(lo: f64, hi: f64) -> Interval {
@@ -328,4 +328,159 @@ fn freeform_tiles_hard_points() {
             got.tau
         );
     }
+}
+
+/// A drop limited to a window [floor, ceiling] decides the same side of
+/// every height in it as the full drop, and is exact inside it.
+#[test]
+fn window_drop_classifies_like_the_full_drop() {
+    let body = tiled(2, false);
+    let g = QueryGeometry::new(&body, &BuildOptions::default());
+    let mut rng = Lcg(5);
+    for c in cutters() {
+        for _ in 0..80 {
+            let (x, y) = (22.0 * rng.uniform() - 1.0, 22.0 * rng.uniform() - 1.0);
+            let z = 6.0 * rng.uniform() - 1.0;
+            let mut st = SolveStats::default();
+            let full = drop(&g, &c, x, y, &DropOptions::default(), &mut st).map(|r| r.tau);
+            let o = DropOptions {
+                floor: z - 0.5,
+                ceiling: z + 0.5,
+                ..Default::default()
+            };
+            let win = drop(&g, &c, x, y, &o, &mut st).map(|r| r.tau);
+            let f = full.unwrap_or(f64::NEG_INFINITY);
+            let w = win.unwrap_or(f64::NEG_INFINITY);
+            assert_eq!(f > z, w > z, "{c:?} ({x}, {y}) z {z}: {full:?} {win:?}");
+            if f > z - 0.5 && f < z + 0.5 {
+                assert!((f - w).abs() < 1e-9, "{full:?} {win:?}");
+            }
+            if f >= z + 0.5 {
+                assert!(w >= z + 0.5 && w <= f);
+            }
+        }
+    }
+}
+
+/// A band of a drafted (tilted) cylinder, r = 25, whose top edge is a
+/// circle `gap` mm outside the surface: a small model gap between a face
+/// and its edge, as on the NIST corpus. Ball tools touch such a near-
+/// vertical wall at the rim of their footprint.
+fn drafted_band(gap: f64) -> BrepBody {
+    let tilt = 2f64.to_radians();
+    let (st, ct) = libm::sincos(tilt);
+    let frame = Frame::new(
+        Point3::new(0.0, 0.0, 0.0),
+        Vec3::new(0.0, st, ct),
+        Vec3::new(1.0, 0.0, 0.0),
+    )
+    .unwrap();
+    let r = 25.0;
+    let s = Surface::Cylinder { frame, r };
+    let (u0, u1) = (0.0, std::f64::consts::PI);
+    let mut b = Builder::new("drafted");
+    let top = Curve3::circle(frame, r + gap).unwrap();
+    let (bc, br) = super::synth::iso_v(&s, -40.0, iv(u0, u1)).unwrap();
+    let bottom = b.edge(Some(bc), br, Point3::ORIGIN);
+    let (rc, rr) = super::synth::line(s.eval(u1, -40.0), top.eval(u1)).unwrap();
+    let right = b.edge(Some(rc), rr, Point3::ORIGIN);
+    let t = b.edge(Some(top), iv(u0, u1), Point3::ORIGIN);
+    let (lc, lr) = super::synth::line(
+        s.eval(u0, -40.0),
+        Curve3::circle(frame, r + gap).unwrap().eval(u0),
+    )
+    .unwrap();
+    let left = b.edge(Some(lc), lr, Point3::ORIGIN);
+    b.face(
+        s,
+        false,
+        &[vec![
+            (bottom, true),
+            (right, true),
+            (t, false),
+            (left, false),
+        ]],
+    );
+    b.build()
+}
+
+/// Ball drops across the top of a drafted wall whose edge is a little off
+/// the surface. The face's tangent point is just above its trimmed top and
+/// the edge is just out of reach, so neither found the top of the wall:
+/// the drop fell about 38 mm over a band 3 µm wide (the lost waterline
+/// traces on `nist_ctc_02`). The face's own boundary covers it now.
+#[test]
+fn drafted_wall_with_a_model_gap_has_no_cracks() {
+    let body = drafted_band(3e-3);
+    let g = QueryGeometry::new(&body, &BuildOptions::default());
+    let c = Cutter::ball(6.0).unwrap();
+    let o = DropOptions::default();
+    let mut st = SolveStats::default();
+    let tilt = 2f64.to_radians();
+    for k in [1, 4, 8, 13] {
+        let u = std::f64::consts::PI * k as f64 / 16.0;
+        let (su, cu) = libm::sincos(u);
+        // A point of the top boundary, and the inward horizontal direction.
+        let p = Point3::new(25.0 * cu, 25.0 * su * libm::cos(tilt), 0.0);
+        let n = 2000;
+        let mut prev: Option<f64> = None;
+        for i in 0..=n {
+            let s = 3.0 - 0.002 + 0.008 * i as f64 / n as f64;
+            let (x, y) = (p.x() - cu * s, p.y() - su * s);
+            let tau = drop(&g, &c, x, y, &o, &mut st).map_or(f64::NEG_INFINITY, |r| r.tau);
+            if let Some(t) = prev {
+                assert!((tau - t).abs() < 0.1, "u {u} s {s}: {t} -> {tau}");
+            }
+            prev = Some(tau);
+            if i % 250 == 0 {
+                let want = reference(
+                    &g,
+                    &c,
+                    Axis { x, y },
+                    Density {
+                        face: 300,
+                        edge: 2000,
+                    },
+                )
+                .unwrap_or(f64::NEG_INFINITY);
+                assert!(tau >= want - 1e-3, "u {u} s {s}: {tau} < {want}");
+            }
+        }
+    }
+}
+
+/// The face boundary search finds contacts inside a boundary segment whose
+/// two ends are both out of the footprint.
+#[test]
+fn rim_finds_contacts_between_its_points() {
+    let body = drafted_band(3e-3);
+    let g = QueryGeometry::new(&body, &BuildOptions::default());
+    let c = Cutter::ball(6.0).unwrap();
+    let lp = g.faces[0]
+        .as_ref()
+        .unwrap()
+        .rim
+        .iter()
+        .max_by_key(|l| l.pts.len())
+        .unwrap();
+    // A segment of the top boundary (z near 0, away from the corners).
+    let k = (0..lp.pts.len() - 1)
+        .filter(|&k| lp.pts[k].2.z().abs() < 0.5 && lp.pts[k + 1].2.z().abs() < 0.5)
+        .nth(5)
+        .unwrap();
+    let (a, b) = (lp.pts[k].2, lp.pts[k + 1].2);
+    let m = Point3::new(0.5 * (a.x() + b.x()), 0.5 * (a.y() + b.y()), 0.0);
+    // Inward (towards the cylinder axis) from the segment's middle.
+    let r = libm::hypot(m.x(), m.y());
+    let s = 3.0 - 1e-4;
+    let ax = Axis {
+        x: m.x() * (1.0 - s / r),
+        y: m.y() * (1.0 - s / r),
+    };
+    assert!(ax.lateral(a) > 3.0 && ax.lateral(b) > 3.0);
+    let got = super::solve::rim(&g, 0, ax, &c, f64::NEG_INFINITY).unwrap();
+    assert!(ax.lateral(got.point) <= 3.0 + 1e-9);
+    let mut st = SolveStats::default();
+    let d = drop(&g, &c, ax.x, ax.y, &DropOptions::default(), &mut st).unwrap();
+    assert!(d.tau >= got.tau - 1e-3, "{d:?} {got:?}");
 }

@@ -404,6 +404,24 @@ impl Trim {
         self.uv
     }
 
+    /// The boundary loops as `(u, v)` polylines.
+    pub fn loops_uv(&self) -> Vec<Vec<(f64, f64)>> {
+        self.loops
+            .iter()
+            .map(|l| {
+                l.iter()
+                    .map(|p| {
+                        if self.swap {
+                            (p[1], p[0])
+                        } else {
+                            (p[0], p[1])
+                        }
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+
     /// Whether `(u, v)` (any period) is inside the trimmed face. Points
     /// within about the projection chord of the boundary may go either way.
     pub fn contains(&self, u: f64, v: f64) -> bool {

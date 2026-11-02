@@ -280,9 +280,11 @@ top is the stock top, or `top` when that is higher. A toolpath whose `top` is be
 top (a floor pass, a hole under an unmachined counterbore) cannot tell, without the in-process
 stock, whether an earlier toolpath cleared the material above `top`, so the safe choice is to
 feed through it. The drill's R plane takes the same floor, since canned cycles rapid to it, and
-so does `bore`'s approach. Toolpaths whose `top` is the stock top are unchanged. Using the
-in-process stock to lower the floor where it is known to be clear is left for later. The 3-D
-linker (`follow.rs`) still rapids to `safety_distance` above each entry.
+so does `bore`'s approach. Toolpaths whose `top` is the stock top are unchanged. The
+in-process stock lowers the floor where it is known to be clear (below). The 3-D
+finishing linker (`follow.rs`) takes the same floor ([waterline plan](../plan/2026-11-01-waterline-robust.md)):
+its lifts between runs go at least `safety_distance` above the material top, and its descents
+stop there and plunge.
 
 **Rapid floor from the in-process stock (2026-11-01).** The 2-D types, `adaptive_3d`,
 `pocket_3d`, `drill` and `bore` get the in-process stock (`links_over_stock`). A rapid down to

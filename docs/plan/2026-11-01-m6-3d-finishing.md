@@ -205,6 +205,14 @@ is merged with `main` (M4, M5, M6 part 1); all fifteen types are registered.
   | `contour` | step-down 20 (20 levels) | 946.8 s | 523 261 | 1 809 µs |
   | `steep_and_shallow` | step-down 20, stepover 2 | 958.3 s | 638 595 | 1 501 µs |
   | `horizontal` | Ø6 flat, stepover 3 | 1 212.3 s | 4 678 | (259 ms) |
+  | `contour` (waterline plan) | step-down 20, one thread | 143.5 s | 79 288 | 1 810 µs |
+  | `contour` (waterline plan) | step-down 2, one thread | 781.2 s | 656 974 | 1 189 µs |
+  | `contour` (waterline plan) | step-down 2, 12 threads | 138.7 s | 656 974 | 211 µs |
+  | `steep_and_shallow` (waterline plan) | as above, 12 threads | 67.5 s | 193 743 | 348 µs |
+  | `horizontal` (waterline plan) | as above, 12 threads | 338.6 s | 4 678 | (72 ms) |
+
+  The rows marked "waterline plan" are after [the waterline follow-up](2026-11-01-waterline-robust.md);
+  the old `contour` row counted about 450 000 runaway points.
 
   `horizontal` writes few points (lines and rings on flats), so its time per point means
   little. Its time goes into one waterline per flat height.
