@@ -50,15 +50,15 @@ All M6 Global Constraints apply. In addition:
 
 **Files:** `crates/fluut-cam/src/{waterline.rs, surface.rs}`, `cutter/drop.rs`.
 
-- [ ] **Step 1:** Profile: drops per point by phase (predict, bracket, bisect, closure), cost per drop.
-- [ ] **Step 2:** Tests that pin the contour geometry (closed forms, CH-03, no gouge) before changing the tracer.
-- [ ] **Step 3:** Cut the drops per point and the cost per drop; measure; commit.
-- [ ] **Step 4:** Levels in parallel, if D01 §6 allows it and the output is bit-identical.
+- [x] **Step 1:** Profile: drops per point by phase (predict, bracket, bisect, closure), cost per drop.
+- [x] **Step 2:** Tests that pin the contour geometry (closed forms, CH-03, no gouge) before changing the tracer.
+- [x] **Step 3:** Cut the drops per point and the cost per drop; measure; commit.
+- [x] **Step 4:** Levels in parallel, if D01 §6 allows it and the output is bit-identical.
 
 ### Task 4: Close
 
-- [ ] **Step 1:** Corpus runs at 20, 5 and 2 mm step-down; timing rows.
-- [ ] **Step 2:** CH-12 and CH-03 in `challenges.md`, D09 §4.4, D07 if the drop changed. Mark this plan done with deviations; README row. Merge `main`; all checks; commit.
+- [x] **Step 1:** Corpus runs at 20, 5 and 2 mm step-down; timing rows.
+- [x] **Step 2:** CH-12 and CH-03 in `challenges.md`, D09 §4.4, D07 if the drop changed. Mark this plan done with deviations; README row. Merge `main`; all checks; commit.
 
 ## Diagnosis (Task 1)
 
@@ -80,3 +80,47 @@ So the cause is a drop miss (CH-12), on an analytic face, not on free-form faces
 **Fix (Task 2).** A face whose best stationary point is outside its trim searches its own boundary: the trim loops mapped onto the surface (`QueryFace::rim`), each segment bounded from its ends and refined by Brent's method, with the footprint crossings found by bisection. Every point is a real point of the face, so the drop is never too high. The boundary result is used only when it beats every other contact by more than the trim chord (1e-3 mm): that is where the edges missed it. Elsewhere the edge contact wins as before, so models without gaps give the same drops, and no golden file changed.
 
 **After the fix** at Z −20, −40, −140 and −160 (before: 31, 27, 16 and 6 lost): 40, 8, 9 and 10 contours, all closed. The runaway contours at Z −20 are gone; they were traces hopping across the cracks.
+
+## Speed (Task 3)
+
+Profiled on the corpus body, per level (Z −40 to −300, closed contours only): 22–31 drops per traced point, 120–200 µs per drop, about 2.6–5.4 ms per traced point (the machine was shared, so times varied by up to 2×; drop counts did not). Three quarters of the points are on cliffs: a ball beside a vertical wall rests on its top until the wall leaves the footprint, so τ jumps there and only bisection worked. Most of a drop's time is B-spline patch solves (about 160 µs each) and edge solves.
+
+- **Windowed drops.** `DropOptions::ceiling` stops the search at the first contact at or above it; with `floor`, a classifying drop is exact within 4 max steps of the level and cheap beyond it. The side is the full drop's (tested on the tile model).
+- **Newton corrector.** τ rises at tan β along the contact direction, so from an exact probe the root is about −(τ − z)/tan β away; a ±5 % bracket around it, then regula falsi. 4.6–5 drops per point where it applies.
+- **Cliff steps.** At a cliff the inside contact P holds the tip up until it leaves the footprint, so the next trial is just past |axis − P| = R. Outside, the bracket closes at once; inside, its contact gives the next trial. On a steep wall (not a cliff) the contact slides and the trials barely shrink, so cliff steps stop when a move is not under half the one before.
+- **Arc predictor** along the last step's curvature, and steps capped by the chord rule ahead (fewer rejected steps).
+- **Parallel.** Seed lines and levels run on `rayon`, collected in order (D01 §6). Seeding: 54–66 s → 8–10 s on 12 threads.
+
+Result: 6–7.5 drops per traced point (was 22–31), and 0.3–0.95 ms per traced point on one thread at the same levels.
+
+## Done
+
+Lost traces were drop misses at model gaps on drafted walls (CH-12), fixed in the drop. The tracer takes 6–7.5 drops per point instead of 22–31, levels and seed lines run in parallel, and `contour` at a 2 mm step-down finishes on the largest NIST body. The 3-D finishing linker keeps the rapid floor.
+
+**Corpus** (`nist_ctc_02_asme1_rc`, Ø6 ball, tolerance 0.01, every face a drive face; `examples/finishing.rs` and `examples/waterline.rs`):
+
+| Run | Before (bc624ba) | After |
+|---|---|---|
+| `contour` 20 mm, lost contours (waterline example) | 188 of 391 | 0 of 196 |
+| `contour` 20 mm, `loop_open` in the toolpath | yes | yes: 4 traces at the flat level Z −289.9997 |
+| `contour` 5 mm, lost contours (waterline example) | not run | 1 of 846 |
+| `contour` 20 mm, one thread | 772.5 s, 523 261 points, 1 476 µs/point | 143.5 s, 79 288 points, 1 810 µs/point |
+| `contour` 20 mm, 12 threads | — | 35.9 s, 452 µs/point |
+| `contour` 5 mm, 12 threads | — | 58.0 s, 271 098 points, 214 µs/point |
+| `contour` 2 mm | stopped after 57 min | 781.2 s one thread (1 189 µs/point); 138.7 s on 12 threads |
+| `steep_and_shallow` 20 mm | 958.3 s | 67.5 s (12 threads) |
+| `horizontal` Ø6 flat | 1 212.3 s | 338.6 s (12 threads) |
+
+The time per output point at 20 mm looks worse on one thread, but the old figure was flattered: 450 000 of its 523 261 points were runaway traces (contours re-traced across the cracks), which cost little per point. The honest comparison is total time (5.4× less on one thread, for the same contours closed rather than lost) and the time per traced point at the same levels (about 3–8× less). The 3× per-point target is met per traced point, not per output point at 20 mm.
+
+Deviations from this plan:
+- **Root cause in the drop, not the tracer.** The fix is in `cutter` (face boundaries, D07); the tracer only got faster.
+- **Slivers.** A lost contour around material under tol/4 high for a step inwards is dropped (CH-03): at Z 0 the drafted walls' top edges stand up to 0.9 µm above the flat they meet.
+- **Rapid floor in `follow.rs`** (asked for during the work, after `sim-findings`): lifts between runs go at least `safety_distance` above the material top, descents stop there and plunge. The CLI simulation allowance for `dome` t5 is removed.
+- **Golden G-code.** `dome-linuxcnc.ngc` changed twice. (1) The tracer: waterline and flat points moved along the same contours, by up to 0.001 mm in the printed coordinates; the same point count in every section, every point on the contour within 10⁻⁷ mm (closed-form tests within 10⁻⁶), the chord rule and the no-gouge tests unchanged. (2) The rapid floor: lifts at Z 0.095 and a rapid down to Z −17.989 became lifts and descents to Z 1 (stock top + safety), then feed. Both are as good or safer. No other golden file changed; translation invariance holds.
+- **Not done:** sharing the B-spline seeding between neighbouring drops (the largest remaining cost per drop), and arcs from analytic contacts.
+
+Open:
+- The flat level at Z −289.9997 at 20 mm keeps 4 lost traces on a real contour (closed at Z −289.999); a tangent-level case not yet diagnosed.
+- One lost contour of 846 at 5 mm.
+- `horizontal` still spends most of its time in waterlines at flat heights, which are tangent levels.

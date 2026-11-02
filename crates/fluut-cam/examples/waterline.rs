@@ -5,7 +5,7 @@
 //! `cargo run -p fluut-cam --example waterline --release` with
 //! `FLUUT_STEP_CORPUS=<dir>`. `FLUUT_STEP_DOWN` sets the level step
 //! (default 20 mm), `FLUUT_LEVELS=z1,z2` picks levels instead. Ø6 ball,
-//! every face a drive face, tolerance 0.01 mm, one thread. Per level: the
+//! every face a drive face, tolerance 0.01 mm, levels one at a time. Per level: the
 //! contours, how many are lost (`cam.contour.loop_open`), where they end,
 //! points, drops and the time per point.
 
