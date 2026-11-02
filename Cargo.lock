@@ -1481,6 +1481,7 @@ dependencies = [
  "glam",
  "libm",
  "proptest",
+ "rayon",
 ]
 
 [[package]]
