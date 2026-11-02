@@ -4,7 +4,9 @@
 //!
 //! `cargo run -p fluut-cam --example waterline --release` with
 //! `FLUUT_STEP_CORPUS=<dir>`. `FLUUT_STEP_DOWN` sets the level step
-//! (default 20 mm), `FLUUT_LEVELS=z1,z2` picks levels instead. Ø6 ball,
+//! (default 20 mm), `FLUUT_LEVELS=z1,z2` picks levels instead, and
+//! `FLUUT_FLATS` places them as `contour` does (even steps between the
+//! flats). Ø6 ball,
 //! every face a drive face, tolerance 0.01 mm, levels one at a time. Per level: the
 //! contours, how many are lost (`cam.contour.loop_open`), where they end,
 //! points, drops and the time per point.
@@ -136,6 +138,32 @@ fn main() {
     );
     let zs: Vec<f64> = match std::env::var("FLUUT_LEVELS") {
         Ok(s) => s.split(',').filter_map(|v| v.parse().ok()).collect(),
+        Err(_) if std::env::var("FLUUT_FLATS").is_ok() => {
+            // As `contour`: even steps between the flats.
+            let mut flats: Vec<f64> = Vec::new();
+            let BodyGeom::Brep(body) = &g.bodies[0].geom else {
+                unreachable!()
+            };
+            for (f, face) in body.faces.iter().enumerate() {
+                if fluut_cam::drive::is_horizontal_plane(&body.surfaces[face.surface as usize]) {
+                    let z = fluut_cam::geometry::flat_z(body, f as u32, 1e-3);
+                    if z > bb.min.z() + 1e-9 && z <= bb.max.z() + 1e-9 {
+                        flats.push(z.min(bb.max.z()));
+                    }
+                }
+            }
+            flats.sort_by(|a, b| b.total_cmp(a));
+            flats.dedup_by(|a, b| (*a - *b).abs() <= 1e-6);
+            let mut v = Vec::new();
+            let mut hi = bb.max.z();
+            for b in flats.into_iter().chain(std::iter::once(bb.min.z())) {
+                if b < hi - 1e-9 {
+                    v.extend(fluut_cam::layout::levels(hi, b, Some(sd), None));
+                    hi = b;
+                }
+            }
+            v
+        }
         Err(_) => {
             let mut v = Vec::new();
             let mut z = bb.max.z() - sd;
