@@ -268,6 +268,25 @@ impl ToolpathTypeId {
         )
     }
 
+    /// The type's rapids down to an entry stop above the in-process stock
+    /// left by the earlier toolpaths, not above the stock top (D08 §8.2).
+    pub fn links_over_stock(self) -> bool {
+        matches!(
+            self,
+            ToolpathTypeId::Contour2d
+                | ToolpathTypeId::Pocket2d
+                | ToolpathTypeId::Face
+                | ToolpathTypeId::Trace
+                | ToolpathTypeId::Chamfer2d
+                | ToolpathTypeId::Bore
+                | ToolpathTypeId::Drill
+                | ToolpathTypeId::Adaptive2d
+                | ToolpathTypeId::Engrave
+                | ToolpathTypeId::Adaptive3d
+                | ToolpathTypeId::Pocket3d
+        )
+    }
+
     /// The type takes its swept material out of the in-process stock
     /// (D15 §1.9, D15b §1.10).
     pub fn updates_stock(self) -> bool {

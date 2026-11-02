@@ -5,6 +5,7 @@
 
 use crate::cutter::profile::Cutter;
 use crate::holes::{Stack, find, shortest_order, stacks};
+use crate::link::{LinkCx, StockFloor, rapid_floor_at};
 use crate::moves::{Mv, Out};
 use crate::region::Inside;
 use crate::strategy::boundary::boundary_region;
@@ -134,10 +135,21 @@ impl ToolpathType for Drill {
             // the safety distance, since the cycle rapids to it and the
             // material above this hole's top may not have been cut (D08
             // §8.2).
-            let r_z = h
-                .feed
-                .max(input.env.stock_top.max(h.top) + p.linking.safety_distance);
+            // With the in-process stock, the floor is above the material
+            // within the tool radius of this hole instead.
             let c = hole.centre;
+            let r_z = rapid_floor_at(
+                &LinkCx {
+                    heights: h,
+                    material_top: input.env.stock_top.max(h.top),
+                    linking: &p.linking,
+                    tool_diameter: d,
+                    tol,
+                    safe: &[],
+                },
+                StockFloor::of(input),
+                c,
+            );
             match prev {
                 None => {
                     out.start(Point3::new(c.x(), c.y(), h.clearance));

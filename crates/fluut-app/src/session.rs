@@ -450,7 +450,14 @@ impl Worker {
                 .hash(&NodeId::Result(id.clone()))
                 .unwrap_or_default()
                 .to_owned();
-            for report in st.session.calculate(&Targets::Toolpaths(vec![id.clone()])) {
+            // Earlier toolpaths that this one needs (in-process stock) come
+            // back too; they were reported in their own step.
+            for report in st
+                .session
+                .calculate(&Targets::Toolpaths(vec![id.clone()]))
+                .into_iter()
+                .filter(|r| r.toolpath == id)
+            {
                 if let JobState::Done { .. } = report.state {
                     st.calculated.insert(report.toolpath.clone());
                     count += 1;

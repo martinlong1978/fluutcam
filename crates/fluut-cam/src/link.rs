@@ -7,6 +7,8 @@
 use crate::moves::{Mv, Out};
 use crate::path2::{Path2, left, unit};
 use crate::region::{Inside, Region2, Seg2};
+use crate::stock::{LayeredStock, StockFrame};
+use crate::toolpath::StrategyInput;
 use fluut_geom::{Point2, Point3, Vec2};
 use fluut_model::Diagnostic;
 use fluut_model::resolve::{
@@ -75,10 +77,44 @@ pub struct LinkCx<'a> {
     pub safe: &'a [Region2],
 }
 
+/// The in-process stock under a toolpath's entries (D08 §8.2): a rapid
+/// down to an entry stops `safety_distance` above the highest material
+/// within the tool radius, instead of above the stock top.
+#[derive(Copy, Clone, Debug)]
+pub struct StockFloor<'a> {
+    pub stock: &'a LayeredStock,
+    /// The tool radius.
+    pub radius: f64,
+}
+
+impl<'a> StockFloor<'a> {
+    /// The floor of a toolpath that has planar in-process stock.
+    pub fn of(input: &StrategyInput<'a>) -> Option<StockFloor<'a>> {
+        input
+            .in_process
+            .filter(|s| s.frame == StockFrame::Planar)
+            .map(|stock| StockFloor {
+                stock,
+                radius: input.tool.radius(),
+            })
+    }
+}
+
 const EPS: f64 = 1e-9;
 
 /// Links `cuts` in order into passes, from clearance back to clearance.
 pub fn link(cuts: &[Cut], cx: &LinkCx, diags: &mut Vec<Diagnostic>) -> Vec<Pass> {
+    link_over(cuts, cx, None, diags)
+}
+
+/// As [`link`], with rapids down to each entry stopping above the
+/// in-process stock `floor` when it is known.
+pub fn link_over(
+    cuts: &[Cut],
+    cx: &LinkCx,
+    floor: Option<StockFloor>,
+    diags: &mut Vec<Diagnostic>,
+) -> Vec<Pass> {
     let mut out = Out::new(cx.tol);
     let mut fell_back = false;
     let mut prev: Option<&Cut> = None;
@@ -117,10 +153,10 @@ pub fn link(cuts: &[Cut], cx: &LinkCx, diags: &mut Vec<Diagnostic>) -> Vec<Pass>
                     h
                 }
             };
-            let floor = rapid_floor(cx);
-            if z_now > floor {
-                out.line(Point3::new(e.x(), e.y(), floor), Mv::Rapid);
-                z_now = floor;
+            let lowest = rapid_floor_at(cx, floor, e);
+            if z_now > lowest {
+                out.line(Point3::new(e.x(), e.y(), lowest), Mv::Rapid);
+                z_now = lowest;
             }
             let ramp_top = cut.ramp_from.min(z_now).max(z0);
             let plunge_to = if plan.kind == RampKind::Plunge {
@@ -181,6 +217,25 @@ pub fn rapid_floor(cx: &LinkCx) -> f64 {
     cx.heights
         .feed
         .max(cx.material_top + cx.linking.safety_distance)
+}
+
+/// As [`rapid_floor`], for an entry at `p` over the in-process stock
+/// `floor` when it is known: `safety_distance` above the highest material
+/// within the tool radius of `p` (the feed height when there is none).
+/// Never higher than [`rapid_floor`].
+pub fn rapid_floor_at(cx: &LinkCx, floor: Option<StockFloor>, p: Point2) -> f64 {
+    let plain = rapid_floor(cx);
+    let Some(f) = floor.filter(|f| f.stock.frame == StockFrame::Planar) else {
+        return plain;
+    };
+    match f.stock.top_near(p, f.radius) {
+        Some(top) => cx
+            .heights
+            .feed
+            .max(top + cx.linking.safety_distance)
+            .min(plain),
+        None => cx.heights.feed.min(plain),
+    }
 }
 
 /// Whether the link from `end` to the next entry may stay at depth: same
@@ -525,6 +580,7 @@ fn cut_moves(out: &mut Out, cut: &Cut) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use fluut_geom::Aabb3;
     use fluut_model::resolve::{Order, Ramp, Transitions};
     use fluut_path::{Motion, Segment, ToolpathResult};
 
@@ -662,6 +718,72 @@ mod tests {
             }
             assert_eq!(plunges, 2, "{policy:?}");
         }
+    }
+
+    #[test]
+    fn rapids_stop_above_the_in_process_stock() {
+        // The floor pass above over a stock cleared above Z 10 round the
+        // first entry (0, 0); the second entry (12, 0) is 2 mm from
+        // material left up to the stock top.
+        let h = ResolvedHeights {
+            clearance: 30.0,
+            retract: 25.0,
+            feed: 12.0,
+            top: 10.0,
+            bottom: 0.0,
+        };
+        let cuts = [
+            Cut::flat(square(0.0, 10.0), 8.0, Turn::Right, 10.0),
+            Cut::flat(square(12.0, 10.0), 8.0, Turn::Right, 10.0),
+        ];
+        let mut stock = LayeredStock::planar(&Aabb3 {
+            min: Point3::new(-20.0, -20.0, 0.0),
+            max: Point3::new(40.0, 30.0, 20.0),
+        });
+        stock.remove_swept(10.0, &Region2::rect(-10.0, -10.0, 14.0, 20.0));
+        let l = linking(RetractPolicy::Full, LeadKind::None, RampKind::Plunge);
+        let cx = LinkCx {
+            heights: h,
+            material_top: 20.0,
+            linking: &l,
+            tool_diameter: 6.0,
+            tol: 0.01,
+            safe: &[],
+        };
+        let plunges = |floor: Option<StockFloor>| -> Vec<f64> {
+            let r = ToolpathResult::new(link_over(&cuts, &cx, floor, &mut Vec::new())).unwrap();
+            r.segments()
+                .filter(|s| s.motion().is_some_and(|m| m.motion == Motion::Plunge))
+                .map(|s| s.start().unwrap().xyz.z())
+                .collect()
+        };
+        let floor = StockFloor {
+            stock: &stock,
+            radius: 3.0,
+        };
+        // The first rapids to the feed height (above the cleared floor + 1).
+        assert_eq!(plunges(Some(floor)), [12.0, 21.0]);
+        assert_eq!(plunges(None), [21.0, 21.0]);
+        // Nothing within reach: down to the feed height.
+        let far = LayeredStock::planar(&Aabb3 {
+            min: Point3::new(100.0, 100.0, 0.0),
+            max: Point3::new(140.0, 130.0, 20.0),
+        });
+        let floor = StockFloor {
+            stock: &far,
+            radius: 3.0,
+        };
+        assert_eq!(plunges(Some(floor)), [12.0, 12.0]);
+        // Cylindrical stock is not a floor.
+        let cyl = LayeredStock::cylindrical(20.0, 0.0, 50.0);
+        let floor = StockFloor {
+            stock: &cyl,
+            radius: 3.0,
+        };
+        assert_eq!(
+            rapid_floor_at(&cx, Some(floor), Point2::new(0.0, 0.0)),
+            21.0
+        );
     }
 
     #[test]

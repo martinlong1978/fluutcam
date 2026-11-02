@@ -267,7 +267,21 @@ impl Simulation {
         part: Option<&dyn Part>,
         monitor: &dyn Monitor,
     ) -> Result<Simulation, Cancelled> {
-        let res = settings.res;
+        Simulation::run_from(stock, None, programs, settings, part, monitor)
+    }
+
+    /// As [`Simulation::run`], from the tri-dexel stock `start` when given
+    /// (a child Setup's material from its parent); `stock` then only bounds
+    /// the tool's reach, and the ray spacing is `start`'s.
+    pub fn run_from(
+        stock: Stock,
+        start: Option<TriDexel>,
+        programs: &[Program],
+        settings: &Settings,
+        part: Option<&dyn Part>,
+        monitor: &dyn Monitor,
+    ) -> Result<Simulation, Cancelled> {
+        let res = start.as_ref().map_or(settings.res, |d| d.res);
         let mut chords = Vec::new();
         let mut toolpaths = Vec::new();
         let mut t = 0.0;
@@ -316,7 +330,7 @@ impl Simulation {
         }
         let total = chords.len() as u64;
         monitor.progress(0, total);
-        let mut d = TriDexel::new(&stock, res);
+        let mut d = start.unwrap_or_else(|| TriDexel::new(&stock, res));
         let mut checkpoints = Vec::with_capacity(toolpaths.len() + 1);
         let mut stats = Stats::default();
         let mut hits = Vec::new();

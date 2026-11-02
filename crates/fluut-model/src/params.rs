@@ -96,6 +96,12 @@ impl Params {
         matches!(self.get("geometry.rest_from"), Some(PValue::Enum(s)) if s == "previous")
     }
 
+    /// The result depends on the in-process stock: rest machining, or
+    /// links that stop above it (D08 §8.2).
+    pub fn reads_stock(&self) -> bool {
+        self.reads_in_process() || self.kind.links_over_stock()
+    }
+
     pub fn is_set(&self, path: &str) -> bool {
         self.get(path).is_some()
     }

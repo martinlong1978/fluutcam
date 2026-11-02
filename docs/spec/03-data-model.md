@@ -368,7 +368,10 @@ stock (04 §4.10). For toolpath computation it MUST be geometric (DC-02, 01 §1.
 **[DECIDED — OQ-15]**: the in-process stock model of 04 §4.12.6 (layered exact 2D regions) is
 carried from the parent Setup, transformed into the child's frame. For an `indexed` child of a
 different angle, the parent's layers are re-sliced in the child's frame from the parent's
-stock boundary (method detailed in the strategy specification).
+stock boundary (method detailed in the strategy specification). The child starts from the
+parent's stock after the parent's last stock-updating toolpath, and its toolpaths that read the
+stock go stale when the parent's toolpaths change. The re-sliced stock is never smaller than the
+parent's material (D08 §7).
 
 ### 3.9.7 Example: rotary, then two indexed sides
 

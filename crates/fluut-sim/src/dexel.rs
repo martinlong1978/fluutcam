@@ -167,6 +167,22 @@ impl DexelGrid {
         n
     }
 
+    /// A family from its rays, row by row.
+    fn from_rays(axis: usize, nu: usize, nv: usize, rays: Vec<Spans>) -> DexelGrid {
+        let mut tiles = Vec::with_capacity(nv.div_ceil(ROWS));
+        let mut it = rays.into_iter();
+        for j0 in (0..nv).step_by(ROWS) {
+            let rows = (j0 + ROWS).min(nv) - j0;
+            tiles.push(Arc::new(it.by_ref().take(rows * nu).collect()));
+        }
+        DexelGrid {
+            axis,
+            nu,
+            nv,
+            tiles,
+        }
+    }
+
     /// Tiles held in common with `other`, for tests of copy-on-write.
     pub fn shared_tiles(&self, other: &DexelGrid) -> usize {
         self.tiles
@@ -220,6 +236,58 @@ impl TriDexel {
             d.grids[k].tiles = tiles;
         }
         d
+    }
+
+    /// The stock turned a quarter turn about X, `(x, y, z)` to
+    /// `(x, −z, y)` (a child Setup indexed 90° on, D11 §2). The rays map
+    /// onto rays: the new grid's origin is the image of the far corner of
+    /// this grid's last cells, so nothing is resampled. Spans along the
+    /// reversed axis are mirrored in that grid's extent.
+    pub fn turned_quarter(&self) -> TriDexel {
+        let [gx, gy, gz] = &self.grids;
+        let (nx, ny, nz) = (gy.nv, gx.nu, gx.nv);
+        let ez = (nz as f64 * self.res) as f32;
+        let mirrored = |r: &Spans| -> Spans {
+            r.iter()
+                .rev()
+                .map(|s| Span {
+                    lo: ez - s.hi,
+                    hi: ez - s.lo,
+                })
+                .collect()
+        };
+        // New X rays at (y', z') = (k_y' = nz − 1 − k_z, k_z' = k_y).
+        let mut x = Vec::with_capacity(nz * ny);
+        for j in 0..ny {
+            for i in 0..nz {
+                x.push(gx.ray(j, nz - 1 - i).clone());
+            }
+        }
+        // New Y rays (along −z) at (z', x) = (k_y, k_x): old Z rays.
+        let mut y = Vec::with_capacity(ny * nx);
+        for j in 0..nx {
+            for i in 0..ny {
+                y.push(mirrored(gz.ray(j, i)));
+            }
+        }
+        // New Z rays (along y) at (x, y') = (k_x, nz − 1 − k_z): old Y rays.
+        let mut z = Vec::with_capacity(nx * nz);
+        for j in 0..nz {
+            for i in 0..nx {
+                z.push(gy.ray(nz - 1 - j, i).clone());
+            }
+        }
+        let o = self.origin;
+        TriDexel {
+            res: self.res,
+            origin: DVec3::new(o.x, -(o.z + nz as f64 * self.res), o.y),
+            size: DVec3::new(self.size.x, self.size.z, self.size.y),
+            grids: [
+                DexelGrid::from_rays(0, nz, ny, x),
+                DexelGrid::from_rays(1, ny, nx, y),
+                DexelGrid::from_rays(2, nx, nz, z),
+            ],
+        }
     }
 
     pub fn origin_point(&self) -> Point3 {
@@ -343,5 +411,38 @@ mod tests {
         assert_eq!(before.hash(), h);
         let g = &d.grids[2];
         assert_eq!(g.shared_tiles(&before.grids[2]), g.nv.div_ceil(ROWS) - 1);
+    }
+
+    #[test]
+    fn a_quarter_turn_maps_rays_onto_rays() {
+        // A box with a notch, turned: the same as the turned box built
+        // directly, ray for ray (the sizes are whole multiples of the
+        // spacing, so both grids start at the box corner).
+        let b = |min: [f64; 3], max: [f64; 3]| Stock::Box {
+            min: Point3::new(min[0], min[1], min[2]),
+            max: Point3::new(max[0], max[1], max[2]),
+        };
+        let d = TriDexel::new(&b([0.0, 0.0, 0.0], [10.0, 20.0, 30.0]), 1.0);
+        let t = d.turned_quarter();
+        let want = TriDexel::new(&b([0.0, -30.0, 0.0], [10.0, 0.0, 20.0]), 1.0);
+        assert_eq!(t.origin, want.origin);
+        assert_eq!(t.hash(), want.hash());
+        // A notch at y 0…1, z 29…30 (a Z ray and an X ray shortened) ends
+        // up at y′ −30…−29, z′ 0…1.
+        let mut d = d;
+        for i in 0..10 {
+            subtract(d.grids[2].ray_mut(i, 0), 29.0, 30.0);
+        }
+        subtract(d.grids[0].ray_mut(0, 29), 0.0, 10.0);
+        let t = d.turned_quarter();
+        assert!(t.grids[0].ray(0, 0).is_empty());
+        assert_eq!(t.grids[1].ray(0, 3)[0], Span { lo: 1.0, hi: 30.0 });
+        // Four quarter turns give the stock back.
+        let back = t.turned_quarter().turned_quarter().turned_quarter();
+        assert_eq!(back.origin, d.origin);
+        assert_eq!(back.hash(), d.hash());
+        let [a, b2, c] = d.volumes();
+        let [ta, tb, tc] = t.volumes();
+        assert_eq!((ta, tb, tc), (a, c, b2));
     }
 }

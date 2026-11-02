@@ -10,7 +10,7 @@ use crate::reimport::{ReimportReport, Unmatched, belongs, match_bodies, referenc
 use crate::sim::{DropPart, SimResult, SimSettings, assembly, diagnostic, feeds, kinematics};
 use crate::store::ModelStore;
 use fluut_cam::geometry::SetupBody;
-use fluut_cam::stock::{LayeredStock, Sweep};
+use fluut_cam::stock::{LayeredStock, StockFrame, Sweep};
 use fluut_cam::{RotaryAxisInfo, RotaryInfo, StrategyInput};
 use fluut_model::document::{Document, Outcome};
 use fluut_model::edit::{Edit, EditError};
@@ -532,6 +532,7 @@ impl Session {
             .setup_bodies(&rs)
             .and_then(|b| SetupFrame::new(&rs, b))
             .map_err(|d| vec![d])?;
+        let (start, mut notes) = self.carried_sim_stock(&rs, settings, monitor)?;
         let mut missing = Vec::new();
         let mut inputs = Vec::new();
         // `manual_nc` has no tool and no motion (D15b §7).
@@ -563,9 +564,12 @@ impl Session {
                 format!("calculate first: {}", missing.join(", ")),
             ));
         }
-        let stock = fluut_sim::Stock::Box {
-            min: fr.stock.min,
-            max: fr.stock.max,
+        let stock = match fr.index.and_then(|i| i.cylinder) {
+            Some((radius, (x0, x1))) => fluut_sim::Stock::Cylinder { x0, x1, radius },
+            None => fluut_sim::Stock::Box {
+                min: fr.stock.min,
+                max: fr.stock.max,
+            },
         };
         // The gouge tolerance is the toolpaths' machining tolerance.
         let tol = inputs
@@ -590,10 +594,12 @@ impl Session {
             tol,
         };
         let part = DropPart::new(&fr.geometry);
-        let sim = fluut_sim::Simulation::run(stock, &programs, &run, Some(&part), monitor)
-            .map_err(|_| err("sim.cancelled", "the simulation was cancelled".into()))?;
+        let sim =
+            fluut_sim::Simulation::run_from(stock, start, &programs, &run, Some(&part), monitor)
+                .map_err(|_| err("sim.cancelled", "the simulation was cancelled".into()))?;
         let mut diagnostics: Vec<Diagnostic> =
             sim.findings.iter().map(|f| diagnostic(&sim, f)).collect();
+        diagnostics.append(&mut notes);
         if sim.dropped > 0 {
             diagnostics.push(Diagnostic::warning(
                 "sim.findings.dropped",
@@ -610,6 +616,48 @@ impl Session {
             self.sims.insert(setup.to_owned(), (key, r.clone()));
         }
         Ok(r)
+    }
+
+    /// The simulated stock a `from_previous` Setup starts from: its
+    /// parent's final stock, simulated first, turned by the difference of
+    /// their index angles when that is a multiple of 90°. Otherwise `None`
+    /// (the Setup's full stock) with the warning `sim.stock.full`.
+    fn carried_sim_stock(
+        &mut self,
+        rs: &ResolvedSetup,
+        settings: &SimSettings,
+        monitor: &dyn fluut_sim::Monitor,
+    ) -> Result<(Option<fluut_sim::TriDexel>, Vec<Diagnostic>), Vec<Diagnostic>> {
+        let Some(pid) = carried_from(rs).map(str::to_owned) else {
+            return Ok((None, Vec::new()));
+        };
+        let full = |why: &str| {
+            Ok((
+                None,
+                vec![Diagnostic::warning(
+                    "sim.stock.full",
+                    format!(
+                        "Setup `{}` starts from its full stock, not from `{pid}`'s: {why}",
+                        rs.id
+                    ),
+                )],
+            ))
+        };
+        let pr = fluut_model::setup::resolve_setup(&self.project, &pid).map_err(|d| vec![d])?;
+        if pr.kind == SetupKind::Rotary {
+            return full("rotary Setups are not simulated yet");
+        }
+        let turn = setup_angle(rs) - setup_angle(&pr);
+        let quarters = turn / 90.0;
+        if quarters != quarters.round() {
+            return full("its angle is not a multiple of 90° from the parent's");
+        }
+        let parent = self.simulate(&pid, settings, monitor)?;
+        let mut d = parent.sim.stock_final().clone();
+        for _ in 0..(quarters.round() as i64).rem_euclid(4) {
+            d = d.turned_quarter();
+        }
+        Ok((Some(d), Vec::new()))
     }
 
     fn setup_bodies(&self, s: &ResolvedSetup) -> Result<Vec<SetupBody>, Diagnostic> {
@@ -643,38 +691,29 @@ impl Session {
         let graph = self.graph();
         let mut reports = Vec::new();
         let project = self.project.clone();
-        for (s, rs) in project.setups.iter().zip(resolve_all(&project)) {
-            let mut wanted: Vec<bool> = s
-                .toolpaths
-                .iter()
-                .map(|t| match targets {
-                    Targets::All => true,
-                    Targets::Toolpaths(ids) => ids.contains(&t.id),
-                })
-                .collect();
-            // A toolpath that reads the in-process stock needs every
-            // earlier toolpath of its Setup (D08 §7).
-            let last_reader = s
-                .toolpaths
-                .iter()
-                .zip(&wanted)
-                .rposition(|(t, w)| *w && t.is_enabled() && t.params.reads_in_process());
-            if let Some(i) = last_reader {
-                wanted[..i].iter_mut().for_each(|w| *w = true);
-            }
+        let resolved = resolve_all(&project);
+        let plan = stock_plan(&project, &resolved, targets);
+        // The final in-process stock of each Setup a later one carries.
+        let mut finals: BTreeMap<String, LayeredStock> = BTreeMap::new();
+        for (si, (s, rs)) in project.setups.iter().zip(&resolved).enumerate() {
+            let SetupPlan {
+                wanted,
+                feed_until,
+                source,
+            } = &plan[si];
             if !wanted.iter().any(|w| *w) {
                 continue;
             }
             let mut frame: Option<Result<SetupFrame, Diagnostic>> = None;
             let mut stock: Option<LayeredStock> = None;
-            if last_reader.is_some()
-                && let Ok(r) = &rs
+            if feed_until.is_some()
+                && let Ok(r) = rs
             {
                 let fr = frame.get_or_insert_with(|| {
                     self.setup_bodies(r).and_then(|b| SetupFrame::new(r, b))
                 });
                 if let Ok(f) = fr {
-                    stock = Some(f.initial_stock());
+                    stock = Some(carried_stock(r, &resolved, &project, &finals, f));
                 }
             }
             for (ti, t) in s.toolpaths.iter().enumerate() {
@@ -682,8 +721,8 @@ impl Session {
                     continue;
                 }
                 // Update the stock from this toolpath's result while a
-                // later toolpath still reads it.
-                let feeds_stock = last_reader.is_some_and(|l| ti < l) && t.kind().updates_stock();
+                // later toolpath, or a child Setup, still reads it.
+                let feeds_stock = feed_until.is_some_and(|l| ti < l) && t.kind().updates_stock();
                 let job = self.next_job;
                 self.next_job += 1;
                 let report = |state, diagnostics, stats| JobReport {
@@ -773,7 +812,7 @@ impl Session {
                         continue;
                     }
                 };
-                let in_process = if t.params.reads_in_process() {
+                let in_process = if t.params.reads_stock() {
                     stock.as_ref()
                 } else {
                     None
@@ -824,6 +863,9 @@ impl Session {
                     }
                     Err(e) => reports.push(report(JobState::Failed, e.diagnostics(), None)),
                 }
+            }
+            if *source && let Some(st) = stock {
+                finals.insert(s.id.clone(), st);
             }
         }
         reports
@@ -1074,7 +1116,7 @@ impl Session {
                     SetupKind::Indexed => fluut_post::SetupKind::Indexed,
                 },
                 work_offset: rs.work_offset.clone(),
-                index_a: None,
+                index_a: (rs.kind == SetupKind::Indexed).then_some(rs.index_angle),
                 index_b: None,
                 toolpaths,
             });
@@ -1124,6 +1166,119 @@ fn rotary_axis(m: &Machine) -> Option<RotaryAxisInfo> {
             _ => None,
         },
     })
+}
+
+/// What a calculation does in one Setup.
+struct SetupPlan {
+    /// Toolpaths to calculate (or take from the cache).
+    wanted: Vec<bool>,
+    /// The in-process stock is kept, and updated by the toolpaths before
+    /// this index; `None` when nothing reads it.
+    feed_until: Option<usize>,
+    /// A later `from_previous` Setup starts from this one's final stock.
+    source: bool,
+}
+
+/// Which toolpaths to calculate for `targets`, and where the in-process
+/// stock is needed (D08 §7). A toolpath that reads the stock needs every
+/// earlier toolpath of its Setup and the whole of the Setup its stock
+/// comes from (`from_previous`, spec 03 §3.9.6). From the last Setup back,
+/// so chains of children reach their first ancestor.
+fn stock_plan(
+    p: &Project,
+    resolved: &[Result<ResolvedSetup, Diagnostic>],
+    targets: &Targets,
+) -> Vec<SetupPlan> {
+    let mut plan: Vec<SetupPlan> = p
+        .setups
+        .iter()
+        .map(|s| SetupPlan {
+            wanted: s
+                .toolpaths
+                .iter()
+                .map(|t| match targets {
+                    Targets::All => true,
+                    Targets::Toolpaths(ids) => ids.contains(&t.id),
+                })
+                .collect(),
+            feed_until: None,
+            source: false,
+        })
+        .collect();
+    for si in (0..p.setups.len()).rev() {
+        let s = &p.setups[si];
+        let sp = &mut plan[si];
+        if sp.source {
+            sp.wanted.iter_mut().for_each(|w| *w = true);
+            sp.feed_until = Some(s.toolpaths.len());
+        } else {
+            sp.feed_until = s
+                .toolpaths
+                .iter()
+                .zip(&sp.wanted)
+                .rposition(|(t, w)| *w && t.is_enabled() && t.params.reads_stock());
+            if let Some(i) = sp.feed_until {
+                sp.wanted[..i].iter_mut().for_each(|w| *w = true);
+            }
+        }
+        if sp.feed_until.is_some()
+            && let Ok(r) = &resolved[si]
+            && let Some(parent) = carried_from(r)
+            && let Some(pi) = p.setup_index(parent)
+        {
+            plan[pi].source = true;
+        }
+    }
+    plan
+}
+
+/// The Setup whose stock `r` starts from, for `stock = from_previous`.
+fn carried_from(r: &ResolvedSetup) -> Option<&str> {
+    match r.stock {
+        Some(fluut_model::project::StockSpec::FromPrevious) => r.based_on.as_deref(),
+        _ => None,
+    }
+}
+
+/// The resolved rotary position of a Setup in degrees: its index angle,
+/// 0 for `three_axis` and `rotary` Setups.
+fn setup_angle(r: &ResolvedSetup) -> f64 {
+    if r.kind == SetupKind::Indexed {
+        r.index_angle
+    } else {
+        0.0
+    }
+}
+
+/// The in-process stock a Setup starts from: its parent's final stock
+/// turned into its frame for `from_previous` (D08 §7, CH-15), else its
+/// own stock. Parent and child share the rotary axis and the zero (spec
+/// 03 §3.9.4), so the child's frame is the parent's turned about X by the
+/// difference of their angles.
+fn carried_stock(
+    r: &ResolvedSetup,
+    resolved: &[Result<ResolvedSetup, Diagnostic>],
+    p: &Project,
+    finals: &BTreeMap<String, LayeredStock>,
+    f: &SetupFrame,
+) -> LayeredStock {
+    let own = f.initial_stock();
+    let Some(pid) = carried_from(r) else {
+        return own;
+    };
+    let (Some(parent), Some(Ok(pr))) = (
+        finals.get(pid),
+        p.setup_index(pid).and_then(|i| resolved.get(i)),
+    ) else {
+        return own;
+    };
+    match (parent.frame, own.frame) {
+        (StockFrame::Cylindrical, StockFrame::Cylindrical) => parent.clone(),
+        // A rotary child of a planar parent: its own cylinder holds all
+        // the material.
+        (StockFrame::Planar, StockFrame::Cylindrical) => own,
+        _ => parent.reframed(setup_angle(r) - setup_angle(pr)),
+    }
 }
 
 /// Takes what `result` cut out of `stock` (D08 §7).
