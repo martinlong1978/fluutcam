@@ -14,6 +14,7 @@ fluut-path.workspace = true
 fluut-topo.workspace = true
 glam.workspace = true
 libm.workspace = true
+rayon.workspace = true
 
 [lints]
 workspace = true

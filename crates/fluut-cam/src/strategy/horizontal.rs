@@ -105,7 +105,9 @@ impl ToolpathType for Horizontal {
         let mut safe: Vec<Region2> = Vec::new();
         let mut cuts: Vec<Cut> = Vec::new();
         let mut prev_end: Option<Point2> = None;
-        for (z, ids) in &flats {
+        let zs: Vec<f64> = flats.iter().map(|(z, _)| z + stl).collect();
+        let walls = wl.levels(&zs);
+        for ((z, ids), walls) in flats.iter().zip(walls) {
             let sels: Vec<Sel> = ids.iter().map(|i| Sel::Face(i.clone())).collect();
             let faces = floor_regions(g, &sels, &[], tol / 4.0)
                 .map_err(|d| CamError::Invalid(tag(vec![d], input.toolpath)))?;
@@ -115,7 +117,7 @@ impl ToolpathType for Horizontal {
             }
             // Where the tool reaches the flat's height (+ stock).
             let material = nest(
-                wl.level(z + stl)
+                walls
                     .iter()
                     .filter(|c| c.pts.len() >= 3)
                     .map(|c| polygon(c.pts.iter().map(|w| w.p)))

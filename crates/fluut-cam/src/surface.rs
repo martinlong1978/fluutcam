@@ -9,9 +9,9 @@ use crate::cutter::solve::{Contact, ContactOn, SolveStats};
 use crate::cutter::{Cutter, DropOptions, drop};
 use crate::geometry::{BodyGeom, SetupGeometry, face_id};
 use fluut_geom::{Aabb3, Curve3, Interval, Point2, Point3, Vec2};
-use std::cell::Cell;
 use std::collections::BTreeSet;
 use std::f64::consts::FRAC_PI_2;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// One body's query geometry and which of its primitives belong to drive
 /// faces.
@@ -71,7 +71,7 @@ pub struct SurfaceQuery<'a> {
     cutter: Cutter,
     stock: f64,
     opts: DropOptions,
-    drops: Cell<u64>,
+    drops: AtomicU64,
 }
 
 /// Which faces a query uses, by id. `drive` empty means every face.
@@ -153,7 +153,7 @@ impl<'a> SurfaceQuery<'a> {
             cutter: grown,
             stock,
             opts: DropOptions::default(),
-            drops: Cell::new(0),
+            drops: AtomicU64::new(0),
         })
     }
 
@@ -164,7 +164,7 @@ impl<'a> SurfaceQuery<'a> {
 
     /// Number of drops so far.
     pub fn drops(&self) -> u64 {
-        self.drops.get()
+        self.drops.load(Ordering::Relaxed)
     }
 
     /// The highest tool position with its axis through `(x, y)`; `None`
@@ -316,7 +316,7 @@ impl<'a> SurfaceQuery<'a> {
     }
 
     fn best_with(&self, x: f64, y: f64, opts: &DropOptions) -> Option<(&BodyQuery<'a>, Contact)> {
-        self.drops.set(self.drops.get() + 1);
+        self.drops.fetch_add(1, Ordering::Relaxed);
         let mut best: Option<(&BodyQuery, Contact)> = None;
         let mut st = SolveStats::default();
         for b in &self.bodies {

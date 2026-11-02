@@ -284,9 +284,10 @@ impl Levels {
         let zs = self.zs(st);
         let mut traced: Vec<Traced> = zs
             .iter()
-            .map(|&z| Traced {
+            .zip(wl.levels(&zs))
+            .map(|(&z, contours)| Traced {
                 z,
-                contours: wl.level(z),
+                contours,
                 gap: None,
             })
             .collect();

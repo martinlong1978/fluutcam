@@ -417,3 +417,32 @@ fn inside_corners_close() {
         assert_no_gouge(&g, &r, &tool(id), 0.0, 0.01 + 1e-9);
     }
 }
+
+#[test]
+fn sub_tolerance_steps_at_a_flat_level_are_not_lost() {
+    // A wafer 0.9 µm high on a plate, like a wall's top edge standing a
+    // micron above the flat it meets (a model gap on nist_ctc_02). The
+    // level at the plate top must not report a lost contour.
+    let mut b = Builder::new("wafer");
+    cuboid(
+        &mut b,
+        Point3::new(0.0, 0.0, -10.0),
+        Point3::new(60.0, 60.0, 0.0),
+    );
+    cuboid(
+        &mut b,
+        Point3::new(20.0, 20.0, 0.0),
+        Point3::new(40.0, 40.0, 9e-4),
+    );
+    let g = SetupGeometry {
+        bodies: vec![SetupBody {
+            id: "b-1".into(),
+            geom: BodyGeom::Brep(b.build()),
+        }],
+    };
+    for id in ["b6", "f6"] {
+        let r = run(&g, &contour(id, "[passes]\nstep_down = 5\n"));
+        assert!(!warnings(&r).contains(&"cam.contour.loop_open"), "{id}");
+        assert_no_gouge(&g, &r, &tool(id), 0.0, 0.01 + 1e-9);
+    }
+}

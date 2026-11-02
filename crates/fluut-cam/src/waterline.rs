@@ -24,6 +24,7 @@ use crate::layout::layout_even;
 use crate::region::{Inside, Region2};
 use crate::surface::{Probe, Side, SurfaceQuery};
 use fluut_geom::{Point2, Vec2};
+use rayon::prelude::*;
 use std::f64::consts::FRAC_PI_2;
 
 /// A probe this far above the level just inside the contour is on top of a
@@ -118,21 +119,32 @@ impl<'a> Waterline<'a> {
             w.dy = ys[1] - ys[0];
         }
         w.y0 = ys[0];
-        for y in ys {
-            let mut prof = Vec::new();
-            for (t0, t1) in region.clip_line(Point2::new(0.0, y), Vec2::new(1.0, 0.0)) {
-                if t1 - t0 <= CUTOFF {
-                    continue;
+        // Lines are independent: in parallel, collected in order (D01 §6).
+        let lines: Vec<SeedLine> = ys
+            .par_iter()
+            .map(|&y| {
+                let mut prof = Vec::new();
+                for (t0, t1) in region.clip_line(Point2::new(0.0, y), Vec2::new(1.0, 0.0)) {
+                    if t1 - t0 <= CUTOFF {
+                        continue;
+                    }
+                    // A span boundary is not a crossing: separate spans by NaN.
+                    if !prof.is_empty() {
+                        prof.push((f64::NAN, f64::NAN));
+                    }
+                    w.profile(y, t0, t1, &mut prof);
                 }
-                // A span boundary is not a crossing: separate spans by NaN.
-                if !prof.is_empty() {
-                    prof.push((f64::NAN, f64::NAN));
-                }
-                w.profile(y, t0, t1, &mut prof);
-            }
-            w.lines.push(SeedLine { y, prof });
-        }
+                SeedLine { y, prof }
+            })
+            .collect();
+        w.lines = lines;
         w
+    }
+
+    /// The contours of each level of `zs`, in parallel, in the order of
+    /// `zs` (D01 §6: levels are independent).
+    pub fn levels(&self, zs: &[f64]) -> Vec<Vec<Contour>> {
+        zs.par_iter().map(|&z| self.level(z)).collect()
     }
 
     fn tau(&self, p: Point2) -> f64 {
@@ -443,10 +455,28 @@ impl<'a> Waterline<'a> {
                 let seed = self.point(p, &pin, n0, z);
                 let c = self.trace(seed, z);
                 self.cover(&c, &mut covered);
-                out.push(c);
+                if !self.thin(&c, z) {
+                    out.push(c);
+                }
             }
         }
         out
+    }
+
+    /// A lost contour around material less than `tol/4` above the level
+    /// for `max_step` inwards: noise at a tangent level (CH-03), such as a
+    /// wall's top edge a micron above the flat it meets (a model gap).
+    /// Leaving it uncut leaves less than the tolerance.
+    fn thin(&self, c: &Contour, z: f64) -> bool {
+        if c.closed || (c.ends.0 != End::Lost && c.ends.1 != End::Lost) {
+            return false;
+        }
+        c.pts.iter().all(|w| {
+            let q = w.p + w.n * self.max_step;
+            self.q
+                .drop(q.x(), q.y())
+                .is_none_or(|h| h.tip <= z + 0.25 * self.tol)
+        })
     }
 
     /// Marks the seed-line crossings of `c`.
