@@ -152,6 +152,7 @@ fn main() {
         let d0 = st.q.drops();
         let cs = wl.level(z);
         let secs = t.elapsed().as_secs_f64();
+        println!();
         let drops = st.q.drops() - d0;
         let pts: usize = cs.iter().map(|c| c.pts.len()).sum();
         let lost: Vec<_> = cs
@@ -167,6 +168,28 @@ fn main() {
             drops as f64 / pts.max(1) as f64,
             1e6 * secs / pts.max(1) as f64
         );
+        if std::env::var("FLUUT_ALL").is_ok() {
+            for c in &cs {
+                let (mut lo, mut hi) = (
+                    (f64::INFINITY, f64::INFINITY),
+                    (f64::NEG_INFINITY, f64::NEG_INFINITY),
+                );
+                for w in &c.pts {
+                    lo = (lo.0.min(w.p.x()), lo.1.min(w.p.y()));
+                    hi = (hi.0.max(w.p.x()), hi.1.max(w.p.y()));
+                }
+                let len: f64 = c.pts.windows(2).map(|w| (w[1].p - w[0].p).length()).sum();
+                println!(
+                    "  contour {} pts closed {} len {len:.3} box ({:.3},{:.3})-({:.3},{:.3})",
+                    c.pts.len(),
+                    c.closed,
+                    lo.0,
+                    lo.1,
+                    hi.0,
+                    hi.1
+                );
+            }
+        }
         if std::env::var("FLUUT_VERBOSE").is_ok() {
             for c in &lost {
                 let (a, b) = (c.pts[0], c.pts[c.pts.len() - 1]);
