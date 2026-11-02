@@ -76,8 +76,20 @@ All earlier Global Constraints apply. In addition:
 
 **Files:** `crates/fluut-cli/tests/projects/flipside/flipside.fluut`, `golden/flipside-linuxcnc-4x.ngc`; D08 §7, D11 §5, spec 03 §3.9.2 and §3.9.5, spec 05 §5.4.1 and §5.6, CH-15.
 
-- [ ] **Step 1:** `flipside` drops its clearance cylinder; re-bless and list. Docs. Merge `main`, run all checks, mark done, README row. Commit.
+- [x] **Step 1:** `flipside` drops its clearance cylinder; re-bless and list. Docs. Merge `main`, run all checks, mark done, README row. Commit.
 
 ## Re-blessed golden files
 
-To be filled in.
+- `crates/fluut-post/tests/golden/linuxcnc-rotary-a.nc` (reference job): `G0 Z30` after `G55` before `G0 A90`, and after `G56` before the wrap toolpath turns A. The reference job now sets `turn_z`. A used to turn at Z 25, where the previous toolpath left the tool, and the wrap toolpath turned it on its first rapid from there; both now turn at Z 30 or above, the job's highest clearance. Nothing else changed.
+- `crates/fluut-cli/tests/golden/flipside-linuxcnc-4x.ngc`: `G0 Z41.321` before `G0 A180`, the turn clearance (block corner radius √(30² + 9²) = 31.321 + 10). The turn happened at Z 35, 3.7 mm above the corners; it now happens 10 mm above them. Second, `flipside` drops its hand-chosen clearance cylinder (radius 35), so its moves within a Setup go at the default plane clearance, 10 mm above the stock top (Z 19 in Setup 1, Z 18 in Setup 2), as in every other reference project. These moves stay above the stock box of their Setup, which holds all material; `fluut sim` is clean. Only `Z` words of rapids change.
+
+**Done.** Before A turns at a Setup start, the post raises the tool to the turn clearance: the largest radius of the stock and the bodies about the axis + the clearance offset. It is computed from the Setups; no project names a radius. A turn clearance above the machine's Z travel fails the post; a rotary clearance cylinder inside the stock is refused. The simulation checks every turn into an indexed Setup against the simulated stock. Deviations from this plan:
+- **Golden reference job.** `linuxcnc-rotary-a.nc` was re-blessed too: the post's reference job now exercises the retract.
+- **Negative simulation case.** The simulation check is tested negative in `fluut-sim` only. Through the session the post's height always clears, by design; with the retract removed by hand, `fluut sim` on `flipside` with a plane clearance reported `sim.index_turn` (12 mm into the tool at Z 19), and with it, nothing.
+
+Follow-ups:
+- The first turn of a program assumes the machine starts clear; no tool length compensation is active yet when the reference posts index before the first tool change.
+- The turn radius uses the stock box; the in-process stock after a rotary rough is smaller and would give a lower retract.
+- Fixtures (chuck, tailstock) are not modelled; they are assumed to lie inside the turn radius or outside the tool's X range.
+- Indexing within a Setup (none emitted today) would need the same retract.
+- Travel limits are compared without the tool's length; the machine definition does not say which point `travel.z` limits.

@@ -21,7 +21,6 @@ orientation = { rotary_axis = "+X" }
 index_angle = { mode = "absolute", value = 0 }
 stock       = { kind = "block", margin = [5, 5, 1] }
 zero        = { x = "stock_left" }
-clearance   = { kind = "cylinder", radius = 35 }
 
   [[setup.toolpath]]
   id   = "t1"

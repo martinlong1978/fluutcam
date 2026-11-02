@@ -97,9 +97,15 @@ Ray ∩ V uses the cheapest exact method (S5 measured the cost per ray):
 | Holder/shank contact | at each chord, ray cast the non-cutting parts' convex hulls against stock intervals | error with location |
 | Rapid through stock | rapid moves: swept volume ∩ stock non-empty | error |
 | Flute length | cutting contact height above tip > flute length | warning |
+| Index turn | before an indexed Setup: the start stock turned a full revolution about X (per Z ray its largest radius + the ray spacing) against the tool assembly where the post leaves it for the turn, as a vertical cylinder of its largest radius from the tip up | error `sim.index_turn` on the Setup's first toolpath |
 
 Gouge and rest checks use exact geometry for the distance, and the dexel resolution only for
 where samples are taken [S 04 §4.10].
+
+The index turn check (2026-11-02, [plan](../plan/2026-11-02-index-clearance.md)) takes the tool at
+the end of the previous Setup's last toolpath, raised to the turn height the post uses (D08 §7).
+It does not trust the turn radius: it measures the simulated stock. It is skipped when the
+previous Setup is `three_axis` (its frame is not on the axis) or has no toolpath.
 
 ## 6. Time estimate
 

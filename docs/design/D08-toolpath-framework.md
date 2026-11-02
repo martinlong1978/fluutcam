@@ -227,6 +227,22 @@ after the parent's last enabled stock-updating toolpath:
 
 An indexed Setup with cylinder stock starts from `revolved` slices of its cylinder.
 
+**Turning between Setups (2026-11-02).** A turn of A swings everything on the table about the
+axis, so a clearance plane above the stock top is not enough: the stock's corners rise above it.
+Every rotary and indexed Setup has a **turn radius**, the largest distance from the axis of its
+stock (the block at A = 0, or the cylinder) and its bodies' box. The in-process stock is never
+larger than the stock, so it lies inside that cylinder at any moment, and so does the volume any
+turn sweeps. The **turn clearance** is the turn radius + the clearance offset (the plane's
+`offset`, else 10 mm), as the clearance plane keeps the offset above the stock top. Before A
+turns at a Setup start (an indexed Setup, or a rotary one after another Setup) the post raises
+the tool to the larger turn clearance of that Setup and the one before it (spec 05 §5.6). The
+zero lies on the axis, so Z alone is the height above it, and a tool pointing up from a tip at
+that height has all of its assembly outside the cylinder, wherever it is in X and Y. The
+retract is in the post, not in the results: the toolpaths and their cache keys do not depend on
+the next Setup. Above the machine's Z travel the post fails (`setup.clearance.index_travel`). In
+a rotary Setup A turns on rapids at the clearance cylinder, which the post cannot change, so a
+clearance cylinder not larger than the turn radius is refused (`setup.clearance.index_unsafe`).
+
 ## 7.1 Machinable region at a level
 
 `machinable(z)` = region where the tool can reach depth z without gouging = complement of
