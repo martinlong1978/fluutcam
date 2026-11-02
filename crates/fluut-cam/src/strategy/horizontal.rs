@@ -81,7 +81,7 @@ impl ToolpathType for Horizontal {
             if !is_horizontal_plane(s) || up <= 0.0 {
                 continue;
             }
-            let z = crate::geometry::face_z_range(b, *f, 1e-3).hi;
+            let z = crate::geometry::flat_z(b, *f, 1e-3);
             if z < h.bottom - ztol || z > h.top + ztol {
                 continue;
             }

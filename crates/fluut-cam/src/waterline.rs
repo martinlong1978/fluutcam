@@ -504,22 +504,11 @@ impl<'a> Waterline<'a> {
     /// then backward from the seed if it did not close.
     fn trace(&self, seed: WPoint, z: f64) -> Contour {
         let (fwd, f_end) = self.march(seed, z, 1.0);
-        if f_end.is_none() {
-            return Contour {
-                pts: fwd,
-                closed: true,
-                ends: (End::Region, End::Region),
-            };
-        }
-        let (mut back, b_end) = self.march(seed, z, -1.0);
-        back.reverse();
-        back.pop();
-        back.extend(fwd);
-        Contour {
-            pts: back,
-            closed: false,
-            ends: (b_end.unwrap_or(End::Lost), f_end.unwrap_or(End::Lost)),
-        }
+        let Some(f_end) = f_end else {
+            return closed(fwd);
+        };
+        let (back, b_end) = self.march(seed, z, -1.0);
+        join(fwd, f_end, back, b_end)
     }
 
     /// Steps along the contour from `seed`: `sign` 1 keeps the material on
@@ -649,6 +638,32 @@ impl<'a> Waterline<'a> {
     }
 }
 
+fn closed(pts: Vec<WPoint>) -> Contour {
+    Contour {
+        pts,
+        closed: true,
+        ends: (End::Region, End::Region),
+    }
+}
+
+/// The contour from a forward trace that ended at `f_end` and the
+/// backward trace from the same seed. A backward trace that closed went
+/// round the whole loop (the forward one stopped at a spot it could not
+/// pass): it is the contour, in climb order.
+fn join(fwd: Vec<WPoint>, f_end: End, mut back: Vec<WPoint>, b_end: Option<End>) -> Contour {
+    back.reverse();
+    let Some(b_end) = b_end else {
+        return closed(back);
+    };
+    back.pop();
+    back.extend(fwd);
+    Contour {
+        pts: back,
+        closed: false,
+        ends: (b_end, f_end),
+    }
+}
+
 /// How far from `a` along `u` (unit) the point `p` leaves the disc of
 /// radius `r` about the axis, in XY; `None` if `a` is not in it.
 fn exit(a: Point2, u: Vec2, p: fluut_geom::Point3, r: f64) -> Option<f64> {
@@ -673,4 +688,37 @@ fn seg_dist(p: Point2, a: Point2, b: Point2) -> f64 {
         0.0
     };
     (a + d * t - p).length()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn wp(x: f64, y: f64) -> WPoint {
+        WPoint {
+            p: Point2::new(x, y),
+            slope: 0.0,
+            drive: true,
+            n: Vec2::new(1.0, 0.0),
+        }
+    }
+
+    #[test]
+    fn a_backward_trace_that_closes_is_the_contour() {
+        // nist_ctc_02 at Z −185 (5 mm): the forward trace stopped at an
+        // inside corner, the backward one went round and closed.
+        let s = wp(0.0, 0.0);
+        let fwd = vec![s, wp(0.0, -1.0)];
+        let back = vec![s, wp(0.0, 1.0), wp(1.0, 1.0), wp(1.0, -1.0), s];
+        let c = join(fwd.clone(), End::Lost, back.clone(), None);
+        assert!(c.closed);
+        let mut want = back.clone();
+        want.reverse();
+        assert_eq!(c.pts, want);
+        // Neither closed: back reversed, then forward, sharing the seed.
+        let c = join(fwd, End::Lost, back[..3].to_vec(), Some(End::Region));
+        assert!(!c.closed);
+        assert_eq!(c.ends, (End::Region, End::Lost));
+        assert_eq!(c.pts, vec![wp(1.0, 1.0), wp(0.0, 1.0), s, wp(0.0, -1.0)]);
+    }
 }
