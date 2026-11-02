@@ -155,3 +155,50 @@ fn indexed_frames_turn_the_rotary_frame() {
     assert_eq!((st.bottom, st.top()), (-30.0, 30.0));
     assert_eq!(f.index.unwrap().cylinder, Some((30.0, (0.0, 90.0))));
 }
+
+#[test]
+fn turn_radius_holds_everything_that_turns() {
+    // The block's farthest edge from the axis: y ±30, z 9 at A = 0, at any
+    // index angle.
+    let block = (30.0f64 * 30.0 + 9.0 * 9.0).sqrt();
+    for angle in [0.0, 30.0, 180.0] {
+        let f = indexed(&format!("turn-{angle}"), angle, BLOCK);
+        assert_eq!(f.turn_radius, Some(block), "{angle}");
+        assert_eq!(f.turn_clearance, Some(block + 10.0), "{angle}");
+    }
+    // A cylinder stock: its radius, which holds the plate (y ±25, z ±8).
+    let f = indexed(
+        "turn-cyl",
+        90.0,
+        "{ kind = \"cylinder\", radius = 30, length = 90 }",
+    );
+    assert_eq!(f.turn_radius, Some(30.0));
+    assert_eq!(f.turn_clearance, Some(40.0));
+    // A rotary Setup: the stock cylinder; the clearance offset is the
+    // default for a clearance cylinder.
+    let f = frame(
+        "turn-rotary",
+        "orientation = { rotary_axis = { face = \"f-354.0\" }, a_zero_toward = \"+X\" }\n\
+         stock = { kind = \"cylinder\", radius = 17, length = 82 }\n\
+         zero = { x = \"stock_left\" }\nclearance = { kind = \"cylinder\", radius = 25 }\n",
+    )
+    .unwrap();
+    assert_eq!(f.turn_radius, Some(17.0));
+    assert_eq!(f.turn_clearance, Some(27.0));
+}
+
+#[test]
+fn rotary_clearance_inside_the_stock_is_refused() {
+    for r in [12, 17] {
+        let e = frame(
+            &format!("turn-unsafe-{r}"),
+            &format!(
+                "orientation = {{ rotary_axis = {{ face = \"f-354.0\" }}, a_zero_toward = \"+X\" }}\n\
+                 stock = {{ kind = \"cylinder\", radius = 17, length = 82 }}\n\
+                 zero = {{ x = \"stock_left\" }}\nclearance = {{ kind = \"cylinder\", radius = {r} }}\n"
+            ),
+        )
+        .unwrap_err();
+        assert_eq!(e.code, "setup.clearance.index_unsafe", "{r}");
+    }
+}

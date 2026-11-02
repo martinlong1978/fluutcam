@@ -196,6 +196,7 @@ G1 X59
 G0 Z35
 (Bottom)
 G54
+G0 Z41.321
 G0 A180
 (Bottom pocket)
 G0 X24.8 Y0.2 Z35

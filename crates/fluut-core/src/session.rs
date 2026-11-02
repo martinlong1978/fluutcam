@@ -1000,10 +1000,20 @@ impl Session {
             .filter(|d| d.severity == Severity::Error)
             .cloned()
             .collect();
+        let (turns, travel) = self.turn_heights();
+        let errors: Vec<Diagnostic> = errors
+            .into_iter()
+            .chain(
+                travel
+                    .into_iter()
+                    .filter(|(id, _)| chosen(id))
+                    .map(|(_, d)| d),
+            )
+            .collect();
         if !errors.is_empty() {
             return Err(errors);
         }
-        let mut job = self.post_job(&resolved, post_id, opts, machine.as_ref());
+        let mut job = self.post_job(&resolved, post_id, opts, machine.as_ref(), &turns);
         if setups.is_some() {
             let names: Vec<&str> = project
                 .setups
@@ -1024,16 +1034,75 @@ impl Session {
         Ok((out, reports))
     }
 
+    /// The Z the tool rises to before A turns at each Setup's start (spec
+    /// 05 §5.6), by Setup in project order. An indexed Setup turns, and so
+    /// does a rotary one after another Setup; the height is the larger turn
+    /// clearance of the Setup and of the Setup before it, since the work on
+    /// the table is one of the two. Also `(setup, error)` for each height
+    /// above the machine's Z travel (`setup.clearance.index_travel`).
+    fn turn_heights(&self) -> (Vec<Option<f64>>, Vec<(String, Diagnostic)>) {
+        let mut heights = Vec::new();
+        let mut errors = Vec::new();
+        let mut prev: Option<Option<f64>> = None;
+        for r in resolve_all(&self.project) {
+            let Ok(r) = r else {
+                heights.push(None);
+                continue;
+            };
+            let own = self
+                .setup_bodies(&r)
+                .and_then(|b| SetupFrame::new(&r, b))
+                .ok()
+                .and_then(|f| f.turn_clearance);
+            let turns = match r.kind {
+                SetupKind::Indexed => true,
+                SetupKind::Rotary => prev.is_some(),
+                SetupKind::ThreeAxis => false,
+            };
+            let h = own
+                .into_iter()
+                .chain(prev.flatten())
+                .reduce(f64::max)
+                .filter(|_| turns);
+            prev = Some(own);
+            heights.push(h);
+            // W's zero lies on the axis: Z in W is machine Z − the axis's.
+            let Some(h) = h else { continue };
+            let Some(m) = self.machine(r.machine.as_deref()) else {
+                continue;
+            };
+            if let (Some([_, top]), Some(axis)) = (m.fields.travel.z, m.fields.axis.rotary.first())
+                && h > top - axis.centre[2]
+            {
+                errors.push((
+                    r.id.clone(),
+                    Diagnostic::error(
+                        "setup.clearance.index_travel",
+                        format!(
+                            "Setup `{}`: A turns with the tool at Z {h:.3}, clear of the stock \
+                             and the part; the machine's Z travel ends at Z {:.3}",
+                            r.id,
+                            top - axis.centre[2]
+                        ),
+                    )
+                    .at("clearance"),
+                ));
+            }
+        }
+        (heights, errors)
+    }
+
     fn post_job(
         &self,
         resolved: &fluut_model::Resolved,
         post_id: &str,
         opts: &PostOptions,
         machine: Option<&Machine>,
+        turns: &[Option<f64>],
     ) -> PostJob {
         let mut setups = Vec::new();
         let setups_r = resolve_all(&self.project);
-        for (s, rs) in self.project.setups.iter().zip(&setups_r) {
+        for (si, (s, rs)) in self.project.setups.iter().zip(&setups_r).enumerate() {
             let Ok(rs) = rs else { continue };
             let mut toolpaths = Vec::new();
             for t in s.toolpaths.iter().filter(|t| t.is_enabled()) {
@@ -1118,7 +1187,7 @@ impl Session {
                 work_offset: rs.work_offset.clone(),
                 index_a: (rs.kind == SetupKind::Indexed).then_some(rs.index_angle),
                 index_b: None,
-                turn_z: None,
+                turn_z: turns.get(si).copied().flatten(),
                 toolpaths,
             });
         }

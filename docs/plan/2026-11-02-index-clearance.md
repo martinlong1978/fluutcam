@@ -62,8 +62,8 @@ All earlier Global Constraints apply. In addition:
 
 **Files:** `crates/fluut-core/src/{frame.rs, session.rs}`, `tests/rotary_frame.rs`.
 
-- [ ] **Step 1:** Tests: the turn radius of an indexed block (at 0° and 30°), of an indexed cylinder and of a rotary Setup; a rotary clearance cylinder inside the stock is refused; `flipside` posts a retract to the turn height before `A180`; a machine whose Z travel is too short fails with `setup.clearance.index_travel`.
-- [ ] **Step 2:** Implement; pass; re-bless and list. Commit.
+- [x] **Step 1:** Tests: the turn radius of an indexed block (at 0° and 30°), of an indexed cylinder and of a rotary Setup; a rotary clearance cylinder inside the stock is refused; `flipside` posts a retract to the turn height before `A180`; a machine whose Z travel is too short fails with `setup.clearance.index_travel`.
+- [x] **Step 2:** Implement; pass; re-bless and list. Commit.
 
 ### Task 4: Simulation check
 
