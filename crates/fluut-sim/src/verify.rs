@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! Gouge and rest-material checks against the part (D11 §5).
+//! Gouge and rest-material checks against the part, and the index turn
+//! check (D11 §5).
 //!
 //! The part is given by its exact top height on vertical lines ([`Part`]),
 //! which is all a three-axis tool can reach. Each Z ray of the final stock
@@ -16,8 +17,12 @@
 //! A gouge is attributed to the first chord that cut its ray below the
 //! part. The dexel spacing only sets where samples are taken; distances come
 //! from the exact part.
+//!
+//! [`index_turn`] checks the stock against the tool while A turns between
+//! Setups.
 
-use crate::run::{Check, Finding, Simulation};
+use crate::dexel::TriDexel;
+use crate::run::{Assembly, Check, Finding, Simulation};
 use crate::sim::ray_range;
 use glam::DVec3;
 use rayon::prelude::*;
@@ -234,3 +239,38 @@ fn attribute(sim: &Simulation, gouges: &[Gouge], limit: f64) -> Vec<Finding> {
 
 #[cfg(test)]
 mod tests;
+
+/// How far material turning about the X axis reaches into a tool assembly
+/// that points up from `tip`, or `None` when the turn is clear (D11 §5
+/// "index turn"). Conservative: the material is turned a full revolution,
+/// each Z ray's radius is grown by the ray spacing for the material between
+/// rays, and the assembly is a vertical cylinder of its largest radius
+/// from the tip up.
+pub fn index_turn(stock: &TriDexel, tool: &Assembly, tip: DVec3) -> Option<f64> {
+    let r = [tool.shank, tool.holder.map(|h| h.0)]
+        .into_iter()
+        .flatten()
+        .fold(tool.tool.radius, f64::max);
+    // The assembly's nearest distance from the axis.
+    let dy = (tip.y.abs() - r).max(0.0);
+    let dz = tip.z.max(0.0);
+    let reach = (dy * dy + dz * dz).sqrt();
+    let g = &stock.grids[2];
+    let res = stock.res;
+    let mut worst = f64::NEG_INFINITY;
+    for i in 0..g.nu {
+        for j in 0..g.nv {
+            let o = g.ray_origin(stock, i, j);
+            if (o.x - tip.x).abs() > r + 0.5 * res {
+                continue;
+            }
+            for s in g.ray(i, j) {
+                let z = (o.z + f64::from(s.lo))
+                    .abs()
+                    .max((o.z + f64::from(s.hi)).abs());
+                worst = worst.max((o.y * o.y + z * z).sqrt() + res);
+            }
+        }
+    }
+    (worst > reach).then_some(worst - reach)
+}

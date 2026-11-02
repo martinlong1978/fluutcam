@@ -593,6 +593,14 @@ impl Session {
             kinematics: kinematics(self.machine(rs.machine.as_deref()).as_ref()),
             tol,
         };
+        if rs.kind == SetupKind::Indexed
+            && let Some(d) = self.check_turn(setup, start.as_ref(), &stock, run.res)
+        {
+            notes.push(match inputs.first() {
+                Some((id, ..)) => d.on(id),
+                None => d,
+            });
+        }
         let part = DropPart::new(&fr.geometry);
         let sim =
             fluut_sim::Simulation::run_from(stock, start, &programs, &run, Some(&part), monitor)
@@ -616,6 +624,67 @@ impl Session {
             self.sims.insert(setup.to_owned(), (key, r.clone()));
         }
         Ok(r)
+    }
+
+    /// The index turn at the start of `setup` (D11 §5): the tool where the
+    /// post leaves it, at the end of the previous Setup's last toolpath
+    /// raised to the turn height, against the Setup's start stock (`start`,
+    /// else the full `stock` at `res`) turned about X. The error
+    /// `sim.index_turn` when material reaches the tool; `None` when the
+    /// turn is clear, or when nothing has moved the tool on the axis yet.
+    fn check_turn(
+        &self,
+        setup: &str,
+        start: Option<&fluut_sim::TriDexel>,
+        stock: &fluut_sim::Stock,
+        res: f64,
+    ) -> Option<Diagnostic> {
+        let si = self.project.setups.iter().position(|s| s.id == setup)?;
+        let h = self.turn_heights().0.get(si).copied().flatten()?;
+        let resolved = resolve_all(&self.project);
+        // The last toolpath of the nearest earlier Setup that has one.
+        let (r, t) = self.project.setups[..si]
+            .iter()
+            .zip(&resolved)
+            .rev()
+            .find_map(|(s, r)| {
+                s.toolpaths
+                    .iter()
+                    .rev()
+                    .find(|t| {
+                        t.is_enabled() && t.kind() != fluut_model::params::ToolpathTypeId::ManualNc
+                    })
+                    .map(|t| (r, t))
+            })?;
+        // A three_axis Setup's frame does not lie on the axis.
+        if r.as_ref().ok()?.kind == SetupKind::ThreeAxis {
+            return None;
+        }
+        let end = *self
+            .result(&t.id)?
+            .segments()
+            .filter_map(|s| s.end())
+            .last()?;
+        let a = assembly(self.tools.get(t.tool_ref())?)?;
+        let p = end.xyz;
+        let tip = glam::DVec3::new(p.x(), p.y(), p.z().max(h));
+        let full;
+        let d = match start {
+            Some(d) => d,
+            None => {
+                full = fluut_sim::TriDexel::new(stock, res);
+                &full
+            }
+        };
+        let depth = fluut_sim::index_turn(d, &a, tip)?;
+        Some(Diagnostic::error(
+            "sim.index_turn",
+            format!(
+                "the stock turns {depth:.3} mm into the tool, at ({:.3}, {:.3}, {:.3}) \
+                 from `{}`, before Setup `{setup}`",
+                tip.x, tip.y, tip.z, t.id
+            ),
+        ))
     }
 
     /// The simulated stock a `from_previous` Setup starts from: its

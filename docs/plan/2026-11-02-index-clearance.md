@@ -69,8 +69,8 @@ All earlier Global Constraints apply. In addition:
 
 **Files:** `crates/fluut-sim/src/{verify.rs, verify/tests.rs}`; `crates/fluut-core/src/session.rs`, `tests/simulate.rs`.
 
-- [ ] **Step 1:** Tests: a block turned with the tool above its corner radius is clear; with the tool at its top + 10 it is not; a holder wider than the cutter is caught; `flipside` simulates clean.
-- [ ] **Step 2:** Implement; pass. Commit.
+- [x] **Step 1:** Tests: a block turned with the tool above its corner radius is clear; with the tool at its top + 10 it is not; a holder wider than the cutter is caught; `flipside` simulates clean.
+- [x] **Step 2:** Implement; pass. Commit.
 
 ### Task 5: `flipside` and docs
 
