@@ -532,6 +532,7 @@ impl Session {
             .setup_bodies(&rs)
             .and_then(|b| SetupFrame::new(&rs, b))
             .map_err(|d| vec![d])?;
+        let (start, mut notes) = self.carried_sim_stock(&rs, settings, monitor)?;
         let mut missing = Vec::new();
         let mut inputs = Vec::new();
         // `manual_nc` has no tool and no motion (D15b §7).
@@ -563,9 +564,12 @@ impl Session {
                 format!("calculate first: {}", missing.join(", ")),
             ));
         }
-        let stock = fluut_sim::Stock::Box {
-            min: fr.stock.min,
-            max: fr.stock.max,
+        let stock = match fr.index.and_then(|i| i.cylinder) {
+            Some((radius, (x0, x1))) => fluut_sim::Stock::Cylinder { x0, x1, radius },
+            None => fluut_sim::Stock::Box {
+                min: fr.stock.min,
+                max: fr.stock.max,
+            },
         };
         // The gouge tolerance is the toolpaths' machining tolerance.
         let tol = inputs
@@ -590,10 +594,12 @@ impl Session {
             tol,
         };
         let part = DropPart::new(&fr.geometry);
-        let sim = fluut_sim::Simulation::run(stock, &programs, &run, Some(&part), monitor)
-            .map_err(|_| err("sim.cancelled", "the simulation was cancelled".into()))?;
+        let sim =
+            fluut_sim::Simulation::run_from(stock, start, &programs, &run, Some(&part), monitor)
+                .map_err(|_| err("sim.cancelled", "the simulation was cancelled".into()))?;
         let mut diagnostics: Vec<Diagnostic> =
             sim.findings.iter().map(|f| diagnostic(&sim, f)).collect();
+        diagnostics.append(&mut notes);
         if sim.dropped > 0 {
             diagnostics.push(Diagnostic::warning(
                 "sim.findings.dropped",
@@ -610,6 +616,48 @@ impl Session {
             self.sims.insert(setup.to_owned(), (key, r.clone()));
         }
         Ok(r)
+    }
+
+    /// The simulated stock a `from_previous` Setup starts from: its
+    /// parent's final stock, simulated first, turned by the difference of
+    /// their index angles when that is a multiple of 90°. Otherwise `None`
+    /// (the Setup's full stock) with the warning `sim.stock.full`.
+    fn carried_sim_stock(
+        &mut self,
+        rs: &ResolvedSetup,
+        settings: &SimSettings,
+        monitor: &dyn fluut_sim::Monitor,
+    ) -> Result<(Option<fluut_sim::TriDexel>, Vec<Diagnostic>), Vec<Diagnostic>> {
+        let Some(pid) = carried_from(rs).map(str::to_owned) else {
+            return Ok((None, Vec::new()));
+        };
+        let full = |why: &str| {
+            Ok((
+                None,
+                vec![Diagnostic::warning(
+                    "sim.stock.full",
+                    format!(
+                        "Setup `{}` starts from its full stock, not from `{pid}`'s: {why}",
+                        rs.id
+                    ),
+                )],
+            ))
+        };
+        let pr = fluut_model::setup::resolve_setup(&self.project, &pid).map_err(|d| vec![d])?;
+        if pr.kind == SetupKind::Rotary {
+            return full("rotary Setups are not simulated yet");
+        }
+        let turn = setup_angle(rs) - setup_angle(&pr);
+        let quarters = turn / 90.0;
+        if quarters != quarters.round() {
+            return full("its angle is not a multiple of 90° from the parent's");
+        }
+        let parent = self.simulate(&pid, settings, monitor)?;
+        let mut d = parent.sim.stock_final().clone();
+        for _ in 0..(quarters.round() as i64).rem_euclid(4) {
+            d = d.turned_quarter();
+        }
+        Ok((Some(d), Vec::new()))
     }
 
     fn setup_bodies(&self, s: &ResolvedSetup) -> Result<Vec<SetupBody>, Diagnostic> {

@@ -96,6 +96,15 @@ impl Graph {
             );
             let mut sim = format!("{ALGORITHM_VERSION} sim\n{setup_hash}\n");
             let mut sim_deps = vec![setup.clone()];
+            // A `from_previous` Setup's simulation starts from its parent's.
+            if let Ok(r) = &r
+                && r.stock == Some(StockSpec::FromPrevious)
+                && let Some(pid) = &r.based_on
+                && let Some(h) = nodes.get(&NodeId::Simulation(pid.clone()))
+            {
+                sim.push_str(&format!("from {pid} = {}\n", h.hash));
+                sim_deps.push(NodeId::Simulation(pid.clone()));
+            }
             // Earlier toolpaths that change the in-process stock: a
             // toolpath that reads it depends on their results (D15 §1.8).
             let mut stock_text = String::new();
