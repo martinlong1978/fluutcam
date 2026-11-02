@@ -288,3 +288,174 @@ fn wrap_splits_at_the_seam() {
     assert_eq!(w.len(), 2);
     assert!((w[0].0 - (TAU - 0.5)).abs() < 1e-12 && (w[1].1 - 0.5).abs() < 1e-12);
 }
+
+/// A 100 × 50 × 20 block centred on the X axis (y −25…25, z −10…10), with
+/// a 20 × 20 pocket down to z 2 at x 10…30 and a Ø16 hole down to z −5
+/// at (70, 5).
+fn pocketed() -> LayeredStock {
+    let mut s = LayeredStock::planar(&Aabb3 {
+        min: Point3::new(0.0, -25.0, -10.0),
+        max: Point3::new(100.0, 25.0, 10.0),
+    });
+    s.remove_swept(2.0, &Region2::rect(10.0, -10.0, 30.0, 10.0));
+    s.remove_swept(-5.0, &Region2::circle(70.0, 5.0, 8.0));
+    s
+}
+
+/// Whether `(x, y, z)` is material of a planar stock, and not within
+/// 1e-6 of a slab or region boundary.
+fn material(s: &LayeredStock, x: f64, y: f64, z: f64) -> Option<bool> {
+    let keys = s.keys();
+    if (z - s.bottom).abs() < 1e-6 || keys.iter().any(|k| (z - k).abs() < 1e-6) {
+        return None;
+    }
+    let r = s.at(z);
+    if r.boundary_distance(Point2::new(x, y)) < 1e-6 {
+        return None;
+    }
+    Some(r.contains(Point2::new(x, y)) == Inside::In)
+}
+
+/// Deterministic points in a box: a fixed linear congruential sequence.
+fn samples(n: usize, lo: [f64; 3], hi: [f64; 3]) -> Vec<[f64; 3]> {
+    let mut x: u64 = 0x2545_f491_4f6c_dd1d;
+    let mut next = || {
+        x = x
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        (x >> 11) as f64 / (1u64 << 53) as f64
+    };
+    (0..n)
+        .map(|_| [0, 1, 2].map(|k| lo[k] + (hi[k] - lo[k]) * next()))
+        .collect()
+}
+
+/// Every sampled material point of `parent`, turned by `deg` about X, is
+/// material of `child`.
+fn keeps_material(parent: &LayeredStock, child: &LayeredStock, deg: f64) {
+    let (s, c) = (libm::sin(deg.to_radians()), libm::cos(deg.to_radians()));
+    let top = parent.top();
+    let mut seen = 0;
+    for [x, y, z] in samples(
+        4000,
+        [-1.0, -26.0, parent.bottom - 1.0],
+        [101.0, 26.0, top + 1.0],
+    ) {
+        if material(parent, x, y, z) != Some(true) {
+            continue;
+        }
+        seen += 1;
+        let (y2, z2) = (y * c - z * s, y * s + z * c);
+        assert!(
+            child.at(z2).contains(Point2::new(x, y2)) != Inside::Out,
+            "({x}, {y}, {z}) → ({x}, {y2}, {z2}) is not in the child at {deg}°"
+        );
+    }
+    assert!(seen > 1000, "{seen}");
+}
+
+#[test]
+fn top_near_finds_the_highest_material_within_reach() {
+    let s = pocketed();
+    // In the pocket, more than the radius from its walls: its floor.
+    assert_eq!(s.top_near(Point2::new(20.0, 0.0), 3.0), Some(2.0));
+    // Within the radius of a wall: the top.
+    assert_eq!(s.top_near(Point2::new(12.0, 0.0), 3.0), Some(10.0));
+    // Over the hole, then beside the stock, then far away.
+    assert_eq!(s.top_near(Point2::new(70.0, 5.0), 3.0), Some(-5.0));
+    assert_eq!(s.top_near(Point2::new(-2.0, 0.0), 3.0), Some(10.0));
+    assert_eq!(s.top_near(Point2::new(-5.0, 0.0), 3.0), None);
+    assert_eq!(
+        LayeredStock::cylindrical(10.0, 0.0, 50.0).top_near(Point2::new(5.0, 1.0), 3.0),
+        None,
+        "planar stock only"
+    );
+}
+
+#[test]
+fn reframed_by_nothing_is_the_same_stock() {
+    let s = pocketed();
+    assert_eq!(s.reframed(0.0), s);
+    assert_eq!(s.reframed(360.0), s);
+}
+
+#[test]
+fn reframed_by_half_a_turn_is_exact() {
+    let s = pocketed();
+    let f = s.reframed(180.0);
+    assert_eq!(f.frame, StockFrame::Planar);
+    assert_eq!((f.bottom, f.top()), (-10.0, 10.0));
+    // Slab (2, 10] of the parent is [−10, −2) of the child, mirrored in Y.
+    assert_eq!(f.keys(), vec![-2.0, 5.0, 10.0]);
+    for (z, z2) in [(6.0, -6.0), (0.0, 0.0), (-8.0, 8.0)] {
+        let (a, b) = (s.at(z), f.at(z2));
+        assert!((a.area() - b.area()).abs() < 1e-9, "{z}");
+        assert_eq!(a.bbox().0.y(), -b.bbox().1.y());
+    }
+    assert!(!inside(&f.at(-6.0), 20.0, 0.0), "the pocket, now below");
+    assert!(!inside(&f.at(0.0), 70.0, -5.0), "the hole, mirrored");
+    assert!(inside(&f.at(0.0), 70.0, 5.0));
+    keeps_material(&s, &f, 180.0);
+}
+
+#[test]
+fn reframed_at_other_angles_keeps_all_material() {
+    let s = pocketed();
+    for deg in [90.0, -90.0, 30.0, 135.0] {
+        let f = s.reframed(deg);
+        keeps_material(&s, &f, deg);
+        // The top is the turned box's highest corner.
+        let (sn, c) = (
+            libm::sin(f64::to_radians(deg)),
+            libm::cos(f64::to_radians(deg)),
+        );
+        let top = [-25.0, 25.0]
+            .iter()
+            .flat_map(|y| [-10.0, 10.0].map(|z| y * sn + z * c))
+            .fold(f64::NEG_INFINITY, f64::max);
+        assert!((f.top() - top).abs() < 1e-9, "{deg}: {}", f.top());
+        assert!(
+            f.keys()
+                .windows(2)
+                .all(|w| w[1] - w[0] <= RESLICE_STEP + 1e-9)
+        );
+    }
+    // At 90° the pocket (x 10…30, z 2…10 of the parent) is open at the
+    // child's y −10…−2 for z within ±10 of the axis, away from the slab
+    // edges.
+    let f = s.reframed(90.0);
+    assert!(!inside(&f.at(0.5), 20.0, -6.0));
+    assert!(inside(&f.at(0.5), 50.0, -6.0));
+}
+
+#[test]
+fn revolved_holds_the_solid_of_revolution() {
+    let s = LayeredStock::revolved(&[(0.0, 50.0, 10.0), (50.0, 80.0, 6.0)]);
+    assert_eq!(s.frame, StockFrame::Planar);
+    assert_eq!((s.bottom, s.top()), (-10.0, 10.0));
+    for [x, y, z] in samples(3000, [-1.0, -11.0, -11.0], [81.0, 11.0, 11.0]) {
+        let rho = if x < 50.0 { 10.0 } else { 6.0 };
+        if !(0.0..80.0).contains(&x) || y * y + z * z >= rho * rho {
+            continue;
+        }
+        assert!(
+            s.at(z).contains(Point2::new(x, y)) != Inside::Out,
+            "{x} {y} {z}"
+        );
+    }
+    // Not much more than the cylinder: the slab around the axis.
+    assert!(!inside(&s.at(0.5), 60.0, 7.0));
+}
+
+#[test]
+fn a_cylindrical_stock_reframes_as_its_revolved_outline() {
+    let mut c = LayeredStock::cylindrical(25.0, 0.0, 100.0);
+    // A groove down to radius 15 over x 40…60, all the way round.
+    c.remove_swept(15.0, &Region2::rect(40.0, 0.0, 60.0, TAU));
+    let f = c.reframed(90.0);
+    assert_eq!(f.frame, StockFrame::Planar);
+    assert!((f.top() - 25.0).abs() < 1e-12);
+    assert!(inside(&f.at(20.0), 20.0, 0.0));
+    assert!(!inside(&f.at(20.0), 50.0, 0.0), "the groove");
+    assert!(inside(&f.at(10.0), 50.0, 0.0));
+}

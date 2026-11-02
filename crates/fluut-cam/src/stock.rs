@@ -17,8 +17,12 @@
 //! become chords inside a radius reduced by the tolerance, ramps count at
 //! their top, and a tool clears its full radius only above its corner or
 //! cone height.
+//!
+//! A child Setup turned about the rotary axis gets the stock
+//! [`LayeredStock::reframed`] (D08 §7, CH-15): never smaller than the
+//! material it came from.
 
-use crate::region::Region2;
+use crate::region::{Inside, Loop2, Region2, Vertex};
 use crate::spike::pocket::{stadium, swept_path};
 use fluut_geom::{Aabb3, Point2};
 use fluut_model::tools::{Tool, ToolShape};
@@ -26,6 +30,10 @@ use fluut_path::{Motion, Segment, ToolpathResult, linearize};
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::f64::consts::TAU;
+
+/// Largest slab height when a stock is re-sliced at a new angle or from
+/// a solid of revolution, mm †.
+pub const RESLICE_STEP: f64 = 1.0;
 
 /// What the levels of a stock are.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -211,6 +219,151 @@ impl LayeredStock {
         }
     }
 
+    /// The key of the highest slab with material within `r` of `p`: no
+    /// material under a tool of radius `r` at `p` lies above it. `None`
+    /// when there is none, and for cylindrical stock.
+    pub fn top_near(&self, p: Point2, r: f64) -> Option<f64> {
+        if self.frame != StockFrame::Planar {
+            return None;
+        }
+        self.levels
+            .iter()
+            .rev()
+            .find(|(_, reg)| {
+                !reg.is_empty() && (reg.contains(p) != Inside::Out || reg.boundary_distance(p) <= r)
+            })
+            .map(|(k, _)| k.0)
+    }
+
+    /// The stock of a child Setup whose work frame is this one turned by
+    /// `turn` degrees about X (D08 §7, CH-15): planar, and never smaller
+    /// than this stock. Half turns are exact; other angles re-slice the
+    /// slabs as prisms at most [`RESLICE_STEP`] high, each child slab the
+    /// union of boxes round the parts of the parent's slabs that turn into
+    /// it. Cylindrical stock becomes its [`LayeredStock::revolved`]
+    /// outline, which no turn changes.
+    pub fn reframed(&self, turn: f64) -> LayeredStock {
+        if self.frame == StockFrame::Cylindrical {
+            return LayeredStock::revolved(&self.profile());
+        }
+        let (s, c) = sin_cos_deg(turn);
+        if s == 0.0 && c == 1.0 {
+            return self.clone();
+        }
+        let mut levels = BTreeMap::new();
+        if s == 0.0 {
+            // Slab (lo, k] turns into [-k, -lo), mirrored in Y.
+            let mut lo = self.bottom;
+            for (k, r) in &self.levels {
+                levels.insert(Key(-lo), mirror_y(r));
+                lo = k.0;
+            }
+            return LayeredStock {
+                frame: StockFrame::Planar,
+                levels,
+                bottom: -self.top(),
+            };
+        }
+        // Each parent slab: (z0, z1, region, outer loop boxes).
+        let mut slabs = Vec::new();
+        let mut lo = self.bottom;
+        for (k, r) in &self.levels {
+            if !r.is_empty() {
+                slabs.push((lo, k.0, r, outer_boxes(r)));
+            }
+            lo = k.0;
+        }
+        let turned_z = |y: f64, z: f64| y * s + z * c;
+        let (mut z_lo, mut z_hi) = (f64::INFINITY, f64::NEG_INFINITY);
+        for (z0, z1, _, boxes) in &slabs {
+            for (a, b) in boxes {
+                for y in [a.y(), b.y()] {
+                    for z in [*z0, *z1] {
+                        z_lo = z_lo.min(turned_z(y, z));
+                        z_hi = z_hi.max(turned_z(y, z));
+                    }
+                }
+            }
+        }
+        if z_lo >= z_hi {
+            return LayeredStock {
+                frame: StockFrame::Planar,
+                levels,
+                bottom: 0.0,
+            };
+        }
+        let n = ((z_hi - z_lo) / RESLICE_STEP).ceil().max(1.0) as usize;
+        let h = (z_hi - z_lo) / n as f64;
+        for i in 1..=n {
+            let a = z_lo + (i - 1) as f64 * h;
+            let b = if i == n { z_hi } else { z_lo + i as f64 * h };
+            let mut parts = Vec::new();
+            for (z0, z1, r, _) in &slabs {
+                parts.extend(turned_part(r, (*z0, *z1), (a, b), (s, c)));
+            }
+            levels.insert(Key(b), union_all(parts));
+        }
+        LayeredStock {
+            frame: StockFrame::Planar,
+            levels,
+            bottom: z_lo,
+        }
+    }
+
+    /// Planar stock holding the solid of revolution about X made of the
+    /// `pieces` `(x0, x1, radius)`, sliced at most [`RESLICE_STEP`] high:
+    /// in each slab a piece is the box of its widest section there.
+    pub fn revolved(pieces: &[(f64, f64, f64)]) -> LayeredStock {
+        let rho = pieces.iter().map(|p| p.2).fold(0.0, f64::max);
+        let mut levels = BTreeMap::new();
+        if rho <= 0.0 {
+            return LayeredStock {
+                frame: StockFrame::Planar,
+                levels,
+                bottom: 0.0,
+            };
+        }
+        let n = (2.0 * rho / RESLICE_STEP).ceil().max(1.0) as usize;
+        let h = 2.0 * rho / n as f64;
+        for i in 1..=n {
+            let a = -rho + (i - 1) as f64 * h;
+            let b = if i == n { rho } else { -rho + i as f64 * h };
+            // The smallest |z| in the slab.
+            let m = if a <= 0.0 && b >= 0.0 {
+                0.0
+            } else {
+                a.abs().min(b.abs())
+            };
+            let parts = pieces
+                .iter()
+                .filter(|p| p.2 > m && p.1 > p.0)
+                .map(|&(x0, x1, r)| {
+                    let w = (r * r - m * m).sqrt();
+                    Region2::rect(x0, -w, x1, w)
+                })
+                .collect();
+            levels.insert(Key(b), union_all(parts));
+        }
+        LayeredStock {
+            frame: StockFrame::Planar,
+            levels,
+            bottom: -rho,
+        }
+    }
+
+    /// The outline of a cylindrical stock as pieces `(x0, x1, radius)`:
+    /// the X range of each outer loop of each slab, at the slab's radius.
+    fn profile(&self) -> Vec<(f64, f64, f64)> {
+        self.levels
+            .iter()
+            .flat_map(|(k, r)| {
+                outer_boxes(r)
+                    .into_iter()
+                    .map(move |(a, b)| (a.x(), b.x(), k.0))
+            })
+            .collect()
+    }
+
     /// Takes out what `result` cut with a tool that sweeps as `sweep`.
     /// `tol` is the chord tolerance for arcs.
     pub fn apply(&mut self, result: &ToolpathResult, sweep: Sweep, tol: f64) {
@@ -232,6 +385,125 @@ impl LayeredStock {
 /// tolerance; neither is stock to rough.
 pub fn rest_material(window: &Region2, region: &Region2, tol: f64) -> Region2 {
     window.intersect(region).offset(-2.0 * tol)
+}
+
+/// Sine and cosine of `deg` degrees, exact at multiples of 90°.
+fn sin_cos_deg(deg: f64) -> (f64, f64) {
+    let q = deg.rem_euclid(360.0);
+    if q == 0.0 {
+        (0.0, 1.0)
+    } else if q == 90.0 {
+        (1.0, 0.0)
+    } else if q == 180.0 {
+        (0.0, -1.0)
+    } else if q == 270.0 {
+        (-1.0, 0.0)
+    } else {
+        let t = deg.to_radians();
+        (libm::sin(t), libm::cos(t))
+    }
+}
+
+/// `r` mirrored in Y (y to -y), loops kept counter-clockwise outside.
+fn mirror_y(r: &Region2) -> Region2 {
+    Region2 {
+        loops: r
+            .loops
+            .iter()
+            .map(|l| {
+                Loop2 {
+                    verts: l
+                        .verts
+                        .iter()
+                        .map(|v| Vertex::new(v.p.x(), -v.p.y(), -v.bulge))
+                        .collect(),
+                }
+                .reversed()
+            })
+            .collect(),
+    }
+}
+
+/// Bounding boxes of the outer (counter-clockwise) loops of `r`.
+fn outer_boxes(r: &Region2) -> Vec<(Point2, Point2)> {
+    r.loops
+        .iter()
+        .filter(|l| l.is_ccw())
+        .map(|l| {
+            Region2 {
+                loops: vec![l.clone()],
+            }
+            .bbox()
+        })
+        .collect()
+}
+
+/// Rounding margin of the boxes of a re-sliced stock, mm.
+const GROW: f64 = 1e-6;
+
+/// Boxes in the child's XY round the material of the parent slab
+/// (`z.0`, `z.1`] with region `r` that turns (sine and cosine `sc`) into
+/// the child slab (`ab.0`, `ab.1`]. The parent points that land there lie
+/// in the parallelogram P = {z0 <= z <= z1, a <= y sin + z cos <= b} of YZ;
+/// `r` is cut to the Y range of P, and each outer loop of the cut gives the
+/// box of its X range by the range of y' = y cos - z sin over P within the
+/// Y range of the loop.
+fn turned_part(r: &Region2, z: (f64, f64), ab: (f64, f64), sc: (f64, f64)) -> Vec<Region2> {
+    let (s, c) = sc;
+    // The corners of P as (y, z).
+    let at = |t: f64, zz: f64| ((t - zz * c) / s, zz);
+    let p = [at(ab.0, z.0), at(ab.1, z.0), at(ab.1, z.1), at(ab.0, z.1)];
+    let (y0, y1) = p
+        .iter()
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), q| {
+            (a.min(q.0), b.max(q.0))
+        });
+    let (bmin, bmax) = r.bbox();
+    if bmax.y() < y0 || bmin.y() > y1 {
+        return Vec::new();
+    }
+    let cut = r.intersect(&Region2::rect(
+        bmin.x() - 1.0,
+        y0.max(bmin.y() - 1.0),
+        bmax.x() + 1.0,
+        y1.min(bmax.y() + 1.0),
+    ));
+    outer_boxes(&cut)
+        .into_iter()
+        .filter_map(|(a, b)| {
+            let q = clip_y(&p, a.y(), b.y());
+            let q = if q.is_empty() { p.to_vec() } else { q };
+            let (u0, u1) = q
+                .iter()
+                .map(|(y, zz)| y * c - zz * s)
+                .fold((f64::INFINITY, f64::NEG_INFINITY), |(u, v), w| {
+                    (u.min(w), v.max(w))
+                });
+            (b.x() > a.x() && u1 > u0)
+                .then(|| Region2::rect(a.x() - GROW, u0 - GROW, b.x() + GROW, u1 + GROW))
+        })
+        .collect()
+}
+
+/// The convex polygon `p` (points `(y, z)`) cut to `y0 <= y <= y1`.
+fn clip_y(p: &[(f64, f64)], y0: f64, y1: f64) -> Vec<(f64, f64)> {
+    fn half(pts: &[(f64, f64)], keep: impl Fn(f64) -> bool, edge: f64) -> Vec<(f64, f64)> {
+        let n = pts.len();
+        let mut out = Vec::new();
+        for i in 0..n {
+            let (a, b) = (pts[i], pts[(i + 1) % n]);
+            if keep(a.0) {
+                out.push(a);
+            }
+            if keep(a.0) != keep(b.0) {
+                let t = (edge - a.0) / (b.0 - a.0);
+                out.push((edge, a.1 + t * (b.1 - a.1)));
+            }
+        }
+        out
+    }
+    let q = half(p, |y| y >= y0, y0);
+    half(&q, |y| y <= y1, y1)
 }
 
 /// Union of many regions as a balanced tree.
