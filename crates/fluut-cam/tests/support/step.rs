@@ -585,3 +585,26 @@ pub fn shaft(shift: [f64; 3]) -> String {
     w.cap(&small, &[], 80.0, true);
     w.finish("shaft")
 }
+
+/// An 80 × 50 × 16 plate on the X axis (x 0…80, y −25…25, z −8…8) for
+/// two-sided indexed Setups: a 25 × 24 pocket in the top (corner radius 4,
+/// floor at z 2), a 21 × 16 pocket in the bottom (corner radius 4, floor at
+/// z −4) and a 25 × 20 through window (corner radius 4) at x 45…70.
+/// Faces: 0–3 outer walls, 4 bottom, 5 top, 6–13 top pocket walls, 14 its
+/// floor, 15–22 bottom pocket walls, 23 its floor, 24–31 window walls.
+pub fn two_sided(shift: [f64; 3]) -> String {
+    let mut w = Writer::new(shift);
+    let outer = Profile::rect(0.0, -25.0, 80.0, 25.0);
+    let top = Profile::rounded_rect(10.0, -12.0, 35.0, 12.0, 4.0);
+    let bottom = Profile::rounded_rect(12.0, -8.0, 33.0, 8.0, 4.0);
+    let window = Profile::rounded_rect(45.0, -10.0, 70.0, 10.0, 4.0);
+    w.walls(&outer, -8.0, 8.0, true);
+    w.cap(&outer, &[bottom.clone(), window.clone()], -8.0, false);
+    w.cap(&outer, &[top.clone(), window.clone()], 8.0, true);
+    w.walls(&top, 2.0, 8.0, false);
+    w.cap(&top, &[], 2.0, true);
+    w.walls(&bottom, -8.0, -4.0, false);
+    w.cap(&bottom, &[], -4.0, false);
+    w.walls(&window, -8.0, 8.0, false);
+    w.finish("two_sided")
+}

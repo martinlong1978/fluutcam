@@ -1068,7 +1068,7 @@ impl Session {
                     SetupKind::Indexed => fluut_post::SetupKind::Indexed,
                 },
                 work_offset: rs.work_offset.clone(),
-                index_a: None,
+                index_a: (rs.kind == SetupKind::Indexed).then_some(rs.index_angle),
                 index_b: None,
                 toolpaths,
             });

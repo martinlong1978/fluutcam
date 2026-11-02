@@ -388,7 +388,7 @@ pub fn rest_material(window: &Region2, region: &Region2, tol: f64) -> Region2 {
 }
 
 /// Sine and cosine of `deg` degrees, exact at multiples of 90°.
-fn sin_cos_deg(deg: f64) -> (f64, f64) {
+pub fn sin_cos_deg(deg: f64) -> (f64, f64) {
     let q = deg.rem_euclid(360.0);
     if q == 0.0 {
         (0.0, 1.0)
