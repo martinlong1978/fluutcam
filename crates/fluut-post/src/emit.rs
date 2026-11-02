@@ -109,6 +109,9 @@ struct Emitter<'a> {
     /// Decimals raised for this event's words (arc centre correction).
     dec_override: BTreeMap<&'static str, u32>,
     rotary_clamped: bool,
+    /// A motion line has been written: the tool is no longer where the
+    /// program started.
+    moved: bool,
     /// G93 in effect (spec 05 §5.7).
     inverse_time: bool,
     /// Parameters of the canned cycle in effect.
@@ -153,6 +156,7 @@ impl<'a> Emitter<'a> {
             emitted: BTreeMap::new(),
             dec_override: BTreeMap::new(),
             rotary_clamped: false,
+            moved: false,
             inverse_time: false,
             cycle_open: None,
             pending_links: Vec::new(),
@@ -234,7 +238,7 @@ impl<'a> Emitter<'a> {
         for (si, setup) in self.job.setups.iter().enumerate() {
             self.setup_values(si, setup);
             self.block("setup_start");
-            self.setup_rotary(setup.kind);
+            self.setup_rotary(setup);
             for (ti, tp) in setup.toolpaths.iter().enumerate() {
                 self.toolpath(si, ti, tp)?;
             }
@@ -279,9 +283,22 @@ impl<'a> Emitter<'a> {
         }
     }
 
-    /// Rotary state at a Setup start (spec 05 §5.6).
-    fn setup_rotary(&mut self, kind: SetupKind) {
-        match kind {
+    /// Rotary state at a Setup start (spec 05 §5.6). A turns here (an
+    /// index) or on the first move (a rotary Setup): once the tool has
+    /// moved, it first rises to the Setup's turn height, clear of
+    /// everything that turns.
+    fn setup_rotary(&mut self, s: &SetupJob) {
+        if let Some(z) = s.turn_z
+            && self.moved
+            && s.kind != SetupKind::ThreeAxis
+        {
+            self.event.clear();
+            self.event.insert("Z", Val::Num(z * self.unit));
+            self.render("rapid", true);
+            self.prev_event = Some("rapid".to_owned());
+            self.event.clear();
+        }
+        match s.kind {
             SetupKind::Indexed => {
                 if self.rotary_clamped {
                     self.block("rotary_unclamp");
@@ -1096,6 +1113,7 @@ impl<'a> Emitter<'a> {
     /// Appends a line: line number (if enabled and `numbered`), line map
     /// entry (if `is_motion`), byte count.
     fn push_line(&mut self, mut text: String, is_motion: bool, numbered: bool) {
+        self.moved |= is_motion;
         let ln = &self.cp.post.line_numbering;
         if numbered && ln.enabled && !text.starts_with('%') {
             text = format!("{}{} {}", ln.prefix, self.line_no, text);

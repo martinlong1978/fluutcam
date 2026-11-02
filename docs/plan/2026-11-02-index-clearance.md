@@ -55,8 +55,8 @@ All earlier Global Constraints apply. In addition:
 
 **Files:** `crates/fluut-post/src/{job.rs, emit.rs, emit/tests.rs}`.
 
-- [ ] **Step 1:** Tests: two indexed Setups with `turn_z` give `G0 Z…` after the first Setup's moves and before the second `A`, not before the first; a rotary Setup after an indexed one retracts before its first move; no retract without `turn_z`.
-- [ ] **Step 2:** Implement; pass. Commit.
+- [x] **Step 1:** Tests: two indexed Setups with `turn_z` give `G0 Z…` after the first Setup's moves and before the second `A`, not before the first; a rotary Setup after an indexed one retracts before its first move; no retract without `turn_z`.
+- [x] **Step 2:** Implement; pass. Commit.
 
 ### Task 3: Turn radius and turn height
 

@@ -1118,6 +1118,7 @@ impl Session {
                 work_offset: rs.work_offset.clone(),
                 index_a: (rs.kind == SetupKind::Indexed).then_some(rs.index_angle),
                 index_b: None,
+                turn_z: None,
                 toolpaths,
             });
         }

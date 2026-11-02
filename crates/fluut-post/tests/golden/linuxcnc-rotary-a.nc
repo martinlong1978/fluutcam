@@ -95,6 +95,7 @@ G0 X20 Y20 Z25
 M0
 (Side)
 G55
+G0 Z30
 G0 A90
 (Side pocket)
 G0 X0 Y0 Z25
@@ -105,6 +106,7 @@ G1 Y10
 G0 Z25
 (Wrap)
 G56
+G0 Z30
 M9
 (Wrap)
 G0 X0 Y0 Z30 A0
