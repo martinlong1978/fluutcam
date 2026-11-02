@@ -21,6 +21,9 @@ pub enum NodeId {
     Result(String),
     /// A toolpath's post output (feeds, speed, names).
     Post(String),
+    /// A Setup's simulation (D11): its enabled toolpaths' results and
+    /// feeds, and their tools.
+    Simulation(String),
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -88,6 +91,8 @@ impl Graph {
                     deps,
                 },
             );
+            let mut sim = format!("{ALGORITHM_VERSION} sim\n{setup_hash}\n");
+            let mut sim_deps = vec![setup.clone()];
             // Earlier toolpaths that change the in-process stock: a
             // toolpath that reads it depends on their results (D15 §1.8).
             let mut stock_text = String::new();
@@ -109,6 +114,12 @@ impl Graph {
                 }
                 let post = sha256_hex(format!("{r}\n{}", toolpath_p_text(t, tool, m)).as_bytes());
                 nodes.insert(rid.clone(), Node { hash: r, deps });
+                if t.is_enabled() {
+                    // The whole tool: flute length, shank and holder are
+                    // checked, and they need not change the result.
+                    sim.push_str(&format!("{} = {post}\n{tool:?}\n", t.id));
+                    sim_deps.push(NodeId::Post(t.id.clone()));
+                }
                 nodes.insert(
                     NodeId::Post(t.id.clone()),
                     Node {
@@ -117,6 +128,13 @@ impl Graph {
                     },
                 );
             }
+            nodes.insert(
+                NodeId::Simulation(s.id.clone()),
+                Node {
+                    hash: sha256_hex(sim.as_bytes()),
+                    deps: sim_deps,
+                },
+            );
         }
         Graph { nodes }
     }

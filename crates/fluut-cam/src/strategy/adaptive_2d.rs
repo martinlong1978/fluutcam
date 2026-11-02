@@ -333,9 +333,12 @@ pub(crate) fn plan_area(
         cleared,
         stats,
     } = adaptive::clear(&material, a, k0, deep, params);
+    let reach = adaptive::within_reach(a);
     let mut ps = Vec::new();
     for pass in passes {
-        safe.push(pass.safe);
+        // The shrunk cleared region can reach past the tool-centre region
+        // (around an island); a stay-down link must not.
+        safe.push(pass.safe.intersect(&reach));
         let segs = pass
             .pts
             .windows(2)
@@ -348,7 +351,7 @@ pub(crate) fn plan_area(
         ps.push((Path2::open(segs), safe.len() - 1));
     }
     // Final contour at R + stock to leave, in `direction`.
-    safe.push(adaptive::shrink(&cleared, r - 1e-6));
+    safe.push(adaptive::shrink(&cleared, r - 1e-6).intersect(&reach));
     let fin_safe = safe.len() - 1;
     let finish: Vec<(Path2, usize)> = a
         .loops
@@ -373,7 +376,9 @@ pub(crate) fn plan_area(
             .fold((0.0, 0.0), |(x, y), v| (x + v.p.x(), y + v.p.y()));
         let target = nearest_in(a, Point2::new(sx / n, sy / n));
         let inner = adaptive::shrink(&done, r - 1e-6);
-        let Some(from) = nearest_on(&inner, target) else {
+        // A move that would cut across an island is not made; its sliver
+        // counts as left.
+        let Some(from) = adaptive::entry_towards(&inner, target, &reach) else {
             continue;
         };
         if from.distance(target) <= tol {

@@ -6,6 +6,10 @@
 //!
 //! Output format: width and height as little-endian `u32`, then straight
 //! (not premultiplied) RGBA rows.
+//!
+//! On Windows it also gives `fluutcam.exe` its version resource (D14 §5.2).
+//! Code signing checks the product name and version in it
+//! (docs/CODE_SIGNING.md).
 
 use resvg::{tiny_skia, usvg};
 use std::path::{Path, PathBuf};
@@ -43,5 +47,15 @@ fn main() {
             bytes.extend_from_slice(&[c.red(), c.green(), c.blue(), c.alpha()]);
         }
         std::fs::write(out.join(name), bytes).expect("write raster");
+    }
+
+    #[cfg(windows)]
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        let mut res = winresource::WindowsResource::new();
+        res.set("ProductName", "FluutCAM")
+            .set("FileDescription", "FluutCAM")
+            .set("OriginalFilename", "fluutcam.exe")
+            .set("LegalCopyright", "MIT OR Apache-2.0");
+        res.compile().expect("compile the Windows version resource");
     }
 }

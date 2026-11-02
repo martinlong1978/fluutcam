@@ -130,6 +130,13 @@ impl ToolpathType for Drill {
             {
                 deep = true;
             }
+            // The R plane: the feed height, but not below the stock top +
+            // the safety distance, since the cycle rapids to it and the
+            // material above this hole's top may not have been cut (D08
+            // §8.2).
+            let r_z = h
+                .feed
+                .max(input.env.stock_top.max(h.top) + p.linking.safety_distance);
             let c = hole.centre;
             match prev {
                 None => {
@@ -141,25 +148,25 @@ impl ToolpathType for Drill {
                     // R plane (G99) unless something is in the way.
                     let z = match dr.retract_mode {
                         RetractMode::Retract => h.retract,
-                        RetractMode::Feed if blocks.blocked(q, c, r_plane.max(h.feed)) => h.retract,
-                        RetractMode::Feed => r_plane.max(h.feed),
+                        RetractMode::Feed if blocks.blocked(q, c, r_plane.max(r_z)) => h.retract,
+                        RetractMode::Feed => r_plane.max(r_z),
                     };
                     out.line(Point3::new(q.x(), q.y(), z), Mv::Rapid);
                     out.line(Point3::new(c.x(), c.y(), z), Mv::Rapid);
                 }
             }
-            out.line(Point3::new(c.x(), c.y(), h.feed), Mv::Rapid);
+            out.line(Point3::new(c.x(), c.y(), r_z), Mv::Rapid);
             out.pass(PassKind::Link, None);
             out.cycle(CycleParams {
                 kind,
                 top_z: h.top,
                 depth_z,
-                retract_z: h.feed,
+                retract_z: r_z,
                 peck,
                 dwell_s: (dr.dwell_s > 0.0).then_some(dr.dwell_s),
             });
             out.pass(PassKind::Cut, None);
-            prev = Some((c, h.feed));
+            prev = Some((c, r_z));
         }
         if let Some(q) = out.cur() {
             out.line(

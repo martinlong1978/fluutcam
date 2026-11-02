@@ -16,6 +16,7 @@ use crate::viewport::{Camera, FrameState, Pick, Renderer};
 use crate::vm::Selection;
 use eframe::egui::{self, Pos2, Rect, Sense, Stroke, Vec2};
 use eframe::egui_wgpu;
+use fluut_core::fluut_sim::StockMesh;
 use std::sync::Arc;
 
 /// What has been uploaded: the Setup, its scene and its toolpath lines (by
@@ -25,6 +26,8 @@ struct Uploaded {
     setup: String,
     scene: usize,
     paths: Vec<usize>,
+    /// The simulated stock shown, 0 for none.
+    stock: usize,
 }
 
 pub struct ViewportState {
@@ -72,7 +75,13 @@ pub fn shown_setup(s: &Snapshot, sel: &Selection) -> Option<String> {
     id.or_else(|| s.project.setups.first().map(|st| st.id.clone()))
 }
 
-fn upload(vs: &mut ViewportState, rs: &egui_wgpu::RenderState, s: &Snapshot, setup: &str) {
+fn upload(
+    vs: &mut ViewportState,
+    rs: &egui_wgpu::RenderState,
+    s: &Snapshot,
+    setup: &str,
+    stock: Option<&Arc<StockMesh>>,
+) {
     let Some(scene) = s.scenes.get(setup) else {
         return;
     };
@@ -87,6 +96,7 @@ fn upload(vs: &mut ViewportState, rs: &egui_wgpu::RenderState, s: &Snapshot, set
             .iter()
             .map(|id| s.paths.get(id).map_or(0, |p| Arc::as_ptr(p) as usize))
             .collect(),
+        stock: stock.map_or(0, |m| Arc::as_ptr(m) as usize),
     };
     if vs.uploaded.as_ref() == Some(&key) {
         return;
@@ -100,6 +110,9 @@ fn upload(vs: &mut ViewportState, rs: &egui_wgpu::RenderState, s: &Snapshot, set
         .is_some_and(|u| u.setup == key.setup && u.scene == key.scene);
     if !same_scene {
         r.set_scene(&rs.device, &scene.mesh, &scene.edges, scene.stock.as_ref());
+    }
+    if !same_scene || vs.uploaded.as_ref().is_none_or(|u| u.stock != key.stock) {
+        r.set_stock(&rs.device, stock.map(|m| m.as_ref()));
     }
     let lines: Vec<Option<&crate::scene::Lines>> = ids
         .iter()
@@ -143,7 +156,16 @@ pub fn show(
     let Some(setup) = shown_setup(&snap, &state.selection) else {
         return;
     };
-    upload(vs, rs, &snap, &setup);
+    // The simulated stock of this Setup, while the simulation is current.
+    let sim_frame = jobs
+        .frame
+        .clone()
+        .filter(|f| f.setup == setup && snap.sims.contains_key(&setup));
+    let stock = sim_frame
+        .as_ref()
+        .and_then(|f| f.mesh.as_ref())
+        .filter(|_| state.show_stock);
+    upload(vs, rs, &snap, &setup, stock);
     // Camera input.
     let size = rect.size();
     if resp.dragged_by(egui::PointerButton::Primary) {
@@ -265,6 +287,22 @@ pub fn show(
             }
         }
         painter.circle(o, 4.0, c(brand::PAPER), Stroke::new(1.5, c(brand::INK)));
+    }
+    // The tool at the playhead and the finding looked at.
+    let tool = sim_frame
+        .as_ref()
+        .and_then(|f| f.tool)
+        .filter(|_| stock.is_some());
+    if let Some(q) = tool.and_then(|p| px(glam::Vec3::from(p))) {
+        painter.circle(
+            q,
+            5.0,
+            c(brand::CUTTER_ORANGE),
+            Stroke::new(1.5, c(brand::INK)),
+        );
+    }
+    if let Some(q) = state.focus.and_then(|p| px(glam::Vec3::from(p))) {
+        painter.circle_stroke(q, 9.0, Stroke::new(2.5, c(brand::RED)));
     }
     // What is selected in the view, and the controls.
     let picked = match &state.selection {

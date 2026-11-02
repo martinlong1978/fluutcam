@@ -16,6 +16,9 @@ fluut-model.workspace = true
 fluut-post.workspace = true
 fluut-script.workspace = true
 
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
+
 [dev-dependencies]
 fluut-geom.workspace = true
 fluut-path.workspace = true

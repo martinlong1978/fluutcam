@@ -3,8 +3,10 @@
 //! The session adapter: the only module that calls `fluut-core`.
 //!
 //! A worker thread owns the `fluut_core::Session` and runs every request:
-//! open, edit, calculate and post. After each step it sends the UI a fresh
-//! [`Snapshot`] (D01 §3.1: snapshots, not locks).
+//! open, edit, calculate, post, simulate and scrub. After each step it sends
+//! the UI a fresh [`Snapshot`] (D01 §3.1: snapshots, not locks). Scrub
+//! requests that queue up while the worker is busy are served once, at the
+//! latest time asked for.
 //!
 //! `fluut-core` (M3) has no job ids, progress, cancel or `Session::apply`
 //! yet, so this module adds them around today's API: a calculation runs one
@@ -15,13 +17,16 @@
 use crate::jobs::{CalcTargets, Edit, Event, JobCx, Outcome, PostRequest, Request};
 use crate::scene::{SetupScene, ToolpathLines};
 use fluut_cam::geometry::SetupBody;
+use fluut_core::fluut_sim::{Check, Monitor, StockMesh, surface};
 use fluut_core::{JobReport, JobState, NodeId, PostOptions, Session, SetupFrame, Targets};
+use fluut_core::{SimResult, SimSettings};
 use fluut_model::project::Project;
 use fluut_model::setup::{ResolvedSetup, resolve_all};
 use fluut_model::tools::ToolStore;
 use fluut_model::validate::{ValidateCx, validate};
 use fluut_model::{Diagnostic, Severity};
 use fluut_path::{PathStats, ToolpathResult};
+use std::collections::VecDeque;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -64,6 +69,112 @@ pub struct Snapshot {
     pub paths: BTreeMap<String, Arc<ToolpathLines>>,
     /// Why the last edit was refused, if it was.
     pub edit_error: Option<String>,
+    /// Estimated machining time per toolpath with a current result, s.
+    pub times: BTreeMap<String, f64>,
+    /// Current simulations, by Setup id.
+    pub sims: BTreeMap<String, Arc<SimView>>,
+}
+
+/// A toolpath on the simulation timeline (D13 §7).
+#[derive(Clone, PartialEq, Debug)]
+pub struct ClipView {
+    pub toolpath: String,
+    pub name: String,
+    /// Program times, s.
+    pub start: f64,
+    pub end: f64,
+}
+
+/// A verification finding, in the Setup's work frame.
+#[derive(Clone, PartialEq, Debug)]
+pub struct FindingView {
+    pub check: Check,
+    pub toolpath: String,
+    pub name: String,
+    pub segment: usize,
+    pub position: [f32; 3],
+    /// Gouge depth, mm.
+    pub depth: f64,
+}
+
+/// What the UI shows of a Setup's simulation.
+#[derive(Clone, Debug)]
+pub struct SimView {
+    pub setup: String,
+    pub res: f64,
+    pub duration: f64,
+    pub clips: Vec<ClipView>,
+    pub findings: Vec<FindingView>,
+    /// Rest material on the part, mm³, and its thickest point, mm.
+    pub rest: Option<(f64, f64)>,
+    result: Arc<SimResult>,
+}
+
+impl SimView {
+    fn new(r: Arc<SimResult>, project: &Project) -> SimView {
+        let name = |id: &str| {
+            project
+                .toolpath(id)
+                .map_or_else(|| id.to_owned(), |(_, t)| t.name.clone())
+        };
+        let sim = &r.sim;
+        SimView {
+            setup: r.setup.clone(),
+            res: sim.res,
+            duration: sim.duration(),
+            clips: sim
+                .toolpaths
+                .iter()
+                .map(|c| ClipView {
+                    toolpath: c.id.clone(),
+                    name: name(&c.id),
+                    start: c.start,
+                    end: c.end,
+                })
+                .collect(),
+            findings: sim
+                .findings
+                .iter()
+                .map(|f| {
+                    let id = &sim.toolpaths[f.toolpath].id;
+                    FindingView {
+                        check: f.check,
+                        toolpath: id.clone(),
+                        name: name(id),
+                        segment: f.segment,
+                        position: f.position.as_vec3().to_array(),
+                        depth: f.depth,
+                    }
+                })
+                .collect(),
+            rest: sim.rest.map(|x| (x.on_part, x.max)),
+            result: r.clone(),
+        }
+    }
+
+    /// The stock at time `t` as a mesh, and the tool tip then.
+    pub fn frame(&self, t: f64) -> (StockMesh, Option<[f32; 3]>) {
+        let sim = &self.result.sim;
+        let mesh = if t >= sim.duration() {
+            surface(sim.stock_final())
+        } else {
+            surface(&sim.stock_at(t))
+        };
+        let tip = sim.tool_at(t).map(|(_, p)| p.tip.as_vec3().to_array());
+        (mesh, tip)
+    }
+}
+
+/// The stock of a simulated Setup at one time, for the viewport.
+#[derive(Clone, Debug)]
+pub struct Frame {
+    pub setup: String,
+    pub t: f64,
+    /// `None` when the Setup has no current simulation.
+    pub mesh: Option<Arc<StockMesh>>,
+    pub tool: Option<[f32; 3]>,
+    /// Scrub requests this frame answers.
+    pub requests: usize,
 }
 
 impl Snapshot {
@@ -103,8 +214,32 @@ pub(crate) fn spawn(wake: Box<dyn Fn() + Send>) -> (Sender<Request>, Receiver<Ev
                 state: None,
                 revision: 0,
             };
-            while let Ok(r) = req_rx.recv() {
-                w.run(r);
+            let mut pending = VecDeque::new();
+            loop {
+                let r = match pending.pop_front() {
+                    Some(r) => r,
+                    None => match req_rx.recv() {
+                        Ok(r) => r,
+                        Err(_) => break,
+                    },
+                };
+                let Request::Scrub { .. } = r else {
+                    w.run(r);
+                    continue;
+                };
+                // Serve only the latest of the scrubs that have queued up.
+                let (mut latest, mut n) = (r, 1);
+                while let Ok(x) = req_rx.try_recv() {
+                    if let Request::Scrub { .. } = x {
+                        latest = x;
+                        n += 1;
+                    } else {
+                        pending.push_back(x);
+                    }
+                }
+                if let Request::Scrub { setup, t } = latest {
+                    w.scrub(&setup, t, n);
+                }
             }
         })
         .expect("cannot start the session thread");
@@ -130,6 +265,9 @@ struct State {
     scenes: BTreeMap<String, (String, Arc<SetupScene>)>,
     frame_errors: BTreeMap<String, Diagnostic>,
     edit_error: Option<String>,
+    sim_settings: SimSettings,
+    /// Views of the simulations, with the result they show.
+    sim_views: BTreeMap<String, Arc<SimView>>,
 }
 
 struct Worker {
@@ -164,8 +302,71 @@ impl Worker {
                 let outcome = self.post(&cx, &req);
                 self.finish(&cx, outcome);
             }
+            Request::Simulate(cx, setup) => {
+                let outcome = self.simulate(&cx, &setup);
+                self.finish(&cx, outcome);
+            }
+            Request::Scrub { setup, t } => self.scrub(&setup, t, 1),
             Request::Edit(e) => self.edit(e),
         }
+    }
+
+    /// Calculates what is stale in the Setup (with progress and cancel),
+    /// then simulates it and sends the final stock.
+    fn simulate(&mut self, cx: &JobCx, setup: &str) -> Outcome {
+        let Some(st) = self.state.as_ref() else {
+            return Outcome::Failed(vec![no_project()]);
+        };
+        let Some(s) = st.session.project.setup(setup) else {
+            return Outcome::Failed(vec![Diagnostic::error(
+                "app.setup.missing",
+                format!("no Setup `{setup}`"),
+            )]);
+        };
+        let ids = s.toolpaths.iter().map(|t| t.id.clone()).collect();
+        match self.calculate(cx, &CalcTargets::Toolpaths(ids)) {
+            Outcome::Calculated { .. } => {}
+            other => return other,
+        }
+        let Some(st) = self.state.as_mut() else {
+            return Outcome::Failed(vec![no_project()]);
+        };
+        cx.progress.set(0, 0);
+        let settings = st.sim_settings;
+        let outcome = match st.session.simulate(setup, &settings, &JobMonitor(cx)) {
+            Ok(r) => Outcome::Simulated {
+                findings: r.sim.findings.len(),
+            },
+            Err(_) if cx.cancel.is_cancelled() => Outcome::Cancelled,
+            Err(d) => Outcome::Failed(d),
+        };
+        self.snapshot();
+        if let Outcome::Simulated { .. } = outcome {
+            self.scrub(setup, f64::INFINITY, 0);
+        }
+        outcome
+    }
+
+    /// Sends the stock of `setup` at time `t`, answering `n` requests.
+    fn scrub(&mut self, setup: &str, t: f64, n: usize) {
+        let view = self
+            .state
+            .as_ref()
+            .and_then(|st| st.sim_views.get(setup).cloned());
+        let (mesh, tool) = match view {
+            Some(v) => {
+                let (m, tip) = v.frame(t.min(v.duration));
+                (Some(Arc::new(m)), tip)
+            }
+            None => (None, None),
+        };
+        self.send(Event::Frame(Arc::new(Frame {
+            setup: setup.to_owned(),
+            t,
+            mesh,
+            tool,
+            requests: n,
+        })));
     }
 
     fn open(&mut self, cx: &JobCx, path: PathBuf) {
@@ -181,6 +382,8 @@ impl Worker {
                     scenes: BTreeMap::new(),
                     frame_errors: BTreeMap::new(),
                     edit_error: None,
+                    sim_settings: SimSettings::default(),
+                    sim_views: BTreeMap::new(),
                 });
                 cx.progress.advance();
                 self.snapshot();
@@ -314,6 +517,19 @@ impl Worker {
     }
 }
 
+/// Simulation progress and cancel through a job's context.
+struct JobMonitor<'a>(&'a JobCx);
+
+impl Monitor for JobMonitor<'_> {
+    fn cancelled(&self) -> bool {
+        self.0.cancel.is_cancelled()
+    }
+
+    fn progress(&self, done: u64, total: u64) {
+        self.0.progress.set(done, total);
+    }
+}
+
 fn no_project() -> Diagnostic {
     Diagnostic::error("app.project.none", "no project is open")
 }
@@ -429,6 +645,28 @@ impl State {
                 diagnostics.insert(t.id.clone(), diags);
             }
         }
+        let mut times = BTreeMap::new();
+        for id in paths.keys() {
+            if let Some(t) = self.session.time_estimate(id) {
+                times.insert(id.clone(), t);
+            }
+        }
+        let mut sims = BTreeMap::new();
+        for s in &project.setups {
+            let Some(r) = self.session.simulation(&s.id, &self.sim_settings) else {
+                self.sim_views.remove(&s.id);
+                continue;
+            };
+            let view = match self.sim_views.get(&s.id) {
+                Some(v) if Arc::ptr_eq(&v.result, &r) => v.clone(),
+                _ => {
+                    let v = Arc::new(SimView::new(r, &project));
+                    self.sim_views.insert(s.id.clone(), v.clone());
+                    v
+                }
+            };
+            sims.insert(s.id.clone(), view);
+        }
         let mut warnings = self.session.warnings.clone();
         warnings.extend(self.frame_errors.values().cloned());
         Snapshot {
@@ -443,6 +681,8 @@ impl State {
             scenes,
             paths,
             edit_error: self.edit_error.clone(),
+            times,
+            sims,
         }
     }
 }

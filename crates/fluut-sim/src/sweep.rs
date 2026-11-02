@@ -37,9 +37,9 @@ pub struct Sweep {
 
 impl Sweep {
     /// The sweep from `p0` to `p1`. Both poses get the larger of the two
-    /// lengths, and at least the corner radius.
+    /// lengths, and at least the height of the shaped bottom.
     pub fn new(tool: Tool, mut p0: Pose, mut p1: Pose) -> Sweep {
-        let len = p0.length.max(p1.length).max(tool.corner);
+        let len = p0.length.max(p1.length).max(tool.profile_height());
         p0.length = len;
         p1.length = len;
         let (a0, b0) = p0.aabb(&tool);
@@ -80,7 +80,9 @@ impl Sweep {
 
     /// The method [`Sweep::ray`] uses for direction `e`.
     pub fn method(&self, e: DVec3) -> Method {
-        if self.fixed_axis && e.dot(self.p0.axis).abs() >= 1.0 - 1e-12 {
+        if self.tool.cone.is_some() {
+            Method::Gjk
+        } else if self.fixed_axis && e.dot(self.p0.axis).abs() >= 1.0 - 1e-12 {
             Method::Axial
         } else if self.tool.is_ball() {
             Method::Ball

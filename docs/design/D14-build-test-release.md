@@ -78,20 +78,20 @@ workspace version differ.
 
 | Platform | Artefact | Tooling |
 |---|---|---|
-| Windows | MSI + portable zip | `cargo-wix`; Authenticode signing (signing service or HSM-backed certificate) |
-| macOS | universal DMG | `lipo`; `codesign` + `notarytool` |
+| Windows | MSI + portable zip | `cargo-wix`; Authenticode signing through SignPath |
+| macOS | universal DMG | `lipo`; ad-hoc `codesign` |
 | Linux | AppImage, Flatpak | `appimagetool` (signed); Flathub manifest |
 
 Built so far (`.github/workflows/release.yml`, `cargo xtask package`):
 
 | Platform | Artefact | Notes |
 |---|---|---|
-| Windows x86-64 | `fluutcam-<v>-windows-x86_64.zip` | `fluutcam.exe`, `fluut.exe`, icon, licences. Executables signed with `signtool` when the certificate secrets exist. No MSI yet |
+| Windows x86-64 | `fluutcam-<v>-windows-x86_64.zip` | `fluutcam.exe`, `fluut.exe`, icon, licences. Executables signed through SignPath when its settings exist. No MSI yet |
 | Linux x86-64 | `fluutcam-<v>-linux-x86_64.tar.gz` | `bin/`, `.desktop` file, hicolor icons, licences, built on Ubuntu 22.04 (glibc 2.35). No AppImage or Flatpak yet |
-| macOS | `fluutcam-<v>-macos-universal.dmg`, `…-macos-universal-cli.tar.gz` | `lipo` of the arm64 and x86-64 builds in `FluutCAM.app`; Developer ID signing and `notarytool` when the secrets exist, ad-hoc signing otherwise |
+| macOS | `fluutcam-<v>-macos-universal.dmg`, `…-macos-universal-cli.tar.gz` | `lipo` of the arm64 and x86-64 builds in `FluutCAM.app`; ad-hoc signing (no Developer ID, by decision) |
 
 The archives are written by `cargo xtask package` (sorted entries, fixed time stamp, no
-owners), so they are reproducible and need no platform tools. Every signing, notarisation and
+owners), so they are reproducible and need no platform tools. Every signing and
 verification step is skipped when its secrets are missing, so unsigned builds still work. The
 workflow makes a draft release; a person publishes it.
 
@@ -100,8 +100,42 @@ SVG masters in `assets/` during packaging; generated rasters are not committed.
 `cargo xtask icons <out-dir>` renders `fluut-D-icon-stock.svg` with `resvg` and writes
 `windows/fluutcam.ico` (16–256 px), `macos/fluutcam.icns` (16–1024 px) and
 `linux/hicolor/<N>x<N>/apps/fluutcam.png` (16–512 px). The window icon and the About logos are
-rendered from the same SVGs by `fluut-app`'s build script. The `.exe` file icon needs a
-resource compiler and is not set yet.
+rendered from the same SVGs by `fluut-app`'s build script. The `.exe` file icon is not set
+yet.
+
+**Windows version resource.** The build scripts of `fluut-cli` and `fluut-app` give both
+executables a version resource through `winresource` (Windows hosts only): product name
+`FluutCAM`, product and file version the workspace version, a file description and the
+original file name. SignPath checks the product name and version before it signs, and the
+release workflow checks them on the built files first.
+
+**Signing** (decided 2026-11-01; public policy in [`docs/CODE_SIGNING.md`](../CODE_SIGNING.md)):
+
+| What | How | Cost |
+|---|---|---|
+| Windows `.exe` | Authenticode through the SignPath Foundation open-source programme. `release.yml` uploads the unsigned executables as a GitHub artifact, submits it with `signpath/github-action-submit-signing-request@v3`, waits for an approver (up to 2 h) and takes the signed files back. The certificate's publisher is SignPath Foundation | free |
+| macOS app and DMG | Ad hoc only. Apple has no free programme for open-source projects, so there is no Developer ID or notarisation. Users open the app once with right-click → Open ([`docs/install.md`](../install.md)). Homebrew's main cask repository will not take it | free |
+| Every release file | GitHub build provenance attestation (`actions/attest-build-provenance@v2`, Sigstore keyless) in the `release` job | free |
+| `releases.json`, `SHA256SUMS` | minisign | free |
+
+The artifact configuration that SignPath applies is kept in
+[`packaging/signpath/artifact-configuration.xml`](../../packaging/signpath/artifact-configuration.xml)
+and pasted into the SignPath project, so changes to it are reviewed like code.
+
+Repository settings for the release workflow (each group is optional; without it that step is
+skipped):
+- SignPath: secret `SIGNPATH_API_TOKEN` (a CI user with submitter rights); variables
+  `SIGNPATH_ORGANIZATION_ID`, `SIGNPATH_PROJECT_SLUG`, `SIGNPATH_SIGNING_POLICY_SLUG`
+  (`test-signing` until the Foundation approves the project, then `release-signing`) and
+  `SIGNPATH_ARTIFACT_CONFIGURATION_SLUG`.
+- minisign: secrets `MINISIGN_SECRET_KEY`, `MINISIGN_PASSWORD`, `MINISIGN_PUBLIC_KEY`.
+
+SignPath Foundation terms that shape the project (listed in full on signpath.org): an OSI
+licence and no proprietary components; the project already released in the form to be
+signed; builds from this repository on GitHub-hosted runners; build scripts reviewed as
+source; every release approved by a person; MFA for every team member; a code signing policy
+page linked from the home page; uninstall instructions; and no network transfer unless the
+user asks, which is why the update check is opt-in [S 06 §6.4].
 
 CI verifies every signature after signing; a failed check stops the release [S 06 §6.2].
 

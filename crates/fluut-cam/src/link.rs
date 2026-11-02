@@ -117,9 +117,10 @@ pub fn link(cuts: &[Cut], cx: &LinkCx, diags: &mut Vec<Diagnostic>) -> Vec<Pass>
                     h
                 }
             };
-            if z_now > cx.heights.feed {
-                out.line(Point3::new(e.x(), e.y(), cx.heights.feed), Mv::Rapid);
-                z_now = cx.heights.feed;
+            let floor = rapid_floor(cx);
+            if z_now > floor {
+                out.line(Point3::new(e.x(), e.y(), floor), Mv::Rapid);
+                z_now = floor;
             }
             let ramp_top = cut.ramp_from.min(z_now).max(z0);
             let plunge_to = if plan.kind == RampKind::Plunge {
@@ -172,6 +173,16 @@ pub fn link_height(z: f64, cx: &LinkCx) -> f64 {
     h.max(z)
 }
 
+/// Lowest Z a rapid may reach on its way down to an entry (D08 §8.2): the
+/// feed height, but not below `safety_distance` above the material top.
+/// Without the in-process stock the linker cannot tell whether an earlier
+/// toolpath cleared the material above `top`, so below this it feeds.
+pub fn rapid_floor(cx: &LinkCx) -> f64 {
+    cx.heights
+        .feed
+        .max(cx.material_top + cx.linking.safety_distance)
+}
+
 /// Whether the link from `end` to the next entry may stay at depth: same
 /// level, the straight move inside the next cut's tool-centre region, and
 /// the policy allows it (`stay_down` always, `minimum` up to one tool
@@ -199,7 +210,7 @@ fn can_stay(prev: &Cut, end: Point3, next: &Cut, entry: Point2, z0: f64, cx: &Li
     segment_inside(region, p, entry)
 }
 
-fn segment_inside(region: &Region2, p: Point2, q: Point2) -> bool {
+pub(crate) fn segment_inside(region: &Region2, p: Point2, q: Point2) -> bool {
     if region.contains(p) == Inside::Out || region.contains(q) == Inside::Out {
         return false;
     }
@@ -596,6 +607,61 @@ mod tests {
             ]
         );
         assert_eq!(r.segments().last().unwrap().end().unwrap().xyz.z(), 30.0);
+    }
+
+    #[test]
+    fn rapids_stay_above_the_material_when_top_is_lower() {
+        // A floor pass whose `top` (10) is below the stock top (20): an
+        // earlier toolpath may have left material above `top`, so rapids end
+        // `safety_distance` above the stock and the tool feeds from there.
+        let h = ResolvedHeights {
+            clearance: 30.0,
+            retract: 25.0,
+            feed: 12.0,
+            top: 10.0,
+            bottom: 0.0,
+        };
+        let cuts = [
+            Cut {
+                area: Some(0),
+                ..Cut::flat(square(0.0, 10.0), 8.0, Turn::Right, 10.0)
+            },
+            Cut {
+                area: Some(0),
+                ..Cut::flat(square(12.0, 10.0), 8.0, Turn::Right, 10.0)
+            },
+        ];
+        let safe = [Region2::rect(-1.0, -1.0, 11.0, 11.0)];
+        for policy in [
+            RetractPolicy::Full,
+            RetractPolicy::Minimum,
+            RetractPolicy::StayDown,
+        ] {
+            let l = linking(policy, LeadKind::None, RampKind::Plunge);
+            let cx = LinkCx {
+                heights: h,
+                material_top: 20.0,
+                linking: &l,
+                tool_diameter: 6.0,
+                tol: 0.01,
+                safe: &safe,
+            };
+            let r = ToolpathResult::new(link(&cuts, &cx, &mut Vec::new())).unwrap();
+            let mut plunges = 0;
+            for s in r.segments() {
+                let (Some(m), Some(a), Some(b)) = (s.motion(), s.start(), s.end()) else {
+                    continue;
+                };
+                if m.motion == Motion::Rapid {
+                    assert!(a.xyz.z().min(b.xyz.z()) >= 21.0 - 1e-9, "{policy:?}: {s:?}");
+                }
+                if m.motion == Motion::Plunge {
+                    assert_eq!(a.xyz.z(), 21.0, "{policy:?}");
+                    plunges += 1;
+                }
+            }
+            assert_eq!(plunges, 2, "{policy:?}");
+        }
     }
 
     #[test]

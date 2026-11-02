@@ -424,6 +424,96 @@ fn calc_reports_each_toolpath() {
 }
 
 #[test]
+fn calc_prints_times_and_sim_verifies() {
+    let o = fluut(&["calc", here("projects/boss/boss.fluut").to_str().unwrap()]);
+    let out = String::from_utf8_lossy(&o.stdout);
+    assert!(
+        out.contains("t1 \"Profile outside\": calculated; cut "),
+        "{out}"
+    );
+    assert!(out.contains(", time 0:"), "{out}");
+    let o = fluut(&["sim", here("projects/boss/boss.fluut").to_str().unwrap()]);
+    let out = String::from_utf8_lossy(&o.stdout);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    assert!(out.contains("s1 \"Top\": simulated at 0.2 mm"), "{out}");
+}
+
+/// Simulation errors a reference project may report, with the reason:
+/// `(project, toolpath, code, reason)`. Anything else fails
+/// `reference_projects_simulate_clean`.
+const ALLOWED_FINDINGS: &[(&str, &str, &str, &str)] = &[
+    (
+        "plate2d",
+        "t2",
+        "sim.gouge",
+        "the score line is cut 0.8 mm into the model's top face by design",
+    ),
+    (
+        "plate2d",
+        "t3",
+        "sim.gouge",
+        "the chamfer is cut into the model's sharp outer edge by design",
+    ),
+    (
+        "dome",
+        "t5",
+        "sim.rapid_in_stock",
+        "open: the 3-D finishing linker (follow.rs) rapids to just above \
+         each entry, assuming a roughed surface, and `dome` has no roughing \
+         (docs/plan/2026-11-01-sim-findings.md, finding 4)",
+    ),
+    (
+        "shaft",
+        "",
+        "sim.setup.rotary",
+        "rotary Setups are not simulated yet (D11 §10)",
+    ),
+];
+
+#[test]
+fn reference_projects_simulate_clean() {
+    // Every reference project through the simulation's checks: rapids in
+    // stock, gouges, holder and shank collisions. The default 0.2 mm rays:
+    // the adaptive pocket of `plate2d` once cut 0.15 mm into its island,
+    // which 0.5 mm rays miss. One thread per project.
+    let projects = [
+        "boss", "block", "ridge", "plate", "plate2d", "holes", "dome", "rough3d", "shaft", "vcarve",
+    ];
+    let outputs: Vec<(&str, String)> = std::thread::scope(|sc| {
+        let hs: Vec<_> = projects
+            .iter()
+            .map(|&p| {
+                sc.spawn(move || {
+                    let path = here(&format!("projects/{p}/{p}.fluut"));
+                    let o = fluut(&["sim", path.to_str().unwrap()]);
+                    (p, String::from_utf8_lossy(&o.stderr).into_owned())
+                })
+            })
+            .collect();
+        hs.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+    let mut unexpected = Vec::new();
+    for (p, err) in outputs {
+        // `error [t2] code: message` or `error code: message`.
+        for l in err.lines().filter(|l| l.starts_with("error ")) {
+            let rest = &l["error ".len()..];
+            let (tp, rest) = match rest.strip_prefix('[') {
+                Some(r) => r.split_once("] ").unwrap(),
+                None => ("", rest),
+            };
+            let code = rest.split(':').next().unwrap();
+            if !ALLOWED_FINDINGS
+                .iter()
+                .any(|a| (a.0, a.1, a.2) == (p, tp, code))
+            {
+                unexpected.push(format!("{p}: {l}"));
+            }
+        }
+    }
+    assert!(unexpected.is_empty(), "{}", unexpected.join("\n"));
+}
+
+#[test]
 fn errors_and_usage() {
     let d = tmp("errors");
     let text = std::fs::read_to_string(here("projects/boss/boss.fluut"))

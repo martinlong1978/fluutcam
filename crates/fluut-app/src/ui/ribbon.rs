@@ -53,6 +53,12 @@ pub fn show(ui: &mut egui::Ui, jobs: &mut Jobs, state: &mut UiState) {
                     if command(ui, &vm, Command::Calculate) {
                         jobs.calculate(CalcTargets::All);
                     }
+                    if command(ui, &vm, Command::Simulate)
+                        && let Some(s) = jobs.snapshot.clone()
+                        && let Some(id) = super::viewport::shown_setup(&s, &state.selection)
+                    {
+                        jobs.simulate(&id);
+                    }
                     if command(ui, &vm, Command::Cancel) {
                         jobs.cancel();
                     }

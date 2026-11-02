@@ -17,14 +17,19 @@ open source and permissive. `egui` is MIT/Apache and was chosen (OQ-09).
 
 | Platform | Package | Signing |
 |---|---|---|
-| Windows | MSI installer (and portable zip) | Authenticode, verified in CI after signing |
-| macOS | DMG, universal binary (arm64 + x86_64) | Developer ID signed and notarized |
-| Linux | AppImage and Flatpak | signed AppImage; Flathub signing for Flatpak |
+| Windows | MSI installer (and portable zip) | Authenticode through the SignPath Foundation open-source programme, verified in CI after signing |
+| macOS | DMG, universal binary (arm64 + x86_64) | Ad hoc only: no Developer ID and no notarisation, because Apple has no free programme for open-source projects (decided 2026-11-01). Users open the app once with right-click → Open |
+| Linux | AppImage and Flatpak | Flathub signing for Flatpak; AppImage and tarball rely on the attestation |
+
+Every release file also gets a GitHub build provenance attestation (Sigstore), and the
+checksums are signed with minisign. The public signing rules, team roles and privacy statement
+are in [`docs/CODE_SIGNING.md`](../CODE_SIGNING.md), as the SignPath Foundation terms require.
 
 Updates:
 
 - The app checks for updates over **HTTPS only**.
-  The check is opt-out in settings and sends no data beyond the request itself.
+  The check is opt-in: the app asks on first start and the answer can be changed in settings.
+  It sends no data beyond the request itself.
 - The update manifest is signed (Ed25519, e.g. minisign). The app verifies the manifest and the
   download hash before offering the update.
 - Installation always needs user confirmation. No silent updates.
@@ -50,7 +55,7 @@ CI verifies every signed artefact; a release with a failed signature check is no
 |---|---|
 | Crash reports | Opt-in, off by default. After a crash, the user is asked and can view the full report before sending. Reports contain no geometry or project data unless the user attaches it. |
 | Telemetry / usage analytics | **Still open.** If any is added it MUST be opt-in, documented, and viewable. |
-| Update check | Opt-out; sends only the version and platform needed to choose an update. |
+| Update check | Opt-in (asked on first start); sends nothing beyond the request for the signed release list. Opt-in so that the code-signing privacy statement holds: the program transfers nothing unless the user asks (`docs/CODE_SIGNING.md`). |
 | Network use | No other network access, except actions the user starts (e.g. opening online help). |
 
 ## 6.5 Still open

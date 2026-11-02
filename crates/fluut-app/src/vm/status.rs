@@ -22,6 +22,14 @@ impl StatusVm {
             let (done, total) = r.cx.progress.get();
             let text = match r.kind {
                 JobKind::Open => tr_args("job-opening", &[("file", &r.subject)]),
+                JobKind::Simulate => {
+                    let name = jobs
+                        .snapshot
+                        .as_ref()
+                        .and_then(|s| s.project.setup(&r.subject))
+                        .map_or_else(|| r.subject.clone(), |s| s.name.clone());
+                    tr_args("job-simulating", &[("setup", &name)])
+                }
                 JobKind::Post if r.toolpath.is_none() => {
                     tr_args("job-posting", &[("post", &r.subject)])
                 }
@@ -65,6 +73,10 @@ impl StatusVm {
                         false,
                     )
                 }
+                Outcome::Simulated { findings } => (
+                    tr_args("job-simulated", &[("count", &findings.to_string())]),
+                    false,
+                ),
                 Outcome::Cancelled => (tr("job-cancelled"), false),
                 Outcome::Failed(d) => {
                     let reason = d.first().map(diagnostic).unwrap_or_default();

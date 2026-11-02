@@ -16,11 +16,15 @@ fluut-io-step.workspace = true
 fluut-model.workspace = true
 fluut-path.workspace = true
 fluut-post.workspace = true
+fluut-sim.workspace = true
 fluut-topo.workspace = true
 glam.workspace = true
 postcard.workspace = true
 serde.workspace = true
 sha2.workspace = true
+
+[dev-dependencies]
+rayon.workspace = true
 
 [lints]
 workspace = true

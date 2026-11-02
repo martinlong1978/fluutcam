@@ -76,6 +76,29 @@ fn helix_with_even_pitch_ends_at_the_bottom() {
 }
 
 #[test]
+fn rapids_stay_above_the_stock_when_top_is_lower() {
+    // `top` 3 below the hole's top (15): material the bore cannot see may
+    // lie above it, so the approach rapids to the stock top + 1 and feeds
+    // from there (D08 §8.2).
+    let g = load(&step::holes([0.0; 3]));
+    let t = tp(
+        "bore",
+        "f6",
+        &format!(
+            "{BLIND}[heights]
+top = {{ ref = \"selection\", offset = -3 }}
+"
+        ),
+    );
+    let r = run(&g, &t, stock());
+    let rapids = moves(&r, Motion::Rapid);
+    assert!(!rapids.is_empty());
+    assert!(rapids.iter().all(|s| start(s).z().min(end(s).z()) >= 16.0));
+    let p = moves(&r, Motion::Plunge);
+    assert_eq!((start(p[0]).z(), end(p[0]).z()), (16.0, 12.0));
+}
+
+#[test]
 fn finishing_pass_stock_and_direction() {
     let g = load(&step::holes([0.0; 3]));
     let t = tp(

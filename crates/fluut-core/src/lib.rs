@@ -14,13 +14,17 @@ pub mod frame;
 pub mod graph;
 pub mod reimport;
 pub mod session;
+pub mod sim;
 pub mod store;
+
+pub use fluut_sim;
 
 pub use frame::SetupFrame;
 pub use graph::{Graph, NodeId};
 pub use session::{
     JobReport, JobState, OpenOptions, PostOptions, Session, Targets, builtin_library,
 };
+pub use sim::{SimResult, SimSettings};
 pub use store::{LoadedSource, ModelStore};
 
 /// Version of the calculation code, part of every result hash (D01 §4).
