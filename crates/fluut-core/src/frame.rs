@@ -37,6 +37,13 @@ pub struct SetupFrame {
     /// Z of the Setup clearance plane in W; in a rotary Setup the radius
     /// of the clearance cylinder.
     pub clearance: f64,
+    /// Rotary and indexed Setups: the largest distance from the rotary
+    /// axis of the stock and the bodies. Everything that turns with A lies
+    /// within it, at any moment (spec 03 §3.9.5).
+    pub turn_radius: Option<f64>,
+    /// The turn radius + the clearance offset: the Z in W the tool rises
+    /// to before A turns.
+    pub turn_clearance: Option<f64>,
     /// Rotary data of a `rotary` Setup.
     pub rotary: Option<RotaryFrame>,
     /// Data of an `indexed` Setup.
@@ -277,6 +284,8 @@ impl SetupFrame {
             clearance: stock.max.z() + offset,
             stock,
             model,
+            turn_radius: None,
+            turn_clearance: None,
             rotary: None,
             index: None,
         })
@@ -422,6 +431,21 @@ fn turned_box(b: &Aabb3, t: &Affine) -> Aabb3 {
     out
 }
 
+/// The largest distance from the X axis of a point of `b`.
+fn box_radius(b: &Aabb3) -> f64 {
+    let y = b.min.y().abs().max(b.max.y().abs());
+    let z = b.min.z().abs().max(b.max.z().abs());
+    (y * y + z * z).sqrt()
+}
+
+/// The Setup's clearance offset: the plane's, else the default.
+fn clearance_offset(s: &ResolvedSetup) -> f64 {
+    s.clearance
+        .as_ref()
+        .and_then(ClearanceSpec::plane_offset)
+        .unwrap_or(ClearanceSpec::DEFAULT_OFFSET)
+}
+
 /// The frame of a `rotary` or `indexed` Setup (spec 03 §3.9.3): X of W
 /// along the rotary axis, +Z toward `a_zero_toward` at A = 0, Y and Z of
 /// the zero on the axis; an indexed Setup is then turned by its index
@@ -519,6 +543,19 @@ fn rotary_frame(
         Some(c) => radius + c.plane_offset().unwrap_or(ClearanceSpec::DEFAULT_OFFSET),
         None => radius + ClearanceSpec::DEFAULT_OFFSET,
     };
+    // A turns on the rapids at the clearance cylinder (spec 03 §3.9.2).
+    let turn = radius.max(model_r.1);
+    if clearance <= turn {
+        return Err(Diagnostic::error(
+            "setup.clearance.index_unsafe",
+            format!(
+                "Setup `{}`: the clearance cylinder (radius {clearance}) must lie outside \
+                 the stock and the part (radius {turn})",
+                s.id
+            ),
+        )
+        .at("clearance"));
+    }
     let (x0, x1) = (x0 - zx, x1 - zx);
     Ok(SetupFrame {
         to_work,
@@ -529,6 +566,8 @@ fn rotary_frame(
         },
         model,
         clearance,
+        turn_radius: Some(turn),
+        turn_clearance: Some(turn + clearance_offset(s)),
         rotary: Some(RotaryFrame {
             stock_radius: radius,
             stock_x: (x0, x1),
@@ -610,12 +649,18 @@ fn indexed_frame(
         Some(c) => stock.max.z() + c.plane_offset().unwrap_or(ClearanceSpec::DEFAULT_OFFSET),
         None => stock.max.z() + ClearanceSpec::DEFAULT_OFFSET,
     };
+    // Radii about the axis do not change with the turn: the block at A = 0.
+    let turn_radius = cylinder
+        .unwrap_or_else(|| box_radius(&at_zero))
+        .max(box_radius(mb));
     Ok(SetupFrame {
         to_work,
         geometry,
         stock,
         model,
         clearance,
+        turn_radius: Some(turn_radius),
+        turn_clearance: Some(turn_radius + clearance_offset(s)),
         rotary: None,
         index: Some(IndexFrame {
             angle: s.index_angle,

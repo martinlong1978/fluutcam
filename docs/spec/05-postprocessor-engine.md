@@ -154,7 +154,7 @@ its group changes. This generalizes Vectric's `FIRST_*` block pairs.
 | `footer` | program end | `FOOTER` |
 | `tool_change` | tool differs from previous | `TOOLCHANGE` |
 | `setup_start` | each Setup | — |
-| `rotary_index` | indexed Setup start: move rotary axis to the index angle | — |
+| `rotary_index` | indexed Setup start: move rotary axis to the index angle, after the turn retract (§5.6) | — |
 | `rotary_clamp` / `rotary_unclamp` | after indexing / before rotary motion or re-index; lines default to machine `clamp`/`unclamp` codes | — |
 | `setup_end` | each Setup | — |
 | `toolpath_start` | each Toolpath | `NEW_SEGMENT` |
@@ -269,6 +269,8 @@ validate(post)                                                // §5.2.5
 emit block header
 for setup in setups:                                          // machining order (03 §3.9)
     emit block setup_start                                    // work offset, comments
+    if setup.kind in (indexed, rotary) and setup.turn_z and the tool has moved:
+        emit block rapid with only [Z] = setup.turn_z          // turn clearance (03 §3.9.5)
     if setup.kind == indexed:
         if rotary clamped: emit block rotary_unclamp
         emit block rotary_index                               // [INDEX_A] = resolved angle (03 §3.9.5)
@@ -297,6 +299,13 @@ Toolpath.
 
 Linearization and splitting happen in the post engine. The toolpath stays exact and
 machine-independent, so switching posts never needs recalculation.
+
+**Turn retract.** A turns at the start of an indexed Setup (`rotary_index`) and on the first move
+of a rotary Setup. Before either, the engine fires `rapid` with only `[Z]` set to the Setup's turn
+height (03 §3.9.5), in the new Setup's work offset, whose zero lies on the rotary axis. It does so
+only once a motion line has been written: the program's first turn assumes the machine starts
+clear, as its first rapid does. A post that wants a machine-coordinate retract as well can add it
+to `rotary_index`.
 
 ## 5.7 Rotary feed
 

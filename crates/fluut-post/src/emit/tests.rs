@@ -653,6 +653,52 @@ fn indexed_setups_clamp_and_unclamp() {
     assert_eq!(seq, ["G0 A0", "M10", "M11", "G0 A90", "M10", "M11"]);
 }
 
+#[test]
+fn turns_retract_to_the_turn_height_once_the_tool_has_moved() {
+    let c = compiled(
+        "[blocks.rotary_index]\nlines=['G0 A[INDEX_A]']\n[blocks.rotary_unclamp]\nlines=['M11']",
+    );
+    let mut j = job(vec![toolpath("A", 1, pocket())]);
+    let s0 = SetupJob {
+        turn_z: Some(42.5),
+        ..j.setups[0].clone()
+    };
+    j.setups = vec![
+        SetupJob {
+            kind: SetupKind::Indexed,
+            index_a: Some(0.0),
+            ..s0.clone()
+        },
+        SetupJob {
+            kind: SetupKind::Indexed,
+            index_a: Some(180.0),
+            ..s0.clone()
+        },
+        SetupJob {
+            kind: SetupKind::Rotary,
+            ..s0
+        },
+    ];
+    let out = post(&j, &c).unwrap();
+    let l = lines(&out);
+    let at = |s: &str| l.iter().position(|x| *x == s).unwrap();
+    // Not before the first index: nothing has moved yet.
+    assert_eq!(l.iter().filter(|x| **x == "G0 Z42.5").count(), 2, "{l:?}");
+    assert!(at("G0 A0") < at("G0 Z42.5"), "{l:?}");
+    assert_eq!(l[at("G0 A180") - 1], "G0 Z42.5", "{l:?}");
+    // The rotary Setup retracts before its first move.
+    let last = l.iter().rposition(|x| *x == "G0 Z42.5").unwrap();
+    assert!(at("G0 A180") < last, "{l:?}");
+    assert!(l[last + 1..].iter().any(|x| x.starts_with("G0 X")), "{l:?}");
+
+    // Without a turn height nothing is added.
+    for s in &mut j.setups {
+        s.turn_z = None;
+    }
+    let out = post(&j, &c).unwrap();
+    assert!(!lines(&out).contains(&"G0 Z42.5"));
+}
+
 const DRILL: &str = "[cycles]\nenabled = true\nsupported = ['drill', 'peck']\n[blocks.cycle_start]\nlines = ['G81 [X] [Y] Z[CYCLE_Z] R[CYCLE_R] F[F]']\n[blocks.cycle_point]\nlines = ['[X] [Y]']\n[blocks.cycle_end]\nlines = ['G80']";
 
 fn holes(kind: CycleKind, peck: Option<f64>) -> Arc<ToolpathResult> {

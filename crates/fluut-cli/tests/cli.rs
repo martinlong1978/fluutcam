@@ -284,6 +284,48 @@ fn golden_two_sided() {
     let a0 = g.lines().position(|l| l == "G0 A0").unwrap();
     let a180 = g.lines().position(|l| l == "G0 A180").unwrap();
     assert!(a0 < a180);
+    // Before the turn the tool rises clear of the block's corners
+    // (y ±30, z 9 about the axis) by the clearance offset.
+    let z: f64 = g.lines().nth(a180 - 1).unwrap()["G0 Z".len()..]
+        .parse()
+        .unwrap();
+    assert!(
+        (z - (30.0f64 * 30.0 + 9.0 * 9.0).sqrt() - 10.0).abs() < 1e-3,
+        "{z}"
+    );
+}
+
+#[test]
+fn two_sided_turn_above_the_z_travel_fails() {
+    let d = tmp("flip-travel");
+    for sub in ["tools", "posts", "machines"] {
+        std::fs::create_dir_all(d.join(sub)).unwrap();
+    }
+    for f in [
+        "flipside.fluut",
+        "flipside.step",
+        "tools/shop.toml",
+        "posts/linuxcnc-4x.post.toml",
+    ] {
+        std::fs::copy(here(&format!("projects/flipside/{f}")), d.join(f)).unwrap();
+    }
+    let m = std::fs::read_to_string(here("projects/flipside/machines/router-4x.machine.toml"))
+        .unwrap()
+        .replace("[spindle]", "[travel]\nz = [-100, 30]\n\n[spindle]");
+    std::fs::write(d.join("machines/router-4x.machine.toml"), m).unwrap();
+    let mut s = Session::open(&d.join("flipside.fluut"), &[]).unwrap();
+    assert!(s.warnings.is_empty(), "{:?}", s.warnings);
+    let store = s.library.mem_store(fluut_model::library::DefKind::Post);
+    let opts = PostOptions {
+        date: "2026-11-01".into(),
+        time: "12:00:00".into(),
+        notes: String::new(),
+    };
+    let e = s.post("shop/linuxcnc-4x", &store, &opts).unwrap_err();
+    assert!(
+        e.iter().any(|d| d.code == "setup.clearance.index_travel"),
+        "{e:?}"
+    );
 }
 
 #[test]

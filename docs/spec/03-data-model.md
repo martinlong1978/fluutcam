@@ -270,7 +270,7 @@ Toolpaths hold only what differs per cut: tool, toolpath type, parameters, face 
 |---|---|---|---|
 | `three_axis` | not used (or absent) | 3-axis strategies (04 §4.3–4.6, §4.8) | X Y Z |
 | `rotary` | moves (simultaneous 4-axis) | rotary strategies (04 §4.7) | X Y Z A (Y usually constant) |
-| `indexed` | locked at `indexAngle` | 3-axis strategies, in the rotated frame | A once at setup start, then X Y Z |
+| `indexed` | locked at `indexAngle` | 3-axis strategies, in the rotated frame | retract to the turn clearance (§3.9.5), A once at setup start, then X Y Z |
 
 `rotary` and `indexed` need a machine with a rotary axis (02 §2.3). A 5-axis machine's second
 rotary axis (B) follows the same pattern as `indexed` with two angles (3+2 machining). Full
@@ -350,6 +350,16 @@ continuous.
 At the start of an indexed Setup, the post emits the rotary positioning move to the resolved
 angle, then the clamp code if the machine defines one (05 §5.4.1). At the end, or before a
 `rotary` Setup, it emits the unclamp code.
+
+**Turn clearance.** A turn swings the stock's corners above a clearance plane. Before A turns at
+a Setup start (an indexed Setup, or a rotary one after another Setup), once the tool has moved,
+the post raises it to the **turn clearance**: the largest distance from the rotary axis of the
+stock and the bodies, plus the clearance offset (the plane's `offset`, else 10 mm), the larger of
+the Setup's and the previous Setup's (05 §5.6, D08 §7). The user sets no radius. The machine's
+`travel.z` is read as the tool tip's range with length compensation; a turn clearance above
+`travel.z[1] − centre.z` of the rotary axis is an error, `setup.clearance.index_travel`. In a
+`rotary` Setup A turns on rapids at the clearance cylinder, so a clearance cylinder not larger than
+the stock and the bodies' radius is an error, `setup.clearance.index_unsafe`.
 
 In FluutCAM the geometry is never rotated by the user. The index angle is one Setup parameter, and both the toolpath frame and the A output
 derive from it, so they cannot disagree.

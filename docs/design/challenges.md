@@ -341,6 +341,8 @@ high; rotary parents become planar slices of their revolved outline. The simulat
 starts from the parent's simulated stock for multiples of 90°. Other angles and rotary parents
 start the simulation from the full stock (`sim.stock.full`).
 
+**2026-11-02.** The turn between Setups is safe by construction ([index clearance plan](../plan/2026-11-02-index-clearance.md)): before A turns, the post raises the tool to the turn radius (the stock and the bodies about the axis, which hold every in-process stock) + the clearance offset (D08 §7, spec 05 §5.6). The simulation checks the turn against the simulated stock (`sim.index_turn`, D11 §5). `flipside` no longer needs a hand-chosen clearance cylinder.
+
 ### CH-16 Constant-engagement clearing (optimised load): robustness and speed
 
 **Problem.** Constant-engagement clearing is the hardest v1 strategy. Published and open-source
