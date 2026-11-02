@@ -658,7 +658,7 @@ impl Session {
                 .toolpaths
                 .iter()
                 .zip(&wanted)
-                .rposition(|(t, w)| *w && t.is_enabled() && t.params.reads_in_process());
+                .rposition(|(t, w)| *w && t.is_enabled() && t.params.reads_stock());
             if let Some(i) = last_reader {
                 wanted[..i].iter_mut().for_each(|w| *w = true);
             }
@@ -773,7 +773,7 @@ impl Session {
                         continue;
                     }
                 };
-                let in_process = if t.params.reads_in_process() {
+                let in_process = if t.params.reads_stock() {
                     stock.as_ref()
                 } else {
                     None

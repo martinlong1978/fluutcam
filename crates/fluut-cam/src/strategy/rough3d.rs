@@ -26,7 +26,7 @@ use crate::chain::Piece;
 use crate::drive::{areas, faces, is_horizontal_plane};
 use crate::geometry::{BodyGeom, face_z_range};
 use crate::layout::levels;
-use crate::link::{Cut, LinkCx, Turn, link};
+use crate::link::{Cut, LinkCx, StockFloor, Turn, link_over};
 use crate::moves::finish;
 use crate::path2::Path2;
 use crate::region::Region2;
@@ -281,7 +281,7 @@ pub fn generate(input: &StrategyInput) -> Result<Generated, CamError> {
         tol,
         safe: &safe,
     };
-    let passes = link(&cuts, &cx, &mut diags);
+    let passes = link_over(&cuts, &cx, StockFloor::of(input), &mut diags);
     let passes = finish(
         passes,
         p.passes.output_arcs,

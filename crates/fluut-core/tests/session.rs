@@ -533,3 +533,56 @@ based_on = "s1"
         .unwrap_err();
     assert_eq!(e[0].code, "post.setup.missing");
 }
+
+#[test]
+fn linking_toolpaths_depend_on_earlier_stock_updates() {
+    // A 2-D toolpath's rapids stop above the in-process stock (D08 §8.2),
+    // so its result follows the earlier stock-updating toolpaths, without
+    // `rest_from`. A 3-D finishing toolpath's does not.
+    let (dir, id) = workspace("link-hash");
+    let extra = format!(
+        r#"
+  [[setup.toolpath]]
+  id   = "t2"
+  name = "Finish"
+  type = "parallel"
+  tool = "shop#flat-6"
+
+  [[setup.toolpath]]
+  id   = "t3"
+  name = "Again"
+  type = "contour_2d"
+  tool = "shop#flat-6"
+
+    [setup.toolpath.geometry]
+    drive_curves = [{{ face = "f-{id}.8" }}]
+"#
+    );
+    std::fs::write(dir.join("p.fluut"), project(&id) + &extra).unwrap();
+    let mut s = Session::open(&dir.join("p.fluut"), &[]).unwrap();
+    let g0 = s.graph();
+    assert!(
+        g0.nodes[&NodeId::Result("t3".into())]
+            .deps
+            .contains(&NodeId::Result("t1".into()))
+    );
+    s.project
+        .toolpath_mut("t1")
+        .unwrap()
+        .params
+        .set("passes.stock_to_leave", Some(PValue::Num(Num::float(0.5))))
+        .unwrap();
+    let changed = s.graph().changed(&g0);
+    assert!(
+        changed.contains(&NodeId::Result("t3".into())),
+        "{changed:?}"
+    );
+    assert!(
+        !changed.contains(&NodeId::Result("t2".into())),
+        "{changed:?}"
+    );
+    // Calculating t3 alone calculates t1 first.
+    let r = s.calculate(&Targets::Toolpaths(vec!["t3".into()]));
+    let ids: Vec<&str> = r.iter().map(|r| r.toolpath.as_str()).collect();
+    assert_eq!(ids, ["t1", "t2", "t3"]);
+}

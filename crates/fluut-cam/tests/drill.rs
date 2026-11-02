@@ -5,6 +5,8 @@
 mod support;
 
 use fluut_cam::geometry::face_id;
+use fluut_cam::region::Region2;
+use fluut_cam::stock::LayeredStock;
 use fluut_geom::Point2;
 use fluut_path::{CycleKind, CycleParams, Motion, Segment};
 use support::cam::*;
@@ -194,4 +196,23 @@ fn circles_boundary_and_errors() {
     );
     let e = run_err(&ridge, &t, Stock::new([0.0, 0.0, 0.0], [60.0, 40.0, 16.0]));
     assert!(e.contains(&"cam.drill.axis".into()), "{e:?}");
+}
+
+#[test]
+fn r_plane_over_the_in_process_stock() {
+    // An earlier toolpath cleared the Ø10 counterbore over the hole at
+    // (40, 25) down to Z 12: its R plane is its top + 2, no longer the
+    // stock top + the safety distance. The other holes keep theirs.
+    let g = load(&step::holes([0.0; 3]));
+    let mut st = LayeredStock::planar(&stock().aabb());
+    st.remove_swept(12.0, &Region2::circle(40.0, 25.0, 5.0));
+    let r = run_rest(&g, &tp("drill", "d5", FIVE), stock(), &st);
+    let c = cycles(&r);
+    assert_eq!((c[0].1.retract_z, c[2].1.retract_z), (17.0, 14.0));
+    // A counterbore cleared to less than the tool radius round the hole
+    // leaves material within reach.
+    let mut st = LayeredStock::planar(&stock().aabb());
+    st.remove_swept(12.0, &Region2::circle(40.0, 27.0, 2.0));
+    let r = run_rest(&g, &tp("drill", "d5", FIVE), stock(), &st);
+    assert_eq!(cycles(&r)[2].1.retract_z, 16.0);
 }

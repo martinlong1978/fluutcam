@@ -8,7 +8,7 @@ use super::contour_2d::{offset_chain, selection_z};
 use crate::chain::chain_pieces;
 use crate::cutter::profile::Cutter;
 use crate::drive::{curve_pieces, wall_edges};
-use crate::link::{Cut, LinkCx, link};
+use crate::link::{Cut, LinkCx, StockFloor, link_over};
 use crate::moves::finish;
 use crate::path2::Path2;
 use crate::surface::{FaceSets, SurfaceQuery};
@@ -144,7 +144,7 @@ impl ToolpathType for Chamfer2d {
             tol,
             safe: &[],
         };
-        let passes = link(&cuts, &cx, &mut diags);
+        let passes = link_over(&cuts, &cx, StockFloor::of(input), &mut diags);
         let passes = finish(
             passes,
             p.passes.output_arcs,

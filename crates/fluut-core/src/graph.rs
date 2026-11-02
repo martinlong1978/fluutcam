@@ -102,7 +102,7 @@ impl Graph {
                 let m = material.as_deref();
                 let mut text = format!("{setup_hash}\n{}", toolpath_r_text(t, tool, m));
                 let mut deps = vec![setup.clone()];
-                if t.params.reads_in_process() {
+                if t.params.reads_stock() {
                     text.push_str(&format!("in_process:\n{stock_text}"));
                     deps.extend(stock_deps.iter().cloned());
                 }

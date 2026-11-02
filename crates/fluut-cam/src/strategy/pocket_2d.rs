@@ -7,7 +7,7 @@ use super::contour_2d::selection_z;
 use crate::chain::chain_pieces;
 use crate::drive::{areas, curve_pieces, floor_regions, nest};
 use crate::layout::{layout_even, layout_fixed, levels};
-use crate::link::{Cut, LinkCx, Turn, link};
+use crate::link::{Cut, LinkCx, StockFloor, Turn, link_over};
 use crate::moves::finish;
 use crate::path2::Path2;
 use crate::region::{Region2, Seg2};
@@ -240,7 +240,7 @@ impl ToolpathType for Pocket2d {
             tol,
             safe: &safe,
         };
-        let passes = link(&cuts, &cx, &mut diags);
+        let passes = link_over(&cuts, &cx, StockFloor::of(input), &mut diags);
         let passes = finish(
             passes,
             p.passes.output_arcs,

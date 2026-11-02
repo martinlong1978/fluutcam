@@ -11,7 +11,7 @@ use super::contour_2d::selection_z;
 use crate::chain::chain_pieces;
 use crate::drive::{curve_pieces, nest};
 use crate::layout::levels;
-use crate::link::{Cut, LinkCx, Turn, link};
+use crate::link::{Cut, LinkCx, StockFloor, Turn, link_over};
 use crate::moves::finish;
 use crate::path2::Path2;
 use crate::region::medial::{Edge, MedialAxis, medial_axis};
@@ -186,7 +186,7 @@ impl ToolpathType for Engrave {
             tol: s.tol,
             safe: &[],
         };
-        let passes = link(&cuts, &cx, &mut diags);
+        let passes = link_over(&cuts, &cx, StockFloor::of(input), &mut diags);
         let p = &s.prep.params.passes;
         let passes = finish(passes, p.output_arcs, p.max_segment_length, s.tol);
         let result = ToolpathResult::new(passes).map_err(CamError::Path)?;
