@@ -138,6 +138,11 @@ plane sections ([plan](../plan/2026-11-01-m6-3d-finishing.md)). Findings:
 - *Tangent peaks.* A level just below a smooth top gives a loop that can be smaller than the
   seed-line spacing (R/2) and be missed. The material left is within about R²/(32 ρ) of the
   top, on ground that is shallow there.
+- *Model noise above δ (2026-11-02).* On `nist_ctc_02` the drafted walls' top edges stand up
+  to 0.9 µm above the flat they meet at Z 0, so the level at Z 0 finds slivers a micron high
+  that no trace can follow. A lost contour around material less than tol/4 high for a step
+  inwards is now dropped, not reported as `cam.contour.loop_open`
+  ([plan](../plan/2026-11-01-waterline-robust.md)).
 - *Cliffs.* At a vertical wall τ jumps, and the drop's contact is on top of the wall, not at
   the level. Slope and drive face are then taken from the face the side of the tool touches
   at the level. Without this, the drive faces of a boss were mixed up at the level.
@@ -280,6 +285,8 @@ correctness.
 arithmetic on patches for guaranteed bounds if misses occur.
 
 **S1 (2026-10-31).** Belongs to S2; S1 provides the bodies (176 B-spline faces in the corpus).
+
+**Waterlines (2026-11-02).** The lost waterline traces on `nist_ctc_02` (188 of 391 contours at a 20 mm step-down) were drop misses, on analytic faces, not free-form ones. A Ø6 ball beside a cylinder wall drafted 2° touches it at the rim of its footprint. The face's tangent point lay just above its trimmed top, and the top edge, a B-spline 3 µm off the surface, lay just out of reach, so neither solver found the top of the wall and the drop fell 38–128 mm over a band about 3 µm wide. A face whose best stationary point is trimmed away now searches its own boundary (the trim loops on the surface); the result counts where it beats every other contact by more than the trim chord, so models without gaps give the same drops. A synthetic drafted band with a 3 µm edge gap is the regression test ([plan](../plan/2026-11-01-waterline-robust.md)). Model gaps meeting near-vertical walls are the case to watch: there a micron of gap moves τ by the wall's height.
 
 **S2 (2026-11-01).** Measured. The final seeding: targets in the footprint projected vertically onto the surface, starts from closed-form closest points (analytic) or a 4 × 4 patch sample (B-spline), and 3 Newton starts ranked by τ. It has no misses on 600 synthetic reference points. On 7 560 corpus points the remaining differences are at most 3.2e-5 mm: trim polylines and a verified model gap, plus five 1e-6 mm cases beside model gaps that were not traced. Four seeding bugs found by the corpus gave misses of 0.3–30 mm before they were fixed. One Newton start misses by up to 1.4 mm. About half of all Newton runs do not converge because the primitive has no interior contact, so non-convergence cannot signal a failure; D07's `NoConvergence` rule is suspended. Interval bounds were not needed. Stays deferred: the guard is the reference test plus the hard points kept as tests ([S2 report](../plan/spikes/s2-cutter-queries.md) §3).
 

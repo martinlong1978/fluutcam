@@ -282,6 +282,15 @@ pub fn level_residual(geom, xy: Point2, z: f64) -> (f64, Vec2);   // τ(xy) − 
 `∇τ = −(n_x, n_y)/n_z` (generalised for edges and vertices via the tool surface normal at the
 contact). The waterline tracer in D09 uses predictor–corrector on `level_residual = 0`.
 
+**Waterline follow-up (2026-11-02,** [plan](../plan/2026-11-01-waterline-robust.md)**).**
+- *Window.* `DropOptions` has a `ceiling` beside `floor`: the search stops at the first
+  contact at or above it. A waterline classifies with floor and ceiling a few steps either side
+  of the level: the side is always right and τ is exact inside the window.
+- *Face boundaries.* A face whose best stationary point falls outside its trim searches its
+  own boundary (the trim loops mapped onto the surface; segments bounded from their ends,
+  refined by Brent, footprint crossings bisected). The result is used only where it beats
+  every other contact by more than the trim chord, where the edge solvers missed it (CH-12).
+
 ## 8. Performance targets (single thread)
 
 | Query | Target |

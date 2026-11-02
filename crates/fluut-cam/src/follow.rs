@@ -638,6 +638,10 @@ pub struct Linker<'a> {
     /// second point, at the first point's Z, stays clear of the material
     /// at that level. `None`: level runs never stay down.
     pub level_clear: Option<&'a dyn Fn(Point3, Point3) -> bool>,
+    /// The top of the material: the stock top, or `top` if higher. A
+    /// finishing toolpath cannot see what earlier toolpaths left, so rapids
+    /// stay `safety` above it (D08 §8.2, the rapid floor of `link`).
+    pub material_top: f64,
 }
 
 impl std::fmt::Debug for Linker<'_> {
@@ -692,7 +696,9 @@ impl Linker<'_> {
                         }
                     }
                     let z_now = out.cur().map_or(entry.z(), |c| c.z());
-                    let rapid_to = (entry.z() + self.safety).max(z_now.min(self.h.feed));
+                    // Rapid down to the rapid floor, then plunge.
+                    let floor = self.h.feed.max(self.material_top + self.safety);
+                    let rapid_to = (entry.z() + self.safety).max(z_now.min(floor));
                     if rapid_to < z_now {
                         out.line(Point3::new(entry.x(), entry.y(), rapid_to), Mv::Rapid);
                     }
@@ -774,9 +780,9 @@ impl Linker<'_> {
     }
 
     /// Link height from `a` to `b` (D08 §8.2): `safety_distance` above the
-    /// highest geometry the tool can meet, capped at `retract` for
-    /// `minimum` and `stay_down`; `retract` for `full`. Never below the
-    /// geometry bound or either end.
+    /// highest geometry the tool can meet and above the material top,
+    /// capped at `retract` for `minimum` and `stay_down`; `retract` for
+    /// `full`. Never below the geometry bound or either end.
     fn link_height(&self, a: Point3, b: Point3) -> f64 {
         let bound = self
             .pl
@@ -787,7 +793,9 @@ impl Linker<'_> {
         let need = bound + self.safety;
         let hgt = match self.retract {
             RetractPolicy::Full => self.h.retract,
-            RetractPolicy::Minimum | RetractPolicy::StayDown => need.min(self.h.retract),
+            RetractPolicy::Minimum | RetractPolicy::StayDown => need
+                .max(self.material_top + self.safety)
+                .min(self.h.retract),
         };
         if hgt < bound { need } else { hgt }
     }

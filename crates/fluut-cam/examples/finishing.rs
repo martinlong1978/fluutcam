@@ -7,7 +7,9 @@
 //! `FLUUT_STEP_CORPUS=<dir>`; `FLUUT_TYPES=contour,spiral` picks types and
 //! `FLUUT_STEP_DOWN` sets the waterline step-down (default 2 mm).
 //! Ø6 ball (Ø6 flat for `horizontal`), every face a drive face, tolerance
-//! 0.01 mm, one thread. Reports the time per output CL point.
+//! 0.01 mm. Waterline levels and seed lines run on all cores;
+//! `RAYON_NUM_THREADS=1` gives one thread. Reports the time per output CL
+//! point.
 
 use fluut_cam::geometry::{BodyGeom, SetupBody, SetupGeometry};
 use fluut_cam::{StrategyInput, calculate};

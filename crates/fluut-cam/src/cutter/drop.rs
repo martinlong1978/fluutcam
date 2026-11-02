@@ -16,6 +16,9 @@ pub struct DropOptions {
     pub slack: f64,
     /// Ignore contacts below this tip height.
     pub floor: f64,
+    /// Stop at the first contact at or above this tip height: the result
+    /// is then some contact that high, not the highest.
+    pub ceiling: f64,
 }
 
 impl Default for DropOptions {
@@ -24,6 +27,7 @@ impl Default for DropOptions {
             seeding: Seeding::default(),
             slack: 1e-7,
             floor: f64::NEG_INFINITY,
+            ceiling: f64::INFINITY,
         }
     }
 }
@@ -74,17 +78,64 @@ pub fn drop(
 ) -> Option<Contact> {
     let ax = Axis { x, y };
     let mut best: Option<Contact> = None;
+    // Faces whose highest stationary point is outside their trim, with its τ.
+    let mut trimmed: Vec<(u32, f64)> = Vec::new();
     g.bvh.best_first(
         opts.floor,
         |b| bound(b, ax, c) - opts.slack,
         |i, _| {
-            let r = solve_prim(g, i, ax, c, &opts.seeding, stats)?;
+            let r = match g.prims[i as usize] {
+                Prim::Face { face, uv } => {
+                    let (r, t) = solve::face_trimmed(
+                        g,
+                        face,
+                        uv,
+                        g.prim_box(i),
+                        ax,
+                        c,
+                        &opts.seeding,
+                        stats,
+                    );
+                    if t > r.map_or(f64::NEG_INFINITY, |r| r.tau) {
+                        trimmed.push((face, t));
+                    }
+                    r
+                }
+                _ => solve_prim(g, i, ax, c, &opts.seeding, stats),
+            }?;
             if r.tau > opts.floor && best.is_none_or(|b| r.tau > b.tau) {
                 best = Some(r);
             }
-            Some(r.tau)
+            // At the ceiling nothing more is needed: end the search.
+            Some(if r.tau >= opts.ceiling {
+                f64::INFINITY
+            } else {
+                r.tau
+            })
         },
     );
+    // The boundary of such a face, where it beats every contact by more
+    // than the trim chord: the edges missed it (a model gap).
+    let floor = best.map_or(opts.floor, |b| b.tau.max(opts.floor));
+    if floor < opts.ceiling {
+        // Highest τ first per face, so `dedup` keeps it.
+        trimmed.sort_by(|a, b| a.0.cmp(&b.0).then(b.1.total_cmp(&a.1)));
+        trimmed.dedup_by(|a, b| a.0 == b.0);
+        for (face, t) in trimmed {
+            if t <= floor + g.trim_chord {
+                continue;
+            }
+            stats.rims += 1;
+            let base = floor + g.trim_chord;
+            let above = best.map_or(base, |b| b.tau.max(base));
+            if let Some(r) = solve::rim(g, face, ax, c, above)
+                && r.tau > floor + g.trim_chord
+                && best.is_none_or(|b| r.tau > b.tau)
+            {
+                best = Some(r);
+            }
+        }
+    }
     best
 }
 

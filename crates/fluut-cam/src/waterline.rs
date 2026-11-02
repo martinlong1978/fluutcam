@@ -22,8 +22,10 @@
 use crate::follow::CUTOFF;
 use crate::layout::layout_even;
 use crate::region::{Inside, Region2};
-use crate::surface::{Probe, SurfaceQuery};
+use crate::surface::{Probe, Side, SurfaceQuery};
 use fluut_geom::{Point2, Vec2};
+use rayon::prelude::*;
+use std::f64::consts::FRAC_PI_2;
 
 /// A probe this far above the level just inside the contour is on top of a
 /// cliff (τ jumps), mm.
@@ -35,6 +37,9 @@ const MAX_POINTS: usize = 2_000_000;
 /// Most consecutive points at the smallest step: a kink takes a few, a
 /// spot the trace cannot follow (a missed drop) takes many.
 const MAX_TINY: usize = 64;
+/// Classifying drops are exact within `WINDOW · max_step` of the level
+/// and stop early beyond it.
+const WINDOW: f64 = 4.0;
 
 /// One contour point: on the τ ≤ z side within [`CUTOFF`] of the boundary,
 /// with the slope and drive flag of the contact just inside.
@@ -114,21 +119,32 @@ impl<'a> Waterline<'a> {
             w.dy = ys[1] - ys[0];
         }
         w.y0 = ys[0];
-        for y in ys {
-            let mut prof = Vec::new();
-            for (t0, t1) in region.clip_line(Point2::new(0.0, y), Vec2::new(1.0, 0.0)) {
-                if t1 - t0 <= CUTOFF {
-                    continue;
+        // Lines are independent: in parallel, collected in order (D01 §6).
+        let lines: Vec<SeedLine> = ys
+            .par_iter()
+            .map(|&y| {
+                let mut prof = Vec::new();
+                for (t0, t1) in region.clip_line(Point2::new(0.0, y), Vec2::new(1.0, 0.0)) {
+                    if t1 - t0 <= CUTOFF {
+                        continue;
+                    }
+                    // A span boundary is not a crossing: separate spans by NaN.
+                    if !prof.is_empty() {
+                        prof.push((f64::NAN, f64::NAN));
+                    }
+                    w.profile(y, t0, t1, &mut prof);
                 }
-                // A span boundary is not a crossing: separate spans by NaN.
-                if !prof.is_empty() {
-                    prof.push((f64::NAN, f64::NAN));
-                }
-                w.profile(y, t0, t1, &mut prof);
-            }
-            w.lines.push(SeedLine { y, prof });
-        }
+                SeedLine { y, prof }
+            })
+            .collect();
+        w.lines = lines;
         w
+    }
+
+    /// The contours of each level of `zs`, in parallel, in the order of
+    /// `zs` (D01 §6: levels are independent).
+    pub fn levels(&self, zs: &[f64]) -> Vec<Vec<Contour>> {
+        zs.par_iter().map(|&z| self.level(z)).collect()
     }
 
     fn tau(&self, p: Point2) -> f64 {
@@ -171,47 +187,89 @@ impl<'a> Waterline<'a> {
         }
     }
 
-    /// Whether `p` is inside {τ > z} at level `z` (classified at z + δ).
-    fn inside(&self, p: Point2, z: f64) -> (bool, Option<Probe>) {
-        let pr = self.q.probe(p.x(), p.y());
-        (pr.is_some_and(|h| h.tip > z + DELTA), pr)
+    /// The side of level `z` at `p` (classified at z + δ), with τ − (z + δ)
+    /// clamped to the window.
+    fn side(&self, p: Point2, z: f64) -> Side {
+        self.q
+            .above(p.x(), p.y(), z + DELTA, WINDOW * self.max_step)
     }
 
     /// The boundary on the segment from `inn` (inside) to `out` (outside),
-    /// to [`CUTOFF`]: the outside end and the probe at the inside end.
-    fn bisect(&self, mut inn: Point2, mut out: Point2, z: f64, mut pin: Probe) -> (Point2, Probe) {
-        let full = (out - inn).length();
-        // Regula falsi on τ − z (Illinois), with bisection when it stalls.
-        let g = |pr: Option<&Probe>| pr.map_or(-full.max(1.0), |h| h.tip - (z + DELTA));
-        let mut gin = g(Some(&pin));
-        let mut gout = g(self.q.probe(out.x(), out.y()).as_ref());
+    /// to [`CUTOFF`]: the outside end and the full probe at the inside
+    /// end.
+    ///
+    /// Regula falsi on τ − z (Illinois), with bisection when it stalls. At
+    /// a cliff (the tip far above the level, so τ jumps) the inside end's
+    /// contact `P` holds the tip up until it leaves the footprint, so the
+    /// boundary is no nearer `out` than where |axis − P| = R. The trial is
+    /// just beyond that point: outside, it closes the bracket at once;
+    /// inside, its contact gives the next such point.
+    fn bisect(
+        &self,
+        mut inn: Point2,
+        mut out: Point2,
+        z: f64,
+        si: Side,
+        so: Side,
+    ) -> Option<(Point2, Probe)> {
+        let (mut gin, mut gout) = (si.g, so.g);
+        let mut cin = si.contact;
+        let w = WINDOW * self.max_step;
         let mut side = 0i32;
-        let mut width = full;
+        let mut width = (out - inn).length();
         let mut stall = 0;
+        // Cliff steps, while those that land inside move the inside end by
+        // less than half the move before (a steep wall, not a cliff: its
+        // contact slides as the axis moves, and the steps barely shrink).
+        let mut cliffs = true;
+        let mut moved = f64::INFINITY;
         while (out - inn).length() > CUTOFF {
-            let frac = if stall >= 2 || !(gin > 0.0 && gout <= 0.0) {
+            let d = out - inn;
+            let len = d.length();
+            let cliff = cin.filter(|_| gin >= w && cliffs).and_then(|p| {
+                let s = exit(inn, d * (1.0 / len), p, self.q.radius())?;
+                (s > 0.5 * CUTOFF && s < len - 0.5 * CUTOFF).then_some(s / len)
+            });
+            let frac = if let Some(f) = cliff {
+                f + 0.45 * CUTOFF / len
+            } else if stall >= 2 || !(gin > 0.0 && gout <= 0.0) {
                 0.5
             } else {
                 (gin / (gin - gout)).clamp(0.05, 0.95)
             };
-            let m = inn + (out - inn) * frac;
-            let (is_in, pr) = self.inside(m, z);
-            let gm = g(pr.as_ref());
-            if is_in {
+            let m = inn + d * frac;
+            let sm = self.side(m, z);
+            if sm.inside {
+                if cliff.is_some() {
+                    let mv = (m - inn).length();
+                    cliffs = mv < 0.5 * moved;
+                    moved = mv;
+                }
                 inn = m;
-                gin = gm;
-                pin = pr.unwrap_or(pin);
+                gin = sm.g;
+                cin = sm.contact;
                 if side == 1 {
                     gout *= 0.5;
                 }
                 side = 1;
             } else {
                 out = m;
-                gout = gm.min(0.0);
+                gout = sm.g.min(0.0);
                 if side == -1 {
                     gin *= 0.5;
                 }
                 side = -1;
+                if let (Some(f), Some(p)) = (cliff, cin) {
+                    // Just inside the exit point P still holds the tip up.
+                    let q = inn + d * (f - 0.45 * CUTOFF / len).max(0.0);
+                    if self
+                        .q
+                        .tip_touching(q.x(), q.y(), p)
+                        .is_some_and(|t| t > z + DELTA)
+                    {
+                        inn = q;
+                    }
+                }
             }
             let w = (out - inn).length();
             if w > 0.5 * width {
@@ -221,35 +279,77 @@ impl<'a> Waterline<'a> {
                 width = w;
             }
         }
-        (out, pin)
+        Some((out, self.q.probe(inn.x(), inn.y())?))
     }
 
-    /// The boundary on the line through `c` along `dir`, within `reach`.
-    fn project(&self, c: Point2, dir: Vec2, reach: f64, z: f64) -> Option<(Point2, Probe)> {
-        let (c_in, c_pr) = self.inside(c, z);
-        let sign = if c_in { -1.0 } else { 1.0 };
-        let mut prev = (c, c_pr);
-        let mut d = 0.125 * reach;
-        while d <= reach * (1.0 + 1e-12) {
-            let p = c + dir * (sign * d);
-            let (p_in, pr) = self.inside(p, z);
-            if p_in != c_in {
-                let (inn, out, pin) = if c_in {
-                    (prev.0, p, prev.1?)
-                } else {
-                    (p, prev.0, pr?)
-                };
-                return Some(self.bisect(inn, out, z, pin));
+    /// The boundary on the line through `c` along `dir` (unit, towards the
+    /// material), within `reach` of `c`. A Newton step on τ − z first: τ
+    /// rises at tan β along the contact direction, so where the probe at
+    /// `c` is exact and not a cliff the root is about −(τ − z) / tan β
+    /// away. A bracket of ±5 % around it, or else one grown from `guess`
+    /// by doubling, then [`Waterline::bisect`].
+    fn locate(
+        &self,
+        c: Point2,
+        dir: Vec2,
+        z: f64,
+        guess: f64,
+        reach: f64,
+    ) -> Option<(Point2, Probe)> {
+        let sc = self.side(c, z);
+        // Towards the boundary.
+        let sign = if sc.inside { -1.0 } else { 1.0 };
+        let at = |s: f64| c + dir * s;
+        let newton = sc.probe.and_then(|pr| {
+            let along = pr.toward.dot(dir);
+            if along < 0.5 || pr.slope < 1e-3 || pr.slope > FRAC_PI_2 - 1e-6 {
+                return None;
             }
-            prev = (p, pr);
-            d *= 2.0;
+            let s = -sc.g / (libm::tan(pr.slope) * along);
+            (s * sign >= 0.0 && s.abs() <= reach).then_some(s)
+        });
+        // The last point on c's side and the first beyond.
+        let mut near = (0.0, sc);
+        let mut far: Option<(f64, Side)> = None;
+        let mut step = guess.max(4.0 * CUTOFF);
+        if let Some(sn) = newton {
+            let e = (0.05 * sn.abs()).max(4.0 * CUTOFF);
+            let s1 = sn + sign * e;
+            let a1 = self.side(at(s1), z);
+            if a1.inside != sc.inside {
+                far = Some((s1, a1));
+                let s0 = sn - sign * e;
+                if s0 * sign > 0.0 {
+                    let a0 = self.side(at(s0), z);
+                    if a0.inside == sc.inside {
+                        near = (s0, a0);
+                    } else {
+                        far = Some((s0, a0));
+                    }
+                }
+            } else {
+                near = (s1, a1);
+                step = step.max(e);
+            }
         }
-        None
+        while far.is_none() {
+            let s = near.0 + sign * step;
+            if s.abs() > reach * (1.0 + 1e-12) {
+                return None;
+            }
+            let a = self.side(at(s), z);
+            if a.inside != sc.inside {
+                far = Some((s, a));
+            } else {
+                near = (s, a);
+                step *= 2.0;
+            }
+        }
+        let far = far?;
+        let (inn, out) = if sc.inside { (near, far) } else { (far, near) };
+        self.bisect(at(inn.0), at(out.0), z, inn.1, out.1)
     }
 
-    /// A contour point at `p` from the probe just inside. At a cliff (τ
-    /// jumps: a vertical wall), the probe touches the top of the wall, so
-    /// the slope and drive flag come from the wall face at the level.
     /// The boundary on the circle of radius `r` about `p`, searched from
     /// the open side (−`n`) through the travel direction `t` to the
     /// material side (`n`): the fallback at inside corners, where the line
@@ -261,29 +361,31 @@ impl<'a> Waterline<'a> {
             p + (t * c + n * s) * r
         };
         let half = std::f64::consts::FRAC_PI_2;
-        let mut prev = (-half, self.inside(at(-half), z));
+        let mut prev = (-half, self.side(at(-half), z).inside);
         for i in 1..=K {
             let th = -half + std::f64::consts::PI * i as f64 / K as f64;
-            let cur = (th, self.inside(at(th), z));
-            if !prev.1.0 && cur.1.0 {
-                let (mut lo, mut hi, mut pin) = (prev.0, cur.0, cur.1.1?);
+            let cur = (th, self.side(at(th), z).inside);
+            if !prev.1 && cur.1 {
+                let (mut lo, mut hi) = (prev.0, cur.0);
                 while (at(hi) - at(lo)).length() > CUTOFF {
                     let m = 0.5 * (lo + hi);
-                    let (is_in, pr) = self.inside(at(m), z);
-                    if is_in {
+                    if self.side(at(m), z).inside {
                         hi = m;
-                        pin = pr.unwrap_or(pin);
                     } else {
                         lo = m;
                     }
                 }
-                return Some((at(lo), pin));
+                let q = at(hi);
+                return Some((at(lo), self.q.probe(q.x(), q.y())?));
             }
             prev = cur;
         }
         None
     }
 
+    /// A contour point at `p` from the probe just inside. At a cliff (τ
+    /// jumps: a vertical wall), the probe touches the top of the wall, so
+    /// the slope and drive flag come from the wall face at the level.
     fn point(&self, p: Point2, pin: &Probe, n_old: Vec2, z: f64) -> WPoint {
         let n = if pin.toward.length() > 0.5 {
             pin.toward
@@ -302,8 +404,9 @@ impl<'a> Waterline<'a> {
     /// Every contour of level `z` in the region, in seed order.
     pub fn level(&self, z: f64) -> Vec<Contour> {
         let mut out: Vec<Contour> = Vec::new();
-        // Crossings already covered: (line, x) of traced contours.
-        let mut covered: Vec<Vec<f64>> = vec![Vec::new(); self.lines.len()];
+        // Crossings already covered: per line, the traced segments that
+        // cross it.
+        let mut covered: Vec<Vec<(Point2, Point2)>> = vec![Vec::new(); self.lines.len()];
         for li in 0..self.lines.len() {
             let line = &self.lines[li];
             let th = z + DELTA;
@@ -314,34 +417,70 @@ impl<'a> Waterline<'a> {
                 }
                 let lo = xa.min(xb) - self.tol;
                 let hi = xa.max(xb) + self.tol;
-                if covered[li].iter().any(|&x| x >= lo && x <= hi) {
+                let crossing = |&(a, b): &(Point2, Point2)| {
+                    let x = if (b.y() - a.y()).abs() < 1e-300 {
+                        a.x()
+                    } else {
+                        a.x() + (b.x() - a.x()) * (line.y - a.y()) / (b.y() - a.y())
+                    };
+                    x >= lo && x <= hi
+                };
+                if covered[li].iter().any(crossing) {
                     continue;
                 }
                 let (pa, pb) = (Point2::new(xa, line.y), Point2::new(xb, line.y));
                 let (inn, outp) = if ta > th { (pa, pb) } else { (pb, pa) };
                 // The profile may be off by its chord error: check.
-                let (in_ok, pin) = self.inside(inn, z);
-                let (out_in, _) = self.inside(outp, z);
-                let Some(pin) = pin.filter(|_| in_ok && !out_in) else {
+                let (si, so) = (self.side(inn, z), self.side(outp, z));
+                if !si.inside || so.inside {
+                    continue;
+                }
+                let Some((p, pin)) = self.bisect(inn, outp, z, si, so) else {
                     continue;
                 };
-                let (p, pin) = self.bisect(inn, outp, z, pin);
                 let n0 = if inn.x() > outp.x() {
                     Vec2::new(1.0, 0.0)
                 } else {
                     Vec2::new(-1.0, 0.0)
                 };
+                // A contour nearly along the line crosses it far from the
+                // profile's crossing: check the distance too. The chord
+                // rule keeps traced segments within tol/4 of the contour.
+                if covered[li]
+                    .iter()
+                    .any(|&(a, b)| seg_dist(p, a, b) <= 0.5 * self.tol)
+                {
+                    continue;
+                }
                 let seed = self.point(p, &pin, n0, z);
                 let c = self.trace(seed, z);
                 self.cover(&c, &mut covered);
-                out.push(c);
+                if !self.thin(&c, z) {
+                    out.push(c);
+                }
             }
         }
         out
     }
 
+    /// A lost contour around material less than `tol/4` above the level
+    /// for `max_step` inwards: noise at a tangent level (CH-03), such as a
+    /// wall's top edge a micron above the flat it meets (a model gap).
+    /// Leaving it uncut leaves less than the tolerance.
+    fn thin(&self, c: &Contour, z: f64) -> bool {
+        if c.closed || (c.ends.0 != End::Lost && c.ends.1 != End::Lost) {
+            return false;
+        }
+        c.pts.iter().all(|w| {
+            let q = w.p + w.n * self.max_step;
+            self.q
+                .drop(q.x(), q.y())
+                .is_none_or(|h| h.tip <= z + 0.25 * self.tol)
+        })
+    }
+
     /// Marks the seed-line crossings of `c`.
-    fn cover(&self, c: &Contour, covered: &mut [Vec<f64>]) {
+    fn cover(&self, c: &Contour, covered: &mut [Vec<(Point2, Point2)>]) {
         if self.lines.is_empty() {
             return;
         }
@@ -356,12 +495,7 @@ impl<'a> Waterline<'a> {
                 if y < ylo || y > yhi {
                     continue;
                 }
-                let x = if (b.y() - a.y()).abs() < 1e-300 {
-                    a.x()
-                } else {
-                    a.x() + (b.x() - a.x()) * (y - a.y()) / (b.y() - a.y())
-                };
-                cov.push(x);
+                cov.push((a, b));
             }
         }
     }
@@ -398,15 +532,22 @@ impl<'a> Waterline<'a> {
         let limit = 8.0 * self.region.perimeter() + 1e3 * self.max_step;
         // Consecutive points at the smallest step: thrashing, not tracing.
         let mut tiny = 0;
+        // Turn of the contact direction per mm over the last step (signed),
+        // and how far the last point was from its prediction.
+        let mut kappa = 0.0;
+        let mut miss = self.tol;
         loop {
             if pts.len() >= MAX_POINTS || travelled > limit || tiny > MAX_TINY {
                 return (pts, Some(End::Lost));
             }
             let cur = pts[pts.len() - 1];
             let t = Vec2::new(-cur.n.y(), cur.n.x()) * sign;
-            let c = cur.p + t * step;
+            // Predict along the arc of the last step's curvature: the chord
+            // turns by half the expected turn, the normal by all of it.
+            let th = (kappa * step).clamp(-0.5, 0.5);
+            let c = cur.p + rotate(t, 0.5 * th) * step;
             let found = self
-                .project(c, cur.n, 2.0 * step, z)
+                .locate(c, rotate(cur.n, th), z, 2.0 * miss, 2.0 * step)
                 .or_else(|| self.around(cur.p, t, cur.n, step, z));
             let ok = found.and_then(|(p, pin)| {
                 let nxt = self.point(p, &pin, cur.n, z);
@@ -415,11 +556,11 @@ impl<'a> Waterline<'a> {
                 if len <= 0.0 || d.dot(t) <= 0.25 * len || len > 3.0 * step {
                     return None;
                 }
-                let turn = libm::fabs(libm::atan2(cur.n.perp_dot(nxt.n), cur.n.dot(nxt.n)));
-                let sag = 0.125 * len * turn;
-                (sag <= 0.25 * self.tol || step <= min_step).then_some((nxt, len, sag))
+                let turn = libm::atan2(cur.n.perp_dot(nxt.n), cur.n.dot(nxt.n));
+                let sag = 0.125 * len * libm::fabs(turn);
+                (sag <= 0.25 * self.tol || step <= min_step).then_some((nxt, len, sag, turn))
             });
-            let Some((mut nxt, len, sag)) = ok else {
+            let Some((mut nxt, len, sag, turn)) = ok else {
                 if step <= min_step {
                     return (pts, Some(End::Lost));
                 }
@@ -453,10 +594,22 @@ impl<'a> Waterline<'a> {
                 return (pts, None);
             }
             travelled += len;
+            miss = (nxt.p - c).length();
+            // A kink (an inside corner) is not a curvature to predict with.
+            kappa = if libm::fabs(turn) < 0.5 {
+                turn / len
+            } else {
+                0.0
+            };
             pts.push(nxt);
             tiny = if step <= min_step { tiny + 1 } else { 0 };
             if sag < 0.1 * self.tol {
                 step = (1.5 * step).min(self.max_step);
+            }
+            // The chord rule ahead: sagitta κ L² / 8 within 0.2 tol.
+            if kappa != 0.0 {
+                let fit = libm::sqrt(1.6 * self.tol / libm::fabs(kappa));
+                step = step.min(fit).max(min_step);
             }
         }
     }
@@ -479,7 +632,7 @@ impl<'a> Waterline<'a> {
             // Project along the side the material is on.
             let n = if n.dot(a.n) < 0.0 { n * -1.0 } else { n };
             let mid = a.p + d * 0.5;
-            let m = match self.project(mid, n, len, z) {
+            let m = match self.locate(mid, n, z, 0.125 * len, len) {
                 Some((p, pin)) => self.point(p, &pin, a.n, z),
                 None => break,
             };
@@ -494,6 +647,21 @@ impl<'a> Waterline<'a> {
         }
         a
     }
+}
+
+/// How far from `a` along `u` (unit) the point `p` leaves the disc of
+/// radius `r` about the axis, in XY; `None` if `a` is not in it.
+fn exit(a: Point2, u: Vec2, p: fluut_geom::Point3, r: f64) -> Option<f64> {
+    let w = Vec2::new(a.x() - p.x(), a.y() - p.y());
+    let b = w.dot(u);
+    let disc = b * b - w.dot(w) + r * r;
+    (w.dot(w) <= r * r && disc >= 0.0).then(|| -b + libm::sqrt(disc))
+}
+
+/// `v` turned by `th` radians (counter-clockwise).
+fn rotate(v: Vec2, th: f64) -> Vec2 {
+    let (s, c) = libm::sincos(th);
+    Vec2::new(c * v.x() - s * v.y(), s * v.x() + c * v.y())
 }
 
 fn seg_dist(p: Point2, a: Point2, b: Point2) -> f64 {

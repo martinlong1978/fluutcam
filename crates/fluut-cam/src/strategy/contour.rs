@@ -194,6 +194,7 @@ pub(crate) fn link_runs(
         lead_in: p.linking.lead_in,
         lead_out: p.linking.lead_out,
         level_clear,
+        material_top: input.env.stock_top.max(h.top),
     };
     let (passes, dropped) = lk.link(runs);
     if dropped {
@@ -284,9 +285,10 @@ impl Levels {
         let zs = self.zs(st);
         let mut traced: Vec<Traced> = zs
             .iter()
-            .map(|&z| Traced {
+            .zip(wl.levels(&zs))
+            .map(|(&z, contours)| Traced {
                 z,
-                contours: wl.level(z),
+                contours,
                 gap: None,
             })
             .collect();

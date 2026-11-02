@@ -26,6 +26,47 @@ pub struct QueryFace {
     pub trim: Trim,
     /// Parameter box of the face, slightly grown, inside the surface domain.
     pub uv: UvBox,
+    /// The trim loops on the surface: the face's own boundary.
+    pub rim: Vec<Rim>,
+}
+
+/// Points per box of a [`Rim`].
+pub const RIM_CHUNK: usize = 16;
+
+/// One trim loop as surface points `(u, v, S(u, v))`, with the XY box of
+/// each run of [`RIM_CHUNK`] segments.
+#[derive(Debug, Clone)]
+pub struct Rim {
+    pub pts: Vec<(f64, f64, Point3)>,
+    /// `[x_lo, y_lo, x_hi, y_hi]` of points `k·RIM_CHUNK ..= (k+1)·RIM_CHUNK`.
+    pub boxes: Vec<[f64; 4]>,
+}
+
+impl Rim {
+    fn new(s: &Surface, uv: &[(f64, f64)]) -> Rim {
+        let pts: Vec<(f64, f64, Point3)> = uv.iter().map(|&(u, v)| (u, v, s.eval(u, v))).collect();
+        let mut boxes = Vec::new();
+        let mut k = 0;
+        while k + 1 < pts.len() {
+            let mut b = [
+                f64::INFINITY,
+                f64::INFINITY,
+                f64::NEG_INFINITY,
+                f64::NEG_INFINITY,
+            ];
+            for p in &pts[k..(k + RIM_CHUNK + 1).min(pts.len())] {
+                b = [
+                    b[0].min(p.2.x()),
+                    b[1].min(p.2.y()),
+                    b[2].max(p.2.x()),
+                    b[3].max(p.2.y()),
+                ];
+            }
+            boxes.push(b);
+            k += RIM_CHUNK;
+        }
+        Rim { pts, boxes }
+    }
 }
 
 /// Options for building the query geometry.
@@ -55,6 +96,8 @@ pub struct QueryGeometry<'a> {
     pub faces: Vec<Option<QueryFace>>,
     pub prims: Vec<Prim>,
     pub bvh: Bvh,
+    /// The trim chord ([`BuildOptions::trim_chord`]).
+    pub trim_chord: f64,
     /// Faces left out of the query, with the reason. Their edges and
     /// vertices are still queried.
     pub issues: Vec<(u32, TrimError)>,
@@ -287,7 +330,8 @@ impl<'a> QueryGeometry<'a> {
                     boxes.push(surface_box(s, uv, opts.box_slack).expand(opts.trim_chord));
                 }
             }
-            faces.push(Some(QueryFace { trim, uv }));
+            let rim = trim.loops_uv().iter().map(|l| Rim::new(s, l)).collect();
+            faces.push(Some(QueryFace { trim, uv, rim }));
         }
         for (ei, e) in body.edges.iter().enumerate() {
             let Some(c) = e.curve else { continue };
@@ -308,6 +352,7 @@ impl<'a> QueryGeometry<'a> {
             body,
             faces,
             bvh: Bvh::new(&boxes),
+            trim_chord: opts.trim_chord,
             prims,
             issues,
         }

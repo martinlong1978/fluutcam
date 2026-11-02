@@ -9,9 +9,9 @@ use crate::cutter::solve::{Contact, ContactOn, SolveStats};
 use crate::cutter::{Cutter, DropOptions, drop};
 use crate::geometry::{BodyGeom, SetupGeometry, face_id};
 use fluut_geom::{Aabb3, Curve3, Interval, Point2, Point3, Vec2};
-use std::cell::Cell;
 use std::collections::BTreeSet;
 use std::f64::consts::FRAC_PI_2;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// One body's query geometry and which of its primitives belong to drive
 /// faces.
@@ -48,6 +48,20 @@ pub struct Probe {
     pub toward: Vec2,
 }
 
+/// A drop that decides the side of a level ([`SurfaceQuery::above`]).
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub struct Side {
+    /// The tip is above the level.
+    pub inside: bool,
+    /// Tip − level, clamped to the window `[−w, w]`.
+    pub g: f64,
+    /// The probe, where the tip is within the window (exact there).
+    pub probe: Option<Probe>,
+    /// When inside: a contact that holds the tip above the level (above
+    /// the window, not necessarily the highest one).
+    pub contact: Option<Point3>,
+}
+
 /// Drop queries on the drive and check faces of a Setup (excluded faces
 /// left out), for a cutter with `stock_to_leave` applied.
 #[derive(Debug)]
@@ -57,7 +71,7 @@ pub struct SurfaceQuery<'a> {
     cutter: Cutter,
     stock: f64,
     opts: DropOptions,
-    drops: Cell<u64>,
+    drops: AtomicU64,
 }
 
 /// Which faces a query uses, by id. `drive` empty means every face.
@@ -139,7 +153,7 @@ impl<'a> SurfaceQuery<'a> {
             cutter: grown,
             stock,
             opts: DropOptions::default(),
-            drops: Cell::new(0),
+            drops: AtomicU64::new(0),
         })
     }
 
@@ -150,7 +164,7 @@ impl<'a> SurfaceQuery<'a> {
 
     /// Number of drops so far.
     pub fn drops(&self) -> u64 {
-        self.drops.get()
+        self.drops.load(Ordering::Relaxed)
     }
 
     /// The highest tool position with its axis through `(x, y)`; `None`
@@ -168,6 +182,10 @@ impl<'a> SurfaceQuery<'a> {
     /// a waterline uses (D09 §4.4).
     pub fn probe(&self, x: f64, y: f64) -> Option<Probe> {
         let (b, c) = self.best(x, y)?;
+        Some(self.probe_of(b, x, y, &c))
+    }
+
+    fn probe_of(&self, b: &BodyQuery, x: f64, y: f64, c: &Contact) -> Probe {
         let (dx, dy) = (c.point.x() - x, c.point.y() - y);
         let d = libm::hypot(dx, dy);
         let toward = if d > 1e-12 {
@@ -175,7 +193,7 @@ impl<'a> SurfaceQuery<'a> {
         } else {
             Vec2::new(0.0, 0.0)
         };
-        let mut slope = self.slope(b, x, y, &c);
+        let mut slope = self.slope(b, x, y, c);
         // On the rim of a flat tool an edge or a vertex is a wall: τ jumps
         // there.
         if self.cutter.corner() == 0.0
@@ -184,12 +202,12 @@ impl<'a> SurfaceQuery<'a> {
         {
             slope = FRAC_PI_2;
         }
-        Some(Probe {
+        Probe {
             tip: c.tau + self.stock,
             slope,
-            drive: self.is_drive(b, &c),
+            drive: self.is_drive(b, c),
             toward,
-        })
+        }
     }
 
     /// The face the side of the tool touches when its tip is at `z` with
@@ -249,12 +267,60 @@ impl<'a> SurfaceQuery<'a> {
         best.map(|(_, s, d)| (s, d))
     }
 
+    /// Whether the tip with the axis through `(x, y)` is above `z`, and
+    /// `tip − z` clamped to `[−w, w]` (−w if nothing is under the tool),
+    /// with the probe when the tip is within `w` of `z` (it is exact
+    /// there). Cheaper than [`SurfaceQuery::probe`] away from `z`: the
+    /// search stops at the first contact above `z + w` and skips everything
+    /// below `z − w`. `w > 0`.
+    pub fn above(&self, x: f64, y: f64, z: f64, w: f64) -> Side {
+        let opts = DropOptions {
+            floor: z - w - self.stock,
+            ceiling: z + w - self.stock,
+            ..self.opts
+        };
+        match self.best_with(x, y, &opts) {
+            Some((b, c)) => {
+                let g = c.tau + self.stock - z;
+                Side {
+                    inside: g > 0.0,
+                    g: g.clamp(-w, w),
+                    probe: (g.abs() < w).then(|| self.probe_of(b, x, y, &c)),
+                    contact: (g > 0.0).then_some(c.point),
+                }
+            }
+            None => Side {
+                inside: false,
+                g: -w,
+                probe: None,
+                contact: None,
+            },
+        }
+    }
+
+    /// The tip height of the tool with its axis through `(x, y)` touching
+    /// `p`, if `p` is in the footprint (with the stock to leave).
+    pub fn tip_touching(&self, x: f64, y: f64, p: Point3) -> Option<f64> {
+        let d = libm::hypot(p.x() - x, p.y() - y);
+        let r = self.cutter.radius();
+        (d <= r).then(|| p.z() - self.cutter.h(d) + self.stock)
+    }
+
+    /// Radius of the cutter grown by the stock to leave.
+    pub fn radius(&self) -> f64 {
+        self.cutter.radius()
+    }
+
     fn best(&self, x: f64, y: f64) -> Option<(&BodyQuery<'a>, Contact)> {
-        self.drops.set(self.drops.get() + 1);
+        self.best_with(x, y, &self.opts)
+    }
+
+    fn best_with(&self, x: f64, y: f64, opts: &DropOptions) -> Option<(&BodyQuery<'a>, Contact)> {
+        self.drops.fetch_add(1, Ordering::Relaxed);
         let mut best: Option<(&BodyQuery, Contact)> = None;
         let mut st = SolveStats::default();
         for b in &self.bodies {
-            let Some(c) = drop(&b.q, &self.cutter, x, y, &self.opts, &mut st) else {
+            let Some(c) = drop(&b.q, &self.cutter, x, y, opts, &mut st) else {
                 continue;
             };
             if best.is_none_or(|(_, t)| c.tau > t.tau) {

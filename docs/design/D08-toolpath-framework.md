@@ -265,7 +265,9 @@ stock, whether an earlier toolpath cleared the material above `top`, so the safe
 feed through it. The drill's R plane takes the same floor, since canned cycles rapid to it, and
 so does `bore`'s approach. Toolpaths whose `top` is the stock top are unchanged. Using the
 in-process stock to lower the floor where it is known to be clear is left for later. The 3-D
-linker (`follow.rs`) still rapids to `safety_distance` above each entry.
+finishing linker (`follow.rs`) takes the same floor ([waterline plan](../plan/2026-11-01-waterline-robust.md)):
+its lifts between runs go at least `safety_distance` above the material top, and its descents
+stop there and plunge.
 
 **Adaptive links (2026-11-01).** The straight entry move of an adaptive pass, its sliver moves
 and the safe regions its stay-down links use are kept inside the tool-centre region; the shrunk
