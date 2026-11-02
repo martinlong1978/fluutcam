@@ -77,54 +77,68 @@ All earlier Global Constraints apply. In addition:
 
 ### Task 1: Plan
 
-- [ ] **Step 1:** This plan; README row. Commit.
+- [x] **Step 1:** This plan; README row. Commit.
 
 ### Task 2: Stock queries and reframing
 
 **Files:** `crates/fluut-cam/src/stock.rs`, `stock/tests.rs`.
 
-- [ ] **Step 1:** Tests: `top_near` inside, beside and away from material; `reframed(0)` is the identity; `reframed(180°)` is exact on a pocketed block; at 90° and 30° every sampled material point lands in the child stock and the child's top is the turned box top; `revolved` contains sampled points of the cylinder.
-- [ ] **Step 2:** Implement; pass. Commit.
+- [x] **Step 1:** Tests: `top_near` inside, beside and away from material; `reframed(0)` is the identity; `reframed(180°)` is exact on a pocketed block; at 90° and 30° every sampled material point lands in the child stock and the child's top is the turned box top; `revolved` contains sampled points of the cylinder.
+- [x] **Step 2:** Implement; pass. Commit.
 
 ### Task 3: Rapid floor from the in-process stock
 
 **Files:** `crates/fluut-cam/src/{link.rs, strategy/*.rs}`; `crates/fluut-model/src/params/meta.rs`; `crates/fluut-core/src/{graph.rs, session.rs}`.
 
-- [ ] **Step 1:** Tests: a floor pass after a pocket rapids to its floor + safety, but feeds where an earlier toolpath left material within the tool radius; a drill hole inside a pocket gets its R plane above the pocket floor; result hashes of linking toolpaths follow the earlier stock-updating toolpaths, those of 3-D finishing do not.
-- [ ] **Step 2:** Implement; pass; re-bless and list. The simulation test stays clean. Commit.
+- [x] **Step 1:** Tests: a floor pass after a pocket rapids to its floor + safety, but feeds where an earlier toolpath left material within the tool radius; a drill hole inside a pocket gets its R plane above the pocket floor; result hashes of linking toolpaths follow the earlier stock-updating toolpaths, those of 3-D finishing do not.
+- [x] **Step 2:** Implement; pass; re-bless and list. The simulation test stays clean. Commit.
 
 ### Task 4: Stock carried into `from_previous` children
 
 **Files:** `crates/fluut-core/src/{graph.rs, session.rs}`, `tests/session.rs`.
 
-- [ ] **Step 1:** Tests: a child's rest pocket starts from the parent's stock; editing a parent toolpath makes the child's toolpath stale; calculating only the child calculates the parent.
-- [ ] **Step 2:** Implement; pass. Commit.
+- [x] **Step 1:** Tests: a child's rest pocket starts from the parent's stock; editing a parent toolpath makes the child's toolpath stale; calculating only the child calculates the parent.
+- [x] **Step 2:** Implement; pass. Commit.
 
 ### Task 5: Indexed Setups
 
 **Files:** `crates/fluut-core/src/{frame.rs, session.rs}`, `tests/rotary_frame.rs`.
 
-- [ ] **Step 1:** Tests: the frame of an indexed Setup at 0°, 90° and 180°; a 180° child of an indexed parent gets the parent's stock mirrored; the post emits `A180`.
-- [ ] **Step 2:** Implement; pass. Commit.
+- [x] **Step 1:** Tests: the frame of an indexed Setup at 0°, 90° and 180°; a 180° child of an indexed parent gets the parent's stock mirrored; the post emits `A180`.
+- [x] **Step 2:** Implement; pass. Commit.
 
 ### Task 6: Simulation of child Setups
 
 **Files:** `crates/fluut-sim/src/{dexel.rs, run.rs}`; `crates/fluut-core/src/{session.rs, graph.rs}`.
 
-- [ ] **Step 1:** Tests: a quarter turn four times is the identity and maps volumes; a child simulation starts from the parent's final stock; the child's simulation goes stale with the parent's.
-- [ ] **Step 2:** Implement; pass. Commit.
+- [x] **Step 1:** Tests: a quarter turn four times is the identity and maps volumes; a child simulation starts from the parent's final stock; the child's simulation goes stale with the parent's.
+- [x] **Step 2:** Implement; pass. Commit.
 
 ### Task 7: Golden two-sided project
 
 **Files:** `crates/fluut-cam/tests/support/step.rs`; `crates/fluut-cli/tests/projects/flipside/`; `crates/fluut-cli/tests/{cli.rs, golden/flipside-linuxcnc-4x.ngc}`.
 
 - `flipside`: an 80 × 50 × 16 plate on the X axis with a pocket on each side and a through window. Setup 1, indexed at 0°: the top pocket and the window to below half depth. Setup 2, `from_previous` at 180°: the bottom pocket and a rest pocket of the window, which stops where Setup 1 broke through.
-- [ ] **Step 1:** Golden G-code, invariance along X, `fluut sim` clean. Commit.
+- [x] **Step 1:** Golden G-code, invariance along X, `fluut sim` clean. Commit.
 
 ### Task 8: Close
 
-- [ ] **Step 1:** D08 §7, §8.2; CH-14, CH-15; spec 03 §3.9.6. Merge `main`, run all checks, mark done, README row. Commit.
+- [x] **Step 1:** D08 §7, §8.2; CH-14, CH-15; spec 03 §3.9.6. Merge `main`, run all checks, mark done, README row. Commit.
 
 ## Re-blessed golden files
 
-(Filled in as the work lands.)
+None. The new rapid floor changes no existing reference project: their entries lie within the tool radius of material left at the stock top, or their feed height is above it. The new `flipside-linuxcnc-4x.ngc` is added, not re-blessed.
+
+**Done.** A `from_previous` child starts from its parent's in-process stock, turned into its frame; indexed Setups calculate and post; the 2-D, 3-D roughing and hole types rapid down to the in-process material + safety distance; a child's simulation starts from its parent's simulated stock. `fluut sim` is clean on every reference project, `flipside` included. Deviations from this plan:
+- **App calculate job.** It calculates one toolpath per step; a step now reports only its own toolpath. It counted the earlier toolpaths that `Session::calculate` returns as prerequisites once more for every later toolpath, which the wider stock dependency made visible.
+- **Cache test.** `results_survive_a_reload_and_follow_the_r_p_split` now expects the second contour to miss the cache after an R edit of the first: its links follow the first one's stock.
+- **Indexing clearance.** The post indexes A at the Setup clearance. A plane clearance (stock top + offset) does not clear the stock's corners while the part turns, so `flipside` uses a clearance cylinder of radius 35 mm. Checking this is open.
+- **Indexed block stock at other angles.** Its box in W is the box of the turned block: more material than real at angles that are not multiples of 90°, for the floor and the simulation alike.
+- **Child simulation.** Tested on a `three_axis` child of `block` and on `flipside` (180°). Other angles and rotary parents start from the full stock with `sim.stock.full`.
+- **† constants.** `RESLICE_STEP` (1 mm) is not tuned.
+
+Follow-ups:
+- Clearance for the index turn: retract to a cylinder round the turning stock before `rotary_index`.
+- Simulating a child from its parent at angles that are not multiples of 90° (resampled dexels), and from a rotary parent once rotary Setups simulate.
+- The rapid floor in the 3-D linker (`follow.rs`, `dome` t5), changed in another branch.
+- A planar parent under a rotary child starts the child from its full cylinder; slicing the planar stock by cylinders would be tighter.

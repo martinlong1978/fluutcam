@@ -23,7 +23,7 @@ Problems found during detailed design. Each has a status:
 | CH-12 | Free-form face contact convergence and seeding | D07 §4.3 | deferred |
 | CH-13 | B-spline boundaries through a lines-and-arcs offset library | D08 §3.1 | deferred |
 | CH-14 | 3-D finishing toolpaths do not update in-process stock | D08 §7 | deferred |
-| CH-15 | Reframing layered stock between indexed Setups | D08 §7 | deferred |
+| CH-15 | Reframing layered stock between indexed Setups | D08 §7 | resolved (conservative reframe) |
 | CH-16 | Adaptive clearing: robustness and speed | D09 §2.3 | deferred |
 | CH-17 | Exact medial axis for lines and arcs | D09 §2.6 | resolved (M6) |
 | CH-18 | Scallop variable-distance offsetting | D09 §4.7 | deferred |
@@ -312,6 +312,10 @@ air cutting, never missed material).
 **Revisit.** Needed for `rest_finishing` (later): a per-face reach comparison method, not stock
 layers.
 
+**2026-11-01.** The in-process stock now also sets the rapid floor of the 2-D and roughing types
+(D08 §8.2) and is carried into child Setups. Finishing toolpaths still do not update it, so the
+floor after them is the roughed stock: higher, never lower, than the real material.
+
 ### CH-15 Reframing layered stock between indexed Setups
 
 **Problem.** A child indexed Setup at a different angle needs the parent's remaining stock in its
@@ -323,6 +327,12 @@ Conservative where the prism approximation keeps material between levels (steppe
 
 **Revisit.** Check air-cutting overhead on typical rotary-then-indexed jobs; consider finer
 re-slicing near the parent's walls.
+
+**2026-11-01.** Implemented as `LayeredStock::reframed` (D08 §7): exact for half turns, boxes
+round each outer loop of the parent's slabs at other angles (holes ignored), slabs at most 1 mm
+high; rotary parents become planar slices of their revolved outline. The simulation of a child
+starts from the parent's simulated stock for multiples of 90°. Other angles and rotary parents
+start the simulation from the full stock (`sim.stock.full`).
 
 ### CH-16 Adaptive clearing: robustness and speed
 

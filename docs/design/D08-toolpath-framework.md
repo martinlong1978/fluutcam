@@ -197,7 +197,9 @@ impl LayeredStock {
     pub fn ensure_level(&mut self, z: f64);               // insert a level, cloning the next level above
     pub fn remove_swept(&mut self, z: f64, swept: &Region2);
     pub fn remaining(&self, z: f64) -> &Region2;
-    pub fn reframed(&self, from: &Frame, to: &Frame) -> Self;   // carry into a child Setup (S 03 §3.9.6)
+    pub fn reframed(&self, turn: f64) -> Self;   // carry into a child Setup turned about X (S 03 §3.9.6)
+    pub fn revolved(pieces: &[(f64, f64, f64)]) -> Self;   // planar slices of a solid of revolution
+    pub fn top_near(&self, p: Point2, r: f64) -> Option<f64>;   // highest material within r of p
 }
 ```
 
@@ -209,6 +211,21 @@ impl LayeredStock {
 - Reframing for an indexed child at a different angle: the parent stock is converted to a 3-D
   solid approximation (prisms between levels), rotated, and re-sliced at the child's levels.
   This is exact for prism stacks and conservative (keeps material) elsewhere (CH-15).
+
+**Carried stock (2026-11-01).** A `from_previous` child shares its parent's rotary axis and
+zero (S 03 §3.9.4), so its W is the parent's turned about X by the difference of their index
+angles (a rotary or three-axis Setup counts as 0°). The child starts from the parent's stock
+after the parent's last enabled stock-updating toolpath:
+- same angle: unchanged; a half turn: exact (slab (z₀, z₁] becomes [−z₁, −z₀), mirrored in Y);
+- other angles: child slabs at most 1 mm † high; for each child slab and parent slab, the parent
+  region is cut to the Y range of the parallelogram of YZ points that turn into the child slab,
+  and each outer loop of the cut gives a box (its X range by the turned Y range). Holes are
+  ignored, so the result always holds the parent's material;
+- a cylindrical (rotary) parent under a planar child: `revolved`, each slab's outer loops as X
+  ranges at the slab's radius, sliced at most 1 mm † high; under a rotary child: unchanged;
+- a planar parent under a rotary child: the child's own cylinder.
+
+An indexed Setup with cylinder stock starts from `revolved` slices of its cylinder.
 
 ## 7.1 Machinable region at a level
 
@@ -266,6 +283,16 @@ feed through it. The drill's R plane takes the same floor, since canned cycles r
 so does `bore`'s approach. Toolpaths whose `top` is the stock top are unchanged. Using the
 in-process stock to lower the floor where it is known to be clear is left for later. The 3-D
 linker (`follow.rs`) still rapids to `safety_distance` above each entry.
+
+**Rapid floor from the in-process stock (2026-11-01).** The 2-D types, `adaptive_3d`,
+`pocket_3d`, `drill` and `bore` get the in-process stock (`links_over_stock`). A rapid down to
+an entry at p then stops at `max(feed, top_near(p, R) + safety_distance)`: the key of the
+highest slab whose material comes within the tool radius R of p, or the feed height when none
+does. Material in a slab lies at or below its key, and the stock never holds less than the real
+material, so the tool keeps `safety_distance` above everything under it. The floor is never
+higher than the plain one. The drill's R plane and `bore`'s approach use it per hole; moves
+between holes at the R plane still check against the stock top. The result hash of these types
+includes the earlier stock-updating toolpaths of the Setup and of its `from_previous` ancestors.
 
 **Adaptive links (2026-11-01).** The straight entry move of an adaptive pass, its sliver moves
 and the safe regions its stay-down links use are kept inside the tool-centre region; the shrunk
