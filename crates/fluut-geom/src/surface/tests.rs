@@ -419,6 +419,66 @@ fn bspline_derivs_match_finite_difference() {
     }
 }
 
+/// A rational surface of degree `du × 2` with uneven knots and weights.
+fn wavy_nurbs(du: u8) -> Surface {
+    let (pu, pv) = (du as usize, 2usize);
+    let (nu, nv) = (pu + 3, 4);
+    let knots = |p: usize, n: usize| {
+        let mut k = vec![0.0; p + 1];
+        for i in 1..n - p {
+            k.push(i as f64 / (n - p) as f64 + 0.01 * i as f64 * i as f64);
+        }
+        let last = k[k.len() - 1] + 0.37;
+        k.extend(std::iter::repeat_n(last, p + 1));
+        k
+    };
+    let mut poles = Vec::new();
+    let mut w = Vec::new();
+    for i in 0..nu {
+        for j in 0..nv {
+            let (x, y) = (i as f64, j as f64);
+            poles.push(Point3::new(
+                x,
+                y,
+                libm::sin(0.7 * x) * libm::cos(1.3 * y) + 0.1 * x * y,
+            ));
+            w.push(1.0 + 0.3 * libm::sin(x + 2.0 * y));
+        }
+    }
+    Surface::BSpline(Arc::new(
+        BSplineSurface::new(du, 2, knots(pu, nu), knots(pv, nv), poles, nu, nv, Some(w)).unwrap(),
+    ))
+}
+
+#[test]
+fn bspline_lower_orders_are_bit_identical() {
+    // `eval` and `derivs1` give the same bits as the matching fields of
+    // `derivs`: the cutter queries mix them.
+    let bits = |v: Vec3| [v.x().to_bits(), v.y().to_bits(), v.z().to_bits()];
+    for s in [
+        bilinear(),
+        nurbs_quarter_cylinder(),
+        wavy_nurbs(3),
+        wavy_nurbs(9),
+    ] {
+        let Surface::BSpline(b) = &s else {
+            unreachable!()
+        };
+        let d = b.domain();
+        for i in 0..=12 {
+            for j in 0..=12 {
+                let (u, v) = (d.u.at(i as f64 / 12.0), d.v.at(j as f64 / 12.0));
+                let full = s.derivs(u, v);
+                assert_eq!(bits(s.eval(u, v).to_vec()), bits(full.p.to_vec()));
+                let (p, su, sv) = s.derivs1(u, v);
+                assert_eq!(bits(p.to_vec()), bits(full.p.to_vec()));
+                assert_eq!(bits(su), bits(full.su));
+                assert_eq!(bits(sv), bits(full.sv));
+            }
+        }
+    }
+}
+
 #[test]
 fn bspline_transform_any_affine() {
     let s = bilinear();

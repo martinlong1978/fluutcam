@@ -198,7 +198,22 @@ impl Surface {
     }
 
     pub fn eval(&self, u: f64, v: f64) -> Point3 {
-        self.derivs(u, v).p
+        match self {
+            Surface::BSpline(b) => b.eval(u, v),
+            _ => self.derivs(u, v).p,
+        }
+    }
+
+    /// The point and first derivatives: the same bits as
+    /// [`Surface::derivs`], cheaper for B-splines.
+    pub fn derivs1(&self, u: f64, v: f64) -> (Point3, Vec3, Vec3) {
+        match self {
+            Surface::BSpline(b) => b.derivs1(u, v),
+            _ => {
+                let d = self.derivs(u, v);
+                (d.p, d.su, d.sv)
+            }
+        }
     }
 
     /// Point and derivatives to second order. Exact for all kinds except

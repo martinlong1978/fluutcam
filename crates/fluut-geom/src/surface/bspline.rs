@@ -139,26 +139,51 @@ impl BSplineSurface {
     /// Point and derivatives to second order. Parameters outside the domain are
     /// clamped to it.
     pub fn derivs(&self, u: f64, v: f64) -> SurfDerivs {
-        if (self.deg_u.max(self.deg_v) as usize) < SMALL {
-            self.derivs_n::<SMALL>(u, v)
-        } else {
-            self.derivs_n::<{ MAX_DEGREE + 1 }>(u, v)
+        let skl = self.skl::<2>(u, v);
+        SurfDerivs {
+            p: Point3(skl[0][0].0),
+            su: skl[1][0],
+            sv: skl[0][1],
+            suu: skl[2][0],
+            suv: skl[1][1],
+            svv: skl[0][2],
         }
     }
 
-    fn derivs_n<const N: usize>(&self, u: f64, v: f64) -> SurfDerivs {
+    /// The point and first derivatives: the same bits as [`Self::derivs`].
+    pub fn derivs1(&self, u: f64, v: f64) -> (Point3, Vec3, Vec3) {
+        let skl = self.skl::<1>(u, v);
+        (Point3(skl[0][0].0), skl[1][0], skl[0][1])
+    }
+
+    /// The point: the same bits as [`Self::derivs`].
+    pub fn eval(&self, u: f64, v: f64) -> Point3 {
+        Point3(self.skl::<0>(u, v)[0][0].0)
+    }
+
+    /// Derivatives `S_kl` for `k + l ≤ D` (others zero). An entry does not
+    /// depend on `D`.
+    fn skl<const D: usize>(&self, u: f64, v: f64) -> [[Vec3; 3]; 3] {
+        if (self.deg_u.max(self.deg_v) as usize) < SMALL {
+            self.skl_n::<SMALL, D>(u, v)
+        } else {
+            self.skl_n::<{ MAX_DEGREE + 1 }, D>(u, v)
+        }
+    }
+
+    fn skl_n<const N: usize, const D: usize>(&self, u: f64, v: f64) -> [[Vec3; 3]; 3] {
         let (pu, pv) = (self.deg_u as usize, self.deg_v as usize);
         let d = self.domain();
         let (u, v) = d.clamp(u, v);
         let su = find_span(self.nu - 1, pu, u, &self.knots_u);
         let sv = find_span(self.nv - 1, pv, v, &self.knots_v);
-        let nu_d = ders_basis_funs_n::<N>(su, u, pu, 2, &self.knots_u);
-        let nv_d = ders_basis_funs_n::<N>(sv, v, pv, 2, &self.knots_v);
+        let nu_d = ders_basis_funs_n::<N>(su, u, pu, D, &self.knots_u);
+        let nv_d = ders_basis_funs_n::<N>(sv, v, pv, D, &self.knots_v);
 
-        // Homogeneous derivatives aw[k][l] for k + l ≤ 2.
+        // Homogeneous derivatives aw[k][l] for k + l ≤ D.
         let mut aw = [[DVec4::ZERO; 3]; 3];
-        for k in 0..=2 {
-            for l in 0..=(2 - k) {
+        for k in 0..=D {
+            for l in 0..=(D - k) {
                 let mut acc = DVec4::ZERO;
                 for (a, &bu) in nu_d[k].iter().enumerate().take(pu + 1) {
                     if bu == 0.0 {
@@ -178,16 +203,16 @@ impl BSplineSurface {
 
         let mut skl = [[Vec3::ZERO; 3]; 3];
         if self.weights.is_none() {
-            for k in 0..=2 {
-                for l in 0..=(2 - k) {
+            for k in 0..=D {
+                for l in 0..=(D - k) {
                     skl[k][l] = Vec3(aw[k][l].truncate());
                 }
             }
         } else {
             const BINOM: [[f64; 3]; 3] = [[1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [1.0, 2.0, 1.0]];
             let w = |k: usize, l: usize| aw[k][l].w;
-            for k in 0..=2 {
-                for l in 0..=(2 - k) {
+            for k in 0..=D {
+                for l in 0..=(D - k) {
                     let mut v3 = Vec3(aw[k][l].truncate());
                     for j in 1..=l {
                         v3 -= skl[k][l - j] * (BINOM[l][j] * w(0, j));
@@ -204,14 +229,7 @@ impl BSplineSurface {
                 }
             }
         }
-        SurfDerivs {
-            p: Point3(skl[0][0].0),
-            su: skl[1][0],
-            sv: skl[0][1],
-            suu: skl[2][0],
-            suv: skl[1][1],
-            svv: skl[0][2],
-        }
+        skl
     }
 
     /// The surface with `a` applied to its poles (exact for any affine map).
