@@ -1,7 +1,7 @@
 # Fuzz targets
 
-`cargo-fuzz` targets for the STEP, DXF, SVG and STL readers (design D04 §10,
-D05, spec 06 §6.3). This package is not a member of the FluutCAM workspace,
+`cargo-fuzz` targets for the STEP, DXF, SVG and STL readers and 2-D regions
+(design D04 §10, D05, spec 06 §6.3). This package is not a member of the FluutCAM workspace,
 like `spikes/`; it needs a nightly toolchain and `cargo install cargo-fuzz`.
 
 | Target | Input |
@@ -13,6 +13,7 @@ like `spikes/`; it needs a nightly toolchain and `cargo install cargo-fuzz`.
 | `svg` | any bytes into `fluut_io_2d::read_svg`, with small curve and element limits |
 | `stl` | any bytes into `fluut_io_mesh::read_stl`, welding and adjacency included |
 | `script` | any text as a script (`fluut_script::run`) on the `block` project, small limits, no file access |
+| `region` | a region built from rectangles, circles and triangles on a 1/4 mm grid with micrometre jitter by up to eight offsets and booleans (`fluut_cam::region`, the `try_` methods) |
 
 Run from this directory, seeded with the small files in `seeds/`. The STEP
 seeds are the unit-test fixtures (a cube, a cylinder with and without
@@ -52,3 +53,19 @@ neither panic nor hang nor grow without bound:
 mkdir -p corpus/script && cp seeds/script/* corpus/script/
 cargo +nightly fuzz run -O script corpus/script -- -dict=rhai.dict -max_total_time=600 -timeout=10 -rss_limit_mb=2048 -max_len=4096
 ```
+
+The `region` target needs no seeds or dictionary. Any panic in
+`cavalier_contours` is a finding, also one that the region retries would have
+caught; with `REGION_FUZZ_LENIENT` set, only a failure after the retries is
+(on Windows with ASan, unwinding through a caught panic crashes, so use the
+lenient mode without ASan or on Linux). The target saves each failing input to
+`artifacts/region/` itself. With `-a`, the debug assertions of
+`cavalier_contours` are findings too:
+
+```bash
+mkdir -p corpus/region
+cargo +nightly fuzz run -O -a region corpus/region -- -max_total_time=600 -timeout=30 -rss_limit_mb=4096 -max_len=128
+```
+
+On Windows, put the folder of `clang_rt.asan_dynamic-x86_64.dll` (in the MSVC
+`bin/Hostx64/x64` folder) on `PATH`.

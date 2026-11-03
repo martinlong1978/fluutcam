@@ -43,29 +43,52 @@ All earlier Global Constraints apply. In addition:
 
 ### Task 1: Plan
 
-- [ ] **Step 1:** This plan. Commit.
+- [x] **Step 1:** This plan. Commit.
 
 ### Task 2: Reproduce, reduce, fix
 
 **Files:** `third_party/cavalier_contours/{src/…, README-FLUUTCAM.md}`, `crates/fluut-cam/src/region/tests.rs`, `crates/fluut-cam/tests/rough3d.rs`.
 
-- [ ] **Step 1:** Integration test: `optimised_load_3d` on the dome. Fails.
-- [ ] **Step 2:** Reduce to the smallest offset that panics; unit test with exact coordinates. Fails.
-- [ ] **Step 3:** Root cause and fix; README entry; check upstream. Pass. Commit.
+- [x] **Step 1:** Integration test: `optimised_load_3d` on the dome. Fails.
+- [x] **Step 2:** Reduce to the smallest offset that panics; unit test with exact coordinates. Fails.
+- [x] **Step 3:** Root cause and fix; README entry; check upstream. Pass. Commit.
 
 ### Task 3: Panic guard
 
-**Files:** `crates/fluut-cam/src/{region.rs, region/tests.rs, toolpath.rs}`.
+**Files:** `crates/fluut-cam/src/{region.rs, region/tests.rs, toolpath.rs, strategy/contour_2d.rs}`.
 
-- [ ] **Step 1:** Tests with the forced failure: `Region2::try_offset` and the booleans return `RegionFailure`; `calculate`'s guard turns it into `cam.region.offset_failed` / `cam.region.boolean_failed` on the toolpath.
-- [ ] **Step 2:** Implement; pass. Commit.
+- [x] **Step 1:** Tests with the forced failure: `Region2::try_offset` and the booleans return `RegionFailure`; `calculate`'s guard turns it into `cam.region.offset_failed` / `cam.region.boolean_failed` on the toolpath.
+- [x] **Step 2:** Implement; pass. Commit.
 
 ### Task 4: Fuzz
 
 **Files:** `fuzz/{Cargo.toml, README.md, fuzz_targets/region.rs}`.
 
-- [ ] **Step 1:** Target: offsets and booleans of random small polylines; run it; fix what it finds the same way; record executions and crashes below. Commit.
+- [x] **Step 1:** Target: offsets and booleans of small regions built from rectangles, circles and triangles; run it; fix what it finds the same way; record executions and crashes below. Commit.
 
 ### Task 5: Finish
 
-- [ ] **Step 1:** Golden G-code and CLI simulation check; merge `main`, run all checks, mark done, README row. Commit.
+- [x] **Step 1:** Golden G-code and CLI simulation check; merge `main`, run all checks, mark done, README row. Commit.
+
+## Root cause
+
+A Z-level section of the dome holds a sliver: a triangle 0.86 mm long and 3e-5 mm wide (`offset_of_a_sliver_triangle`). Its raw offset has two steep, almost collinear segments that meet end to end. `line_line_intr` took them as parallel (their cross product is under `eps`) and measured their overlap along X, because the second segment's X extent (3e-5) was just over `eps`. Dividing by it gave an overlap 0.11 mm along the segment, a slice started there, off its segment, and `PlineViewData::create` failed its debug assertion. The fix measures along the larger component, as `parametric_from_point` already does. Upstream `master` has the same code. Release builds skip the assertion, so they built the bad slice silently.
+
+## Fuzz results
+
+`fuzz/fuzz_targets/region.rs`, run on Windows (nightly 2026-11-02, ASan) for about 50 minutes in all, about 315 000 executions:
+
+- **With debug assertions (`-a`):** three classes of `cavalier_contours` assertion, each within a minute or two.
+  1. An offset of a closed loop came back open where slices meet almost tangentially (a micrometre bump left by a circle that nearly touches an edge), and the shape offset took it as a loop. Fixed: close it (`offsets_at_near_tangent_contacts`). Release results unchanged.
+  2. The shape offset closed a loop with a second vertex on top of the first, a zero-length arc that a later boolean rejected. Fixed: remove every repeated closing vertex (`offset_of_loops_touching_at_a_vertex`).
+  3. Open: after five chained offsets of a ring left by tangent circles, the offset holds self-overlapping micrometre loops, and `parametric_from_point` (from `line_circle_intr`) fails its assertion. Input: a circle (5.250001, 5.250001) r 7.500001 minus a circle (1e-6, 5.250001) r 2.6250015, union a circle (5.250001, 5.250001) r 2.6250005, then offsets −1.34375, −1.34375, +3.5625, −1.375, −1.34375. Debug builds now report `cam.region.offset_failed`; release builds skip the assertion.
+- **Release (no `-a`, what users run):** 289 949 executions, no panic. Three timeouts: repeated offsets of the same kind of shape multiply micrometre loops (5 loops and 843 vertices to 87 loops and 29 460 vertices in one offset). The target now stops above 500 vertices. Open.
+
+## Re-blessed golden files
+
+None. Every golden G-code file and the CLI simulation tests are unchanged.
+
+**Done.** The `optimised_load_3d` dome case calculates (`optimised_load_3d_on_the_dome`, cuts clear of the part by R + stock to leave). Any `cavalier_contours` panic left in an offset or boolean becomes `cam.region.offset_failed` or `cam.region.boolean_failed` on the toolpath. Deviations from this plan:
+- **Two more fixes** from the fuzz target (above), both in `shape_algorithms/mod.rs`.
+- **Open-path offsets** (`contour_2d::offset_open`) go through the same guard.
+- **Open issues:** fuzz class 3 and the loop blow-up above; both come from micrometre loops that the offset keeps (`offset_raw` drops loops under 1e-9 mm² only). The application's crash hook still writes a report for each panic the region retries catch, though not for the `RegionFailure` that leaves a strategy (`resume_unwind` skips the hook). On Windows the ASan runtime DLL must be on `PATH` to run the fuzz targets.
