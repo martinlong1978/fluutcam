@@ -476,3 +476,54 @@ fn clip_line_tangent_and_edge() {
     let iv = r.clip_line(Point2::new(0.0, 0.0), Vec2::new(1.0, 1.0));
     assert_eq!(iv, vec![(0.0, 6.0)]);
 }
+
+#[test]
+fn steep_lines_meeting_end_to_end_do_not_overlap() {
+    // Two almost collinear, almost vertical segments that only share an
+    // end. `line_line_intr` divided by the 3e-5 X extent of the second one
+    // (more than `eps`) and reported an overlap 0.11 mm along it.
+    use cavalier_contours::core::math::{LineLineIntr, Vector2, line_line_intr};
+    let a = Vector2::new(-5.25394371263927, 42.21079446367146);
+    let b = Vector2::new(-5.253939252133978, 42.10113256533973);
+    let c = Vector2::new(-5.253970535472758, 41.35137972498433);
+    match line_line_intr(a, b, b, c, 1e-5_f64) {
+        LineLineIntr::TrueIntersect { seg2_t, .. } => assert!(seg2_t.abs() < 1e-12, "{seg2_t}"),
+        r => panic!("{r:?}"),
+    }
+}
+
+#[test]
+fn offset_of_a_sliver_triangle() {
+    // A triangle 0.86 mm long and 3e-5 mm wide, from a section of the dome
+    // (`optimised_load_3d_on_the_dome` in `tests/rough3d.rs`). Its raw
+    // offset has the two segments of the test above, and the false overlap
+    // made an offset slice start off its segment, a debug assertion in
+    // `cavalier_contours`.
+    let hole = Loop2 {
+        verts: vec![
+            Vertex::new(-2.253944715120961, 42.21091648883799, 0.0),
+            Vertex::new(-2.2539402546156686, 42.10125459050626, 0.0),
+            Vertex::new(-2.2539715380825056, 41.35125459115869, 0.0),
+        ],
+    };
+    assert!(!hole.is_ccw());
+    let len = (hole.verts[0].p - hole.verts[2].p).length();
+    for d in [3.0, 2.999_999] {
+        // Clockwise, it is a hole that a growth fills.
+        let r = Region2 {
+            loops: vec![hole.clone()],
+        }
+        .offset_raw(d);
+        assert!(r.is_empty(), "{r:?}");
+        // Counter-clockwise, it grows to a stadium.
+        let r = Region2 {
+            loops: vec![hole.reversed()],
+        }
+        .offset_raw(d);
+        assert!(
+            close(r.area(), 2.0 * d * len + PI * d * d, 1e-3),
+            "{}",
+            r.area()
+        );
+    }
+}

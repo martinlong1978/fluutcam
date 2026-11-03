@@ -17,8 +17,20 @@ differ in the last bit between platforms. See the S3 report, `docs/plan/spikes/s
 
 ## What changed
 
-The trigonometric calls, and one fix for collapsed offset slices. Everything else is as
+The trigonometric calls, and two fixes for nearly degenerate offsets. Everything else is as
 published.
+
+- `src/core/math/line_line_intersect.rs`, `line_line_intr`: for collinear segments, the
+  overlap is measured along the larger component of the second segment. The original tested
+  whether its X component was within `eps` of zero and otherwise divided by it. A steep
+  segment with an X extent just over `eps` (3e-5 for 0.75 mm of Y) then gave parameters
+  scaled by the tiny X differences: two segments that only share an end were reported to
+  overlap 0.11 mm along the second. The offset built a slice starting at that point, off its
+  segment, which failed `validate_for_source` (a debug assertion in `PlineViewData::create`).
+  It happened when growing a sliver triangle from a section of the dome
+  (`offset_of_a_sliver_triangle` and `steep_lines_meeting_end_to_end_do_not_overlap` in
+  `crates/fluut-cam/src/region/tests.rs`). Upstream (`master`, November 2026) has the same
+  code.
 
 - `src/polyline/pline_view.rs`, `PlineViewData::create_on_single_segment`: returns `None`
   when the end point lies within `VALIDATION_EPS` of the segment's start vertex. Such a slice
