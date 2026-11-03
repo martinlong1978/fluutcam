@@ -14,8 +14,10 @@ pub mod frame;
 pub mod graph;
 pub mod reimport;
 pub mod session;
+pub mod settings;
 pub mod sim;
 pub mod store;
+pub mod update;
 
 pub use fluut_sim;
 

@@ -74,8 +74,11 @@ for how to open it. Check the download with its attestation or checksum first.
 This program will not transfer any information to other networked systems unless
 specifically requested by the user or the person installing or operating it.
 
-The update check is off unless you turn it on; the app asks on first start. When on, it downloads the signed release list
-from GitHub and sends nothing beyond that request. Crash reports are written to local files
+The update check is off unless you turn it on; the app asks once on first start, and you can change
+the answer in Settings. When on, it asks GitHub for the signed release list at most once a day and
+sends nothing beyond that request. A check you start yourself ("Check now", or `fluut update-check`)
+works the same way. The app never downloads or installs an update; it shows the version and the
+release page, and you download the file yourself. Crash reports are written to local files
 only; nothing is sent ([spec 06 §6.4](spec/06-security-and-distribution.md)).
 
 ## Reporting misuse

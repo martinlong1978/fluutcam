@@ -1,6 +1,16 @@
 # cargo-deny configuration (design D14 §1, spec 06 §6.1): no copyleft dependencies.
 [graph]
 all-features = true
+# The platforms the release workflow builds for. Without this, cargo-deny also
+# checks target-specific dependencies of platforms we never ship (wasm32,
+# Android), such as the Mozilla root list (CDLA-Permissive-2.0) that
+# rustls-platform-verifier uses only on wasm32.
+targets = [
+    "x86_64-pc-windows-msvc",
+    "x86_64-unknown-linux-gnu",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+]
 
 [licenses]
 unused-allowed-license = "allow"

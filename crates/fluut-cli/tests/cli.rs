@@ -811,3 +811,23 @@ fn translation_invariance() {
         }
     }
 }
+
+/// Without an update key in the build the command stops before any network
+/// use. (Once the maintainer adds the key, a run would use the network, so
+/// the test then does nothing.)
+#[test]
+fn update_check_without_a_key_exits_3_and_says_so() {
+    if fluut_core::update::has_key() {
+        return;
+    }
+    let o = Command::new(env!("CARGO_BIN_EXE_fluut"))
+        .arg("update-check")
+        .env(
+            "FLUUT_DATA_DIR",
+            std::env::temp_dir().join("fluut-cli-update"),
+        )
+        .output()
+        .unwrap();
+    assert_eq!(o.status.code(), Some(3));
+    assert!(String::from_utf8_lossy(&o.stderr).contains("no update key in this build"));
+}

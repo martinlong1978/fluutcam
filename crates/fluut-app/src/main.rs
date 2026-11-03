@@ -6,6 +6,7 @@
 //! startup (see `fluut_app::bench`).
 
 use eframe::egui;
+use fluut_app::updates::Updates;
 use fluut_app::{FluutApp, brand, text};
 use std::path::PathBuf;
 use std::time::Instant;
@@ -26,12 +27,10 @@ fn main() -> eframe::Result {
         "fluutcam",
         options,
         Box::new(move |cc| {
-            Ok(Box::new(FluutApp::new(
-                &cc.egui_ctx,
-                cc.wgpu_render_state.clone(),
-                open,
-                t0,
-            )))
+            let wake = cc.egui_ctx.clone();
+            let updates = Updates::load(move || wake.request_repaint());
+            let app = FluutApp::new(&cc.egui_ctx, cc.wgpu_render_state.clone(), open, t0);
+            Ok(Box::new(app.with_updates(updates)))
         }),
     )
 }

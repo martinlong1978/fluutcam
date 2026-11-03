@@ -12,12 +12,14 @@ mod browser;
 mod inspector;
 mod ribbon;
 mod simulation;
+mod updates;
 mod viewport;
 
 use crate::bench::Bench;
 use crate::brand::{self, Palette, c};
 use crate::jobs::{CalcTargets, Edit, JobKind, Jobs, Outcome};
 use crate::text::{diagnostic, tr};
+use crate::updates::Updates;
 use crate::vm::Selection;
 use crate::vm::playback::{Playback, StockColour};
 use crate::vm::status::StatusVm;
@@ -52,6 +54,7 @@ pub struct UiState {
     /// Text of the output file field.
     pub post_output: String,
     pub show_about: bool,
+    pub show_settings: bool,
     /// Inspector tab per toolpath type (by group index).
     pub inspector_tab: usize,
     /// Text being typed into number fields, by field path, until it is
@@ -82,6 +85,7 @@ impl Default for UiState {
             post_id: "fluut/linuxcnc".into(),
             post_output: String::new(),
             show_about: false,
+            show_settings: false,
             inspector_tab: 3,
             entries: BTreeMap::new(),
             entry_error: None,
@@ -100,6 +104,8 @@ pub struct FluutApp {
     pub jobs: Jobs,
     pub ui: UiState,
     pub view: ViewportState,
+    /// The update check (spec 06 §6.4). Off until [`FluutApp::with_updates`].
+    pub updates: Updates,
     dock: DockState<Tab>,
     render: Option<egui_wgpu::RenderState>,
     bench: Bench,
@@ -149,12 +155,21 @@ impl FluutApp {
             jobs,
             view: ViewportState::new(render.as_ref()),
             ui,
+            updates: Updates::off(),
             dock: default_dock(),
             render,
             bench: Bench::from_env(t0),
             bench_ready: false,
             seen: 0,
         }
+    }
+
+    /// Turns the update check on: the first-start question, the daily check
+    /// once the user has opted in, and Settings. A window built without this
+    /// (tests) never asks and never uses the network.
+    pub fn with_updates(mut self, updates: Updates) -> FluutApp {
+        self.updates = updates;
+        self
     }
 
     /// Requests from the widgets go through here.
@@ -219,6 +234,12 @@ impl FluutApp {
             }
         }
         self.playback(ui.ctx());
+        self.updates.tick();
+        if self.updates.is_active() {
+            // So a day-old session still checks without input.
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_secs(3600));
+        }
         let timing = !self.bench.timing_frames() || self.bench_ready;
         if timing && self.bench.frame(&mut self.view.camera) {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
@@ -252,6 +273,8 @@ impl FluutApp {
                     .show_inside(ui, &mut tabs);
             });
         about::show(ui.ctx(), &mut self.ui);
+        updates::settings(ui.ctx(), &mut self.ui, &mut self.updates);
+        updates::prompt(ui.ctx(), &mut self.updates);
     }
 
     /// Moves the playhead while playing, and asks the worker for the stock
@@ -296,6 +319,9 @@ impl FluutApp {
                 if ui.button(tr("title-about")).clicked() {
                     self.ui.show_about = true;
                 }
+                if ui.button(tr("title-settings")).clicked() {
+                    self.ui.show_settings = true;
+                }
                 let theme = if self.ui.dark {
                     "title-theme-light"
                 } else {
@@ -332,6 +358,9 @@ impl FluutApp {
                 );
             }
             ui.label(egui::RichText::new(&vm.text).color(colour));
+            if updates::notice(ui, &self.updates) {
+                self.ui.show_settings = true;
+            }
             if vm.cancellable && ui.button(tr("ribbon-cancel")).clicked() {
                 self.jobs.cancel();
             }
