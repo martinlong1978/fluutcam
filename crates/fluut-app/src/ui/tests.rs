@@ -113,3 +113,53 @@ fn theme_switch() {
     assert!(!app(&mut h).ui.dark);
     h.get_by_label("Dark theme");
 }
+
+#[test]
+fn simulation_tab_steps_and_shows_the_rest_legend() {
+    let mut h = harness();
+    h.step();
+    app(&mut h).ui.open_path = project("block").display().to_string();
+    h.get_by_label("Open").click();
+    settle(&mut h);
+    app(&mut h).jobs.simulate("s1");
+    settle(&mut h);
+    let a = app(&mut h);
+    let tab = a.dock.find_tab(&Tab::Simulation).expect("a Simulation tab");
+    a.dock.set_active_tab(tab).unwrap();
+    h.run_steps(3);
+    let end = app(&mut h).ui.playback.t;
+    assert!(end > 0.0);
+    // Back one move, then forward again.
+    assert!(!enabled(&h, "Forward"));
+    h.get_by_label("Back").click();
+    h.run_steps(2);
+    let t = app(&mut h).ui.playback.t;
+    assert!(t < end);
+    h.get_by_label("Forward").click();
+    h.run_steps(2);
+    assert_eq!(app(&mut h).ui.playback.t, end);
+    // By toolpath: back to the end of the one before the last.
+    h.get_by_label("Toolpath").click();
+    h.get_by_label("Back").click();
+    h.run_steps(2);
+    let snap = app(&mut h).jobs.snapshot.clone().unwrap();
+    let clips = &snap.sims["s1"].clips;
+    assert_eq!(app(&mut h).ui.playback.t, clips[clips.len() - 2].end);
+    // The rest colouring and its legend.
+    assert!(h.query_by_label("Above tolerance").is_none());
+    h.get_by_label("Rest material").click();
+    h.run_steps(2);
+    assert_eq!(app(&mut h).ui.stock_colour, StockColour::Rest);
+    for l in [
+        "Above tolerance",
+        "Within tolerance",
+        "Gouge",
+        "No part below",
+    ] {
+        h.get_by_label(l);
+    }
+    h.get_by_label("By toolpath").click();
+    h.run_steps(2);
+    h.get_by_label("Not cut");
+    assert!(h.query_by_label("Above tolerance").is_none());
+}

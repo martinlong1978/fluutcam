@@ -147,6 +147,10 @@ impl DexelGrid {
         self.nv = 0;
     }
 
+    pub(crate) fn tiles(&self) -> &[Arc<Tile>] {
+        &self.tiles
+    }
+
     pub(crate) fn tiles_mut(&mut self) -> &mut [Arc<Tile>] {
         &mut self.tiles
     }

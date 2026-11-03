@@ -17,7 +17,7 @@
 use crate::jobs::{CalcTargets, Edit, Event, JobCx, Outcome, PostRequest, Request};
 use crate::scene::{SetupScene, ToolpathLines};
 use fluut_cam::geometry::SetupBody;
-use fluut_core::fluut_sim::{Check, Monitor, StockMesh, surface};
+use fluut_core::fluut_sim::{Check, Monitor, Player, Step, StockMesh};
 use fluut_core::{JobReport, JobState, NodeId, PostOptions, Session, SetupFrame, Targets};
 use fluut_core::{SimResult, SimSettings};
 use fluut_model::project::Project;
@@ -152,16 +152,15 @@ impl SimView {
         }
     }
 
-    /// The stock at time `t` as a mesh, and the tool tip then.
-    pub fn frame(&self, t: f64) -> (StockMesh, Option<[f32; 3]>) {
-        let sim = &self.result.sim;
-        let mesh = if t >= sim.duration() {
-            surface(sim.stock_final())
-        } else {
-            surface(&sim.stock_at(t))
-        };
-        let tip = sim.tool_at(t).map(|(_, p)| p.tip.as_vec3().to_array());
-        (mesh, tip)
+    /// The program time one move, pass or toolpath on from `t`, or back.
+    /// A binary search: cheap enough for the UI thread.
+    pub fn step(&self, t: f64, unit: Step, forward: bool) -> f64 {
+        self.result.sim.step(t, unit, forward)
+    }
+
+    /// Whether the stock can be coloured by rest material.
+    pub fn has_part(&self) -> bool {
+        self.result.sim.part.is_some()
     }
 }
 
@@ -170,11 +169,22 @@ impl SimView {
 pub struct Frame {
     pub setup: String,
     pub t: f64,
-    /// `None` when the Setup has no current simulation.
-    pub mesh: Option<Arc<StockMesh>>,
+    /// The stock mesh in blocks (`fluut_sim::MeshTiles`); `None` when the
+    /// Setup has no current simulation. A block that did not change since
+    /// the last frame is the same `Arc`.
+    pub blocks: Option<Vec<Arc<StockMesh>>>,
+    /// Blocks rebuilt for this frame.
+    pub rebuilt: usize,
     pub tool: Option<[f32; 3]>,
     /// Scrub requests this frame answers.
     pub requests: usize,
+}
+
+impl Frame {
+    /// Volume of the stock mesh, mm³ (for tests).
+    pub fn volume(&self) -> f64 {
+        self.blocks.iter().flatten().map(|b| b.volume()).sum()
+    }
 }
 
 impl Snapshot {
@@ -268,6 +278,8 @@ struct State {
     sim_settings: SimSettings,
     /// Views of the simulations, with the result they show.
     sim_views: BTreeMap<String, Arc<SimView>>,
+    /// The stock shown per Setup, with the result it plays.
+    players: BTreeMap<String, (Arc<SimResult>, Player)>,
 }
 
 struct Worker {
@@ -347,26 +359,43 @@ impl Worker {
         outcome
     }
 
-    /// Sends the stock of `setup` at time `t`, answering `n` requests.
+    /// Sends the stock of `setup` at time `t`, answering `n` requests. The
+    /// Setup's player cuts on from the last frame and rebuilds only the
+    /// blocks that changed (D11 §4).
     fn scrub(&mut self, setup: &str, t: f64, n: usize) {
-        let view = self
-            .state
-            .as_ref()
-            .and_then(|st| st.sim_views.get(setup).cloned());
-        let (mesh, tool) = match view {
-            Some(v) => {
-                let (m, tip) = v.frame(t.min(v.duration));
-                (Some(Arc::new(m)), tip)
-            }
-            None => (None, None),
-        };
-        self.send(Event::Frame(Arc::new(Frame {
+        let mut frame = Frame {
             setup: setup.to_owned(),
             t,
-            mesh,
-            tool,
+            blocks: None,
+            rebuilt: 0,
+            tool: None,
             requests: n,
-        })));
+        };
+        if let Some(st) = self.state.as_mut() {
+            let views = &st.sim_views;
+            st.players
+                .retain(|k, (r, _)| views.get(k).is_some_and(|v| Arc::ptr_eq(r, &v.result)));
+            if let Some(v) = st.sim_views.get(setup) {
+                let sim = &v.result.sim;
+                let t = t.min(v.duration);
+                let chords = if t >= sim.duration() {
+                    sim.chords.len()
+                } else {
+                    sim.chords_at(t)
+                };
+                if let Some((_, p)) = st.players.get_mut(setup) {
+                    frame.rebuilt = p.seek(sim, chords).len();
+                } else {
+                    let p = Player::new(sim, chords);
+                    frame.rebuilt = p.mesh().blocks().len();
+                    st.players.insert(setup.to_owned(), (v.result.clone(), p));
+                }
+                let p = &st.players[setup].1;
+                frame.blocks = Some(p.mesh().blocks().to_vec());
+                frame.tool = sim.tool_at(t).map(|(_, p)| p.tip.as_vec3().to_array());
+            }
+        }
+        self.send(Event::Frame(Arc::new(frame)));
     }
 
     fn open(&mut self, cx: &JobCx, path: PathBuf) {
@@ -384,6 +413,7 @@ impl Worker {
                     edit_error: None,
                     sim_settings: SimSettings::default(),
                     sim_views: BTreeMap::new(),
+                    players: BTreeMap::new(),
                 });
                 cx.progress.advance();
                 self.snapshot();

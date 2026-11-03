@@ -19,11 +19,12 @@ use crate::brand::{self, Palette, c};
 use crate::jobs::{CalcTargets, Edit, JobKind, Jobs, Outcome};
 use crate::text::{diagnostic, tr};
 use crate::vm::Selection;
-use crate::vm::playback::Playback;
+use crate::vm::playback::{Playback, StockColour};
 use crate::vm::status::StatusVm;
 use eframe::egui::{self, Color32, CornerRadius, Stroke};
 use eframe::egui_wgpu;
 use egui_dock::{DockArea, DockState, NodeIndex, TabViewer};
+use fluut_core::fluut_sim::Step;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::Instant;
@@ -64,6 +65,10 @@ pub struct UiState {
     pub playback: Playback,
     /// Show the simulated stock instead of the faces.
     pub show_stock: bool,
+    /// How the simulated stock is coloured.
+    pub stock_colour: StockColour,
+    /// How far the step buttons move the playhead.
+    pub step: Step,
     /// The finding looked at, in the work frame.
     pub focus: Option<[f32; 3]>,
 }
@@ -83,6 +88,8 @@ impl Default for UiState {
             clock: crate::session::now_utc,
             playback: Playback::default(),
             show_stock: true,
+            stock_colour: StockColour::Plain,
+            step: Step::Move,
             focus: None,
         }
     }

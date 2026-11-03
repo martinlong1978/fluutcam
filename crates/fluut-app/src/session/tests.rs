@@ -189,7 +189,7 @@ fn numbered_files() {
 
 #[test]
 fn simulate_then_scrub_through_the_worker() {
-    use crate::vm::playback::{Playback, PlaybackVm};
+    use crate::vm::playback::{Playback, PlaybackVm, StockColour};
     let mut j = opened("boss");
     j.simulate("s1");
     assert_eq!(j.wait(), Some(Outcome::Simulated { findings: 0 }));
@@ -203,7 +203,7 @@ fn simulate_then_scrub_through_the_worker() {
         assert!(j.wait_event());
     }
     let end = j.frame.clone().unwrap();
-    let full = end.mesh.as_ref().unwrap().volume();
+    let full = end.volume();
     // Scrubbing to the start gives the uncut stock: more material.
     j.scrub("s1", 0.0);
     while j.scrubbing > 0 {
@@ -211,17 +211,20 @@ fn simulate_then_scrub_through_the_worker() {
     }
     let start = j.frame.clone().unwrap();
     assert_eq!(start.t, 0.0);
-    assert!(start.mesh.as_ref().unwrap().volume() > full + 100.0);
+    assert!(start.volume() > full + 100.0);
     // The playback view model over this simulation.
     let mut p = Playback::default();
     p.reset("s1", v.duration);
-    let vm = PlaybackVm::new(&v, &p);
+    let vm = PlaybackVm::new(&v, &p, StockColour::Plain);
     assert_eq!(vm.clips.len(), 1);
     assert!(vm.clips[0].current && vm.clips[0].to == 1.0);
     assert!(vm.findings.is_empty());
     assert_eq!(vm.play_label, "Play");
     p.toggle(v.duration);
-    assert_eq!(PlaybackVm::new(&v, &p).play_label, "Pause");
+    assert_eq!(
+        PlaybackVm::new(&v, &p, StockColour::Plain).play_label,
+        "Pause"
+    );
     // An edit of the toolpath makes the simulation stale.
     j.edit(Edit::SetParam {
         toolpath: "t1".into(),
@@ -229,4 +232,89 @@ fn simulate_then_scrub_through_the_worker() {
         value: Some(PValue::Num(Num::float(3.0))),
     });
     assert!(j.wait_snapshot().unwrap().sims.is_empty());
+}
+
+/// Scrubs to `t` and waits for the frame.
+fn frame_at(j: &mut Jobs, setup: &str, t: f64) -> Arc<Frame> {
+    j.scrub(setup, t);
+    while j.scrubbing > 0 {
+        assert!(j.wait_event());
+    }
+    j.frame.clone().unwrap()
+}
+
+#[test]
+fn step_controls_and_incremental_frames() {
+    use crate::vm::playback::{Playback, PlaybackVm, StockColour};
+    use fluut_core::fluut_sim::Step;
+    let mut j = opened("block");
+    j.simulate("s1");
+    assert!(matches!(j.wait(), Some(Outcome::Simulated { .. })));
+    let s = j.snapshot.clone().unwrap();
+    let v = s.sims["s1"].clone();
+    let k = v.clips.len();
+    assert!(k >= 2);
+    let mut p = Playback::default();
+    p.reset("s1", v.duration);
+    // At the end: back only.
+    let vm = PlaybackVm::new(&v, &p, StockColour::Plain);
+    assert!(vm.can_back && !vm.can_forward);
+    assert!(vm.legend.is_empty());
+    // Back one toolpath at a time: the clips' ends, then the start.
+    p.toggle(v.duration);
+    p.seek(v.duration, v.duration);
+    for i in (0..k - 1).rev() {
+        p.step(&v, Step::Toolpath, false);
+        assert!(!p.playing);
+        assert_eq!(p.t, v.clips[i].end);
+    }
+    p.step(&v, Step::Toolpath, false);
+    assert_eq!(p.t, 0.0);
+    let vm = PlaybackVm::new(&v, &p, StockColour::Plain);
+    assert!(!vm.can_back && vm.can_forward);
+    // Moves are shorter than passes, passes than toolpaths.
+    p.step(&v, Step::Move, true);
+    let one_move = p.t;
+    p.seek(0.0, v.duration);
+    p.step(&v, Step::Pass, true);
+    let one_pass = p.t;
+    assert!(0.0 < one_move && one_move <= one_pass && one_pass <= v.clips[0].end);
+    p.step(&v, Step::Move, false);
+    assert!(p.t < one_pass);
+    // The frames: the whole stock first, then a step forward by one move
+    // rebuilds only some blocks and shares the rest.
+    let a = frame_at(&mut j, "s1", 0.0);
+    let n = a.blocks.as_ref().unwrap().len();
+    let mid = 0.5 * (v.clips[1].start + v.clips[1].end);
+    let b = frame_at(&mut j, "s1", mid);
+    let after = v.step(mid, Step::Move, true);
+    let c = frame_at(&mut j, "s1", after);
+    assert!(c.rebuilt < n, "{} of {n}", c.rebuilt);
+    let shared = b
+        .blocks
+        .as_ref()
+        .unwrap()
+        .iter()
+        .zip(c.blocks.as_ref().unwrap())
+        .filter(|(x, y)| Arc::ptr_eq(x, y))
+        .count();
+    assert_eq!(shared + c.rebuilt, n);
+    assert!(c.volume() <= b.volume() + 1e-6 && b.volume() < a.volume());
+    // The legends.
+    assert!(v.has_part());
+    let vm = PlaybackVm::new(&v, &p, StockColour::Rest);
+    let labels: Vec<&str> = vm.legend.iter().map(|l| l.label.as_str()).collect();
+    assert_eq!(
+        labels,
+        [
+            "Above tolerance",
+            "Within tolerance",
+            "Gouge",
+            "No part below"
+        ]
+    );
+    let vm = PlaybackVm::new(&v, &p, StockColour::Toolpath);
+    assert_eq!(vm.legend.len(), k + 1);
+    assert_eq!(vm.legend[k].label, "Not cut");
+    assert_ne!(vm.legend[0].colour, vm.legend[1].colour);
 }
