@@ -2,7 +2,7 @@
 <!--
   SignPath artifact configuration for the Windows executables (docs/CODE_SIGNING.md).
   Paste it into the SignPath project as its artifact configuration; this copy is the
-  reviewed source. The artifact is the zip that actions/upload-artifact makes of bin/.
+  reviewed source (the installer has its own: artifact-configuration-msi.xml). The artifact is the zip that actions/upload-artifact makes of bin/.
   The product name and version must match the version resource that build.rs writes,
   and `version` is passed by release.yml as the release version.
 -->
