@@ -5,12 +5,36 @@
 //!
 //! [`Playback`] is UI state: where the playhead is and whether it moves.
 //! Playing runs the whole program in about [`PLAY_SECONDS`]; the stock at
-//! the playhead is asked from the worker, which scrubs (D11 §4).
+//! the playhead is asked from the worker, which scrubs (D11 §4). Steps move
+//! the playhead to the end of the next or previous move, pass or toolpath.
 
+use crate::brand::{self, Rgb};
 use crate::session::SimView;
 use crate::text::{data, tr, tr_args};
 use crate::vm::fmt_num;
-use fluut_core::fluut_sim::Check;
+use fluut_core::fluut_sim::{Check, Step};
+
+/// How the simulated stock is coloured.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
+pub enum StockColour {
+    #[default]
+    Plain,
+    /// By distance to the part: above tolerance, within, gouge (D11 §5).
+    Rest,
+    /// By the toolpath that last cut it.
+    Toolpath,
+}
+
+impl StockColour {
+    /// The shader's code for it.
+    pub fn code(self) -> u32 {
+        match self {
+            StockColour::Plain => 0,
+            StockColour::Rest => 1,
+            StockColour::Toolpath => 2,
+        }
+    }
+}
 
 /// Seconds that playing the whole program takes, at least 1 s of program
 /// time per second.
@@ -75,6 +99,13 @@ impl Playback {
         self.playing = !self.playing && duration > 0.0;
     }
 
+    /// Pauses and moves the playhead one move, pass or toolpath forward or
+    /// back.
+    pub fn step(&mut self, v: &SimView, unit: Step, forward: bool) {
+        self.playing = false;
+        self.seek(v.step(self.t, unit, forward), v.duration);
+    }
+
     /// The time to ask the worker for, when the shown stock is not at the
     /// playhead and no request is waiting.
     pub fn wanted(&self, waiting: bool) -> Option<f64> {
@@ -111,6 +142,13 @@ pub struct FindingVm {
     pub position: [f32; 3],
 }
 
+/// A row of the stock colour legend.
+#[derive(Clone, PartialEq, Debug)]
+pub struct LegendVm {
+    pub colour: Rgb,
+    pub label: String,
+}
+
 #[derive(Clone, PartialEq, Debug)]
 pub struct PlaybackVm {
     /// `now / total`.
@@ -121,10 +159,47 @@ pub struct PlaybackVm {
     pub findings: Vec<FindingVm>,
     /// Ray spacing and rest material.
     pub summary: String,
+    /// Stepping back or forward would move the playhead.
+    pub can_back: bool,
+    pub can_forward: bool,
+    /// The simulation has a part, so the rest colouring means something.
+    pub has_part: bool,
+    /// What the stock colours mean; empty for plain stock.
+    pub legend: Vec<LegendVm>,
+}
+
+/// The legend of a stock colouring.
+fn legend(v: &SimView, colour: StockColour) -> Vec<LegendVm> {
+    let row = |colour, id: &str| LegendVm {
+        colour,
+        label: tr(id),
+    };
+    match colour {
+        StockColour::Plain => Vec::new(),
+        StockColour::Rest => {
+            let [off, rest, within, gouge] = brand::REST_COLOURS;
+            vec![
+                row(rest, "sim-legend-rest"),
+                row(within, "sim-legend-within"),
+                row(gouge, "sim-legend-gouge"),
+                row(off, "sim-legend-off"),
+            ]
+        }
+        StockColour::Toolpath => v
+            .clips
+            .iter()
+            .enumerate()
+            .map(|(i, c)| LegendVm {
+                colour: brand::TOOLPATH_COLOURS[i % brand::TOOLPATH_COLOURS.len()],
+                label: data(&c.name),
+            })
+            .chain([row(brand::STOCK_GREY, "sim-legend-uncut")])
+            .collect(),
+    }
 }
 
 impl PlaybackVm {
-    pub fn new(v: &SimView, p: &Playback) -> PlaybackVm {
+    pub fn new(v: &SimView, p: &Playback, colour: StockColour) -> PlaybackVm {
         let d = v.duration;
         let share = |t: f64| if d > 0.0 { (t / d) as f32 } else { 0.0 };
         let clips = v
@@ -166,6 +241,11 @@ impl PlaybackVm {
             })
             .collect();
         let (rest, max) = v.rest.unwrap_or_default();
+        let colour = if colour == StockColour::Rest && !v.has_part() {
+            StockColour::Plain
+        } else {
+            colour
+        };
         PlaybackVm {
             time: tr_args("sim-time", &[("now", &clock(p.t)), ("total", &clock(d))]),
             play_label: tr(if p.playing { "sim-pause" } else { "sim-play" }),
@@ -180,6 +260,10 @@ impl PlaybackVm {
                     ("max", &fmt_num(max)),
                 ],
             ),
+            can_back: p.t > 0.0,
+            can_forward: p.t < d,
+            has_part: v.has_part(),
+            legend: legend(v, colour),
         }
     }
 }

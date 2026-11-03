@@ -22,6 +22,7 @@
 //! Setups.
 
 use crate::dexel::TriDexel;
+use crate::mesh::{GOUGE, OFF, REST, WITHIN};
 use crate::run::{Assembly, Check, Finding, Simulation};
 use crate::sim::ray_range;
 use glam::DVec3;
@@ -45,6 +46,37 @@ pub struct Rest {
     /// Thickest rest on the part, mm, and the stock top there.
     pub max: f64,
     pub at: DVec3,
+}
+
+/// The part's top at every Z ray of the stock, kept from the verification
+/// to paint the stock (D11 §5).
+#[derive(Clone, Debug, PartialEq)]
+pub struct PartHeights {
+    /// Gouge tolerance, mm.
+    pub tol: f64,
+    /// By Z ray, row by row; NaN where the ray misses the part or the
+    /// stock.
+    pub top: Vec<f32>,
+}
+
+impl PartHeights {
+    /// The rest class of Z ray `idx` whose material top is `top`: above the
+    /// part by more than the tolerance, below it by more than the gouge
+    /// threshold, or within. For display: there is no ring test.
+    pub fn class(&self, idx: usize, top: f64) -> u8 {
+        let p = self.top[idx];
+        if p.is_nan() {
+            return OFF;
+        }
+        let p = f64::from(p);
+        if top - p > self.tol {
+            REST
+        } else if top < p - self.tol * (1.0 + SAGITTA) {
+            GOUGE
+        } else {
+            WITHIN
+        }
+    }
 }
 
 /// Points on the ring around a gouge candidate.
@@ -71,6 +103,7 @@ struct Sample {
     off: f64,
     rest: f64,
     top: f64,
+    part: Option<f64>,
 }
 
 pub(crate) fn gouges_and_rest(
@@ -78,7 +111,7 @@ pub(crate) fn gouges_and_rest(
     part: &dyn Part,
     tol: f64,
     stop: &(dyn Fn() -> bool + Sync),
-) -> Option<(Vec<Finding>, Rest)> {
+) -> Option<(Vec<Finding>, Rest, PartHeights)> {
     let d = sim.stock_final();
     let g = &d.grids[2];
     let g0 = &sim.stock_initial().grids[2];
@@ -102,6 +135,7 @@ pub(crate) fn gouges_and_rest(
         };
         let mut s = Sample {
             top,
+            part: Some(pt),
             ..Sample::default()
         };
         if top - pt > tol {
@@ -151,7 +185,15 @@ pub(crate) fn gouges_and_rest(
         rest.at.x = o.x + (i as f64 + 0.5) * res;
         rest.at.y = o.y + (j as f64 + 0.5) * res;
     }
-    Some((attribute(sim, &gouges, limit), rest))
+    let heights = PartHeights {
+        tol,
+        top: rows
+            .iter()
+            .flatten()
+            .map(|s| s.part.map_or(f32::NAN, |p| p as f32))
+            .collect(),
+    };
+    Some((attribute(sim, &gouges, limit), rest, heights))
 }
 
 /// The first chord that cut each gouged ray below the part (or, failing

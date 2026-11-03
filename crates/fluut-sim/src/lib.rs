@@ -19,6 +19,7 @@ pub mod dexel;
 pub mod gjk;
 pub mod mesh;
 pub mod motion;
+pub mod player;
 pub mod run;
 pub mod sim;
 pub mod spike;
@@ -30,10 +31,11 @@ pub mod verify;
 
 pub use cyl::CylDexel;
 pub use dexel::{DexelGrid, Span, TriDexel};
-pub use mesh::{StockMesh, surface};
+pub use mesh::{MeshTiles, NoPaint, Paint, StockMesh, surface};
 pub use motion::Chorder;
+pub use player::{Player, SimPaint};
 pub use run::{
-    Assembly, Cancelled, Check, Clip, Finding, Monitor, Program, Quiet, Settings, Simulation,
+    Assembly, Cancelled, Check, Clip, Finding, Monitor, Program, Quiet, Settings, Simulation, Step,
     resolution,
 };
 pub use sim::{Stats, cut};
@@ -41,4 +43,4 @@ pub use stock::Stock;
 pub use sweep::Sweep;
 pub use time::{Feeds, Kinematics};
 pub use tool::{Pose, Tool};
-pub use verify::{Part, Rest, index_turn};
+pub use verify::{Part, PartHeights, Rest, index_turn};

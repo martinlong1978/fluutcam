@@ -490,6 +490,8 @@ Rotary speed is still open: the remaining cost is ray tests across the tool's sh
 
 **M7 finding (2026-11-01).** The product simulation ([D11 §10](D11-simulation.md#10-m7-implementation-2026-11-01)) runs the relief stand-in at 18 µs per move at 0.2 mm (49 at 0.1) on 12 threads and the reference projects in 0.1–1.3 s. Checkpoints for scrubbing (copy-on-write tiles, every toolpath and every 32 768 chords) cost 3–5× the bare stock: 473 MB for the relief at 0.1 mm, inside the 512 MB budget, which now counts 115 B per ray. Re-cutting to a scrub time takes 0.01–0.2 s on three-axis work (1.3 s on the rotary wrap), but meshing the whole stock takes 0.2–11 s: per-tile meshing of dirty tiles, or GPU meshing, is needed for interactive scrubbing. Rotary speed is unchanged.
 
+**Playback finding (2026-11-02).** Meshing is now per block and incremental ([D11 §10](D11-simulation.md#10-m7-implementation-2026-11-01), playback): a step of 300 moves on the relief at 0.2 mm re-meshes in about 22 ms (whole step with the re-cut about 30 ms), and the whole mesh takes 0.46 s instead of 3.2. At 0.1 mm the same step takes 0.3 s. Still open: stepping back re-cuts from the checkpoint (75 ms on the relief at 0.2 mm, 1.1 s on the rotary wrap), and viewport frame rates with millions of stock triangles need a real GPU to measure.
+
 ### CH-23 Live pass preview cost while dragging
 
 **Problem.** [S 08 §8.4] asks for a live ghost of the pass pattern while editing stepover, angle

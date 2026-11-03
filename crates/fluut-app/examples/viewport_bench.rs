@@ -128,6 +128,7 @@ fn main() {
             dark: true,
             face: None,
             toolpath: None,
+            stock_colour: Default::default(),
         };
         let t = Instant::now();
         r.render(&device, &queue, &f);
@@ -142,6 +143,7 @@ fn main() {
         dark: true,
         face: None,
         toolpath: None,
+        stock_colour: Default::default(),
     };
     let mut picks = Vec::new();
     for i in 0..20 {
