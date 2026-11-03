@@ -262,6 +262,15 @@ emits an arc directly (D08 §4.3).
 - *Parallel.* Seed lines and levels run on `rayon`, collected in order (D01 §6).
 - *Linking.* Lifts and rapids keep the rapid floor of D08 §8.2.
 
+**Flat levels (2026-11-02,** [plan](../plan/2026-11-02-waterline-flat-levels.md)**).**
+- *Flat heights* are the plane's Z of each horizontal planar face, not the top of its edges,
+  which may stand up to the model tolerance above it (CH-03). `horizontal` keeps the top of
+  the flat's edges, so that its wall waterline is above them.
+- *Closing.* A backward trace that closes is the contour, even if the forward one stopped.
+  A trace lost at both ends whose ends are within tol/4, with the gap between them outside the
+  material, is closed across it. A lost trace lying on a closed contour of the same level
+  (traced later from another seed) is dropped.
+
 ### 4.5 `horizontal`
 
 ```

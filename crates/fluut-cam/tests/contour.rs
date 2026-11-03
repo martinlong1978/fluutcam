@@ -446,3 +446,100 @@ fn sub_tolerance_steps_at_a_flat_level_are_not_lost() {
         assert_no_gouge(&g, &r, &tool(id), 0.0, 0.01 + 1e-9);
     }
 }
+
+/// A flat at Z 0 beside a near-flat ramp that rises along their shared
+/// edge, with model gaps as on `nist_ctc_02` at Z −290: the edge stands
+/// `e` above the flat's plane, and the ramp's trimmed boundary stands
+/// `g − e` above the edge. A ball over the flat next to the ramp misses
+/// the ramp (its tangent point is trimmed away and the gap is below the
+/// trim chord), so τ steps up by `g − e` at the ramp's boundary.
+fn flat_with_gaps(e: f64, g: f64) -> SetupGeometry {
+    use fluut_cam::cutter::synth::line;
+    use fluut_geom::{Frame, Vec3};
+    let s = 1e-5;
+    let mut b = Builder::new("gaps");
+    let p = Point3::new;
+    let mut edge = |a: Point3, c: Point3| {
+        let (cv, r) = line(a, c).unwrap();
+        b.edge(Some(cv), r, a)
+    };
+    let (f0, f1, f2, f3) = (
+        p(0.0, 0.0, e),
+        p(30.0, 0.0, e),
+        p(30.0, 20.0, e + 20.0 * s),
+        p(0.0, 20.0, e),
+    );
+    let (r1, r2) = (p(50.0, 0.0, g), p(50.0, 20.0, g + 20.0 * s));
+    let shared = edge(f1, f2);
+    let fl = [edge(f0, f1), edge(f2, f3), edge(f3, f0)];
+    let rl = [edge(f1, r1), edge(r1, r2), edge(r2, f2)];
+    let flat = Surface::Plane {
+        frame: Frame::new(
+            p(0.0, 0.0, 0.0),
+            Vec3::new(0.0, 0.0, 1.0),
+            Vec3::new(1.0, 0.0, 0.0),
+        )
+        .unwrap(),
+    };
+    let ramp = Surface::Plane {
+        frame: Frame::new(
+            p(30.0, 0.0, g),
+            Vec3::new(0.0, -s, 1.0),
+            Vec3::new(1.0, 0.0, 0.0),
+        )
+        .unwrap(),
+    };
+    b.face(
+        flat,
+        true,
+        &[vec![
+            (fl[0], true),
+            (shared, true),
+            (fl[1], true),
+            (fl[2], true),
+        ]],
+    );
+    b.face(
+        ramp,
+        true,
+        &[vec![
+            (rl[0], true),
+            (rl[1], true),
+            (rl[2], true),
+            (shared, false),
+        ]],
+    );
+    // A block below, so that the flat is above the model bottom.
+    cuboid(&mut b, p(60.0, 0.0, -10.0), p(70.0, 20.0, -5.0));
+    SetupGeometry {
+        bodies: vec![SetupBody {
+            id: "b-1".into(),
+            geom: BodyGeom::Brep(b.build()),
+        }],
+    }
+}
+
+#[test]
+fn flat_level_with_model_gaps_is_not_lost() {
+    // nist_ctc_02 at 20 mm: the flat level was the top of the flat's
+    // edges (0.3 µm above its plane), inside the gaps, and 4 traces were
+    // lost along the ramp's boundary. The level is the flat's plane.
+    let g = flat_with_gaps(2e-4, 1e-3);
+    for id in ["b6", "f6"] {
+        let r = run(
+            &g,
+            &contour(
+                id,
+                "[passes]\nstep_down = 20\nmachining_tolerance = 0.001\n",
+            ),
+        );
+        let zs = levels(&r);
+        assert!(
+            !warnings(&r).contains(&"cam.contour.loop_open"),
+            "{id}: {zs:?}"
+        );
+        assert!(zs.contains(&0.0), "{id}: {zs:?}");
+        assert!(!zs.iter().any(|z| *z > 0.0 && *z < 1e-3), "{id}: {zs:?}");
+        assert_no_gouge(&g, &r, &tool(id), 0.0, 0.001 + 1e-9);
+    }
+}

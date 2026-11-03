@@ -520,15 +520,20 @@ fn bull_on_sphere(
     best_point(q, face, s, ax, c, pts, trimmed)
 }
 
-/// Upward unit normal and its parameter derivatives.
-fn normal_and_derivs(d: &SurfDerivs) -> Option<(Vec3, Vec3, Vec3)> {
-    let nn = d.su.cross(d.sv);
+/// The upward unit normal of `su × sv`, its length and the sign applied.
+fn up_normal(su: Vec3, sv: Vec3) -> Option<(Vec3, f64, f64)> {
+    let nn = su.cross(sv);
     let len = nn.length();
     if len < 1e-300 || !len.is_finite() {
         return None;
     }
     let sign = if nn.z() < 0.0 { -1.0 } else { 1.0 };
-    let n = nn * (sign / len);
+    Some((nn * (sign / len), len, sign))
+}
+
+/// Upward unit normal and its parameter derivatives.
+fn normal_and_derivs(d: &SurfDerivs) -> Option<(Vec3, Vec3, Vec3)> {
+    let (n, len, sign) = up_normal(d.su, d.sv)?;
     let nu = d.suu.cross(d.sv) + d.su.cross(d.suv);
     let nv = d.suv.cross(d.sv) + d.su.cross(d.svv);
     let dn = |x: Vec3| (x * sign - n * n.dot(x * sign)) / len;
@@ -543,18 +548,13 @@ fn contact_map(s: &Surface, c: &Cutter, u: f64, v: f64) -> Option<([f64; 2], [[f
     let (rf, r) = (c.flat_radius(), c.corner());
     let k = [n.x(), n.y()];
     let kl = libm::hypot(k[0], k[1]);
-    let mut g = [d.p.x() + r * k[0], d.p.y() + r * k[1]];
+    let g = contact_point(d.p, n, c)?;
     let mut j = [
         [d.su.x() + r * nu.x(), d.sv.x() + r * nv.x()],
         [d.su.y() + r * nu.y(), d.sv.y() + r * nv.y()],
     ];
     if rf > 0.0 {
-        if kl < 1e-12 {
-            return None;
-        }
         let kh = [k[0] / kl, k[1] / kl];
-        g[0] += rf * kh[0];
-        g[1] += rf * kh[1];
         for (col, dk) in [(0, nu), (1, nv)] {
             let dk = [dk.x(), dk.y()];
             let along = kh[0] * dk[0] + kh[1] * dk[1];
@@ -563,6 +563,30 @@ fn contact_map(s: &Surface, c: &Cutter, u: f64, v: f64) -> Option<([f64; 2], [[f
         }
     }
     Some((g, j))
+}
+
+/// `G` at surface point `p` with upward normal `n` (as [`contact_map`]).
+fn contact_point(p: Point3, n: Vec3, c: &Cutter) -> Option<[f64; 2]> {
+    let (rf, r) = (c.flat_radius(), c.corner());
+    let k = [n.x(), n.y()];
+    let mut g = [p.x() + r * k[0], p.y() + r * k[1]];
+    if rf > 0.0 {
+        let kl = libm::hypot(k[0], k[1]);
+        if kl < 1e-12 {
+            return None;
+        }
+        g[0] += rf * (k[0] / kl);
+        g[1] += rf * (k[1] / kl);
+    }
+    Some(g)
+}
+
+/// [`contact_map`] without the Jacobian: first derivatives only. The same
+/// bits as its `G`, and `None` exactly where it is `None`.
+fn contact_g(s: &Surface, c: &Cutter, u: f64, v: f64) -> Option<[f64; 2]> {
+    let (p, su, sv) = s.derivs1(u, v);
+    let (n, _, _) = up_normal(su, sv)?;
+    contact_point(p, n, c)
 }
 
 fn solve2(j: [[f64; 2]; 2], r: [f64; 2]) -> Option<[f64; 2]> {
@@ -590,6 +614,7 @@ fn newton_contact(
     let resid =
         |u: f64, v: f64| contact_map(s, c, u, v).map(|(g, j)| ([g[0] - ax.x, g[1] - ax.y], j));
     let (mut r, mut j) = resid(u, v)?;
+    let split = matches!(s, Surface::BSpline(_));
     for _ in 0..20 {
         let rn = libm::hypot(r[0], r[1]);
         if rn < tol {
@@ -600,7 +625,18 @@ fn newton_contact(
         let mut moved = false;
         for _ in 0..12 {
             let (nu, nv) = bounds.clamp(u + lambda * step[0], v + lambda * step[1]);
-            if let Some((r2, j2)) = resid(nu, nv)
+            // On a B-spline a trial point takes G only, from first
+            // derivatives (most trials are rejected); the same bits.
+            if split {
+                if let Some(g) = contact_g(s, c, nu, nv)
+                    && libm::hypot(g[0] - ax.x, g[1] - ax.y) < rn
+                {
+                    (r, j) = resid(nu, nv)?;
+                    (u, v) = (nu, nv);
+                    moved = true;
+                    break;
+                }
+            } else if let Some((r2, j2)) = resid(nu, nv)
                 && libm::hypot(r2[0], r2[1]) < rn
             {
                 (u, v, r, j) = (nu, nv, r2, j2);
@@ -674,19 +710,19 @@ fn vertical_project(
 ) -> Option<(f64, f64, bool)> {
     let (mut u, mut v) = start;
     for _ in 0..12 {
-        let d = s.derivs(u, v);
-        let r = [x - d.p.x(), y - d.p.y()];
+        let (p, su, sv) = s.derivs1(u, v);
+        let r = [x - p.x(), y - p.y()];
         if libm::hypot(r[0], r[1]) < 1e-6 {
             return Some((u, v, true));
         }
-        let j = [[d.su.x(), d.sv.x()], [d.su.y(), d.sv.y()]];
+        let j = [[su.x(), sv.x()], [su.y(), sv.y()]];
         let step = solve2(j, r)?;
-        let scale = d.su.length().max(d.sv.length()).max(1e-300);
+        let scale = su.length().max(sv.length()).max(1e-300);
         // Keep steps within about a radian of the surface parametrisation.
-        let len = (d.su * step[0] + d.sv * step[1]).length();
+        let len = (su * step[0] + sv * step[1]).length();
         let k = (scale * 2.0 / len.max(1e-300)).min(1.0);
         let (nu, nv) = bounds.clamp(u + k * step[0], v + k * step[1]);
-        if (d.su * (nu - u) + d.sv * (nv - v)).length() < 1e-9 {
+        if (su * (nu - u) + sv * (nv - v)).length() < 1e-9 {
             return Some((u, v, false));
         }
         (u, v) = (nu, nv);
@@ -984,4 +1020,38 @@ pub fn rim(g: &QueryGeometry, face: u32, ax: Axis, c: &Cutter, above: f64) -> Op
         }
     }
     best
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cutter::synth::bspline_square;
+
+    #[test]
+    fn trial_contact_points_match_the_contact_map() {
+        // Newton's line search tests trial points with `contact_g` (first
+        // derivatives only): it must give the bits of `contact_map`'s G,
+        // and fail where it fails, or drops would change.
+        let (s, _) = bspline_square(Point3::new(-3.0, 2.0, 1.0), 20.0, 7, |i, j| {
+            libm::sin(i as f64) * 4.0 + libm::cos(1.7 * j as f64) * 3.0
+        });
+        let cutters = [
+            Cutter::new(6.0, 3.0).unwrap(),
+            Cutter::new(6.0, 1.0).unwrap(),
+            Cutter::new(6.0, 0.0).unwrap(),
+        ];
+        let mut n = 0;
+        for c in &cutters {
+            for i in 0..=40 {
+                for k in 0..=40 {
+                    let (u, v) = (i as f64 / 40.0, k as f64 / 40.0);
+                    let full = contact_map(&s, c, u, v).map(|(g, _)| g.map(f64::to_bits));
+                    let g = contact_g(&s, c, u, v).map(|g| g.map(f64::to_bits));
+                    assert_eq!(full, g, "{u} {v}");
+                    n += usize::from(g.is_some());
+                }
+            }
+        }
+        assert!(n > 4000);
+    }
 }

@@ -253,13 +253,15 @@ impl<'a> SurfaceQuery<'a> {
                 if best.is_some_and(|(d, _, _)| d <= cp.dist) {
                     continue;
                 }
+                // An overhanging wall counts as vertical: the tool meets
+                // nothing steeper.
                 let slope = srf.normal(cp.u, cp.v).map_or(FRAC_PI_2, |nn| {
                     let nz = if f.same_sense {
                         nn.get().z()
                     } else {
                         -nn.get().z()
                     };
-                    libm::acos(nz.clamp(-1.0, 1.0))
+                    libm::acos(nz.clamp(0.0, 1.0))
                 });
                 best = Some((cp.dist, slope, b.drive_face[face as usize]));
             }

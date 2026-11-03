@@ -460,7 +460,7 @@ impl<'a> Waterline<'a> {
                 }
             }
         }
-        out
+        drop_retraced(out, self.tol)
     }
 
     /// A lost contour around material less than `tol/4` above the level
@@ -504,22 +504,21 @@ impl<'a> Waterline<'a> {
     /// then backward from the seed if it did not close.
     fn trace(&self, seed: WPoint, z: f64) -> Contour {
         let (fwd, f_end) = self.march(seed, z, 1.0);
-        if f_end.is_none() {
-            return Contour {
-                pts: fwd,
-                closed: true,
-                ends: (End::Region, End::Region),
-            };
+        let Some(f_end) = f_end else {
+            return closed(fwd);
+        };
+        let (back, b_end) = self.march(seed, z, -1.0);
+        let mut c = join(fwd, f_end, back, b_end);
+        // Both halves stopped at one spot from either side (an inside
+        // corner neither could turn): close across it, if the gap is open.
+        if let Some(mid) = meeting(&c, self.tol)
+            && !self.side(mid, z).inside
+        {
+            c.pts.push(c.pts[0]);
+            c.closed = true;
+            c.ends = (End::Region, End::Region);
         }
-        let (mut back, b_end) = self.march(seed, z, -1.0);
-        back.reverse();
-        back.pop();
-        back.extend(fwd);
-        Contour {
-            pts: back,
-            closed: false,
-            ends: (b_end.unwrap_or(End::Lost), f_end.unwrap_or(End::Lost)),
-        }
+        c
     }
 
     /// Steps along the contour from `seed`: `sign` 1 keeps the material on
@@ -649,6 +648,68 @@ impl<'a> Waterline<'a> {
     }
 }
 
+fn closed(pts: Vec<WPoint>) -> Contour {
+    Contour {
+        pts,
+        closed: true,
+        ends: (End::Region, End::Region),
+    }
+}
+
+/// The contour from a forward trace that ended at `f_end` and the
+/// backward trace from the same seed. A backward trace that closed went
+/// round the whole loop (the forward one stopped at a spot it could not
+/// pass): it is the contour, in climb order.
+fn join(fwd: Vec<WPoint>, f_end: End, mut back: Vec<WPoint>, b_end: Option<End>) -> Contour {
+    back.reverse();
+    let Some(b_end) = b_end else {
+        return closed(back);
+    };
+    back.pop();
+    back.extend(fwd);
+    Contour {
+        pts: back,
+        closed: false,
+        ends: (b_end, f_end),
+    }
+}
+
+/// `cs` without the lost contours that lie on a closed one (within
+/// `tol / 2`): a trace that stopped where another, seeded later, passed
+/// and closed the loop.
+fn drop_retraced(cs: Vec<Contour>, tol: f64) -> Vec<Contour> {
+    let lost = |c: &Contour| !c.closed && (c.ends.0 == End::Lost || c.ends.1 == End::Lost);
+    if !cs.iter().any(lost) {
+        return cs;
+    }
+    let on = |c: &Contour, d: &Contour| {
+        c.pts.iter().all(|w| {
+            d.pts
+                .windows(2)
+                .any(|s| seg_dist(w.p, s[0].p, s[1].p) <= 0.5 * tol)
+        })
+    };
+    let keep: Vec<bool> = cs
+        .iter()
+        .map(|c| !lost(c) || !cs.iter().any(|d| d.closed && on(c, d)))
+        .collect();
+    cs.into_iter()
+        .zip(keep)
+        .filter_map(|(c, k)| k.then_some(c))
+        .collect()
+}
+
+/// The midpoint between the ends of a contour lost at both ends whose
+/// ends are within `tol / 4` of each other.
+fn meeting(c: &Contour, tol: f64) -> Option<Point2> {
+    let (a, b) = (c.pts.first()?.p, c.pts.last()?.p);
+    (!c.closed
+        && c.ends == (End::Lost, End::Lost)
+        && c.pts.len() >= 3
+        && (a - b).length() <= 0.25 * tol)
+        .then(|| b + (a - b) * 0.5)
+}
+
 /// How far from `a` along `u` (unit) the point `p` leaves the disc of
 /// radius `r` about the axis, in XY; `None` if `a` is not in it.
 fn exit(a: Point2, u: Vec2, p: fluut_geom::Point3, r: f64) -> Option<f64> {
@@ -673,4 +734,91 @@ fn seg_dist(p: Point2, a: Point2, b: Point2) -> f64 {
         0.0
     };
     (a + d * t - p).length()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn wp(x: f64, y: f64) -> WPoint {
+        WPoint {
+            p: Point2::new(x, y),
+            slope: 0.0,
+            drive: true,
+            n: Vec2::new(1.0, 0.0),
+        }
+    }
+
+    #[test]
+    fn a_backward_trace_that_closes_is_the_contour() {
+        // nist_ctc_02 at Z −185 (5 mm): the forward trace stopped at an
+        // inside corner, the backward one went round and closed.
+        let s = wp(0.0, 0.0);
+        let fwd = vec![s, wp(0.0, -1.0)];
+        let back = vec![s, wp(0.0, 1.0), wp(1.0, 1.0), wp(1.0, -1.0), s];
+        let c = join(fwd.clone(), End::Lost, back.clone(), None);
+        assert!(c.closed);
+        let mut want = back.clone();
+        want.reverse();
+        assert_eq!(c.pts, want);
+        // Neither closed: back reversed, then forward, sharing the seed.
+        let c = join(fwd, End::Lost, back[..3].to_vec(), Some(End::Region));
+        assert!(!c.closed);
+        assert_eq!(c.ends, (End::Region, End::Lost));
+        assert_eq!(c.pts, vec![wp(1.0, 1.0), wp(0.0, 1.0), s, wp(0.0, -1.0)]);
+    }
+
+    #[test]
+    fn lost_traces_on_a_closed_contour_are_dropped() {
+        // nist_ctc_02 at Z −232.232 (2 mm): a trace stopped at two inside
+        // corners; a later seed traced the whole loop through them.
+        let square = Contour {
+            pts: vec![
+                wp(0.0, 0.0),
+                wp(4.0, 0.0),
+                wp(4.0, 4.0),
+                wp(0.0, 4.0),
+                wp(0.0, 0.0),
+            ],
+            closed: true,
+            ends: (End::Region, End::Region),
+        };
+        let part = |dy: f64| Contour {
+            pts: vec![wp(4.0, 1.0 + dy), wp(4.0, 4.0), wp(1.0, 4.0)],
+            closed: false,
+            ends: (End::Lost, End::Lost),
+        };
+        let cs = drop_retraced(vec![part(0.0), square.clone(), part(0.0)], 0.01);
+        assert_eq!(cs, vec![square.clone()]);
+        // Off the loop by more than tol/2: kept.
+        let off = Contour {
+            pts: vec![wp(4.01, 1.0), wp(4.0, 4.0)],
+            ..part(0.0)
+        };
+        let cs = drop_retraced(vec![off.clone(), square.clone()], 0.01);
+        assert_eq!(cs, vec![off, square]);
+    }
+
+    #[test]
+    fn lost_ends_that_meet_close_the_loop() {
+        // nist_ctc_02 at Z −194.384 (2 mm): both halves of a trace stopped
+        // at one inside corner, 0.14 µm apart.
+        let lost = |a: WPoint, b: WPoint, ends| Contour {
+            pts: vec![a, wp(5.0, 5.0), wp(0.0, 5.0), b],
+            closed: false,
+            ends,
+        };
+        let tol = 0.01;
+        let (a, b) = (wp(0.0, 0.0), wp(1e-4, -1e-4));
+        assert_eq!(
+            meeting(&lost(a, b, (End::Lost, End::Lost)), tol),
+            Some(b.p + (a.p - b.p) * 0.5)
+        );
+        // Too far apart, or one end on the region boundary.
+        assert_eq!(
+            meeting(&lost(a, wp(0.01, 0.0), (End::Lost, End::Lost)), tol),
+            None
+        );
+        assert_eq!(meeting(&lost(a, b, (End::Region, End::Lost)), tol), None);
+    }
 }
