@@ -14,20 +14,20 @@ use crate::session::Snapshot;
 use crate::text::{tr, tr_args};
 use crate::viewport::{Camera, FrameState, Pick, Renderer};
 use crate::vm::Selection;
+use crate::vm::playback::StockColour;
 use eframe::egui::{self, Pos2, Rect, Sense, Stroke, Vec2};
 use eframe::egui_wgpu;
 use fluut_core::fluut_sim::StockMesh;
 use std::sync::Arc;
 
 /// What has been uploaded: the Setup, its scene and its toolpath lines (by
-/// pointer, since snapshots share them through `Arc`s).
+/// pointer, since snapshots share them through `Arc`s). The renderer keeps
+/// the stock blocks it shows itself.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Uploaded {
     setup: String,
     scene: usize,
     paths: Vec<usize>,
-    /// The simulated stock shown, 0 for none.
-    stock: usize,
 }
 
 pub struct ViewportState {
@@ -80,7 +80,7 @@ fn upload(
     rs: &egui_wgpu::RenderState,
     s: &Snapshot,
     setup: &str,
-    stock: Option<&Arc<StockMesh>>,
+    stock: Option<&[Arc<StockMesh>]>,
 ) {
     let Some(scene) = s.scenes.get(setup) else {
         return;
@@ -96,23 +96,23 @@ fn upload(
             .iter()
             .map(|id| s.paths.get(id).map_or(0, |p| Arc::as_ptr(p) as usize))
             .collect(),
-        stock: stock.map_or(0, |m| Arc::as_ptr(m) as usize),
     };
-    if vs.uploaded.as_ref() == Some(&key) {
-        return;
-    }
     let Some(r) = vs.renderer.as_mut() else {
         return;
     };
+    // The stock blocks: only the changed ones are uploaded (D11 §4).
+    if r.set_stock(&rs.device, stock) > 0 {
+        vs.drawn = None;
+    }
+    if vs.uploaded.as_ref() == Some(&key) {
+        return;
+    }
     let same_scene = vs
         .uploaded
         .as_ref()
         .is_some_and(|u| u.setup == key.setup && u.scene == key.scene);
     if !same_scene {
         r.set_scene(&rs.device, &scene.mesh, &scene.edges, scene.stock.as_ref());
-    }
-    if !same_scene || vs.uploaded.as_ref().is_none_or(|u| u.stock != key.stock) {
-        r.set_stock(&rs.device, stock.map(|m| m.as_ref()));
     }
     let lines: Vec<Option<&crate::scene::Lines>> = ids
         .iter()
@@ -163,7 +163,7 @@ pub fn show(
         .filter(|f| f.setup == setup && snap.sims.contains_key(&setup));
     let stock = sim_frame
         .as_ref()
-        .and_then(|f| f.mesh.as_ref())
+        .and_then(|f| f.blocks.as_deref())
         .filter(|_| state.show_stock);
     upload(vs, rs, &snap, &setup, stock);
     // Camera input.
@@ -203,6 +203,11 @@ pub fn show(
         dark: state.dark,
         face,
         toolpath: selected_tp,
+        stock_colour: if stock.is_some() {
+            state.stock_colour
+        } else {
+            StockColour::Plain
+        },
     };
     let ppp = ui.ctx().pixels_per_point();
     let (w, h) = ((size.x * ppp).round() as u32, (size.y * ppp).round() as u32);

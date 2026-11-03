@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! The Simulation tab (D13 §7, S 08 §8.7): play, pause and scrub the
-//! program, its toolpath clips, and the verification findings. Clicking a
-//! finding centres the view on it.
+//! The Simulation tab (D13 §7, S 08 §8.7): play, pause, step and scrub
+//! the program, its toolpath clips, the stock colouring with its legend,
+//! and the verification findings. Clicking a finding centres the view on
+//! it.
 
 use super::{UiState, ViewportState, viewport::shown_setup};
 use crate::brand::{self, Palette, c};
 use crate::jobs::Jobs;
 use crate::text::tr;
-use crate::vm::playback::PlaybackVm;
+use crate::vm::playback::{PlaybackVm, StockColour};
 use eframe::egui;
+use fluut_core::fluut_sim::Step;
 
 pub fn show(ui: &mut egui::Ui, jobs: &Jobs, state: &mut UiState, view: &mut ViewportState) {
     let Some(s) = &jobs.snapshot else {
@@ -21,15 +23,60 @@ pub fn show(ui: &mut egui::Ui, jobs: &Jobs, state: &mut UiState, view: &mut View
         return;
     };
     let p = Palette::get(state.dark);
-    let vm = PlaybackVm::new(v, &state.playback);
+    let vm = PlaybackVm::new(v, &state.playback, state.stock_colour);
     ui.horizontal(|ui| {
+        if ui
+            .add_enabled(vm.can_back, egui::Button::new(tr("sim-back")))
+            .clicked()
+        {
+            state.playback.step(v, state.step, false);
+        }
         if ui.button(&vm.play_label).clicked() {
             state.playback.toggle(vm.duration);
+        }
+        if ui
+            .add_enabled(vm.can_forward, egui::Button::new(tr("sim-forward")))
+            .clicked()
+        {
+            state.playback.step(v, state.step, true);
         }
         ui.label(&vm.time);
         ui.checkbox(&mut state.show_stock, tr("sim-show-stock"));
         ui.label(egui::RichText::new(&vm.summary).color(c(p.weak_text)));
     });
+    ui.horizontal(|ui| {
+        ui.label(tr("sim-step"));
+        for (unit, id) in [
+            (Step::Move, "sim-step-move"),
+            (Step::Pass, "sim-step-pass"),
+            (Step::Toolpath, "sim-step-toolpath"),
+        ] {
+            ui.selectable_value(&mut state.step, unit, tr(id));
+        }
+        ui.separator();
+        ui.label(tr("sim-colour"));
+        for (colour, id, on) in [
+            (StockColour::Plain, "sim-colour-plain", true),
+            (StockColour::Rest, "sim-colour-rest", vm.has_part),
+            (StockColour::Toolpath, "sim-colour-toolpath", true),
+        ] {
+            let b = egui::Button::selectable(state.stock_colour == colour, tr(id));
+            if ui.add_enabled(on, b).clicked() {
+                state.stock_colour = colour;
+            }
+        }
+    });
+    // What the stock colours mean.
+    if !vm.legend.is_empty() {
+        ui.horizontal_wrapped(|ui| {
+            for row in &vm.legend {
+                let (r, _) = ui.allocate_exact_size(egui::vec2(12.0, 12.0), egui::Sense::hover());
+                ui.painter().rect_filled(r, 2.0, c(row.colour));
+                ui.label(&row.label);
+                ui.add_space(6.0);
+            }
+        });
+    }
     let mut t = state.playback.t;
     let w = ui.available_width();
     ui.spacing_mut().slider_width = (w - 16.0).max(40.0);

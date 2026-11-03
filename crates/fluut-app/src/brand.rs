@@ -37,6 +37,32 @@ pub const RED: Rgb = [0xE5, 0x48, 0x4D];
 pub const GREEN: Rgb = [0x4C, 0xC3, 0x8A];
 pub const BLUE: Rgb = [0x4C, 0x8D, 0xF6];
 
+/// Colour-blind-safe colours for data (Okabe and Ito): the simulated stock
+/// by rest class and by toolpath.
+pub const OI_ORANGE: Rgb = [0xE6, 0x9F, 0x00];
+pub const OI_SKY: Rgb = [0x56, 0xB4, 0xE9];
+pub const OI_GREEN: Rgb = [0x00, 0x9E, 0x73];
+pub const OI_YELLOW: Rgb = [0xF0, 0xE4, 0x42];
+pub const OI_BLUE: Rgb = [0x00, 0x72, 0xB2];
+pub const OI_VERMILLION: Rgb = [0xD5, 0x5E, 0x00];
+pub const OI_PURPLE: Rgb = [0xCC, 0x79, 0xA7];
+
+/// The stock by rest class (`fluut_sim::mesh` OFF, REST, WITHIN, GOUGE):
+/// plain off the part, blue above tolerance, green within, vermillion for a
+/// gouge.
+pub const REST_COLOURS: [Rgb; 4] = [STOCK_GREY, OI_BLUE, OI_GREEN, OI_VERMILLION];
+
+/// The stock by toolpath, in turn (the shader repeats them after 7).
+pub const TOOLPATH_COLOURS: [Rgb; 7] = [
+    OI_ORANGE,
+    OI_SKY,
+    OI_GREEN,
+    OI_YELLOW,
+    OI_BLUE,
+    OI_VERMILLION,
+    OI_PURPLE,
+];
+
 pub fn c(rgb: Rgb) -> Color32 {
     Color32::from_rgb(rgb[0], rgb[1], rgb[2])
 }

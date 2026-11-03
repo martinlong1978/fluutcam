@@ -10,7 +10,10 @@ struct Uniforms {
     bg_top: vec4<f32>,
     bg_bottom: vec4<f32>,
     palette: array<vec4<f32>, 8>, // line colours by tag
+    rest: array<vec4<f32>, 4>,    // stock by rest class: off, rest, within, gouge
+    clips: array<vec4<f32>, 8>,   // stock by toolpath
     // x: picked face index + 1 (0 = none)
+    // y: stock colouring: 0 plain, 1 rest class, 2 toolpath
     selection: vec4<u32>,
 };
 
@@ -26,6 +29,9 @@ struct Draw {
 @group(1) @binding(0) var<uniform> d: Draw;
 
 const FACE_LAYER: u32 = 0x10000000u;
+// Stock vertices: this bit, then the tag (class in bits 16-17, toolpath + 1
+// in bits 0-15).
+const STOCK_BIT: u32 = 0x80000000u;
 
 // The target is a plain RGBA8 texture that egui samples without conversion,
 // so the shader writes sRGB-encoded values.
@@ -68,7 +74,15 @@ fn fs_mesh(in: MeshOut) -> @location(0) vec4<f32> {
     let h = normalize(key + v);
     let spec = pow(max(dot(n, h), 0.0), 48.0) * 0.12;
     var base = u.base.rgb;
-    if (in.face + 1u == u.selection.x) {
+    if ((in.face & STOCK_BIT) != 0u) {
+        let rest = (in.face >> 16u) & 3u;
+        let tp = in.face & 0xFFFFu;
+        if (u.selection.y == 1u && rest != 0u) {
+            base = u.rest[rest].rgb;
+        } else if (u.selection.y == 2u && tp != 0u) {
+            base = u.clips[(tp - 1u) % 7u].rgb;
+        }
+    } else if (in.face + 1u == u.selection.x) {
         base = mix(base, u.accent.rgb, 0.6);
     }
     let col = base * (diffuse + fill) + vec3<f32>(spec);

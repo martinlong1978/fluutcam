@@ -16,7 +16,7 @@ use crate::stock::Stock;
 use crate::sweep::Sweep;
 use crate::time::{Feeds, Kinematics, segment_times};
 use crate::tool::{Pose, Tool};
-use crate::verify::{self, Part, Rest};
+use crate::verify::{self, Part, PartHeights, Rest};
 use fluut_path::{Motion, ToolpathResult};
 use glam::DVec3;
 
@@ -205,6 +205,17 @@ pub struct Clip {
     pub start: f64,
     pub end: f64,
     pub tool: Assembly,
+    /// The index in `segments()` of each pass's first segment.
+    pub passes: Vec<usize>,
+}
+
+/// How far a playback step goes.
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum Step {
+    /// One segment of a toolpath result.
+    Move,
+    Pass,
+    Toolpath,
 }
 
 /// The finished simulation of a program.
@@ -223,6 +234,8 @@ pub struct Simulation {
     pub dropped: usize,
     /// Rest material, when the run had a part.
     pub rest: Option<Rest>,
+    /// The part's heights at the Z rays, when the run had a part.
+    pub part: Option<PartHeights>,
     pub stats: Stats,
 }
 
@@ -320,12 +333,23 @@ impl Simulation {
                 }
                 t += times[si];
             }
+            let mut at = 0;
+            let passes = p
+                .result
+                .passes()
+                .iter()
+                .map(|x| {
+                    at += x.segments.len();
+                    at - x.segments.len()
+                })
+                .collect();
             toolpaths.push(Clip {
                 id: p.id.clone(),
                 chords: first..chords.len(),
                 start,
                 end: t,
                 tool: p.tool,
+                passes,
             });
         }
         let total = chords.len() as u64;
@@ -374,6 +398,7 @@ impl Simulation {
             findings: Vec::new(),
             dropped: 0,
             rest: None,
+            part: None,
             stats,
         };
         let mut findings: Vec<Finding> = hits
@@ -390,11 +415,12 @@ impl Simulation {
             })
             .collect();
         if let Some(part) = part {
-            let (g, rest) =
+            let (g, rest, heights) =
                 verify::gouges_and_rest(&sim, part, settings.tol, &|| monitor.cancelled())
                     .ok_or(Cancelled)?;
             findings.extend(g);
             sim.rest = Some(rest);
+            sim.part = Some(heights);
         }
         sim.set_findings(findings);
         Ok(sim)
@@ -460,11 +486,77 @@ impl Simulation {
     /// before them, cut by the chords after it (D11 §4).
     pub fn stock_after(&self, n: usize) -> TriDexel {
         let n = n.min(self.chords.len());
-        let k = self.checkpoints.partition_point(|(m, _)| *m <= n);
-        let (from, cp) = &self.checkpoints[k - 1];
+        let (from, cp) = &self.checkpoints[self.checkpoint_index(n)];
         let mut d = cp.clone();
-        sim::cut_chords(&mut d, &self.chords[*from..n], None, &|_| false);
+        self.cut(&mut d, *from..n);
         d
+    }
+
+    /// The index of the latest checkpoint at or before `n` chords.
+    pub(crate) fn checkpoint_index(&self, n: usize) -> usize {
+        self.checkpoints.partition_point(|(m, _)| *m <= n) - 1
+    }
+
+    /// Cuts `d` with chords `r`. Span subtraction is a set difference, so
+    /// cutting `a..b` and then `b..c` gives the same stock as `a..c`.
+    pub(crate) fn cut(&self, d: &mut TriDexel, r: std::ops::Range<usize>) {
+        sim::cut_chords(d, &self.chords[r], None, &|_| false);
+    }
+
+    /// The chords of the move or pass that chord `i` belongs to.
+    fn unit(&self, i: usize, unit: Step) -> std::ops::Range<usize> {
+        let c = &self.chords[i];
+        let clip = &self.toolpaths[c.toolpath as usize];
+        let seg = c.segment as usize;
+        let (s0, s1) = match unit {
+            Step::Toolpath => return clip.chords.clone(),
+            Step::Move => (seg, seg + 1),
+            Step::Pass => {
+                let p = clip.passes.partition_point(|&s| s <= seg).max(1);
+                let next = clip.passes.get(p).copied().unwrap_or(usize::MAX);
+                (clip.passes[p - 1], next)
+            }
+        };
+        let r = clip.chords.clone();
+        let cs = &self.chords[r.clone()];
+        let at = |s: usize| r.start + cs.partition_point(|x| (x.segment as usize) < s);
+        at(s0)..at(s1)
+    }
+
+    /// The program time one move, pass or toolpath on from `t`: the end of
+    /// the one under way at `t`; going back, the end of the one before it
+    /// (D11 §4). Moves and passes end with their last chord, so moves that
+    /// cut nowhere near the stock are stepped over; toolpaths end at their
+    /// clip's end.
+    pub fn step(&self, t: f64, unit: Step, forward: bool) -> f64 {
+        if unit == Step::Toolpath {
+            let ends = self.toolpaths.iter().map(|c| c.end);
+            return if forward {
+                ends.into_iter().find(|&e| e > t).unwrap_or(self.duration())
+            } else {
+                ends.rev().find(|&e| e < t).unwrap_or(0.0)
+            };
+        }
+        if forward {
+            let n = self.chords_at(t);
+            if n >= self.chords.len() {
+                return self.duration();
+            }
+            return self.chords[self.unit(n, unit).end - 1].end;
+        }
+        let n = self.chords.partition_point(|c| c.end < t);
+        if n == 0 {
+            return 0.0;
+        }
+        let u = self.unit(n - 1, unit);
+        let end = self.chords[u.end - 1].end;
+        if end < t {
+            end
+        } else if u.start == 0 {
+            0.0
+        } else {
+            self.chords[u.start - 1].end
+        }
     }
 
     /// The stock at program time `t`, s.

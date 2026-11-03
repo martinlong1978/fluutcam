@@ -7,12 +7,20 @@
 //! tinted), lines for edges, wires, the stock box and toolpaths (colour by
 //! motion, S 08 §8.9). Picking renders ids into an `R32Uint` target for a
 //! small square under the cursor only (§5.2).
+//!
+//! The simulated stock (D11 §4) is drawn instead of the faces, one indexed
+//! buffer pair per mesh block; only blocks whose `Arc` changed are uploaded.
+//! Each stock vertex carries its tag, and the shader colours it by rest
+//! class or by toolpath as the frame asks, so the colouring changes
+//! without an upload.
 
 use super::camera::Camera;
 use crate::brand::{self, Rgb};
 use crate::scene::{Bounds, Lines, Mesh};
+use crate::vm::playback::StockColour;
 use bytemuck::{Pod, Zeroable};
 use fluut_core::fluut_sim::StockMesh;
+use std::sync::Arc;
 use wgpu::util::DeviceExt;
 
 /// Colour format of the output texture. The shader writes sRGB-encoded values.
@@ -40,8 +48,9 @@ pub enum Pick {
     Toolpath(u32),
 }
 
-/// Face index of stock vertices: never a picked face.
-const STOCK_FACE: u32 = 0x0FFF_FFFE;
+/// Marks stock vertices, whose face field holds their tag
+/// (`fluut_sim::mesh::tag`); never a picked face.
+const STOCK_BIT: u32 = 0x8000_0000;
 
 const FACE_LAYER: u32 = 0x1000_0000;
 const TOOLPATH_LAYER: u32 = 0x2000_0000;
@@ -76,6 +85,10 @@ struct Uniforms {
     bg_top: [f32; 4],
     bg_bottom: [f32; 4],
     palette: [[f32; 4]; 8],
+    /// Stock colours by rest class, then by toolpath.
+    rest: [[f32; 4]; 4],
+    clips: [[f32; 4]; 8],
+    /// x: picked face + 1; y: stock colouring.
     selection: [u32; 4],
 }
 
@@ -132,6 +145,7 @@ fn palette(dark: bool) -> [[f32; 4]; 8] {
 struct Targets {
     width: u32,
     height: u32,
+    resolve: wgpu::Texture,
     resolve_view: wgpu::TextureView,
     msaa_view: wgpu::TextureView,
     depth_view: wgpu::TextureView,
@@ -152,6 +166,14 @@ struct GpuMesh {
     count: u32,
 }
 
+/// One block of the stock mesh, with the mesh it was uploaded from (kept,
+/// so that its address is not reused while it is compared).
+#[derive(Debug)]
+struct StockBlock {
+    src: Arc<StockMesh>,
+    gpu: Option<(wgpu::Buffer, wgpu::Buffer, u32)>,
+}
+
 /// What a frame shows besides the scene.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct FrameState {
@@ -161,6 +183,7 @@ pub struct FrameState {
     pub face: Option<u32>,
     /// Index of the selected toolpath; the others are dimmed.
     pub toolpath: Option<u32>,
+    pub stock_colour: StockColour,
 }
 
 #[derive(Debug)]
@@ -178,8 +201,8 @@ pub struct Renderer {
     draw_capacity: u64,
     targets: Option<Targets>,
     mesh: Option<GpuMesh>,
-    /// The simulated stock; drawn instead of the faces while set.
-    stock: Option<GpuMesh>,
+    /// The simulated stock by block; drawn instead of the faces while set.
+    stock: Option<Vec<StockBlock>>,
     edges: Option<GpuLines>,
     toolpaths: Vec<Option<GpuLines>>,
 }
@@ -414,29 +437,64 @@ impl Renderer {
         });
     }
 
-    /// Uploads the simulated stock (D11 §4), shown instead of the faces;
-    /// `None` shows the faces again. The stock is not pickable.
-    pub fn set_stock(&mut self, device: &wgpu::Device, mesh: Option<&StockMesh>) {
-        self.stock = mesh.filter(|m| !m.positions.is_empty()).map(|m| {
-            let verts: Vec<MeshVertex> = m
-                .positions
-                .iter()
-                .zip(&m.normals)
-                .map(|(&pos, &normal)| MeshVertex {
-                    pos,
-                    normal,
-                    face: STOCK_FACE,
-                })
-                .collect();
-            GpuMesh {
-                buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("fluut stock"),
-                    contents: bytemuck::cast_slice(&verts),
-                    usage: wgpu::BufferUsages::VERTEX,
-                }),
-                count: verts.len() as u32,
+    /// Shows the simulated stock's blocks (D11 §4) instead of the faces;
+    /// `None` shows the faces again. Uploads only the blocks that are not
+    /// the ones shown (by `Arc`), and returns how many it uploaded, or 1
+    /// when the stock was hidden. The stock is not pickable.
+    pub fn set_stock(&mut self, device: &wgpu::Device, blocks: Option<&[Arc<StockMesh>]>) -> usize {
+        let Some(blocks) = blocks else {
+            return usize::from(self.stock.take().is_some());
+        };
+        let shown = self.stock.get_or_insert_with(Vec::new);
+        if shown.len() != blocks.len() {
+            shown.clear();
+        }
+        let mut n = 0;
+        for (k, b) in blocks.iter().enumerate() {
+            if shown.get(k).is_some_and(|s| Arc::ptr_eq(&s.src, b)) {
+                continue;
             }
-        });
+            let gpu = (!b.indices.is_empty()).then(|| {
+                let verts: Vec<MeshVertex> = (0..b.positions.len())
+                    .map(|i| MeshVertex {
+                        pos: b.positions[i],
+                        normal: b.normals[i],
+                        face: STOCK_BIT | b.tags[i],
+                    })
+                    .collect();
+                let init = |label, contents: &[u8], usage| {
+                    device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some(label),
+                        contents,
+                        usage,
+                    })
+                };
+                (
+                    init(
+                        "fluut stock",
+                        bytemuck::cast_slice(&verts),
+                        wgpu::BufferUsages::VERTEX,
+                    ),
+                    init(
+                        "fluut stock indices",
+                        bytemuck::cast_slice(&b.indices),
+                        wgpu::BufferUsages::INDEX,
+                    ),
+                    b.indices.len() as u32,
+                )
+            });
+            let block = StockBlock {
+                src: b.clone(),
+                gpu,
+            };
+            if k < shown.len() {
+                shown[k] = block;
+            } else {
+                shown.push(block);
+            }
+            n += 1;
+        }
+        n
     }
 
     /// Uploads toolpath lines; `None` entries keep their index but draw
@@ -490,6 +548,7 @@ impl Renderer {
             width,
             height,
             resolve_view: resolve.create_view(&Default::default()),
+            resolve,
             msaa_view: msaa.create_view(&Default::default()),
             depth_view: depth.create_view(&Default::default()),
             pick_view: pick.create_view(&Default::default()),
@@ -531,7 +590,14 @@ impl Renderer {
                 0.9,
             ),
             palette: palette(f.dark),
-            selection: [f.face.map_or(0, |i| i + 1), 0, 0, 0],
+            rest: brand::REST_COLOURS.map(|c| lin4(c, 1.0)),
+            clips: std::array::from_fn(|i| {
+                lin4(
+                    brand::TOOLPATH_COLOURS[i % brand::TOOLPATH_COLOURS.len()],
+                    1.0,
+                )
+            }),
+            selection: [f.face.map_or(0, |i| i + 1), f.stock_colour.code(), 0, 0],
         };
         queue.write_buffer(&self.uniforms, 0, bytemuck::bytes_of(&u));
     }
@@ -572,12 +638,16 @@ impl Renderer {
     fn draw_scene(&self, pass: &mut wgpu::RenderPass<'_>, pick: bool) {
         pass.set_bind_group(0, &self.globals, &[]);
         pass.set_bind_group(1, &self.draw_group, &[0]);
-        let mesh = match &self.stock {
-            Some(_) if pick => None,
-            Some(s) => Some(s),
-            None => self.mesh.as_ref(),
-        };
-        if let Some(m) = mesh {
+        if let Some(blocks) = &self.stock {
+            if !pick {
+                pass.set_pipeline(&self.mesh_pipeline);
+                for (vb, ib, count) in blocks.iter().filter_map(|b| b.gpu.as_ref()) {
+                    pass.set_vertex_buffer(0, vb.slice(..));
+                    pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
+                    pass.draw_indexed(0..*count, 0, 0..1);
+                }
+            }
+        } else if let Some(m) = self.mesh.as_ref() {
             pass.set_pipeline(if pick {
                 &self.mesh_pick
             } else {
@@ -645,6 +715,54 @@ impl Renderer {
             self.draw_scene(&mut pass, false);
         }
         queue.submit([encoder.finish()]);
+    }
+
+    /// The output's pixels, row by row from the top, sRGB-encoded RGBA (for
+    /// tests). Blocks until the GPU is done.
+    pub fn read_pixels(&self, device: &wgpu::Device, queue: &wgpu::Queue) -> Option<Vec<[u8; 4]>> {
+        let t = self.targets.as_ref()?;
+        let row = (t.width * 4).div_ceil(256) * 256;
+        let readback = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("fluut pixels readback"),
+            size: u64::from(row * t.height),
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let mut encoder = device.create_command_encoder(&Default::default());
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture: &t.resolve,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &readback,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(row),
+                    rows_per_image: Some(t.height),
+                },
+            },
+            wgpu::Extent3d {
+                width: t.width,
+                height: t.height,
+                depth_or_array_layers: 1,
+            },
+        );
+        queue.submit([encoder.finish()]);
+        let slice = readback.slice(..);
+        slice.map_async(wgpu::MapMode::Read, |_| {});
+        device.poll(wgpu::PollType::wait_indefinitely()).ok()?;
+        let data = slice.get_mapped_range().ok()?;
+        let mut out = Vec::with_capacity((t.width * t.height) as usize);
+        for j in 0..t.height {
+            for i in 0..t.width {
+                let at = (j * row + i * 4) as usize;
+                out.push([data[at], data[at + 1], data[at + 2], data[at + 3]]);
+            }
+        }
+        Some(out)
     }
 
     /// What is under pixel `(x, y)` of the output (origin top left): the id
