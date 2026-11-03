@@ -277,3 +277,57 @@ fn finishing_after_a_real_roughing_lifts_lower() {
         }
     }
 }
+
+#[test]
+fn a_2d_toolpath_after_a_roughing_lifts_lower() {
+    // The dome roughed with a 3-D pocket (Ø6 flat, 0.5 mm left), then its
+    // flats cleaned with `horizontal`, which links with the 2-D linker.
+    let g = dome();
+    let flat = tool("f6");
+    let rough = tp(
+        "pocket_3d",
+        "f6",
+        "[passes]\nstep_down = 4\nstock_to_leave = 0.5\n",
+    );
+    let block = Aabb3 {
+        min: Point3::new(-5.0, -5.0, 0.0),
+        max: Point3::new(85.0, 65.0, 29.0),
+    };
+    let mut stock = LayeredStock::planar(&block);
+    let mut i = input(&g, &rough, &flat);
+    i.stock = Some(block);
+    i.in_process = Some(&stock);
+    let r = calculate(&i).unwrap_or_else(|e| panic!("{e}"));
+    stock.apply(&r.result, Sweep::of(&flat), 0.01);
+    let flats = tp(
+        "horizontal",
+        "f6",
+        "[passes]
+stepover = 3
+[heights]
+top = { ref = \"work_zero\", offset = 10 }
+",
+    );
+    let mut i = input(&g, &flats, &flat);
+    let plain = calculate(&i).unwrap();
+    i.in_process = Some(&stock);
+    let with = calculate(&i).unwrap();
+    assert_eq!(cuts(&plain), cuts(&with));
+    let height = |r: &Generated| -> f64 {
+        flat_rapids(r)
+            .iter()
+            .map(|(a, b)| a.z() * (*b - *a).length())
+            .sum::<f64>()
+    };
+    assert!(
+        height(&with) < 0.8 * height(&plain),
+        "rapid height x length: {} vs {}",
+        height(&with),
+        height(&plain)
+    );
+    for (a, b) in flat_rapids(&with) {
+        if let Some(need) = needed(&stock, a, b) {
+            assert!(a.z() >= need - 1e-9, "{a:?} {b:?} need {need}");
+        }
+    }
+}

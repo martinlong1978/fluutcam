@@ -146,7 +146,8 @@ pub fn link_over(
                     cx.heights.clearance
                 }
                 Some(p) => {
-                    let h = link_height(p.z().max(z0), cx);
+                    let h =
+                        link_height_over(p.z().max(z0), cx, floor, Point2::new(p.x(), p.y()), e);
                     out.line(Point3::new(p.x(), p.y(), h), Mv::Retract);
                     out.line(Point3::new(e.x(), e.y(), h), Mv::Rapid);
                     out.pass(PassKind::Link, None);
@@ -209,6 +210,33 @@ pub fn link_height(z: f64, cx: &LinkCx) -> f64 {
     h.max(z)
 }
 
+/// As [`link_height`], for the link from `a` to the next entry `b` over the
+/// in-process stock `floor` when it is known: a `minimum` or `stay_down`
+/// lift goes `safety_distance` above the highest material within the tool
+/// radius of the link (the feed height when there is none), never above
+/// what [`link_height`] gives and never below `z`. `full` is unchanged.
+pub fn link_height_over(
+    z: f64,
+    cx: &LinkCx,
+    floor: Option<StockFloor>,
+    a: Point2,
+    b: Point2,
+) -> f64 {
+    let plain = link_height(z, cx);
+    if cx.linking.retract == RetractPolicy::Full {
+        return plain;
+    }
+    stock_lift_height(
+        floor,
+        a,
+        b,
+        cx.heights.feed,
+        cx.linking.safety_distance,
+        plain,
+    )
+    .max(z)
+}
+
 /// Lowest Z a rapid may reach on its way down to an entry (D08 §8.2): the
 /// feed height, but not below `safety_distance` above the material top.
 /// Without the in-process stock the linker cannot tell whether an earlier
@@ -246,10 +274,35 @@ pub fn stock_rapid_floor(
     let Some(f) = floor.filter(|f| f.stock.frame == StockFrame::Planar) else {
         return plain;
     };
-    match f.stock.top_near(p, f.radius) {
+    above_stock(f.stock.top_near(p, f.radius), feed, safety, plain)
+}
+
+/// The height `safety` above the in-process material whose highest slab is
+/// keyed `top` (the `feed` height when there is none), never above `plain`.
+fn above_stock(top: Option<f64>, feed: f64, safety: f64, plain: f64) -> f64 {
+    match top {
         Some(top) => feed.max(top + safety).min(plain),
         None => feed.min(plain),
     }
+}
+
+/// The lift height for a link from `a` to `b` over the in-process stock
+/// `floor`, for a linker with the given `feed` height and `safety` distance
+/// whose lift without the stock is `plain`: `safety` above the highest
+/// material within the tool radius of the segment (the feed height when
+/// there is none), never above `plain` (shared by the 2-D and 3-D linkers).
+pub fn stock_lift_height(
+    floor: Option<StockFloor>,
+    a: Point2,
+    b: Point2,
+    feed: f64,
+    safety: f64,
+    plain: f64,
+) -> f64 {
+    let Some(f) = floor.filter(|f| f.stock.frame == StockFrame::Planar) else {
+        return plain;
+    };
+    above_stock(f.stock.top_along(a, b, f.radius), feed, safety, plain)
 }
 
 /// Whether the link from `end` to the next entry may stay at depth: same
@@ -798,6 +851,123 @@ mod tests {
             rapid_floor_at(&cx, Some(floor), Point2::new(0.0, 0.0)),
             21.0
         );
+    }
+
+    #[test]
+    fn lifts_follow_the_in_process_stock() {
+        // Two squares 30 mm apart (the first ends at x 10, the second
+        // enters at x 40). The stock top is 20, so a plain minimum lift
+        // is 21; the feed height is 12.
+        let h = ResolvedHeights {
+            clearance: 30.0,
+            retract: 25.0,
+            feed: 12.0,
+            top: 10.0,
+            bottom: 0.0,
+        };
+        let cuts = [
+            Cut::flat(square(0.0, 10.0), 8.0, Turn::Right, 10.0),
+            Cut::flat(square(40.0, 10.0), 8.0, Turn::Right, 10.0),
+        ];
+        let block = || {
+            LayeredStock::planar(&Aabb3 {
+                min: Point3::new(-20.0, -20.0, 0.0),
+                max: Point3::new(80.0, 30.0, 20.0),
+            })
+        };
+        let whole = Region2::rect(-30.0, -30.0, 90.0, 40.0);
+        let island = Region2::rect(20.0, -5.0, 30.0, 15.0);
+        // The height of the lift between the two passes.
+        let lift = |policy: RetractPolicy, floor: Option<StockFloor>| -> f64 {
+            let l = linking(policy, LeadKind::None, RampKind::Plunge);
+            let cx = LinkCx {
+                heights: h,
+                material_top: 20.0,
+                linking: &l,
+                tool_diameter: 6.0,
+                tol: 0.01,
+                safe: &[],
+            };
+            let r = ToolpathResult::new(link_over(&cuts, &cx, floor, &mut Vec::new())).unwrap();
+            r.passes()
+                .iter()
+                .find(|p| p.kind == PassKind::Link)
+                .map(|p| p.segments[0].end().unwrap().xyz.z())
+                .unwrap()
+        };
+        fn floor(s: &LayeredStock) -> StockFloor<'_> {
+            StockFloor {
+                stock: s,
+                radius: 3.0,
+            }
+        }
+        for policy in [RetractPolicy::Minimum, RetractPolicy::StayDown] {
+            assert_eq!(lift(policy, None), 21.0, "{policy:?}");
+            // Cleared to Z 10 along the whole link: the feed height.
+            let mut cleared = block();
+            cleared.remove_swept(10.0, &whole);
+            assert_eq!(lift(policy, Some(floor(&cleared))), 12.0, "{policy:?}");
+            // An un-roughed island across the link: above its top.
+            let mut stock = block();
+            stock.remove_swept(10.0, &whole.subtract(&island));
+            assert_eq!(lift(policy, Some(floor(&stock))), 21.0, "{policy:?}");
+            // An island roughed down to 16: 1 mm above that.
+            stock.remove_swept(16.0, &island);
+            assert_eq!(lift(policy, Some(floor(&stock))), 17.0, "{policy:?}");
+            // Material left only beside the link, out of reach.
+            let mut beside = block();
+            beside.remove_swept(
+                10.0,
+                &whole.subtract(&Region2::rect(20.0, 20.0, 30.0, 28.0)),
+            );
+            assert_eq!(lift(policy, Some(floor(&beside))), 12.0, "{policy:?}");
+            // Cylindrical stock is not a floor.
+            let cyl = LayeredStock::cylindrical(20.0, 0.0, 50.0);
+            assert_eq!(lift(policy, Some(floor(&cyl))), 21.0, "{policy:?}");
+        }
+        // A full retract is unchanged.
+        let mut cleared = block();
+        cleared.remove_swept(10.0, &whole);
+        assert_eq!(lift(RetractPolicy::Full, Some(floor(&cleared))), 25.0);
+    }
+
+    #[test]
+    fn a_lift_is_never_below_the_pass() {
+        // Cut passes end at Z 16, above the cleared floor + 1: the lift
+        // stays at the pass Z.
+        let h = ResolvedHeights {
+            clearance: 30.0,
+            retract: 25.0,
+            feed: 12.0,
+            top: 20.0,
+            bottom: 0.0,
+        };
+        let l = linking(RetractPolicy::Minimum, LeadKind::None, RampKind::Plunge);
+        let cx = LinkCx {
+            heights: h,
+            material_top: 20.0,
+            linking: &l,
+            tool_diameter: 6.0,
+            tol: 0.01,
+            safe: &[],
+        };
+        let mut stock = LayeredStock::planar(&Aabb3 {
+            min: Point3::new(-20.0, -20.0, 0.0),
+            max: Point3::new(80.0, 30.0, 20.0),
+        });
+        stock.remove_swept(10.0, &Region2::rect(-30.0, -30.0, 90.0, 40.0));
+        let floor = StockFloor {
+            stock: &stock,
+            radius: 3.0,
+        };
+        let z = link_height_over(
+            16.0,
+            &cx,
+            Some(floor),
+            Point2::new(10.0, 0.0),
+            Point2::new(40.0, 0.0),
+        );
+        assert_eq!(z, 16.0);
     }
 
     #[test]
