@@ -19,12 +19,22 @@ fluut-post.workspace = true
 fluut-sim.workspace = true
 fluut-topo.workspace = true
 glam.workspace = true
+minisign-verify = "0.3.0"
 postcard.workspace = true
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+semver = "1.0.28"
 serde.workspace = true
+serde_json.workspace = true
 sha2.workspace = true
+thiserror.workspace = true
+toml.workspace = true
+ureq = { version = "3.5.1", default-features = false, features = ["rustls-no-provider", "platform-verifier"] }
 
 [dev-dependencies]
+base64 = "0.23"
+blake2 = "0.11.0"
 rayon.workspace = true
+ring = "0.17"
 
 [lints]
 workspace = true

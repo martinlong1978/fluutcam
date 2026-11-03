@@ -18,6 +18,7 @@ pub mod scene;
 pub mod session;
 pub mod text;
 pub mod ui;
+pub mod updates;
 pub mod viewport;
 pub mod vm;
 

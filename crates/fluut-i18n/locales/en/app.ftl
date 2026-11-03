@@ -139,3 +139,25 @@ about-tagline = Open-source CAM for CNC milling
 about-licence = Licensed under the MIT or Apache-2.0 licence, at your option.
 about-font = UI font: Noto Sans, SIL Open Font License 1.1.
 about-close = Close
+
+# Settings and the update check (spec 06 §6.4)
+title-settings = Settings
+settings-updates = Updates
+settings-auto-check = Check for updates automatically
+settings-check-now = Check now
+settings-privacy = A check asks github.com for the signed list of releases and sends nothing else. FluutCAM never downloads or installs an update.
+update-prompt-title = Check for updates automatically?
+update-prompt-text = FluutCAM can ask github.com once a day whether a newer version exists. It sends nothing but that request. You can change this later in Settings.
+update-prompt-yes = Yes
+update-prompt-no = No
+update-checking = Checking for updates…
+update-up-to-date = FluutCAM is up to date.
+update-available = Version { $version } is available ({ $date }).
+update-available-status = Version { $version } is available
+update-details = Details
+update-notes = Release notes:
+update-download = Download page:
+update-copy = Copy link
+update-download-hint = Open the page in your browser and download the file for your system yourself.
+update-no-key = This build has no update key, so it cannot check for updates.
+update-failed = The update check failed: { $detail }

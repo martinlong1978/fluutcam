@@ -1,0 +1,7 @@
+# FluutCAM update key (minisign public key).
+#
+# No key has been generated yet, so this build cannot check for updates and
+# says "no update key in this build". To add the key, replace these lines with
+# the public key file written by `minisign -G` (its "untrusted comment:" line
+# and the base64 line that starts with RW). It must be the same key as the
+# MINISIGN_PUBLIC_KEY secret of the release workflow. Never put a secret key here.

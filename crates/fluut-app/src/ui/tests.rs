@@ -163,3 +163,154 @@ fn simulation_tab_steps_and_shows_the_rest_legend() {
     h.get_by_label("Not cut");
     assert!(h.query_by_label("Above tolerance").is_none());
 }
+
+// --- the update check ------------------------------------------------------
+
+mod update_check {
+    use super::*;
+    use crate::updates::{Checker, UpdateState, Updates, now};
+    use fluut_core::settings::Settings;
+    use fluut_core::update::{Offer, Outcome};
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    fn offer() -> Offer {
+        Offer {
+            version: "2.0.0".into(),
+            date: "2026-12-01".into(),
+            notes_url: "https://example.org/notes".into(),
+            download_page: "https://example.org/downloads".into(),
+            artefacts: Vec::new(),
+        }
+    }
+
+    /// A window with the update check on, a fake network and no stored
+    /// settings.
+    fn harness_with(result: Outcome) -> (Harness<'static, State>, Arc<AtomicUsize>) {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let n = Arc::clone(&calls);
+        let checker: Checker = Arc::new(move || {
+            n.fetch_add(1, Ordering::SeqCst);
+            Ok(result.clone())
+        });
+        let mut updates = Some(Updates::with(
+            Settings::default(),
+            None,
+            checker,
+            now,
+            Arc::new(|| {}),
+            true,
+        ));
+        updates.as_mut().unwrap().set_has_key(true);
+        let h = Harness::builder()
+            .with_size(egui::vec2(1440.0, 900.0))
+            .build_ui_state(
+                move |ui, app: &mut State| {
+                    app.get_or_insert_with(|| {
+                        FluutApp::new(ui.ctx(), None, None, Instant::now())
+                            .with_updates(updates.take().unwrap())
+                    })
+                    .frame(ui);
+                },
+                None,
+            );
+        (h, calls)
+    }
+
+    /// Steps until the check thread has reported.
+    fn until_checked(h: &mut Harness<'static, State>) {
+        for _ in 0..2000 {
+            h.step();
+            if !app(h).updates.is_checking() {
+                h.step();
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        panic!("check did not end");
+    }
+
+    #[test]
+    fn a_window_without_the_check_does_not_ask() {
+        let mut h = harness();
+        h.run_steps(2);
+        assert!(
+            h.query_by_label("Check for updates automatically?")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn first_start_asks_and_dismissing_means_no() {
+        let (mut h, calls) = harness_with(Outcome::UpToDate);
+        h.run_steps(2);
+        h.get_by_label("Check for updates automatically?");
+        h.get_by_label("Yes");
+        h.get_by_label("No");
+        assert!(app(&mut h).updates.needs_prompt());
+        // Nothing is checked while the question is open.
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        h.key_press(egui::Key::Escape);
+        h.run_steps(3);
+        assert!(!app(&mut h).updates.needs_prompt());
+        assert!(!app(&mut h).updates.auto_check());
+        assert!(
+            h.query_by_label("Check for updates automatically?")
+                .is_none()
+        );
+        h.run_steps(3);
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn no_is_the_same_as_dismissing() {
+        let (mut h, calls) = harness_with(Outcome::UpToDate);
+        h.run_steps(2);
+        h.get_by_label("No").click();
+        h.run_steps(3);
+        assert!(!app(&mut h).updates.needs_prompt());
+        assert!(!app(&mut h).updates.auto_check());
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn yes_checks_and_the_status_bar_offers_the_update() {
+        let (mut h, calls) = harness_with(Outcome::Available(offer()));
+        h.run_steps(2);
+        h.get_by_label("Yes").click();
+        h.run_steps(2);
+        until_checked(&mut h);
+        assert!(app(&mut h).updates.auto_check());
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        h.get_by_label("Version 2.0.0 is available");
+        // Details opens Settings with the links; nothing is downloaded.
+        h.get_by_label("Details").click();
+        h.run_steps(2);
+        h.get_by_label("Release notes:");
+        h.get_by_label("https://example.org/notes");
+        h.get_by_label("https://example.org/downloads");
+        h.get_by_label("Version 2.0.0 is available (2026-12-01).");
+    }
+
+    #[test]
+    fn settings_toggle_and_check_now_work_when_automatic_checks_are_off() {
+        let (mut h, calls) = harness_with(Outcome::UpToDate);
+        h.run_steps(2);
+        h.get_by_label("No").click();
+        h.run_steps(2);
+        h.get_by_label("Settings").click();
+        h.run_steps(2);
+        h.get_by_label("Check for updates automatically");
+        h.get_by_label("Check now").click();
+        h.run_steps(2);
+        until_checked(&mut h);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(*app(&mut h).updates.state(), UpdateState::UpToDate);
+        h.get_by_label("FluutCAM is up to date.");
+        assert!(!app(&mut h).updates.auto_check());
+        // The toggle turns the automatic check on.
+        h.get_by_label("Check for updates automatically").click();
+        h.run_steps(2);
+        assert!(app(&mut h).updates.auto_check());
+    }
+}

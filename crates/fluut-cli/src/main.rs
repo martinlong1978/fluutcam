@@ -7,6 +7,7 @@
 //! fluut sim <project> [--tools <file>]... [--error <mm>]
 //! fluut post <project> --post <id> -o <file> [--tools <file>]... [--date <d>] [--time <t>]
 //! fluut run <script> [<project>] [--tools <file>]... [--date <d>] [--time <t>] [-- <args>...]
+//! fluut update-check
 //! ```
 //!
 //! `calc` prints each toolpath's estimated machining time. `sim`
@@ -18,11 +19,18 @@
 //! modules from the project's `scripts/`. Its exit status is
 //! `fluut.exit(n)`, 0, or 1 when it fails.
 //!
+//! `update-check` asks for the signed release list once, because you typed
+//! it (spec 06 §6.4). Nothing runs it automatically, and it downloads and
+//! installs nothing. Exit status: 0 when up to date or an update exists, 1
+//! when the check failed, 3 when this build has no update key.
+//!
 //! Exit status: 0 on success, 1 when a diagnostic is an error, 2 on bad
 //! arguments.
 
+use fluut_core::update::{self, Outcome, UpdateError};
 use fluut_core::{JobReport, JobState, PostOptions, Session, Targets};
 use fluut_model::{Diagnostic, Severity};
+use std::io::Write;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -30,7 +38,8 @@ const USAGE: &str = "usage:
   fluut calc <project> [--tools <file>]...
   fluut sim <project> [--tools <file>]... [--error <mm>]
   fluut post <project> --post <id> -o <file> [--tools <file>]... [--date <yyyy-mm-dd>] [--time <hh:mm:ss>]
-  fluut run <script> [<project>] [--tools <file>]... [--date <yyyy-mm-dd>] [--time <hh:mm:ss>] [-- <args>...]";
+  fluut run <script> [<project>] [--tools <file>]... [--date <yyyy-mm-dd>] [--time <hh:mm:ss>] [-- <args>...]
+  fluut update-check";
 
 #[derive(Debug, Default)]
 struct Args {
@@ -107,6 +116,12 @@ fn main() -> ExitCode {
         _ => {}
     }
     crash_reports();
+    if args.peek().map(String::as_str) == Some("update-check") {
+        args.next();
+        let check = || update::check(&update::UreqFetch::default());
+        let code = update_check(args, check, &mut std::io::stdout(), &mut std::io::stderr());
+        return ExitCode::from(code);
+    }
     if args.peek().map(String::as_str) == Some("run") {
         args.next();
         return match parse_run(args) {
@@ -489,5 +504,121 @@ mod tests {
             numbered(std::path::Path::new("d/out.ngc"), 2),
             PathBuf::from("d/out.2.ngc")
         );
+    }
+}
+
+/// `fluut update-check`: one check the user asked for, printed. Returns the
+/// exit status.
+fn update_check(
+    mut args: impl Iterator<Item = String>,
+    check: impl FnOnce() -> Result<Outcome, UpdateError>,
+    out: &mut impl Write,
+    err: &mut impl Write,
+) -> u8 {
+    if let Some(a) = args.next() {
+        let _ = writeln!(err, "fluut: unexpected argument {a}\n{USAGE}");
+        return 2;
+    }
+    let version = fluut_core::build_info::VERSION;
+    match check() {
+        Ok(Outcome::UpToDate) => {
+            let _ = writeln!(out, "FluutCAM {version} is up to date.");
+            0
+        }
+        Ok(Outcome::Available(o)) => {
+            let _ = writeln!(
+                out,
+                "Version {} is available ({}). You have {version}.\nRelease notes: {}\nDownload page: {}",
+                o.version, o.date, o.notes_url, o.download_page
+            );
+            0
+        }
+        Err(UpdateError::NoKey) => {
+            let _ = writeln!(err, "fluut: {}", UpdateError::NoKey);
+            3
+        }
+        Err(e) => {
+            let _ = writeln!(err, "fluut: update check failed: {e}");
+            1
+        }
+    }
+}
+
+#[cfg(test)]
+mod update_check_tests {
+    use super::*;
+    use fluut_core::update::Offer;
+
+    fn run(args: &[&str], result: Result<Outcome, UpdateError>) -> (u8, String, String, bool) {
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let mut asked = false;
+        let code = update_check(
+            args.iter().map(|s| (*s).to_owned()),
+            || {
+                asked = true;
+                result
+            },
+            &mut out,
+            &mut err,
+        );
+        (
+            code,
+            String::from_utf8(out).unwrap(),
+            String::from_utf8(err).unwrap(),
+            asked,
+        )
+    }
+
+    fn offer() -> Offer {
+        Offer {
+            version: "9.9.9".into(),
+            date: "2030-01-01".into(),
+            notes_url: "https://example.org/notes".into(),
+            download_page: "https://example.org/downloads".into(),
+            artefacts: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn up_to_date_is_printed_and_succeeds() {
+        let (code, out, err, _) = run(&[], Ok(Outcome::UpToDate));
+        assert_eq!(code, 0);
+        assert!(out.contains("is up to date"), "{out}");
+        assert!(err.is_empty());
+    }
+
+    #[test]
+    fn an_update_prints_the_version_and_both_links_and_succeeds() {
+        let (code, out, _, _) = run(&[], Ok(Outcome::Available(offer())));
+        assert_eq!(code, 0);
+        assert!(
+            out.contains("Version 9.9.9 is available (2030-01-01)"),
+            "{out}"
+        );
+        assert!(out.contains("Release notes: https://example.org/notes"));
+        assert!(out.contains("Download page: https://example.org/downloads"));
+    }
+
+    #[test]
+    fn no_key_exits_with_3_and_says_so() {
+        let (code, out, err, _) = run(&[], Err(UpdateError::NoKey));
+        assert_eq!(code, 3);
+        assert!(out.is_empty());
+        assert!(err.contains("no update key in this build"), "{err}");
+    }
+
+    #[test]
+    fn a_failed_check_exits_with_1() {
+        let (code, _, err, _) = run(&[], Err(UpdateError::Fetch("timed out".into())));
+        assert_eq!(code, 1);
+        assert!(err.contains("timed out"), "{err}");
+    }
+
+    #[test]
+    fn arguments_are_refused_before_any_request() {
+        let (code, _, err, asked) = run(&["--now"], Ok(Outcome::UpToDate));
+        assert_eq!(code, 2);
+        assert!(err.contains("unexpected argument --now"));
+        assert!(!asked);
     }
 }
