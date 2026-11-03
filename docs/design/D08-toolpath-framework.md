@@ -312,6 +312,21 @@ higher than the plain one. The drill's R plane and `bore`'s approach use it per 
 between holes at the R plane still check against the stock top. The result hash of these types
 includes the earlier stock-updating toolpaths of the Setup and of its `from_previous` ancestors.
 
+**Finishing links over the stock (2026-11-03).** The 3-D finishing types (`parallel`, `contour`,
+`horizontal`, `spiral`, `scallop`, `steep_and_shallow`) get the in-process stock too
+(`links_over_stock`; their result hash includes the earlier stock-updating toolpaths, as above). The
+surface-following linker (`follow.rs`) then takes the material top of a link from the stock: a lift
+between runs goes `safety_distance` above the highest slab with material within the tool radius of
+the straight link from the end of one run to the start of the next (`LayeredStock::top_along`), as
+well as above the geometry bound. The segment is sampled at most half a radius apart, and each
+sample looks a little further out than the radius, so the floor is never lower than the exact one.
+This covers the rapid across and the lift and descent at its ends, which stay inside the swept
+stadium. The rapid down to an entry stops at the same floor as above (`stock_rapid_floor`, shared
+with `link.rs`). Neither is higher than without the stock, and where the tool meets no material
+the lift is the geometry bound + `safety_distance`. `horizontal` links with the 2-D linker, so only
+its rapids down to an entry use the stock; its lifts stay at the material top. `full` retracts do
+not change, and nothing changes without the in-process stock.
+
 **Optimised-load links (2026-11-01).** The straight entry move of an optimised-load pass, its sliver moves
 and the safe regions its stay-down links use are kept inside the tool-centre region; the shrunk
 cleared region alone can reach across an island.

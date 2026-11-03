@@ -373,6 +373,50 @@ fn top_near_finds_the_highest_material_within_reach() {
 }
 
 #[test]
+fn top_along_never_misses_material_under_the_link() {
+    let s = pocketed();
+    let (a, b) = (Point2::new(15.0, 0.0), Point2::new(25.0, 0.0));
+    // Inside the pocket, clear of its walls: the floor.
+    assert_eq!(s.top_along(a, b, 3.0), Some(2.0));
+    // Out of the pocket across its wall: the top.
+    assert_eq!(s.top_along(a, Point2::new(40.0, 0.0), 3.0), Some(10.0));
+    // Ending within reach of the wall.
+    assert_eq!(s.top_along(a, Point2::new(28.0, 0.0), 3.0), Some(10.0));
+    // A point link is `top_near`.
+    assert_eq!(s.top_along(a, a, 3.0), s.top_near(a, 3.0));
+    // Past the stock edge, no material within reach.
+    assert_eq!(
+        s.top_along(Point2::new(-20.0, 0.0), Point2::new(-10.0, 0.0), 3.0),
+        None
+    );
+    // A thin island (0.2 mm) left in a roughed pocket, crossed far from
+    // either end and between samples.
+    let mut t = LayeredStock::planar(&Aabb3 {
+        min: Point3::new(0.0, -25.0, -10.0),
+        max: Point3::new(100.0, 25.0, 10.0),
+    });
+    let cleared =
+        Region2::rect(10.0, -10.0, 90.0, 10.0).subtract(&Region2::rect(51.3, -10.0, 51.5, 10.0));
+    t.remove_swept(2.0, &cleared);
+    for r in [0.5, 3.0] {
+        assert_eq!(
+            t.top_along(Point2::new(20.0, 0.0), Point2::new(80.0, 0.0), r),
+            Some(10.0),
+            "r = {r}"
+        );
+    }
+    assert_eq!(
+        t.top_along(Point2::new(20.0, 0.0), Point2::new(40.0, 0.0), 3.0),
+        Some(2.0)
+    );
+    assert_eq!(
+        LayeredStock::cylindrical(10.0, 0.0, 50.0).top_along(a, b, 3.0),
+        None,
+        "planar stock only"
+    );
+}
+
+#[test]
 fn reframed_by_nothing_is_the_same_stock() {
     let s = pocketed();
     assert_eq!(s.reframed(0.0), s);

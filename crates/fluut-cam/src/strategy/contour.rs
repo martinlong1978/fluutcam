@@ -13,6 +13,7 @@
 use crate::drive::is_horizontal_plane;
 use crate::follow::{Linker, Run, Sampler, Setup, merge, setup};
 use crate::layout::levels;
+use crate::link::StockFloor;
 use crate::moves::finish;
 use crate::toolpath::{CamError, Generated, Role, StrategyInput, ToolpathType, tag};
 use crate::waterline::{End, WPoint, Waterline};
@@ -195,6 +196,7 @@ pub(crate) fn link_runs(
         lead_out: p.linking.lead_out,
         level_clear,
         material_top: input.env.stock_top.max(h.top),
+        floor: StockFloor::of(input),
     };
     let (passes, dropped) = lk.link(runs);
     if dropped {
