@@ -17,7 +17,7 @@ differ in the last bit between platforms. See the S3 report, `docs/plan/spikes/s
 
 ## What changed
 
-The trigonometric calls, and three fixes for nearly degenerate offsets. Everything else is as
+The trigonometric calls, and four fixes for nearly degenerate offsets. Everything else is as
 published.
 
 - `src/core/math/line_line_intersect.rs`, `line_line_intr`: for collinear segments, the
@@ -39,6 +39,11 @@ published.
   wrapped the indexes anyway and gave the same results as with the loop closed (within 1e-8
   mm²). Found by the `region` fuzz target (`offsets_at_near_tangent_contacts` in
   `crates/fluut-cam/src/region/tests.rs`). The stitching itself is not changed.
+- `src/shape_algorithms/mod.rs`, `Shape::stitch_slices_together`: when a loop is closed,
+  every last vertex on top of the first is removed, not only one. A last slice that ends with
+  a collapsed segment left a second one, so the closed loop had a zero-length segment, and a
+  later boolean failed a debug assertion in `seg_arc_radius_and_center`. Found by the
+  `region` fuzz target (`offset_of_loops_touching_at_a_vertex`).
 
 - `src/polyline/pline_view.rs`, `PlineViewData::create_on_single_segment`: returns `None`
   when the end point lies within `VALIDATION_EPS` of the segment's start vertex. Such a slice

@@ -845,6 +845,19 @@ where
                 if query_results.is_empty() {
                     if current_pline.vertex_count() > 2 {
                         current_pline.remove_last();
+                        // FluutCAM patch: a last slice can end with a collapsed segment, which
+                        // leaves another vertex on top of the first one. Closing would then make
+                        // a zero-length segment (an arc, sometimes), which later intersections
+                        // reject with a debug assertion.
+                        while current_pline.vertex_count() > 2
+                            && current_pline
+                                .last()
+                                .unwrap()
+                                .pos()
+                                .fuzzy_eq_eps(current_pline.at(0).pos(), pos_equal_eps)
+                        {
+                            current_pline.remove_last();
+                        }
                         current_pline.set_is_closed(true);
                     }
                     let is_ccw = current_pline.orientation() == PlineOrientation::CounterClockwise;

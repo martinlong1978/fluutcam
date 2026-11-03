@@ -587,3 +587,29 @@ fn offsets_at_near_tangent_contacts() {
     let r = b.try_offset(-4.0).unwrap();
     assert!(close(r.area(), 94.32710442594538, 1e-9), "{}", r.area());
 }
+
+#[test]
+fn offset_of_loops_touching_at_a_vertex() {
+    // Found by the `region` fuzz target. A triangle with a corner on a
+    // strip's corner, grown by 3.97: the shape offset closed its result
+    // with a second vertex on top of the first, and the zero-length arc
+    // made a later boolean fail a debug assertion in `cavalier_contours`.
+    let a = Region2::polygon(&[
+        (15.500002, 2.500001),
+        (15.750003, 15.750003),
+        (10.500001, 10.500001),
+    ])
+    .union(&Region2::rect(15.750003, 0.0, 16.250003, 15.750003));
+    assert_eq!(a.loops.len(), 2);
+    let g = a.try_offset(3.96875).unwrap();
+    for l in &g.loops {
+        let n = l.verts.len();
+        for i in 0..n {
+            let d = (l.verts[(i + 1) % n].p - l.verts[i].p).length();
+            assert!(d > 1e-6, "{l:?}");
+        }
+    }
+    let b = Region2::rect(0.0, 12.250003, 15.750003, 27.500003);
+    let u = g.try_union(&b).unwrap();
+    assert!(u.area() > g.area().max(b.area()), "{}", u.area());
+}
