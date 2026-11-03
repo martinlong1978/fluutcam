@@ -564,3 +564,26 @@ fn forced_failures_are_typed() {
         1e-9
     ));
 }
+
+#[test]
+fn offsets_at_near_tangent_contacts() {
+    // Found by the `region` fuzz target. A circle 1.5 µm past the edge of
+    // a strip, and one 1 µm short of a rectangle's edge, leave micrometre
+    // bumps where the offset slices meet almost tangentially. The offset
+    // of the closed loop came back open, which the shape offset took as a
+    // loop (a debug assertion in `cavalier_contours`).
+    let a = Region2::rect(13.75, 13.75, 13.750001, 21.250002)
+        .union(&Region2::circle(15.75, 15.750003, 2.0000015));
+    let r = a.try_offset(-1.46875).unwrap();
+    assert!(
+        close(r.area(), PI * 0.5312515f64.powi(2), 1e-5),
+        "{}",
+        r.area()
+    );
+    let b = Region2::rect(10.500001, 4.0, 26.250004, 19.750003)
+        .subtract(&Region2::circle(15.75, 10.500003, 5.2500005))
+        .offset(3.1875);
+    // The same area as a release build without the fix.
+    let r = b.try_offset(-4.0).unwrap();
+    assert!(close(r.area(), 94.32710442594538, 1e-9), "{}", r.area());
+}

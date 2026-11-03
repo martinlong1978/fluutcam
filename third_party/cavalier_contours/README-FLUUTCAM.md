@@ -17,7 +17,7 @@ differ in the last bit between platforms. See the S3 report, `docs/plan/spikes/s
 
 ## What changed
 
-The trigonometric calls, and two fixes for nearly degenerate offsets. Everything else is as
+The trigonometric calls, and three fixes for nearly degenerate offsets. Everything else is as
 published.
 
 - `src/core/math/line_line_intersect.rs`, `line_line_intr`: for collinear segments, the
@@ -31,6 +31,14 @@ published.
   (`offset_of_a_sliver_triangle` and `steep_lines_meeting_end_to_end_do_not_overlap` in
   `crates/fluut-cam/src/region/tests.rs`). Upstream (`master`, November 2026) has the same
   code.
+- `src/shape_algorithms/mod.rs`, `IndexedPolyline::parallel_offset_for_shape`: an offset that
+  comes back open is closed. Where offset slices meet almost tangentially (a micrometre bump
+  left by a boolean of a circle and an edge it nearly touches), the stitching can leave the
+  offset of a closed loop open. The shape offset takes every offset as a closed loop, and an
+  open one failed a debug assertion in `PlineViewData::from_slice_points`. Release builds
+  wrapped the indexes anyway and gave the same results as with the loop closed (within 1e-8
+  mm²). Found by the `region` fuzz target (`offsets_at_near_tangent_contacts` in
+  `crates/fluut-cam/src/region/tests.rs`). The stitching itself is not changed.
 
 - `src/polyline/pline_view.rs`, `PlineViewData::create_on_single_segment`: returns `None`
   when the end point lies within `VALIDATION_EPS` of the segment's start vertex. Such a slice

@@ -86,7 +86,25 @@ where
             ..Default::default()
         };
 
-        self.polyline.parallel_offset_opt(offset, &opts)
+        let mut result: Vec<Polyline<T>> = self.polyline.parallel_offset_opt(offset, &opts);
+        // FluutCAM patch: the offset of a closed loop can come back open when slices meet at a
+        // near-tangent contact (a boolean result with a micrometre bump) and are not stitched
+        // into one loop. The shape algorithm takes every offset as a closed loop, so close it.
+        for pline in &mut result {
+            if !pline.is_closed() {
+                let n = pline.vertex_count();
+                if n > 2
+                    && pline
+                        .at(0)
+                        .pos()
+                        .fuzzy_eq_eps(pline.at(n - 1).pos(), options.pos_equal_eps)
+                {
+                    pline.remove_last();
+                }
+                pline.set_is_closed(true);
+            }
+        }
+        result
     }
 }
 
