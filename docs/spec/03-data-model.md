@@ -22,7 +22,7 @@ Project
    ├─ workOffset         G54 … (controller work offset)
    ├─ region, clearance  machining box / clearance plane or cylinder
    └─ Toolpath[]         ordered                                            
-      ├─ type            fixed at creation, e.g. adaptive_3d, parallel     
+      ├─ type            fixed at creation, e.g. optimised_load_3d, parallel     
       ├─ parameters      common groups + the type's own group (§3.10)      
       ├─ FaceSelection   drive faces, check faces, excluded faces      
       ├─ machiningTolerance                                           
@@ -270,7 +270,7 @@ Toolpaths hold only what differs per cut: tool, toolpath type, parameters, face 
 |---|---|---|---|
 | `three_axis` | not used (or absent) | 3-axis strategies (04 §4.3–4.6, §4.8) | X Y Z |
 | `rotary` | moves (simultaneous 4-axis) | rotary strategies (04 §4.7) | X Y Z A (Y usually constant) |
-| `indexed` | locked at `indexAngle` | 3-axis strategies, in the rotated frame | A once at setup start, then X Y Z |
+| `indexed` | locked at `indexAngle` | 3-axis strategies, in the rotated frame | retract to the turn clearance (§3.9.5), A once at setup start, then X Y Z |
 
 `rotary` and `indexed` need a machine with a rotary axis (02 §2.3). A 5-axis machine's second
 rotary axis (B) follows the same pattern as `indexed` with two angles (3+2 machining). Full
@@ -351,6 +351,16 @@ At the start of an indexed Setup, the post emits the rotary positioning move to 
 angle, then the clamp code if the machine defines one (05 §5.4.1). At the end, or before a
 `rotary` Setup, it emits the unclamp code.
 
+**Turn clearance.** A turn swings the stock's corners above a clearance plane. Before A turns at
+a Setup start (an indexed Setup, or a rotary one after another Setup), once the tool has moved,
+the post raises it to the **turn clearance**: the largest distance from the rotary axis of the
+stock and the bodies, plus the clearance offset (the plane's `offset`, else 10 mm), the larger of
+the Setup's and the previous Setup's (05 §5.6, D08 §7). The user sets no radius. The machine's
+`travel.z` is read as the tool tip's range with length compensation; a turn clearance above
+`travel.z[1] − centre.z` of the rotary axis is an error, `setup.clearance.index_travel`. In a
+`rotary` Setup A turns on rapids at the clearance cylinder, so a clearance cylinder not larger than
+the stock and the bodies' radius is an error, `setup.clearance.index_unsafe`.
+
 In FluutCAM the geometry is never rotated by the user. The index angle is one Setup parameter, and both the toolpath frame and the A output
 derive from it, so they cannot disagree.
 
@@ -368,7 +378,10 @@ stock (04 §4.10). For toolpath computation it MUST be geometric (DC-02, 01 §1.
 **[DECIDED — OQ-15]**: the in-process stock model of 04 §4.12.6 (layered exact 2D regions) is
 carried from the parent Setup, transformed into the child's frame. For an `indexed` child of a
 different angle, the parent's layers are re-sliced in the child's frame from the parent's
-stock boundary (method detailed in the strategy specification).
+stock boundary (method detailed in the strategy specification). The child starts from the
+parent's stock after the parent's last stock-updating toolpath, and its toolpaths that read the
+stock go stale when the parent's toolpaths change. The re-sliced stock is never smaller than the
+parent's material (D08 §7).
 
 ### 3.9.7 Example: rotary, then two indexed sides
 
@@ -395,7 +408,7 @@ offset. The project file form is in 02 §2.1.
 
 ### 3.10.1 Principle
 
-The user adds a **specific toolpath type** (e.g. "3D Adaptive Clearing",
+The user adds a **specific toolpath type** (e.g. "3D Optimised Load Clearing",
 "Parallel", "2D Contour"), as in Fusion. Then:
 
 1. The type is fixed at creation. Changing type means creating a new toolpath; "Duplicate as…"
@@ -437,7 +450,7 @@ pub struct Toolpath {
 #[serde(tag = "type")]
 pub enum ToolpathKind {
     Face(FaceParams),
-    Adaptive2d(Adaptive2dParams),
+    OptimisedLoad2d(OptimisedLoad2dParams),
     Pocket2d(Pocket2dParams),
     Contour2d(Contour2dParams),
     Parallel(ParallelParams),
@@ -459,7 +472,7 @@ Unknown keys for a type in the project file are errors (02 §2.0).
 
 | Role | Types | Rule |
 |---|---|---|
-| Roughing | `face`, `adaptive_2d`, `pocket_2d`, `adaptive_3d`, `pocket_3d`, `rotary_rough` | Remove bulk stock, in layers, down to `stock_to_leave`. |
+| Roughing | `face`, `optimised_load_2d`, `pocket_2d`, `optimised_load_3d`, `pocket_3d`, `rotary_rough` | Remove bulk stock, in layers, down to `stock_to_leave`. |
 | Finishing | all 3D finishing, rotary finishing, `contour_2d`, `trace`, `engrave`, `chamfer_2d`, `bore` | Cut to the final surface (`stock_to_leave` default 0). No stock-clearing layers. |
 
 A finishing type MAY have repeated passes of its own pattern: multiple depths on a 2D contour,

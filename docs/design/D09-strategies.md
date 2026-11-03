@@ -11,9 +11,9 @@ D08 §3, `layout` = D08 §6, `sample` = D08 §4.2, `fit` = D08 §5, `link` = D08
 
 ```rust
 pub fn registry -> &'static [&'static dyn ToolpathType] { &[
-    &Face, &Adaptive2d, &Pocket2d, &Contour2d, &Trace, &Engrave, &Chamfer2d, &Bore,   // 2D
+    &Face, &OptimisedLoad2d, &Pocket2d, &Contour2d, &Trace, &Engrave, &Chamfer2d, &Bore,   // 2D
     &Drill,                                                                            // holes
-    &Adaptive3d, &Pocket3d, &Parallel, &Contour, &Horizontal, &Spiral,                 // 3D
+    &OptimisedLoad3d, &Pocket3d, &Parallel, &Contour, &Horizontal, &Spiral,                 // 3D
     &Scallop, &SteepAndShallow,
     &RotaryRough, &RotaryAlongX, &RotaryAroundA, &RotarySpiral,                        // rotary
     &ManualNc,                                                                         // utility
@@ -56,7 +56,7 @@ at −(k + ½)·s through that part are added after ring k, so no point is more 
 pass along the ring normals. Where rings from two boundaries merge at an angle θ, the merged
 corner is up to (s/2)/sin(θ/2) from a pass; with s ≤ R that stays within R for θ ≥ 60°.
 
-### 2.3 `adaptive_2d`
+### 2.3 `optimised_load_2d`
 
 Constant-engagement clearing. The highest-risk v1 algorithm (CH-16).
 
@@ -183,9 +183,9 @@ stock_out = stock_in minus swept
 Flat levels use CH-03 handling: the section is taken just above the flat, so the level cuts to
 the flat face's exact height without the section degenerating.
 
-### 4.2 `adaptive_3d` (roughing)
+### 4.2 `optimised_load_3d` (roughing)
 
-As `pocket_3d`, but each level is cleared with the `adaptive_2d` algorithm (§2.3). "Fine
+As `pocket_3d`, but each level is cleared with the `optimised_load_2d` algorithm (§2.3). "Fine
 step-down" adds intermediate levels between main levels that only clear the stepped material left
 on shallow areas (where `stock_in.remaining(z)` differs from the part section by more than the
 fine step).
@@ -397,7 +397,7 @@ block (stop `M0`, optional stop `M1`, comment, dwell, pass-through text; [S 05 �
 | `engrave`, `chamfer_2d` | V or chamfer tool required |
 | `bore` | hole radius > tool radius + stock_to_leave |
 | `drill` | tool type drill (or warning for end mill) |
-| `adaptive_*` | optimal load ≤ 50 % of diameter (warning above 30 %) |
+| `optimised_load_*` | optimal load ≤ 50 % of diameter (warning above 30 %) |
 | rotary types | Setup kind = rotary; machine has a rotary axis |
 
 ## 8. Tests per strategy
@@ -409,7 +409,7 @@ block (stop `M0`, optional stop `M1`, comment, dwell, pass-through text; [S 05 �
 
 ## 9. Challenges
 
-- CH-16 Adaptive clearing algorithm: robustness and speed (deferred).
+- CH-16 Constant-engagement clearing (optimised load) algorithm: robustness and speed (deferred).
 - CH-17 Exact medial axis for lines and arcs (resolved: `region::medial`, edge tracing).
 - CH-18 Scallop variable-distance offsetting (deferred).
 - CH-19 Offsets in unrolled rotary coordinates (deferred).

@@ -1,0 +1,73 @@
+format = "fluut.project/1"
+name   = "Flip side"
+units  = "mm"
+
+[[geometry]]
+id   = "g1"
+path = "flipside.step"
+kind = "step"
+
+  [[geometry.body]]
+  id   = "b-1142"
+  name = "two_sided"
+
+[[setup]]
+id          = "s1"
+name        = "Top"
+kind        = "indexed"
+machine     = "shop/router-4x@1"
+material    = "MDF"
+orientation = { rotary_axis = "+X" }
+index_angle = { mode = "absolute", value = 0 }
+stock       = { kind = "block", margin = [5, 5, 1] }
+zero        = { x = "stock_left" }
+
+  [[setup.toolpath]]
+  id   = "t1"
+  name = "Top pocket"
+  type = "pocket_2d"
+  tool = "shop#flat-6"
+
+    [setup.toolpath.geometry]
+    drive_faces = [{ face = "f-1142.14" }]
+
+  [[setup.toolpath]]
+  id   = "t2"
+  name = "Window, top half"
+  type = "pocket_2d"
+  tool = "shop#flat-6"
+
+    [setup.toolpath.geometry]
+    drive_curves = [{ edge = "e-1142.40" }, { edge = "e-1142.41" }, { edge = "e-1142.42" }, { edge = "e-1142.43" }, { edge = "e-1142.44" }, { edge = "e-1142.45" }, { edge = "e-1142.46" }, { edge = "e-1142.47" }]
+
+    [setup.toolpath.heights]
+    bottom = { ref = "model_top", offset = -10 }
+
+[[setup]]
+id          = "s2"
+name        = "Bottom"
+based_on    = "s1"
+index_angle = { mode = "absolute", value = 180 }
+stock       = { kind = "from_previous" }
+
+  [[setup.toolpath]]
+  id   = "t3"
+  name = "Bottom pocket"
+  type = "pocket_2d"
+  tool = "shop#flat-6"
+
+    [setup.toolpath.geometry]
+    drive_faces = [{ face = "f-1142.23" }]
+
+  [[setup.toolpath]]
+  id   = "t4"
+  name = "Window, rest"
+  type = "pocket_2d"
+  tool = "shop#flat-6"
+
+    [setup.toolpath.geometry]
+    drive_curves = [{ edge = "e-1142.24" }, { edge = "e-1142.25" }, { edge = "e-1142.26" }, { edge = "e-1142.27" }, { edge = "e-1142.28" }, { edge = "e-1142.29" }, { edge = "e-1142.30" }, { edge = "e-1142.31" }]
+    rest_from    = "previous"
+
+    [setup.toolpath.heights]
+    bottom = { ref = "model_top", offset = -10 }

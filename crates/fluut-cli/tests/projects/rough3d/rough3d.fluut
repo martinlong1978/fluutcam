@@ -21,8 +21,8 @@ zero     = { method = "stock_top_corner", corner = "front_left" }
 
   [[setup.toolpath]]
   id   = "t1"
-  name = "Adaptive rough"
-  type = "adaptive_3d"
+  name = "Optimised load rough"
+  type = "optimised_load_3d"
   tool = "shop#flat-6"
 
     [setup.toolpath.passes]

@@ -77,7 +77,7 @@ M5
 T2 M6
 G43 H2
 S18000 M3
-(Adaptive pocket)
+(Optimised load pocket)
 G0 X62.164 Y48.958 Z10
 G0 Z1
 G1 Z-1 F600

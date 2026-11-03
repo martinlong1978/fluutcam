@@ -6,7 +6,7 @@
 use crate::ALGORITHM_VERSION;
 use crate::store::ModelStore;
 use fluut_model::hash::{setup_text, sha256_hex, toolpath_p_text, toolpath_r_text};
-use fluut_model::project::Project;
+use fluut_model::project::{Project, StockSpec};
 use fluut_model::setup::{ResolvedSetup, resolve_all};
 use fluut_model::tools::ToolStore;
 use std::collections::BTreeMap;
@@ -67,6 +67,9 @@ impl Graph {
                 },
             );
         }
+        // The stock text and dependencies of each Setup's final in-process
+        // stock, for `from_previous` children (spec 03 §3.9.6).
+        let mut finals: BTreeMap<String, (String, Vec<NodeId>)> = BTreeMap::new();
         for (s, r) in p.setups.iter().zip(resolve_all(p)) {
             // A Setup whose chain is broken hashes its error, so it is
             // stale until fixed.
@@ -93,16 +96,33 @@ impl Graph {
             );
             let mut sim = format!("{ALGORITHM_VERSION} sim\n{setup_hash}\n");
             let mut sim_deps = vec![setup.clone()];
+            // A `from_previous` Setup's simulation starts from its parent's.
+            if let Ok(r) = &r
+                && r.stock == Some(StockSpec::FromPrevious)
+                && let Some(pid) = &r.based_on
+                && let Some(h) = nodes.get(&NodeId::Simulation(pid.clone()))
+            {
+                sim.push_str(&format!("from {pid} = {}\n", h.hash));
+                sim_deps.push(NodeId::Simulation(pid.clone()));
+            }
             // Earlier toolpaths that change the in-process stock: a
             // toolpath that reads it depends on their results (D15 §1.8).
             let mut stock_text = String::new();
             let mut stock_deps = Vec::new();
+            if let Ok(r) = &r
+                && r.stock == Some(StockSpec::FromPrevious)
+                && let Some(pid) = &r.based_on
+                && let Some((text, deps)) = finals.get(pid)
+            {
+                stock_text = format!("from {pid}:\n{text}");
+                stock_deps = deps.clone();
+            }
             for t in &s.toolpaths {
                 let tool = tools.get(t.tool_ref());
                 let m = material.as_deref();
                 let mut text = format!("{setup_hash}\n{}", toolpath_r_text(t, tool, m));
                 let mut deps = vec![setup.clone()];
-                if t.params.reads_in_process() {
+                if t.params.reads_stock() {
                     text.push_str(&format!("in_process:\n{stock_text}"));
                     deps.extend(stock_deps.iter().cloned());
                 }
@@ -128,6 +148,7 @@ impl Graph {
                     },
                 );
             }
+            finals.insert(s.id.clone(), (stock_text, stock_deps));
             nodes.insert(
                 NodeId::Simulation(s.id.clone()),
                 Node {

@@ -135,11 +135,11 @@ fn rest_levels_follow_the_stock() {
 }
 
 #[test]
-fn adaptive_rest_clears_the_gaps_only() {
+fn optimised_load_rest_clears_the_gaps_only() {
     let g = load(&step::pocket_block([0.0; 3]));
     let (st, _) = after_big(&g);
     let t = tp(
-        "adaptive_2d",
+        "optimised_load_2d",
         "f6",
         &format!(
             "{}rest_from = \"previous\"\n[passes]\noptimal_load = 1.5\nstep_down = 8\n",
@@ -151,4 +151,42 @@ fn adaptive_rest_clears_the_gaps_only() {
     // The tool (R 3) reaches the middle of both gaps beside the island.
     assert!(nearest_cut(&r, Point2::new(40.0, 17.5)) < 3.0);
     assert!(nearest_cut(&r, Point2::new(40.0, 42.5)) < 3.0);
+}
+
+#[test]
+fn a_floor_pass_rapids_down_over_cleared_stock() {
+    // The pocket roughed to its floor (Z 12) by an earlier toolpath, then
+    // finished from 0.1 above it: rapids end 1 mm above the floor's level
+    // where the tool has no material within its radius, instead of above
+    // the stock top, and never closer than that to material.
+    let g = load(&step::pocket_block([0.0; 3]));
+    let mut st = LayeredStock::planar(&stock().aabb());
+    let pocket = fluut_cam::region::Region2::rect(10.0, 10.0, 70.0, 50.0)
+        .subtract(&fluut_cam::region::Region2::rect(35.0, 25.0, 45.0, 35.0));
+    st.remove_swept(12.0, &pocket);
+    let t = tp(
+        "pocket_2d",
+        "f6",
+        &format!(
+            "{}[heights]\ntop = {{ ref = \"selection\", offset = 0.1 }}\n",
+            floor(&g)
+        ),
+    );
+    let low = |r: &fluut_cam::Generated| {
+        moves(r, fluut_path::Motion::Rapid)
+            .iter()
+            .map(|s| end(s).z())
+            .fold(f64::INFINITY, f64::min)
+    };
+    let plain = run(&g, &t, stock());
+    assert_eq!(low(&plain), 21.0);
+    let r = run_rest(&g, &t, stock(), &st);
+    assert!((low(&r) - 14.1).abs() < 1e-9, "{}", low(&r));
+    for s in moves(&r, fluut_path::Motion::Rapid) {
+        let e = end(s);
+        if let Some(top) = st.top_near(xy(e), 3.0) {
+            assert!(e.z() >= top + 1.0 - 1e-9, "{e:?}");
+        }
+    }
+    assert_eq!(cuts(&r).len(), cuts(&plain).len());
 }

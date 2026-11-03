@@ -137,14 +137,14 @@ pub fn validate(tp: &Toolpath, cx: &ValidateCx) -> Vec<Diagnostic> {
         ToolpathTypeId::Chamfer2d => v.chamfer(),
         ToolpathTypeId::Bore => v.bore(),
         ToolpathTypeId::Drill => v.drill(),
-        ToolpathTypeId::Adaptive2d => v.adaptive(),
+        ToolpathTypeId::OptimisedLoad2d => v.optimised_load_2d(),
         ToolpathTypeId::Engrave => v.engrave(),
         ToolpathTypeId::Contour => v.contour3d(),
         ToolpathTypeId::Horizontal => v.horizontal(),
         ToolpathTypeId::Spiral => v.spiral(),
         ToolpathTypeId::Scallop => v.scallop(),
         ToolpathTypeId::SteepAndShallow => v.steep_and_shallow(),
-        ToolpathTypeId::Adaptive3d => v.adaptive_3d(),
+        ToolpathTypeId::OptimisedLoad3d => v.optimised_load_3d(),
         ToolpathTypeId::Pocket3d => {}
         ToolpathTypeId::RotaryRough => v.rotary_rough(),
         ToolpathTypeId::RotaryAlongX => v.rotary_along_x(),
@@ -347,7 +347,7 @@ impl V<'_, '_> {
             self.r.kind,
             ToolpathTypeId::Contour2d
                 | ToolpathTypeId::Pocket2d
-                | ToolpathTypeId::Adaptive2d
+                | ToolpathTypeId::OptimisedLoad2d
                 | ToolpathTypeId::Engrave
                 | ToolpathTypeId::Trace
                 | ToolpathTypeId::Chamfer2d
@@ -1025,16 +1025,16 @@ impl V<'_, '_> {
         self.range("drill", "passes.dwell_s", dr.dwell_s >= 0.0, "0 or more");
     }
 
-    fn adaptive(&mut self) {
-        let Some(a) = self.r.adaptive().cloned() else {
+    fn optimised_load_2d(&mut self) {
+        let Some(a) = self.r.optimised_load_2d().cloned() else {
             return;
         };
         self.required("passes.step_down", a.step_down);
         self.engagement(a.optimal_load, a.min_cutting_radius);
     }
 
-    fn adaptive_3d(&mut self) {
-        let Some(a) = self.r.adaptive_3d().cloned() else {
+    fn optimised_load_3d(&mut self) {
+        let Some(a) = self.r.optimised_load_3d().cloned() else {
             return;
         };
         self.required("passes.step_down", a.step_down);
@@ -1043,7 +1043,7 @@ impl V<'_, '_> {
             && !(f > 0.0 && f < sd)
         {
             self.e(
-                "param.adaptive_3d.fine_step_down.range",
+                "param.optimised_load_3d.fine_step_down.range",
                 "passes.fine_step_down",
                 format!("fine step-down {f} must be above 0 and below the step-down {sd}"),
             );
@@ -1139,7 +1139,7 @@ impl V<'_, '_> {
         self.scallop_pair("advance", t.advance, t.scallop_height);
     }
 
-    /// Load and smoothing rules of the adaptive types (D15b §2.2, §4.1).
+    /// Load and smoothing rules of the optimised-load types (D15b §2.2, §4.1).
     fn engagement(&mut self, load: f64, min_radius: f64) {
         let ty = self.ty();
         let d = self.tool.diameter;

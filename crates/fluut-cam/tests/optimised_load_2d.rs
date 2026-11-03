@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! `adaptive_2d` (D15b §2.2, D09 §2.3) on the plate pocket and wire
+//! `optimised_load_2d` (D15b §2.2, D09 §2.3) on the plate pocket and wire
 //! regions.
 
 mod support;
@@ -20,7 +20,7 @@ fn plate_stock() -> Stock {
 fn pocket(g: &fluut_cam::geometry::SetupGeometry, extra: &str) -> fluut_model::project::Toolpath {
     let b = g.bodies[0].id.clone();
     tp(
-        "adaptive_2d",
+        "optimised_load_2d",
         "f6",
         &format!(
             "[geometry]\ndrive_faces = [{{ face = \"{}\" }}]\n\
@@ -98,7 +98,7 @@ fn clears_the_plate_pocket() {
         .subtract(&Region2::circle(40.0, 35.0, 6.0));
     let left = pocket_shape.subtract(&swept(&r));
     // Thin slivers between passes may stay, but none 0.1 mm thick (the
-    // `cam.adaptive_2d.incomplete` limit at the default tolerance).
+    // `cam.optimised_load_2d.incomplete` limit at the default tolerance).
     assert!(left.area() < 0.2, "{} mm² left", left.area());
     assert!(left.offset(-0.05).is_empty());
     // No cut runs outside the tool-centre region.
@@ -203,7 +203,7 @@ fn open_pockets_enter_from_outside_the_stock() {
     ]);
     let s = Stock::new([0.0, -10.0, 0.0], [50.0, 30.0, 15.0]);
     let t = tp(
-        "adaptive_2d",
+        "optimised_load_2d",
         "f6",
         "[geometry]\ndrive_curves = [{ body = \"b-w\" }]\n\
          [heights]\nbottom = { ref = \"selection\", offset = -5 }\n\
@@ -224,7 +224,7 @@ fn calculation_codes() {
     // An open chain cannot bound a region.
     let w = wire(&[[0.0, 0.0, 10.0], [30.0, 0.0, 10.0]]);
     let t = tp(
-        "adaptive_2d",
+        "optimised_load_2d",
         "f6",
         "[geometry]\ndrive_curves = [{ body = \"b-w\" }]\n\
          [heights]\nbottom = { ref = \"selection\", offset = -2 }\n",
@@ -242,9 +242,9 @@ fn calculation_codes() {
         ])
     };
     let r = run(&sq(4.0), &t, s);
-    assert!(codes(&r).contains(&"cam.adaptive_2d.region.unreachable".into()));
+    assert!(codes(&r).contains(&"cam.optimised_load_2d.region.unreachable".into()));
     let r = run(&sq(20.0), &t, s);
-    assert!(!codes(&r).contains(&"cam.adaptive_2d.region.unreachable".into()));
+    assert!(!codes(&r).contains(&"cam.optimised_load_2d.region.unreachable".into()));
     assert!(!codes(&r).contains(&"cam.linking.ramp_fallback".into()));
     // A 6.5 mm square fits the tool but not the helix.
     let r = run(&sq(6.5), &t, s);
@@ -255,7 +255,7 @@ fn calculation_codes() {
     );
     // A large minimum cutting radius leaves material.
     let big = tp(
-        "adaptive_2d",
+        "optimised_load_2d",
         "f6",
         "[geometry]\ndrive_curves = [{ body = \"b-w\" }]\n\
          [heights]\nbottom = { ref = \"selection\", offset = -2 }\n\
@@ -263,13 +263,13 @@ fn calculation_codes() {
     );
     let r = run(&sq(30.0), &big, s);
     assert!(
-        codes(&r).contains(&"cam.adaptive_2d.incomplete".into()),
+        codes(&r).contains(&"cam.optimised_load_2d.incomplete".into()),
         "{:?}",
         codes(&r)
     );
     let r = run(&sq(30.0), &t, s);
     assert!(
-        !codes(&r).contains(&"cam.adaptive_2d.incomplete".into()),
+        !codes(&r).contains(&"cam.optimised_load_2d.incomplete".into()),
         "{:?}",
         codes(&r)
     );

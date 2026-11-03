@@ -4,8 +4,6 @@
 //! `parallel`, the M6 2-D and hole types, the 3-D finishing types of
 //! D15b §5, 3-D roughing, rotary types and `manual_nc`.
 
-mod adaptive_2d;
-mod adaptive_3d;
 mod bore;
 pub(crate) mod boundary;
 mod chamfer_2d;
@@ -16,6 +14,8 @@ mod engrave;
 mod face;
 mod horizontal;
 mod manual_nc;
+mod optimised_load_2d;
+mod optimised_load_3d;
 mod parallel;
 mod pocket_2d;
 mod pocket_3d;
@@ -26,8 +26,6 @@ mod spiral;
 mod steep_and_shallow;
 mod trace;
 
-pub use adaptive_2d::Adaptive2d;
-pub use adaptive_3d::Adaptive3d;
 pub use bore::Bore;
 pub use chamfer_2d::Chamfer2d;
 pub use contour::Contour;
@@ -37,6 +35,8 @@ pub use engrave::Engrave;
 pub use face::Face;
 pub use horizontal::Horizontal;
 pub use manual_nc::{ManualNc, manual_nc};
+pub use optimised_load_2d::OptimisedLoad2d;
+pub use optimised_load_3d::OptimisedLoad3d;
 pub use parallel::Parallel;
 pub use pocket_2d::Pocket2d;
 pub use pocket_3d::Pocket3d;

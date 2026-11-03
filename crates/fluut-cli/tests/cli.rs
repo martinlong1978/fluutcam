@@ -80,6 +80,10 @@ fn step_inputs_match_the_writer() {
         &step::ridge([0.0; 3]),
     );
     check_file(&here("projects/shaft/shaft.step"), &step::shaft([0.0; 3]));
+    check_file(
+        &here("projects/flipside/flipside.step"),
+        &step::two_sided([0.0; 3]),
+    );
 }
 
 #[test]
@@ -94,6 +98,7 @@ fn projects_are_canonical() {
         "projects/dome/dome.fluut",
         "projects/rough3d/rough3d.fluut",
         "projects/shaft/shaft.fluut",
+        "projects/flipside/flipside.fluut",
     ] {
         let text = std::fs::read_to_string(here(p)).unwrap();
         let l = fluut_model::project::read(&text).unwrap();
@@ -240,7 +245,7 @@ fn golden_hole_types() {
 
 #[test]
 fn golden_roughing_3d() {
-    // An adaptive roughing, then a rest roughing with a smaller tool that
+    // An optimised-load roughing, then a rest roughing with a smaller tool that
     // starts from the in-process stock. Some rest areas are too small for
     // the helix.
     golden(
@@ -261,6 +266,113 @@ fn golden_rotary() {
         "shaft-linuxcnc-4x.ngc",
         &[],
     );
+}
+
+#[test]
+fn golden_two_sided() {
+    // An indexed Setup at 0° pockets the top and half the window; a child
+    // at 180° carries its stock, pockets the bottom and finishes the window
+    // from the in-process stock: its rest pocket stops where the top
+    // Setup broke through. The post indexes A between the Setups.
+    golden(
+        "projects/flipside/flipside.fluut",
+        "shop/linuxcnc-4x",
+        "flipside-linuxcnc-4x.ngc",
+        &[],
+    );
+    let g = std::fs::read_to_string(here("golden/flipside-linuxcnc-4x.ngc")).unwrap();
+    let a0 = g.lines().position(|l| l == "G0 A0").unwrap();
+    let a180 = g.lines().position(|l| l == "G0 A180").unwrap();
+    assert!(a0 < a180);
+    // Before the turn the tool rises clear of the block's corners
+    // (y ±30, z 9 about the axis) by the clearance offset.
+    let z: f64 = g.lines().nth(a180 - 1).unwrap()["G0 Z".len()..]
+        .parse()
+        .unwrap();
+    assert!(
+        (z - (30.0f64 * 30.0 + 9.0 * 9.0).sqrt() - 10.0).abs() < 1e-3,
+        "{z}"
+    );
+}
+
+#[test]
+fn two_sided_turn_above_the_z_travel_fails() {
+    let d = tmp("flip-travel");
+    for sub in ["tools", "posts", "machines"] {
+        std::fs::create_dir_all(d.join(sub)).unwrap();
+    }
+    for f in [
+        "flipside.fluut",
+        "flipside.step",
+        "tools/shop.toml",
+        "posts/linuxcnc-4x.post.toml",
+    ] {
+        std::fs::copy(here(&format!("projects/flipside/{f}")), d.join(f)).unwrap();
+    }
+    let m = std::fs::read_to_string(here("projects/flipside/machines/router-4x.machine.toml"))
+        .unwrap()
+        .replace("[spindle]", "[travel]\nz = [-100, 30]\n\n[spindle]");
+    std::fs::write(d.join("machines/router-4x.machine.toml"), m).unwrap();
+    let mut s = Session::open(&d.join("flipside.fluut"), &[]).unwrap();
+    assert!(s.warnings.is_empty(), "{:?}", s.warnings);
+    let store = s.library.mem_store(fluut_model::library::DefKind::Post);
+    let opts = PostOptions {
+        date: "2026-11-01".into(),
+        time: "12:00:00".into(),
+        notes: String::new(),
+    };
+    let e = s.post("shop/linuxcnc-4x", &store, &opts).unwrap_err();
+    assert!(
+        e.iter().any(|d| d.code == "setup.clearance.index_travel"),
+        "{e:?}"
+    );
+}
+
+#[test]
+fn two_sided_invariance_along_x() {
+    // Moving the part along the rotary axis, with the zero on the stock
+    // end, moves nothing in the program.
+    let post = |shift: f64, name: &str| -> (Session, String) {
+        let d = tmp(name);
+        for sub in ["tools", "posts", "machines"] {
+            std::fs::create_dir_all(d.join(sub)).unwrap();
+        }
+        for f in [
+            "flipside.fluut",
+            "tools/shop.toml",
+            "posts/linuxcnc-4x.post.toml",
+            "machines/router-4x.machine.toml",
+        ] {
+            std::fs::copy(here(&format!("projects/flipside/{f}")), d.join(f)).unwrap();
+        }
+        std::fs::write(d.join("flipside.step"), step::two_sided([shift, 0.0, 0.0])).unwrap();
+        let mut s = Session::open(&d.join("flipside.fluut"), &[]).unwrap();
+        assert!(s.warnings.is_empty(), "{:?}", s.warnings);
+        let store = s.library.mem_store(fluut_model::library::DefKind::Post);
+        let opts = PostOptions {
+            date: "2026-11-01".into(),
+            time: "12:00:00".into(),
+            notes: String::new(),
+        };
+        let (out, _) = s.post("shop/linuxcnc-4x", &store, &opts).unwrap();
+        (s, out.files.concat())
+    };
+    let (mut sa, ga) = post(0.0, "flip-a");
+    let (mut sb, gb) = post(7.123457, "flip-b");
+    assert_eq!(ga, gb);
+    sa.calculate(&Targets::All);
+    sb.calculate(&Targets::All);
+    for id in ["t1", "t2", "t3", "t4"] {
+        let (ra, rb) = (sa.result(id).unwrap(), sb.result(id).unwrap());
+        assert_eq!(ra.segments().count(), rb.segments().count(), "{id}");
+        for (p, q) in ra.segments().zip(rb.segments()) {
+            for (u, v) in [(p.start(), q.start()), (p.end(), q.end())] {
+                if let (Some(u), Some(v)) = (u, v) {
+                    assert!(u.xyz.distance(v.xyz) <= 1e-6, "{id}");
+                }
+            }
+        }
+    }
 }
 
 /// The 4-axis post without a `manual_nc` block.
@@ -466,10 +578,11 @@ const ALLOWED_FINDINGS: &[(&str, &str, &str, &str)] = &[
 fn reference_projects_simulate_clean() {
     // Every reference project through the simulation's checks: rapids in
     // stock, gouges, holder and shank collisions. The default 0.2 mm rays:
-    // the adaptive pocket of `plate2d` once cut 0.15 mm into its island,
+    // the optimised-load pocket of `plate2d` once cut 0.15 mm into its island,
     // which 0.5 mm rays miss. One thread per project.
     let projects = [
-        "boss", "block", "ridge", "plate", "plate2d", "holes", "dome", "rough3d", "shaft", "vcarve",
+        "boss", "block", "ridge", "plate", "plate2d", "holes", "dome", "rough3d", "shaft",
+        "vcarve", "flipside",
     ];
     let outputs: Vec<(&str, String)> = std::thread::scope(|sc| {
         let hs: Vec<_> = projects

@@ -174,3 +174,43 @@ fn cancelled_simulation_is_not_kept() {
     assert_eq!(err[0].code, "sim.cancelled");
     assert!(s.simulation("s1", &coarse()).is_none());
 }
+
+#[test]
+fn a_child_setup_is_simulated_from_its_parent_stock() {
+    // `block` with a second Setup that carries the stock on: its
+    // simulation starts from the stock its parent's left, and goes stale
+    // with it.
+    let src = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../fluut-cli/tests/projects/block");
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("sim-child");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("tools")).unwrap();
+    std::fs::copy(src.join("block.step"), dir.join("block.step")).unwrap();
+    std::fs::copy(src.join("tools/shop.toml"), dir.join("tools/shop.toml")).unwrap();
+    let text = std::fs::read_to_string(src.join("block.fluut")).unwrap()
+        + "\n[[setup]]\nid       = \"s2\"\nname     = \"After\"\nbased_on = \"s1\"\nstock    = { kind = \"from_previous\" }\n";
+    std::fs::write(dir.join("block.fluut"), text).unwrap();
+    let mut s = Session::open(&dir.join("block.fluut"), &[]).unwrap();
+    let g0 = s.graph();
+    let child = NodeId::Simulation("s2".into());
+    assert!(
+        g0.nodes[&child]
+            .deps
+            .contains(&NodeId::Simulation("s1".into()))
+    );
+    s.calculate(&Targets::All);
+    let st = coarse();
+    let quiet = fluut_core::fluut_sim::Quiet;
+    let r2 = s.simulate("s2", &st, &quiet).unwrap();
+    let r1 = s
+        .simulation("s1", &st)
+        .expect("the parent was simulated first");
+    assert_eq!(r2.sim.stock_initial().hash(), r1.sim.stock_final().hash());
+    assert!(r2.diagnostics.iter().all(|d| d.code != "sim.stock.full"));
+    set(
+        &mut s,
+        "t1",
+        "passes.stepover",
+        PValue::Num(Num::float(2.0)),
+    );
+    assert!(s.graph().changed(&g0).contains(&child));
+}

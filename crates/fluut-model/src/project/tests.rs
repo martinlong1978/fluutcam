@@ -109,13 +109,13 @@ fn every_d15b_example_round_trips() {
         seen,
         [
             "face",
-            "adaptive_2d",
+            "optimised_load_2d",
             "trace",
             "engrave",
             "chamfer_2d",
             "bore",
             "drill",
-            "adaptive_3d",
+            "optimised_load_3d",
             "pocket_3d",
             "contour",
             "horizontal",
@@ -574,4 +574,11 @@ fn setups_are_shared_between_clones() {
     assert!(Arc::ptr_eq(&p.setups[0], &q.setups[0]));
     assert!(!Arc::ptr_eq(&p.setups[1], &q.setups[1]));
     assert_eq!(p.setups[1].name, "Casting");
+}
+
+#[test]
+fn old_adaptive_type_ids_are_unknown() {
+    assert!(ToolpathTypeId::parse("adaptive_2d").is_none());
+    assert!(ToolpathTypeId::parse("adaptive_3d").is_none());
+    assert!(ToolpathTypeId::parse("optimised_load_2d").is_some());
 }

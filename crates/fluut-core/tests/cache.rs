@@ -318,9 +318,21 @@ fn results_survive_a_reload_and_follow_the_r_p_split() {
     let r = s.calculate(&Targets::All);
     assert_eq!(states(&r), [JobState::Done { cached: true }; 2]);
     assert_eq!(s.calculated, 0);
-    // An R edit (stock to leave) misses it; the other toolpath still hits.
+    // An R edit (stock to leave) misses it. The second contour's links
+    // stop above the in-process stock t1 leaves (D08 §8.2), so it misses
+    // too.
     s.apply(Edit::set_toolpath_field(
         "t1",
+        "passes.stock_to_leave",
+        Some("0.5"),
+    ))
+    .unwrap();
+    let r = s.calculate(&Targets::All);
+    assert_eq!(states(&r), [JobState::Done { cached: false }; 2]);
+    assert_eq!(s.calculated, 2);
+    // An R edit of the second toolpath leaves the first cached.
+    s.apply(Edit::set_toolpath_field(
+        "t2",
         "passes.stock_to_leave",
         Some("0.5"),
     ))
@@ -329,11 +341,11 @@ fn results_survive_a_reload_and_follow_the_r_p_split() {
     assert_eq!(
         states(&r),
         [
-            JobState::Done { cached: false },
-            JobState::Done { cached: true }
+            JobState::Done { cached: true },
+            JobState::Done { cached: false }
         ]
     );
-    assert_eq!(s.calculated, 1);
+    s.undo().unwrap();
     // Undo makes the first result current again, from memory.
     s.undo().unwrap();
     assert!(!s.is_stale("t1"));

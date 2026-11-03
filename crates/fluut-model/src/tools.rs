@@ -90,7 +90,7 @@ pub struct Preset {
     pub plunge: Option<f64>,
     pub stepover: Option<f64>,
     pub step_down: Option<f64>,
-    /// Radial width of cut for adaptive types (D15b §9, decision 1).
+    /// Radial width of cut for optimised-load types (D15b §9, decision 1).
     pub optimal_load: Option<f64>,
 }
 
@@ -331,7 +331,7 @@ colour = "red"
     }
 
     #[test]
-    fn drill_v_and_adaptive_keys() {
+    fn drill_v_and_optimised_load_keys() {
         // Spec 02 §2.4 additions of D15b §9 (decisions 1, 3, 4), and the V
         // tool angle and tip that engrave and chamfer_2d need.
         let src = "format = \"fluut.tools/1\"\nid = \"l\"\n\

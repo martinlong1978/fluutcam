@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! `adaptive_2d` (D09 §2.3, D15b §2.2): clears closed regions in Z steps
+//! `optimised_load_2d` (D09 §2.3, D15b §2.2): clears closed regions in Z steps
 //! with constant tool engagement, then runs a contour of the region at
-//! each level. The search is in [`crate::adaptive`].
+//! each level. The search is in [`crate::optimised_load`].
 
 use super::boundary::{apply_boundary, boundary_region};
 use super::contour_2d::selection_z;
-use crate::adaptive::{self, Cleared, Params};
 use crate::chain::chain_pieces;
 use crate::drive::{areas, curve_pieces, floor_regions, nest};
 use crate::layout::levels;
-use crate::link::{Cut, LinkCx, Turn, link};
+use crate::link::{Cut, LinkCx, StockFloor, Turn, link_over};
 use crate::moves::finish;
+use crate::optimised_load::{self, Cleared, Params};
 use crate::path2::Path2;
 use crate::region::{Inside, Region2, Seg2};
 use crate::spike::pocket::{swept_loop, swept_path};
@@ -23,7 +23,7 @@ use fluut_model::resolve::{CutDirection, Order, Ramp, RampKind, resolve};
 use fluut_path::ToolpathResult;
 
 #[derive(Debug)]
-pub struct Adaptive2d;
+pub struct OptimisedLoad2d;
 
 /// One area of the tool-centre region at every level: the optional entry
 /// circle (for a helix ramp), the passes and the final contour.
@@ -33,9 +33,9 @@ pub(crate) struct AreaPlan {
     pub finish: Vec<(Path2, usize)>,
 }
 
-impl ToolpathType for Adaptive2d {
+impl ToolpathType for OptimisedLoad2d {
     fn id(&self) -> ToolpathTypeId {
-        ToolpathTypeId::Adaptive2d
+        ToolpathTypeId::OptimisedLoad2d
     }
 
     fn role(&self) -> Role {
@@ -80,8 +80,10 @@ impl ToolpathType for Adaptive2d {
         let mut diags = prep.warnings;
         let p = &prep.params;
         let h = prep.heights;
-        let Some(ad) = p.adaptive().cloned() else {
-            return Err(CamError::Unavailable("not an adaptive_2d toolpath".into()));
+        let Some(ad) = p.optimised_load_2d().cloned() else {
+            return Err(CamError::Unavailable(
+                "not an optimised_load_2d toolpath".into(),
+            ));
         };
         let mut errors = Vec::new();
         for ch in &chains {
@@ -126,7 +128,7 @@ impl ToolpathType for Adaptive2d {
         for a in areas(&region) {
             if a.offset(-(r + stl)).is_empty() {
                 diags.push(Diagnostic::warning(
-                    "cam.adaptive_2d.region.unreachable",
+                    "cam.optimised_load_2d.region.unreachable",
                     "a region is narrower than the tool and is left uncut",
                 ));
             }
@@ -194,7 +196,7 @@ impl ToolpathType for Adaptive2d {
         }
         if incomplete {
             diags.push(Diagnostic::warning(
-                "cam.adaptive_2d.incomplete",
+                "cam.optimised_load_2d.incomplete",
                 "material above the tolerance is left after the path search stopped",
             ));
         }
@@ -259,7 +261,7 @@ impl ToolpathType for Adaptive2d {
             tol,
             safe: &safe,
         };
-        let passes = link(&cuts, &cx, &mut diags);
+        let passes = link_over(&cuts, &cx, StockFloor::of(input), &mut diags);
         let passes = finish(
             passes,
             p.passes.output_arcs,
@@ -332,8 +334,8 @@ pub(crate) fn plan_area(
         passes,
         cleared,
         stats,
-    } = adaptive::clear(&material, a, k0, deep, params);
-    let reach = adaptive::within_reach(a);
+    } = optimised_load::clear(&material, a, k0, deep, params);
+    let reach = optimised_load::within_reach(a);
     let mut ps = Vec::new();
     for pass in passes {
         // The shrunk cleared region can reach past the tool-centre region
@@ -351,7 +353,7 @@ pub(crate) fn plan_area(
         ps.push((Path2::open(segs), safe.len() - 1));
     }
     // Final contour at R + stock to leave, in `direction`.
-    safe.push(adaptive::shrink(&cleared, r - 1e-6).intersect(&reach));
+    safe.push(optimised_load::shrink(&cleared, r - 1e-6).intersect(&reach));
     let fin_safe = safe.len() - 1;
     let finish: Vec<(Path2, usize)> = a
         .loops
@@ -375,10 +377,10 @@ pub(crate) fn plan_area(
             .iter()
             .fold((0.0, 0.0), |(x, y), v| (x + v.p.x(), y + v.p.y()));
         let target = nearest_in(a, Point2::new(sx / n, sy / n));
-        let inner = adaptive::shrink(&done, r - 1e-6);
+        let inner = optimised_load::shrink(&done, r - 1e-6);
         // A move that would cut across an island is not made; its sliver
         // counts as left.
-        let Some(from) = adaptive::entry_towards(&inner, target, &reach) else {
+        let Some(from) = optimised_load::entry_towards(&inner, target, &reach) else {
             continue;
         };
         if from.distance(target) <= tol {

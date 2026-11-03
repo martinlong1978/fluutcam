@@ -203,3 +203,28 @@ fn flute_length_is_a_warning() {
     };
     assert!(run_with(&[p], &settings(0.1), None).findings.is_empty());
 }
+
+#[test]
+fn index_turn_clear_above_the_corners_and_not_at_the_top_plus_offset() {
+    // A block on the X axis: its corners are √(15² + 5²) ≈ 15.8 from it.
+    let stock = crate::stock::Stock::Box {
+        min: fluut_geom::Point3::new(0.0, -15.0, -5.0),
+        max: fluut_geom::Point3::new(40.0, 15.0, 5.0),
+    };
+    let d = TriDexel::new(&stock, 0.5);
+    let tool = Assembly::bare(Tool::flat(3.0));
+    assert_eq!(index_turn(&d, &tool, DVec3::new(20.0, 0.0, 20.0)), None);
+    // At the plane clearance (top + 10) the corners swing into the tool.
+    let depth = index_turn(&d, &tool, DVec3::new(20.0, 0.0, 15.0)).unwrap();
+    assert!(depth > 0.8 && depth < 1.2, "{depth}");
+    // Beside the stock in X nothing turns into it.
+    assert_eq!(index_turn(&d, &tool, DVec3::new(60.0, 0.0, 8.0)), None);
+    // Off to the side the cutter clears, but a wide holder does not.
+    let tip = DVec3::new(20.0, 20.0, 8.0);
+    assert_eq!(index_turn(&d, &tool, tip), None);
+    let held = Assembly {
+        holder: Some((10.0, 30.0, 60.0)),
+        ..tool
+    };
+    assert!(index_turn(&d, &held, tip).is_some());
+}

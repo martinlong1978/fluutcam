@@ -348,6 +348,7 @@ pub fn reference_job(opts: SuiteOptions, provenance: Provenance) -> PostJob {
         work_offset: "G54".into(),
         index_a: None,
         index_b: None,
+        turn_z: None,
         toolpaths: vec![
             toolpath(
                 "Profile",
@@ -385,6 +386,7 @@ pub fn reference_job(opts: SuiteOptions, provenance: Provenance) -> PostJob {
             work_offset: "G55".into(),
             index_a: Some(90.0),
             index_b: None,
+            turn_z: Some(30.0),
             toolpaths: vec![toolpath(
                 "Side pocket",
                 "pocket_2d",
@@ -401,6 +403,7 @@ pub fn reference_job(opts: SuiteOptions, provenance: Provenance) -> PostJob {
             work_offset: "G56".into(),
             index_a: None,
             index_b: None,
+            turn_z: Some(30.0),
             toolpaths: vec![toolpath(
                 "Wrap",
                 "rotary_around_a",

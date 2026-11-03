@@ -197,7 +197,9 @@ impl LayeredStock {
     pub fn ensure_level(&mut self, z: f64);               // insert a level, cloning the next level above
     pub fn remove_swept(&mut self, z: f64, swept: &Region2);
     pub fn remaining(&self, z: f64) -> &Region2;
-    pub fn reframed(&self, from: &Frame, to: &Frame) -> Self;   // carry into a child Setup (S 03 §3.9.6)
+    pub fn reframed(&self, turn: f64) -> Self;   // carry into a child Setup turned about X (S 03 §3.9.6)
+    pub fn revolved(pieces: &[(f64, f64, f64)]) -> Self;   // planar slices of a solid of revolution
+    pub fn top_near(&self, p: Point2, r: f64) -> Option<f64>;   // highest material within r of p
 }
 ```
 
@@ -209,6 +211,37 @@ impl LayeredStock {
 - Reframing for an indexed child at a different angle: the parent stock is converted to a 3-D
   solid approximation (prisms between levels), rotated, and re-sliced at the child's levels.
   This is exact for prism stacks and conservative (keeps material) elsewhere (CH-15).
+
+**Carried stock (2026-11-01).** A `from_previous` child shares its parent's rotary axis and
+zero (S 03 §3.9.4), so its W is the parent's turned about X by the difference of their index
+angles (a rotary or three-axis Setup counts as 0°). The child starts from the parent's stock
+after the parent's last enabled stock-updating toolpath:
+- same angle: unchanged; a half turn: exact (slab (z₀, z₁] becomes [−z₁, −z₀), mirrored in Y);
+- other angles: child slabs at most 1 mm † high; for each child slab and parent slab, the parent
+  region is cut to the Y range of the parallelogram of YZ points that turn into the child slab,
+  and each outer loop of the cut gives a box (its X range by the turned Y range). Holes are
+  ignored, so the result always holds the parent's material;
+- a cylindrical (rotary) parent under a planar child: `revolved`, each slab's outer loops as X
+  ranges at the slab's radius, sliced at most 1 mm † high; under a rotary child: unchanged;
+- a planar parent under a rotary child: the child's own cylinder.
+
+An indexed Setup with cylinder stock starts from `revolved` slices of its cylinder.
+
+**Turning between Setups (2026-11-02).** A turn of A swings everything on the table about the
+axis, so a clearance plane above the stock top is not enough: the stock's corners rise above it.
+Every rotary and indexed Setup has a **turn radius**, the largest distance from the axis of its
+stock (the block at A = 0, or the cylinder) and its bodies' box. The in-process stock is never
+larger than the stock, so it lies inside that cylinder at any moment, and so does the volume any
+turn sweeps. The **turn clearance** is the turn radius + the clearance offset (the plane's
+`offset`, else 10 mm), as the clearance plane keeps the offset above the stock top. Before A
+turns at a Setup start (an indexed Setup, or a rotary one after another Setup) the post raises
+the tool to the larger turn clearance of that Setup and the one before it (spec 05 §5.6). The
+zero lies on the axis, so Z alone is the height above it, and a tool pointing up from a tip at
+that height has all of its assembly outside the cylinder, wherever it is in X and Y. The
+retract is in the post, not in the results: the toolpaths and their cache keys do not depend on
+the next Setup. Above the machine's Z travel the post fails (`setup.clearance.index_travel`). In
+a rotary Setup A turns on rapids at the clearance cylinder, which the post cannot change, so a
+clearance cylinder not larger than the turn radius is refused (`setup.clearance.index_unsafe`).
 
 ## 7.1 Machinable region at a level
 
@@ -263,13 +296,23 @@ top is the stock top, or `top` when that is higher. A toolpath whose `top` is be
 top (a floor pass, a hole under an unmachined counterbore) cannot tell, without the in-process
 stock, whether an earlier toolpath cleared the material above `top`, so the safe choice is to
 feed through it. The drill's R plane takes the same floor, since canned cycles rapid to it, and
-so does `bore`'s approach. Toolpaths whose `top` is the stock top are unchanged. Using the
-in-process stock to lower the floor where it is known to be clear is left for later. The 3-D
+so does `bore`'s approach. Toolpaths whose `top` is the stock top are unchanged. The
+in-process stock lowers the floor where it is known to be clear (below). The 3-D
 finishing linker (`follow.rs`) takes the same floor ([waterline plan](../plan/2026-11-01-waterline-robust.md)):
 its lifts between runs go at least `safety_distance` above the material top, and its descents
 stop there and plunge.
 
-**Adaptive links (2026-11-01).** The straight entry move of an adaptive pass, its sliver moves
+**Rapid floor from the in-process stock (2026-11-01).** The 2-D types, `optimised_load_3d`,
+`pocket_3d`, `drill` and `bore` get the in-process stock (`links_over_stock`). A rapid down to
+an entry at p then stops at `max(feed, top_near(p, R) + safety_distance)`: the key of the
+highest slab whose material comes within the tool radius R of p, or the feed height when none
+does. Material in a slab lies at or below its key, and the stock never holds less than the real
+material, so the tool keeps `safety_distance` above everything under it. The floor is never
+higher than the plain one. The drill's R plane and `bore`'s approach use it per hole; moves
+between holes at the R plane still check against the stock top. The result hash of these types
+includes the earlier stock-updating toolpaths of the Setup and of its `from_previous` ancestors.
+
+**Optimised-load links (2026-11-01).** The straight entry move of an optimised-load pass, its sliver moves
 and the safe regions its stay-down links use are kept inside the tool-centre region; the shrunk
 cleared region alone can reach across an island.
 

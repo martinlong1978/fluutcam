@@ -79,6 +79,10 @@ pub struct SetupJob {
     /// Index angles in degrees, for indexed Setups.
     pub index_a: Option<f64>,
     pub index_b: Option<f64>,
+    /// Z in W above which the tool clears everything that turns about the
+    /// rotary axis (spec 05 §5.6): the post retracts to it before turning
+    /// A at the Setup start, once the tool has moved.
+    pub turn_z: Option<f64>,
     pub toolpaths: Vec<ToolpathJob>,
 }
 
