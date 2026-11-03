@@ -168,8 +168,20 @@ Format `fluut.releases/1`, written by `cargo xtask manifest`:
 
 Releases are newest first; a new manifest is the old one (downloaded from the latest release)
 plus the new release. `min_os` is `windows-10`, `macos-11.0` or `glibc-2.35`. The signature is
-`releases.json.minisig`. The release workflow also signs `SHA256SUMS`. The update check itself
-(HTTPS, signature and hash verification) is not written yet.
+`releases.json.minisig`. The release workflow also signs `SHA256SUMS`.
+
+The update check (`fluut-core::update`, plan [2026-11-03](../plan/2026-11-03-update-check.md)):
+
+1. It runs only after the user said yes on first start (stored in `<data dir>/settings.toml`, at most once a day), or when the user asks: "Check now" in Settings, or `fluut update-check`.
+2. Two HTTPS GETs: `https://github.com/martinlong1978/fluutcam/releases/latest/download/releases.json` and the same with `.minisig`. A timeout, a size limit (1 MiB, 4 KiB), a fixed User-Agent (`FluutCAM-update-check`), no cookies, redirects only to HTTPS, certificates checked by the operating system. Nothing else is sent.
+3. The signature is checked against the key in `packaging/minisign.pub` before the manifest is read. Both minisign signature forms (prehashed, and the older direct one) are accepted.
+4. The newest release with a higher semantic version and a file for the platform is offered; a pre-release only to a running pre-release. The offer shows the version, the date, a link to the release notes (the tag page, built from the version) and the download page. `min_os` is not checked.
+5. The app never downloads or installs an update. `update::verify_package` checks a downloaded file's size and SHA-256 against the manifest; no installer calls it yet.
+
+Without a key in `packaging/minisign.pub` the check says "no update key in this build" and does nothing (the first-start question is not asked either).
+
+**Adding the key (once, by the maintainer).** Generate the key pair with `minisign -G`. Put the secret key and its password in the repository secrets `MINISIGN_SECRET_KEY` and `MINISIGN_PASSWORD`, and the public key line (the one that starts with `RW`) in `MINISIGN_PUBLIC_KEY`. Then replace the contents of `packaging/minisign.pub` with the public key file written by `minisign -G` (the `untrusted comment:` line and the `RW…` line). It must be the same key as the secret. The next release build compiles it in; a unit test fails if the file holds something that is not a minisign public key. Never commit the secret key. Changing the key later means shipping a release that carries the new one, signed with the old.
+
 
 ### 5.4 Reproducibility
 
