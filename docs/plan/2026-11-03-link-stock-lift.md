@@ -46,9 +46,11 @@ All earlier Global Constraints apply. In addition:
 
 **Files:** `crates/fluut-cam/src/link.rs`, `crates/fluut-cam/tests/follow_floor.rs`, D08 §8.2.
 
-- [ ] **Step 1:** Unit tests in `link.rs`: a link across cleared stock lifts to the feed height; across an un-roughed island, above it (and 1 mm above a partly roughed one); material beside the link out of reach; cylindrical stock and no stock unchanged; `full` unchanged; never below the pass Z. Integration test: `horizontal` after a real `pocket_3d` roughing on the dome, same cuts, lower lifts, none below the material.
-- [ ] **Step 2:** Implement; pass. D08. Merge `main`, all checks. Commit.
+- [x] **Step 1:** Unit tests in `link.rs`: a link across cleared stock lifts to the feed height; across an un-roughed island, above it (and 1 mm above a partly roughed one); material beside the link out of reach; cylindrical stock and no stock unchanged; `full` unchanged; never below the pass Z. Integration test: `horizontal` after a real `pocket_3d` roughing on the dome, same cuts, lower lifts, none below the material.
+- [x] **Step 2:** Implement; pass. D08. Merge `main`, all checks. Commit.
 
 ## Re-blessed golden files
 
-None expected: the reference projects' toolpaths either have no earlier roughing or have a `top` at the stock top, so the lift stays at the feed height or above.
+None. No golden G-code and no CLI simulation result changed, and no `ALLOWED_FINDINGS` entry was added.
+
+**Done.** Deviation: the integration test sets `heights.top` on `horizontal` (feed = top + 2) so the feed height is below the stock top.
