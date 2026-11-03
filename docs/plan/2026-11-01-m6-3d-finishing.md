@@ -210,9 +210,14 @@ is merged with `main` (M4, M5, M6 part 1); all fifteen types are registered.
   | `contour` (waterline plan) | step-down 2, 12 threads | 138.7 s | 656 974 | 211 µs |
   | `steep_and_shallow` (waterline plan) | as above, 12 threads | 67.5 s | 193 743 | 348 µs |
   | `horizontal` (waterline plan) | as above, 12 threads | 338.6 s | 4 678 | (72 ms) |
+  | `spiral` (flat-levels plan) | stepover 2, 12 threads | 40.4 s | 277 789 | 145 µs |
+  | `scallop` (flat-levels plan) | stepover 2, 12 threads | 317.6 s | 731 443 | 434 µs |
+  | `contour` (flat-levels plan) | step-down 5, 12 threads | 52.5 s | 267 555 | 196 µs |
 
   The rows marked "waterline plan" are after [the waterline follow-up](2026-11-01-waterline-robust.md);
   the old `contour` row counted about 450 000 runaway points.
+  The rows marked "flat-levels plan" are after [the flat-levels follow-up](2026-11-02-waterline-flat-levels.md),
+  which also has the matching before rows.
 
   `horizontal` writes few points (lines and rings on flats), so its time per point means
   little. Its time goes into one waterline per flat height.
