@@ -90,20 +90,30 @@ where
         // FluutCAM patch: the offset of a closed loop can come back open when slices meet at a
         // near-tangent contact (a boolean result with a micrometre bump) and are not stitched
         // into one loop. The shape algorithm takes every offset as a closed loop, so close it.
-        for pline in &mut result {
+        // The open offset can also run on past its start and retrace its first segments; the
+        // retraced tail is removed, or the closed loop would overlap itself. An open piece that
+        // is no wider than `pos_equal_eps` once closed (a stray slice along a single segment)
+        // is dropped: closing it would make a sliver loop that the stitching joins to its
+        // neighbours as a spike.
+        let mut keep = vec![true; result.len()];
+        for (pline, keep) in result.iter_mut().zip(&mut keep) {
             if !pline.is_closed() {
                 let n = pline.vertex_count();
-                if n > 2
-                    && pline
-                        .at(0)
-                        .pos()
-                        .fuzzy_eq_eps(pline.at(n - 1).pos(), options.pos_equal_eps)
-                {
-                    pline.remove_last();
+                let eps = options.pos_equal_eps;
+                let retraces_from = |j: usize| {
+                    (j..n).all(|k| pline.at(k).pos().fuzzy_eq_eps(pline.at(k - j).pos(), eps))
+                };
+                if let Some(j) = (2..n).find(|&j| retraces_from(j)) {
+                    for _ in j..n {
+                        pline.remove_last();
+                    }
                 }
                 pline.set_is_closed(true);
+                *keep = pline.area().abs() * T::two() > options.pos_equal_eps * pline.path_length();
             }
         }
+        let mut keep = keep.into_iter();
+        result.retain(|_| keep.next().unwrap_or(true));
         result
     }
 }
