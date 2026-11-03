@@ -235,6 +235,38 @@ impl LayeredStock {
             .map(|(k, _)| k.0)
     }
 
+    /// As [`LayeredStock::top_near`], for a tool of radius `r` moving along
+    /// the segment `a`–`b` (a rapid, and the lift and descent at its ends):
+    /// the key of the highest slab with material within `r` of any point of
+    /// it. Conservative: the segment is sampled at most `r / 2` apart and
+    /// each sample reaches `r` plus its distance to the farthest point it
+    /// stands for, so the answer is never below the exact one.
+    pub fn top_along(&self, a: Point2, b: Point2, r: f64) -> Option<f64> {
+        if self.frame != StockFrame::Planar {
+            return None;
+        }
+        let len = (b - a).length();
+        let n = if r > 0.0 {
+            ((2.0 * len / r).ceil() as usize).clamp(1, 100_000)
+        } else {
+            1
+        };
+        let reach = r + 0.5 * len / n as f64;
+        let pts: Vec<Point2> = (0..=n)
+            .map(|i| a + (b - a) * (i as f64 / n as f64))
+            .collect();
+        self.levels
+            .iter()
+            .rev()
+            .find(|(_, reg)| {
+                !reg.is_empty()
+                    && pts.iter().any(|&p| {
+                        reg.contains(p) != Inside::Out || reg.boundary_distance(p) <= reach
+                    })
+            })
+            .map(|(k, _)| k.0)
+    }
+
     /// The stock of a child Setup whose work frame is this one turned by
     /// `turn` degrees about X (D08 §7, CH-15): planar, and never smaller
     /// than this stock. Half turns are exact; other angles re-slice the

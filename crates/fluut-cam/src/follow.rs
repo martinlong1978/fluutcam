@@ -12,9 +12,11 @@ use crate::chain::chain_pieces;
 use crate::cutter::{BuildOptions, Cutter, QueryGeometry};
 use crate::drive::{curve_pieces, faces, nest};
 use crate::geometry::{BodyGeom, face_z_range};
+use crate::link::{StockFloor, stock_rapid_floor};
 use crate::moves::{Mv, Out};
 use crate::region::{Inside, Loop2, Region2, Seg2};
 use crate::scallop::{FaceCurvature, face_curvature, is_mesh, scallop_stepover};
+use crate::stock::StockFrame;
 use crate::surface::{FaceSets, Hit, SurfaceQuery};
 use crate::toolpath::{CamError, StrategyInput, prepare, tag};
 use fluut_geom::{Point2, Point3, UnitVec3, Vec2, Vec3};
@@ -638,10 +640,15 @@ pub struct Linker<'a> {
     /// second point, at the first point's Z, stays clear of the material
     /// at that level. `None`: level runs never stay down.
     pub level_clear: Option<&'a dyn Fn(Point3, Point3) -> bool>,
-    /// The top of the material: the stock top, or `top` if higher. A
-    /// finishing toolpath cannot see what earlier toolpaths left, so rapids
-    /// stay `safety` above it (D08 §8.2, the rapid floor of `link`).
+    /// The top of the material: the stock top, or `top` if higher. Without
+    /// the in-process stock a finishing toolpath cannot see what earlier
+    /// toolpaths left, so rapids stay `safety` above it (D08 §8.2, the
+    /// rapid floor of `link`).
     pub material_top: f64,
+    /// The in-process stock, when the toolpath has it: lifts and descents
+    /// then stay `safety` above the highest material within the tool's
+    /// reach instead, never above what `material_top` gives.
+    pub floor: Option<StockFloor<'a>>,
 }
 
 impl std::fmt::Debug for Linker<'_> {
@@ -697,7 +704,13 @@ impl Linker<'_> {
                     }
                     let z_now = out.cur().map_or(entry.z(), |c| c.z());
                     // Rapid down to the rapid floor, then plunge.
-                    let floor = self.h.feed.max(self.material_top + self.safety);
+                    let floor = stock_rapid_floor(
+                        self.floor,
+                        Point2::new(entry.x(), entry.y()),
+                        self.h.feed,
+                        self.safety,
+                        self.h.feed.max(self.material_top + self.safety),
+                    );
                     let rapid_to = (entry.z() + self.safety).max(z_now.min(floor));
                     if rapid_to < z_now {
                         out.line(Point3::new(entry.x(), entry.y(), rapid_to), Mv::Rapid);
@@ -780,8 +793,8 @@ impl Linker<'_> {
     }
 
     /// Link height from `a` to `b` (D08 §8.2): `safety_distance` above the
-    /// highest geometry the tool can meet and above the material top,
-    /// capped at `retract` for `minimum` and `stay_down`; `retract` for
+    /// highest geometry the tool can meet and above the material top (the
+    /// in-process material within reach, when known), capped at `retract` for `minimum` and `stay_down`; `retract` for
     /// `full`. Never below the geometry bound or either end.
     fn link_height(&self, a: Point3, b: Point3) -> f64 {
         let bound = self
@@ -794,10 +807,24 @@ impl Linker<'_> {
         let hgt = match self.retract {
             RetractPolicy::Full => self.h.retract,
             RetractPolicy::Minimum | RetractPolicy::StayDown => need
-                .max(self.material_top + self.safety)
+                .max(self.material_over(a, b) + self.safety)
                 .min(self.h.retract),
         };
         if hgt < bound { need } else { hgt }
+    }
+
+    /// The highest material the tool meets on a link from `a` to `b`, lift
+    /// and descent included: the in-process material within the tool's
+    /// reach of the segment when known (and lower than `material_top`),
+    /// else `material_top`. Negative infinity where it meets none.
+    fn material_over(&self, a: Point3, b: Point3) -> f64 {
+        let Some(f) = self.floor.filter(|f| f.stock.frame == StockFrame::Planar) else {
+            return self.material_top;
+        };
+        let (pa, pb) = (Point2::new(a.x(), a.y()), Point2::new(b.x(), b.y()));
+        f.stock
+            .top_along(pa, pb, f.radius)
+            .map_or(f64::NEG_INFINITY, |t| t.min(self.material_top))
     }
 
     /// The lead into (`into`) or out of a run, in the vertical plane of the

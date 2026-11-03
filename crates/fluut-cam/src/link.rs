@@ -224,17 +224,31 @@ pub fn rapid_floor(cx: &LinkCx) -> f64 {
 /// within the tool radius of `p` (the feed height when there is none).
 /// Never higher than [`rapid_floor`].
 pub fn rapid_floor_at(cx: &LinkCx, floor: Option<StockFloor>, p: Point2) -> f64 {
-    let plain = rapid_floor(cx);
+    stock_rapid_floor(
+        floor,
+        p,
+        cx.heights.feed,
+        cx.linking.safety_distance,
+        rapid_floor(cx),
+    )
+}
+
+/// The rapid floor at `p` over the in-process stock `floor`, for a linker
+/// with the given `feed` height and `safety` distance whose floor without
+/// the stock is `plain` (shared by the 2-D and the 3-D finishing linkers).
+pub fn stock_rapid_floor(
+    floor: Option<StockFloor>,
+    p: Point2,
+    feed: f64,
+    safety: f64,
+    plain: f64,
+) -> f64 {
     let Some(f) = floor.filter(|f| f.stock.frame == StockFrame::Planar) else {
         return plain;
     };
     match f.stock.top_near(p, f.radius) {
-        Some(top) => cx
-            .heights
-            .feed
-            .max(top + cx.linking.safety_distance)
-            .min(plain),
-        None => cx.heights.feed.min(plain),
+        Some(top) => feed.max(top + safety).min(plain),
+        None => feed.min(plain),
     }
 }
 

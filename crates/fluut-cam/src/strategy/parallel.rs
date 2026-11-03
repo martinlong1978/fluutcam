@@ -12,6 +12,7 @@
 
 use crate::follow::{LineDrive, Linker, Run, Sampler, setup};
 use crate::layout::{layout_even, layout_fixed};
+use crate::link::StockFloor;
 use crate::moves::finish;
 use crate::region::Region2;
 use crate::toolpath::{CamError, Generated, Role, StrategyInput, ToolpathType, tag};
@@ -103,6 +104,7 @@ impl ToolpathType for Parallel {
             lead_out: p.linking.lead_out,
             level_clear: None,
             material_top: input.env.stock_top.max(h.top),
+            floor: StockFloor::of(input),
         };
         let (passes, dropped) = lk.link(&runs);
         if dropped {

@@ -418,8 +418,8 @@ fn rest_toolpaths_depend_on_earlier_stock_updates() {
             .deps
             .contains(&NodeId::Result("t1".into()))
     );
-    // An R edit of t1 (which updates stock) reaches t3, not t2 (parallel
-    // does not read the stock).
+    // An R edit of t1 (which updates stock) reaches t3, and t2 too: the
+    // finishing `parallel` links over the in-process stock (D08 §8.2).
     s.project
         .toolpath_mut("t1")
         .unwrap()
@@ -433,7 +433,7 @@ fn rest_toolpaths_depend_on_earlier_stock_updates() {
         "{changed:?}"
     );
     assert!(
-        !changed.contains(&NodeId::Result("t2".into())),
+        changed.contains(&NodeId::Result("t2".into())),
         "{changed:?}"
     );
     // A P edit of t1 does not; disabling it does.
@@ -538,7 +538,7 @@ based_on = "s1"
 fn linking_toolpaths_depend_on_earlier_stock_updates() {
     // A 2-D toolpath's rapids stop above the in-process stock (D08 §8.2),
     // so its result follows the earlier stock-updating toolpaths, without
-    // `rest_from`. A 3-D finishing toolpath's does not.
+    // `rest_from`. So does a 3-D finishing toolpath's (since 2026-11-03).
     let (dir, id) = workspace("link-hash");
     let extra = format!(
         r#"
@@ -578,7 +578,7 @@ fn linking_toolpaths_depend_on_earlier_stock_updates() {
         "{changed:?}"
     );
     assert!(
-        !changed.contains(&NodeId::Result("t2".into())),
+        changed.contains(&NodeId::Result("t2".into())),
         "{changed:?}"
     );
     // Calculating t3 alone calculates t1 first.

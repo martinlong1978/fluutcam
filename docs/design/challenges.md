@@ -327,6 +327,10 @@ layers.
 (D08 §8.2) and is carried into child Setups. Finishing toolpaths still do not update it, so the
 floor after them is the roughed stock: higher, never lower, than the real material.
 
+**2026-11-03.** The 3-D finishing types now also link over the in-process stock (D08 §8.2): lifts
+and descents stop above the stock within the tool's reach of the link, so finishing after roughing
+no longer lifts to the original stock top. Finishing still does not update the stock.
+
 ### CH-15 Reframing layered stock between indexed Setups
 
 **Problem.** A child indexed Setup at a different angle needs the parent's remaining stock in its

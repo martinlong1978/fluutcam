@@ -268,23 +268,25 @@ impl ToolpathTypeId {
         )
     }
 
-    /// The type's rapids down to an entry stop above the in-process stock
-    /// left by the earlier toolpaths, not above the stock top (D08 §8.2).
+    /// The type's lifts and rapids down to an entry stop above the
+    /// in-process stock left by the earlier toolpaths, not above the stock
+    /// top (D08 §8.2). The 3-D finishing types do since 2026-11-03.
     pub fn links_over_stock(self) -> bool {
-        matches!(
-            self,
-            ToolpathTypeId::Contour2d
-                | ToolpathTypeId::Pocket2d
-                | ToolpathTypeId::Face
-                | ToolpathTypeId::Trace
-                | ToolpathTypeId::Chamfer2d
-                | ToolpathTypeId::Bore
-                | ToolpathTypeId::Drill
-                | ToolpathTypeId::OptimisedLoad2d
-                | ToolpathTypeId::Engrave
-                | ToolpathTypeId::OptimisedLoad3d
-                | ToolpathTypeId::Pocket3d
-        )
+        self.follows_surface()
+            || matches!(
+                self,
+                ToolpathTypeId::Contour2d
+                    | ToolpathTypeId::Pocket2d
+                    | ToolpathTypeId::Face
+                    | ToolpathTypeId::Trace
+                    | ToolpathTypeId::Chamfer2d
+                    | ToolpathTypeId::Bore
+                    | ToolpathTypeId::Drill
+                    | ToolpathTypeId::OptimisedLoad2d
+                    | ToolpathTypeId::Engrave
+                    | ToolpathTypeId::OptimisedLoad3d
+                    | ToolpathTypeId::Pocket3d
+            )
     }
 
     /// The type takes its swept material out of the in-process stock
