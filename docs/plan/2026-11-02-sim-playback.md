@@ -31,11 +31,11 @@ All earlier Global Constraints apply. In addition:
 
 **Files:** `crates/fluut-sim/src/{mesh.rs, mesh/tests.rs}`.
 
-- `MeshTiles::new(&TriDexel, &Paint)`: blocks of `BLOCK × BLOCK` lattice columns. A block owns the crossing edges whose lower lattice point is in it; it computes cell vertices (mass point of the crossings, as before) and area-weighted vertex normals from the edges within a margin of two lattice points.
+- `MeshTiles::new(&TriDexel, &Paint)`: blocks of `BLOCK × BLOCK` lattice columns (16). A block owns the crossing edges whose lower lattice point is in it; it computes cell vertices (mass point of the crossings, as before) and area-weighted vertex normals from the edges within a margin of two lattice points.
 - `MeshTiles::update(&TriDexel, &Paint) -> Vec<usize>`: the blocks a changed ray reaches, rebuilt in parallel.
 - `surface()` stays, as the blocks joined.
-- [ ] **Step 1:** Tests: the joined blocks are closed with the block's volume; the slot volume; incremental after random scrubs equals a new `MeshTiles` block by block; a cut marks only the blocks it reaches; the same blocks on 1 and 4 threads.
-- [ ] **Step 2:** Fail, implement, pass.
+- [x] **Step 1:** Tests: the joined blocks are closed with the block's volume; the slot volume; incremental after random scrubs equals a new `MeshTiles` block by block; a cut marks only the blocks it reaches; the same blocks on 1 and 4 threads.
+- [x] **Step 2:** Fail, implement, pass.
 
 ### Task 2: Player, step times and paint
 
@@ -45,8 +45,8 @@ All earlier Global Constraints apply. In addition:
 - `Player::seek(&Simulation, n)`: the stock after `n` chords, cut forward from the last frame within a checkpoint interval; the changed blocks.
 - Vertex tags: rest class (off the part, above tolerance, within, gouge) and the toolpath that last cut the Z rays around the vertex.
 - `Simulation::step(t, unit, forward)`: the next or previous end of a move, pass or toolpath.
-- [ ] **Step 1:** Tests: forward cutting equals `stock_after`; step times on a hand-made program; the classes of a stock above, on and below a flat part; tags by toolpath.
-- [ ] **Step 2:** Fail, implement, pass.
+- [x] **Step 1:** Tests: forward cutting equals `stock_after`; step times on a hand-made program; the classes of a stock above, on and below a flat part; tags by toolpath.
+- [x] **Step 2:** Fail, implement, pass.
 
 ### Task 3: App
 
@@ -55,11 +55,21 @@ All earlier Global Constraints apply. In addition:
 - The worker keeps a `Player` per Setup; a frame carries the block meshes.
 - The renderer keeps a vertex and index buffer per block and uploads the blocks whose `Arc` changed.
 - Simulation tab: step back and forward by move, pass or toolpath; colour by none, rest material or toolpath; a legend.
-- [ ] **Step 1:** Tests: `Playback` steps; a frame after a step changes few blocks; a headless render of rest colours; the legend through `egui_kittest`.
-- [ ] **Step 2:** Fail, implement, pass.
+- [x] **Step 1:** Tests: `Playback` steps; a frame after a step changes few blocks; a headless render of rest colours; the legend through `egui_kittest`.
+- [x] **Step 2:** Fail, implement, pass.
 
 ### Task 4: Measurements and documents
 
 **Files:** `crates/fluut-core/examples/m7.rs`; D11 §10, CH-22, the M7 plan, `docs/plan/README.md`, this plan.
 
-- [ ] **Step 1:** Measure full and incremental meshing on the relief and the reference projects; record; workspace checks; commit.
+- [x] **Step 1:** Measure full and incremental meshing on the relief and the reference projects; record; workspace checks; commit.
+
+**Done.** Notes and measurements are in [D11 §10](../design/D11-simulation.md#10-m7-implementation-2026-11-01) (playback); CH-22 updated. A step of 300 moves on the S5 relief at 0.2 mm re-meshes in 21–24 ms (28–32 ms with the re-cut); the whole mesh went from 3.2 s to 0.46 s. Deviations:
+- Tasks 1–3 were committed together; the measurements and documents separately.
+- Blocks are 16 lattice columns square, not 32: about 25 % faster updates on the relief, at more draw calls (2 961 blocks at 0.2 mm). A dense cell index instead of sorting the crossings was tried and was slower.
+- "Step one segment" is read as one pass (a `Pass` of the result); moves are the result's segments, and stepping by toolpath was added. Moves and passes end with their last chord, so moves that touch no stock are stepped over; toolpaths end at their clip's end.
+- Rest classes are by the vertical distance at the Z rays around a vertex, from the part heights the verification already queries, not by closest-point distance; walls take the class of the columns beside them.
+- The toolpath colour is the last toolpath that changed one of the four Z rays around a vertex; a wall cut only through X or Y rays takes the colour of the columns beside it.
+- Stepping back re-cuts from the checkpoint: 75–81 ms for 300 moves on the relief at 0.2 mm, 1.1 s on the rotary wrap. Not changed here.
+- The legend is in the Simulation tab, not over the viewport.
+- The render test is a headless `wgpu` render of `plate2d` read back and checked for the rest colours; `egui_kittest` (no GPU) checks the controls and the legend.
