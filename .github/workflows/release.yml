@@ -18,6 +18,11 @@
 # which secrets exist as outputs (`sign_*`), and the signing steps test those.
 # Each secret is given only to the step that uses it, never to a step that
 # builds code. The secrets and variables to set are listed in D14 §5.2.
+#
+# The Windows installer (MSI) is built from the SIGNED executables in its own
+# job, then submitted to SignPath a second time (its own artifact
+# configuration), so the executables inside it and the MSI itself are signed.
+# The Linux AppImage is built from the tarball with a pinned appimagetool.
 
 name: Release
 
@@ -41,6 +46,7 @@ jobs:
       epoch: ${{ steps.v.outputs.epoch }}
       prerelease: ${{ steps.v.outputs.prerelease }}
       sign_windows: ${{ steps.secrets.outputs.windows }}
+      sign_windows_msi: ${{ steps.secrets.outputs.windows_msi }}
       sign_minisign: ${{ steps.secrets.outputs.minisign }}
     steps:
       - uses: actions/checkout@v4
@@ -64,6 +70,7 @@ jobs:
           SIGNPATH_ORGANIZATION_ID: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
           SIGNPATH_PROJECT_SLUG: ${{ vars.SIGNPATH_PROJECT_SLUG }}
           SIGNPATH_SIGNING_POLICY_SLUG: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          SIGNPATH_MSI_ARTIFACT_CONFIGURATION_SLUG: ${{ vars.SIGNPATH_MSI_ARTIFACT_CONFIGURATION_SLUG }}
           MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
           MINISIGN_PUBLIC_KEY: ${{ secrets.MINISIGN_PUBLIC_KEY }}
         run: |
@@ -71,6 +78,7 @@ jobs:
           flag() { if all_set "${@:2}"; then echo "$1=true"; else echo "$1=false"; fi; }
           {
             flag windows SIGNPATH_API_TOKEN SIGNPATH_ORGANIZATION_ID SIGNPATH_PROJECT_SLUG SIGNPATH_SIGNING_POLICY_SLUG
+            flag windows_msi SIGNPATH_API_TOKEN SIGNPATH_ORGANIZATION_ID SIGNPATH_PROJECT_SLUG SIGNPATH_SIGNING_POLICY_SLUG SIGNPATH_MSI_ARTIFACT_CONFIGURATION_SLUG
             flag minisign MINISIGN_SECRET_KEY MINISIGN_PUBLIC_KEY
           } | tee -a "$GITHUB_OUTPUT"
 
@@ -245,8 +253,122 @@ jobs:
           path: dist/
           if-no-files-found: error
 
+  # The Windows installer. It holds the signed executables from the build job
+  # (bin-windows-x86_64), is signed itself through a second SignPath request,
+  # and the files inside are checked afterwards.
+  package-msi:
+    needs: [check, build]
+    runs-on: windows-latest
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show
+      - uses: actions/download-artifact@v4
+        with:
+          name: bin-windows-x86_64
+          path: in/bin
+      - run: cargo xtask icons icons
+      - name: Build the MSI (WiX)
+        shell: pwsh
+        run: >
+          ./packaging/wix/build-msi.ps1 -Version $env:VERSION -BinDir in/bin
+          -IconFile icons/windows/fluutcam.ico -Out dist
+      - name: Upload unsigned MSI
+        id: unsigned
+        if: ${{ needs.check.outputs.sign_windows_msi == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-msi
+          path: dist/*.msi
+          if-no-files-found: error
+      - name: Sign the MSI (SignPath)
+        if: ${{ needs.check.outputs.sign_windows_msi == 'true' }}
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          artifact-configuration-slug: ${{ vars.SIGNPATH_MSI_ARTIFACT_CONFIGURATION_SLUG }}
+          github-artifact-id: ${{ steps.unsigned.outputs.artifact-id }}
+          parameters: |
+            version: ${{ toJSON(needs.check.outputs.version) }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 7200
+          output-artifact-directory: signed-msi
+      - name: Use the signed MSI
+        if: ${{ needs.check.outputs.sign_windows_msi == 'true' }}
+        shell: pwsh
+        run: Copy-Item signed-msi/*.msi dist/ -Force
+      - name: Verify signatures (the MSI and the files inside it)
+        if: ${{ needs.check.outputs.sign_windows == 'true' || needs.check.outputs.sign_windows_msi == 'true' }}
+        shell: pwsh
+        env:
+          SIGN_MSI: ${{ needs.check.outputs.sign_windows_msi }}
+          SIGN_EXE: ${{ needs.check.outputs.sign_windows }}
+        run: |
+          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" |
+            Sort-Object FullName | Select-Object -Last 1
+          $msi = (Get-ChildItem dist\*.msi).FullName
+          if ($env:SIGN_MSI -eq "true") {
+            & $signtool.FullName verify /pa /v $msi
+            if ($LASTEXITCODE -ne 0) { throw "signature check failed for the MSI" }
+          }
+          if ($env:SIGN_EXE -eq "true") {
+            # An administrative install unpacks the files without installing.
+            $target = Join-Path $env:RUNNER_TEMP "msi-files"
+            $p = Start-Process msiexec -Wait -PassThru -NoNewWindow -ArgumentList "/a `"$msi`" /qn TARGETDIR=`"$target`""
+            if ($p.ExitCode -ne 0) { throw "administrative install failed: $($p.ExitCode)" }
+            $exes = @(Get-ChildItem $target -Recurse -Filter *.exe)
+            if ($exes.Count -ne 2) { throw "expected 2 executables in the MSI, found $($exes.Count)" }
+            foreach ($exe in $exes) {
+              & $signtool.FullName verify /pa /v $exe.FullName
+              if ($LASTEXITCODE -ne 0) { throw "signature check failed for $($exe.Name) inside the MSI" }
+            }
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-msi
+          path: dist/
+          if-no-files-found: error
+
+  # The AppImage is made from the Linux tarball, on the runner of the build
+  # (Ubuntu 22.04, glibc 2.35), with appimagetool and its runtime pinned by
+  # version and SHA-256 (packaging/appimage/fetch-tools.sh).
+  package-appimage:
+    needs: [check, package-portable]
+    runs-on: ubuntu-22.04
+    env:
+      SOURCE_DATE_EPOCH: ${{ needs.check.outputs.epoch }}
+      VERSION: ${{ needs.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-portable
+          path: in
+      - name: Fetch appimagetool (pinned, checksum-verified)
+        run: packaging/appimage/fetch-tools.sh "$RUNNER_TEMP/tools"
+      - name: Build the AppImage
+        run: |
+          APPIMAGETOOL="$RUNNER_TEMP/tools/appimagetool" RUNTIME="$RUNNER_TEMP/tools/runtime-x86_64" \
+            packaging/appimage/build-appimage.sh "in/fluutcam-$VERSION-linux-x86_64.tar.gz" "$VERSION" work
+          mkdir dist
+          mv "work/fluutcam-$VERSION-linux-x86_64.AppImage" dist/
+      - name: Smoke test
+        run: |
+          cd "$RUNNER_TEMP"
+          "$GITHUB_WORKSPACE/dist/fluutcam-$VERSION-linux-x86_64.AppImage" --appimage-extract >/dev/null
+          squashfs-root/usr/bin/fluut --version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-appimage
+          path: dist/
+          if-no-files-found: error
+
   release:
-    needs: [check, package-portable, package-macos]
+    needs: [check, package-portable, package-macos, package-msi, package-appimage]
     runs-on: ubuntu-22.04
     permissions:
       contents: write

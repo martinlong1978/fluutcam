@@ -11,10 +11,11 @@ you can check a download.
 | File | Signature |
 |---|---|
 | `fluutcam.exe`, `fluut.exe` (Windows) | Authenticode, through SignPath. The publisher shown by Windows is SignPath Foundation |
+| `fluutcam-<version>-windows-x86_64.msi` | Authenticode, through SignPath, in a second request after it was built from the signed executables |
 | Every release file | GitHub build provenance attestation (Sigstore), made by the release workflow |
 | `releases.json`, `SHA256SUMS` | minisign (Ed25519); the app checks `releases.json` before it offers an update |
 | macOS app and disk image | Ad hoc only; see [macOS](#macos) |
-| Linux tarball | No platform signature; use the attestation or the checksums |
+| Linux tarball and AppImage | No platform signature; use the attestation or the checksums |
 
 Only files built by the release workflow ([`.github/workflows/release.yml`](../.github/workflows/release.yml))
 from a tagged commit of this repository, on GitHub-hosted runners, are signed. FluutCAM has no
@@ -38,7 +39,7 @@ scripts and workflows are source code: changes to them are reviewed like any oth
 1. A release is a tag `vX.Y.Z` on `main`. The tag must equal the workspace version.
 2. The release workflow builds the executables and checks their version resource (product
    name `FluutCAM`, product version equal to the tag).
-3. It sends the Windows executables to SignPath. An approver checks the request and approves
+3. It sends the Windows executables to SignPath (the installer, built from them, goes in a second request). An approver checks the request and approves
    it; SignPath signs them with the SignPath Foundation certificate.
 4. The workflow verifies the signatures, packages every platform, writes checksums, the SBOM
    and the update manifest, signs the manifest and checksums with minisign, and attests every
