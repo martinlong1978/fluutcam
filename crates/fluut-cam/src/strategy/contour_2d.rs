@@ -9,7 +9,7 @@ use crate::layout::levels;
 use crate::link::{Cut, LinkCx, StockFloor, Turn, link_over};
 use crate::moves::finish;
 use crate::path2::Path2;
-use crate::region::{Region2, Seg2};
+use crate::region::{Region2, RegionOp, Seg2, guard};
 use crate::toolpath::{CamError, Generated, Role, StrategyInput, ToolpathType, prepare, tag};
 use cavalier_contours::polyline::{PlineCreation, PlineSource, PlineSourceMut, Polyline};
 use fluut_geom::Point2;
@@ -348,7 +348,8 @@ pub(crate) fn offset_open(p: &Path2, d: f64) -> Vec<Path2> {
         pl.add(s.a.x(), s.a.y(), s.bulge);
     }
     pl.add(p.end().x(), p.end().y(), 0.0);
-    pl.parallel_offset(d)
+    guard(RegionOp::Offset, || pl.parallel_offset(d))
+        .unwrap_or_else(|e| e.raise())
         .iter()
         .map(|o| {
             let v: Vec<_> = o.iter_vertexes().collect();

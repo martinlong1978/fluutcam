@@ -1,6 +1,6 @@
 [package]
 name = "fluut-fuzz"
-description = "cargo-fuzz targets for the STEP, DXF, SVG and STL readers and scripts (design D04 §10, D05, D12 §6); not a workspace member"
+description = "cargo-fuzz targets for the STEP, DXF, SVG and STL readers, scripts and 2-D regions (design D04 §10, D05, D12 §6, spec 06 §6.3); not a workspace member"
 version = "0.0.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
@@ -14,6 +14,7 @@ libfuzzer-sys = "0.4"
 fluut-io-step = { path = "../crates/fluut-io-step" }
 fluut-io-2d = { path = "../crates/fluut-io-2d" }
 fluut-io-mesh = { path = "../crates/fluut-io-mesh" }
+fluut-cam = { path = "../crates/fluut-cam" }
 fluut-core = { path = "../crates/fluut-core" }
 fluut-model = { path = "../crates/fluut-model" }
 fluut-script = { path = "../crates/fluut-script" }
@@ -74,6 +75,13 @@ bench = false
 [[bin]]
 name = "script"
 path = "fuzz_targets/script.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "region"
+path = "fuzz_targets/region.rs"
 test = false
 doc = false
 bench = false

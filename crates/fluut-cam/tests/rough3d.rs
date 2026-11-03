@@ -216,3 +216,18 @@ fn rest_after_roughing_cuts_little() {
     assert!(near(Point2::new(40.0, 17.5)) < 3.0);
     assert!(near(Point2::new(20.0, 30.0)) > 4.0);
 }
+
+#[test]
+fn optimised_load_3d_on_the_dome() {
+    // Once panicked in `cavalier_contours` (an offset slice ending on a
+    // vertex; docs/plan/2026-11-03-cavalier-panic.md).
+    let g = load(&step::dome([0.0; 3]));
+    let t = tp(
+        "optimised_load_3d",
+        "f6",
+        "[passes]\nstep_down = 4\nstock_to_leave = 0.5\n",
+    );
+    let r = run(&g, &t, Stock::new([-5.0, -5.0, 0.0], [85.0, 65.0, 29.0]));
+    assert!(!cuts(&r).is_empty());
+    assert_clear_of_part(&g, &r, 3.5);
+}

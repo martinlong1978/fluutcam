@@ -185,7 +185,9 @@ where
 
     // neither segment is a point, check if they overlap
     let w2 = v2 - u1;
-    let (mut seg2_t0, mut seg2_t1) = if u.x.fuzzy_eq_zero_eps(eps) {
+    // FluutCAM patch: divide by the larger component of `u`. Testing `u.x` against `eps` divided
+    // by a small but non-zero `u.x` for steep lines, which gave a false overlap far along `u`.
+    let (mut seg2_t0, mut seg2_t1) = if u.x.abs() < u.y.abs() {
         (w.y / u.y, w2.y / u.y)
     } else {
         (w.x / u.x, w2.x / u.x)

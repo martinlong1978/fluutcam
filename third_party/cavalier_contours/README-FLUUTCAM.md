@@ -17,8 +17,33 @@ differ in the last bit between platforms. See the S3 report, `docs/plan/spikes/s
 
 ## What changed
 
-The trigonometric calls, and one fix for collapsed offset slices. Everything else is as
+The trigonometric calls, and four fixes for nearly degenerate offsets. Everything else is as
 published.
+
+- `src/core/math/line_line_intersect.rs`, `line_line_intr`: for collinear segments, the
+  overlap is measured along the larger component of the second segment. The original tested
+  whether its X component was within `eps` of zero and otherwise divided by it. A steep
+  segment with an X extent just over `eps` (3e-5 for 0.75 mm of Y) then gave parameters
+  scaled by the tiny X differences: two segments that only share an end were reported to
+  overlap 0.11 mm along the second. The offset built a slice starting at that point, off its
+  segment, which failed `validate_for_source` (a debug assertion in `PlineViewData::create`).
+  It happened when growing a sliver triangle from a section of the dome
+  (`offset_of_a_sliver_triangle` and `steep_lines_meeting_end_to_end_do_not_overlap` in
+  `crates/fluut-cam/src/region/tests.rs`). Upstream (`master`, November 2026) has the same
+  code.
+- `src/shape_algorithms/mod.rs`, `IndexedPolyline::parallel_offset_for_shape`: an offset that
+  comes back open is closed. Where offset slices meet almost tangentially (a micrometre bump
+  left by a boolean of a circle and an edge it nearly touches), the stitching can leave the
+  offset of a closed loop open. The shape offset takes every offset as a closed loop, and an
+  open one failed a debug assertion in `PlineViewData::from_slice_points`. Release builds
+  wrapped the indexes anyway and gave the same results as with the loop closed (within 1e-8
+  mm²). Found by the `region` fuzz target (`offsets_at_near_tangent_contacts` in
+  `crates/fluut-cam/src/region/tests.rs`). The stitching itself is not changed.
+- `src/shape_algorithms/mod.rs`, `Shape::stitch_slices_together`: when a loop is closed,
+  every last vertex on top of the first is removed, not only one. A last slice that ends with
+  a collapsed segment left a second one, so the closed loop had a zero-length segment, and a
+  later boolean failed a debug assertion in `seg_arc_radius_and_center`. Found by the
+  `region` fuzz target (`offset_of_loops_touching_at_a_vertex`).
 
 - `src/polyline/pline_view.rs`, `PlineViewData::create_on_single_segment`: returns `None`
   when the end point lies within `VALIDATION_EPS` of the segment's start vertex. Such a slice

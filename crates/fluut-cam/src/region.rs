@@ -17,6 +17,94 @@ use std::f64::consts::{PI, TAU};
 /// vertices closer than this are merged.
 pub const EPS: f64 = 1e-9;
 
+/// The `cavalier_contours` operation that failed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RegionOp {
+    Offset,
+    Boolean,
+}
+
+/// A `cavalier_contours` call that panicked, and still did after the
+/// retries of [`Region2::try_offset`] and the booleans. The infallible
+/// methods raise it as a panic payload, and `toolpath::calculate` turns it
+/// into an error on the toolpath, so a calculation fails instead of the
+/// application (spec 06 §6.3).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RegionFailure {
+    pub op: RegionOp,
+    /// The panic message.
+    pub message: String,
+}
+
+impl RegionFailure {
+    /// The diagnostic code.
+    pub fn code(&self) -> &'static str {
+        match self.op {
+            RegionOp::Offset => "cam.region.offset_failed",
+            RegionOp::Boolean => "cam.region.boolean_failed",
+        }
+    }
+
+    /// Raises the failure as a panic payload. `resume_unwind` does not call
+    /// the panic hook, so no crash report is written for it.
+    pub fn raise(self) -> ! {
+        std::panic::resume_unwind(Box::new(self))
+    }
+}
+
+impl std::fmt::Display for RegionFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let op = match self.op {
+            RegionOp::Offset => "offset",
+            RegionOp::Boolean => "boolean operation",
+        };
+        write!(f, "a 2-D region {op} failed ({})", self.message)
+    }
+}
+
+impl std::error::Error for RegionFailure {}
+
+/// Runs `f`, a call into `cavalier_contours`, catching its panic.
+pub(crate) fn guard<R>(op: RegionOp, f: impl FnOnce() -> R) -> Result<R, RegionFailure> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        #[cfg(test)]
+        fault::check();
+        f()
+    }))
+    .map_err(|e| {
+        let message = if let Some(s) = e.downcast_ref::<&str>() {
+            (*s).to_owned()
+        } else if let Some(s) = e.downcast_ref::<String>() {
+            s.clone()
+        } else if let Some(r) = e.downcast_ref::<RegionFailure>() {
+            r.message.clone()
+        } else {
+            "unknown panic".to_owned()
+        };
+        RegionFailure { op, message }
+    })
+}
+
+/// A forced failure of every [`guard`]ed call on this thread, for tests.
+#[cfg(test)]
+pub(crate) mod fault {
+    use std::cell::Cell;
+
+    thread_local! {
+        static FAIL: Cell<bool> = const { Cell::new(false) };
+    }
+
+    pub(crate) fn set(on: bool) {
+        FAIL.with(|f| f.set(on));
+    }
+
+    pub(super) fn check() {
+        if FAIL.with(Cell::get) {
+            panic!("forced region failure");
+        }
+    }
+}
+
 /// One vertex of a loop and the bulge of the segment that starts there.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Vertex {
@@ -312,29 +400,32 @@ impl Region2 {
     /// The region grown by `d` (shrunk when `d` is negative). Corners that
     /// grow become arcs of radius `d`; loops that shrink to nothing vanish,
     /// and loops that meet are joined.
+    ///
+    /// A failure of `cavalier_contours` is raised as a [`RegionFailure`]
+    /// panic payload, which `toolpath::calculate` reports on the toolpath.
     pub fn offset(&self, d: f64) -> Region2 {
+        self.try_offset(d).unwrap_or_else(|e| e.raise())
+    }
+
+    /// As [`Region2::offset`], returning a failure of `cavalier_contours`.
+    pub fn try_offset(&self, d: f64) -> Result<Region2, RegionFailure> {
         if self.is_empty() {
-            return Region2::empty();
+            return Ok(Region2::empty());
         }
         if d == 0.0 {
-            return self.clone();
+            return Ok(self.clone());
         }
         // `cavalier_contours` can fail an internal assertion on degenerate
         // input (a collapsed slice). The offset is then retried a hair
-        // deeper or shallower; a shrink that still fails gives nothing
-        // (less room for the tool), a growth re-raises the failure.
-        let mut last = None;
-        for k in [0.0, 1e-7, -1e-7, 1e-6] {
-            let dk = d + k * d.signum();
-            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.offset_raw(dk))) {
-                Ok(r) => return r,
-                Err(e) => last = Some(e),
+        // deeper or shallower.
+        let mut r = guard(RegionOp::Offset, || self.offset_raw(d));
+        for k in [1e-7, -1e-7, 1e-6] {
+            if r.is_ok() {
+                break;
             }
+            r = guard(RegionOp::Offset, || self.offset_raw(d + k * d.signum()));
         }
-        match last {
-            Some(e) if d > 0.0 => std::panic::resume_unwind(e),
-            _ => Region2::empty(),
-        }
+        r
     }
 
     fn offset_raw(&self, d: f64) -> Region2 {
@@ -353,15 +444,30 @@ impl Region2 {
     }
 
     pub fn union(&self, o: &Region2) -> Region2 {
-        self.guarded(o, boolean::Op::Union)
+        self.try_union(o).unwrap_or_else(|e| e.raise())
     }
 
     pub fn intersect(&self, o: &Region2) -> Region2 {
-        self.guarded(o, boolean::Op::Intersect)
+        self.try_intersect(o).unwrap_or_else(|e| e.raise())
     }
 
     /// This region minus `o`.
     pub fn subtract(&self, o: &Region2) -> Region2 {
+        self.try_subtract(o).unwrap_or_else(|e| e.raise())
+    }
+
+    /// As [`Region2::union`], returning a failure of `cavalier_contours`.
+    pub fn try_union(&self, o: &Region2) -> Result<Region2, RegionFailure> {
+        self.guarded(o, boolean::Op::Union)
+    }
+
+    /// As [`Region2::intersect`], returning a failure of `cavalier_contours`.
+    pub fn try_intersect(&self, o: &Region2) -> Result<Region2, RegionFailure> {
+        self.guarded(o, boolean::Op::Intersect)
+    }
+
+    /// As [`Region2::subtract`], returning a failure of `cavalier_contours`.
+    pub fn try_subtract(&self, o: &Region2) -> Result<Region2, RegionFailure> {
         self.guarded(o, boolean::Op::Subtract)
     }
 
@@ -369,37 +475,39 @@ impl Region2 {
     /// degenerate input (collinear segments within rounding): it is
     /// retried with `o` moved by a nanometre, which is far below any
     /// tolerance.
-    fn guarded(&self, o: &Region2, op: boolean::Op) -> Region2 {
-        let run = |o: &Region2| {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                boolean::boolean(self, o, op)
-            }))
-        };
-        let mut last = match run(o) {
-            Ok(r) => return r,
+    fn guarded(&self, o: &Region2, op: boolean::Op) -> Result<Region2, RegionFailure> {
+        let run =
+            |a: &Region2, b: &Region2| guard(RegionOp::Boolean, || boolean::boolean(a, b, op));
+        let mut last = match run(self, o) {
+            Ok(r) => return Ok(r),
             Err(e) => e,
         };
         for (dx, dy) in [(1e-9, 0.7e-9), (-0.7e-9, 1e-9), (0.3e-9, -1e-9)] {
-            match run(&o.translated(Vec2::new(dx, dy))) {
-                Ok(r) => return r,
+            match run(self, &o.translated(Vec2::new(dx, dy))) {
+                Ok(r) => return Ok(r),
                 Err(e) => last = e,
             }
         }
         // Then with almost-collinear vertices removed from both.
         let (a, b) = (self.cleaned(), o.cleaned());
         for (dx, dy) in [(0.0, 0.0), (1e-9, 0.7e-9)] {
-            let b = b.translated(Vec2::new(dx, dy));
-            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                boolean::boolean(&a, &b, op)
-            })) {
-                Ok(r) => return r,
+            match run(&a, &b.translated(Vec2::new(dx, dy))) {
+                Ok(r) => return Ok(r),
                 Err(e) => last = e,
             }
         }
         if let Ok(path) = std::env::var("FLUUT_DUMP") {
-            let _ = std::fs::write(path, format!("{:?}\n{:?}\n", self, o));
+            let _ = std::fs::write(
+                path,
+                format!(
+                    "{:?}
+{:?}
+",
+                    self, o
+                ),
+            );
         }
-        std::panic::resume_unwind(last)
+        Err(last)
     }
 
     /// The region with arcs flatter than 1e-7 mm turned into lines and
