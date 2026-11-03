@@ -527,3 +527,40 @@ fn offset_of_a_sliver_triangle() {
         );
     }
 }
+
+#[test]
+fn forced_failures_are_typed() {
+    let square = Region2::rect(0.0, 0.0, 10.0, 10.0);
+    fault::set(true);
+    let offset = square.try_offset(1.0);
+    let boolean = square.try_union(&Region2::rect(5.0, 5.0, 15.0, 15.0));
+    let raised = std::panic::catch_unwind(|| square.offset(-1.0));
+    let open = std::panic::catch_unwind(|| {
+        let line = crate::path2::Path2::open(vec![Seg2 {
+            a: Point2::new(0.0, 0.0),
+            b: Point2::new(5.0, 0.0),
+            bulge: 0.0,
+        }]);
+        crate::strategy::contour_2d::offset_open(&line, 1.0)
+    });
+    fault::set(false);
+    let forced = |op| RegionFailure {
+        op,
+        message: "forced region failure".to_owned(),
+    };
+    assert_eq!(offset, Err(forced(RegionOp::Offset)));
+    assert_eq!(boolean, Err(forced(RegionOp::Boolean)));
+    for r in [raised.map(|_| ()), open.map(|_| ())] {
+        let e = r.unwrap_err();
+        assert_eq!(
+            e.downcast_ref::<RegionFailure>(),
+            Some(&forced(RegionOp::Offset))
+        );
+    }
+    // Off again.
+    assert!(close(
+        square.try_offset(1.0).unwrap().area(),
+        140.0 + PI,
+        1e-9
+    ));
+}
