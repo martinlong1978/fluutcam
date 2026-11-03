@@ -249,7 +249,7 @@ impl Levels {
             if !is_horizontal_plane(s) {
                 continue;
             }
-            let z = crate::geometry::face_z_range(b, *f, 1e-3).hi + st.params.passes.stock_to_leave;
+            let z = crate::geometry::flat_z(b, *f, 1e-3) + st.params.passes.stock_to_leave;
             if z > h.bottom + 1e-9 && z <= h.top + 1e-9 {
                 flats.push(z.min(h.top));
             }

@@ -200,3 +200,22 @@ fn rejects_a_cutter_shrunk_past_its_corner() {
     let g = cube();
     assert!(SurfaceQuery::new(&g, &all(), Cutter::new(6.0, 1.0).unwrap(), -1.5).is_none());
 }
+
+#[test]
+fn an_overhanging_wall_is_vertical_for_the_slope_limits() {
+    // nist_ctc_02 at Z −142.592 (2 mm): at a cliff the slope comes from
+    // the wall at the level. A wall leaning out by 1° gave 90.1°, past
+    // the default 0–90° limits, and its contour points were linked over.
+    let a = 1f64.to_radians();
+    let (s, c) = libm::sincos(a);
+    let p = Surface::plane(frame([0.0; 3], [-c, 0.0, -s], [0.0, 1.0, 0.0]));
+    let g = single(p, UvBox::new(iv(-20.0, 20.0), iv(-10.0, 10.0)));
+    let q = SurfaceQuery::new(&g, &all(), Cutter::new(6.0, 3.0).unwrap(), 0.0).unwrap();
+    // The side of the ball at its centre height (Z −2) touches the wall.
+    let x = 2.0 * libm::tan(a) - 3.0;
+    let (slope, drive) = q
+        .wall_at(Point2::new(x, 0.0), Vec2::new(1.0, 0.0), -5.0, 1e-3)
+        .unwrap();
+    assert!(drive);
+    assert_eq!(slope, FRAC_PI_2);
+}

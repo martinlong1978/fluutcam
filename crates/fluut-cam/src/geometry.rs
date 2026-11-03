@@ -249,6 +249,36 @@ pub fn face_z_range(b: &BrepBody, f: u32, chord: f64) -> Interval {
     }
 }
 
+/// Z of a horizontal planar face: its plane's height over the face's
+/// boundary, exact for a plane normal to Z. Not the top of its edges:
+/// they may stand up to the model tolerance off the plane (a model gap),
+/// and a waterline level there lies inside the gap (CH-03). Other
+/// surfaces: the top of [`face_z_range`].
+pub fn flat_z(b: &BrepBody, f: u32, chord: f64) -> f64 {
+    let face = &b.faces[f as usize];
+    let Surface::Plane { frame } = &b.surfaces[face.surface as usize] else {
+        return face_z_range(b, f, chord).hi;
+    };
+    let (o, n) = (frame.origin, frame.z.get());
+    if n.x() == 0.0 && n.y() == 0.0 {
+        return o.z();
+    }
+    let mut hi = f64::NEG_INFINITY;
+    for &l in &face.loops {
+        for &c in &b.loops[l as usize].coedges {
+            for p in b.edge_points(b.coedges[c as usize].edge, chord) {
+                let z = o.z() - (n.x() * (p.x() - o.x()) + n.y() * (p.y() - o.y())) / n.z();
+                hi = hi.max(z);
+            }
+        }
+    }
+    if hi.is_finite() {
+        hi
+    } else {
+        face_z_range(b, f, chord).hi
+    }
+}
+
 /// Every point of an edge or wire curve, `chord` apart.
 pub fn edge_points(e: EdgeRef<'_>, chord: f64) -> Vec<Point3> {
     match e {

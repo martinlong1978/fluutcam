@@ -208,6 +208,14 @@ the waterline turned those misses into stray loops. For the waterline at a cliff
 the nearest face point to the side, at the top of the corner. Its trim test uses
 parameters in the face's base period, as the drop solvers do.
 
+**Patch solve cost (2026-11-02,** [plan](../plan/2026-11-02-waterline-flat-levels.md)**).** Most of a
+B-spline patch solve is surface evaluation: the vertical projections of the seed targets
+(about 70 evaluations) and Newton's line search (about 37 contact-map evaluations, three
+quarters of them rejected trial points). `BSplineSurface::eval` and `derivs1` evaluate only
+the orders needed, with the same bits as `derivs`; projections use first derivatives, and a
+trial point computes `G` alone, the Jacobian only once accepted. Every drop is bit-identical;
+a patch solve takes about 40 µs instead of 54 µs (NIST body, B-spline areas, Ø6 ball).
+
 **Trim classification without p-curves (S2, 2026-11-01).** The corpus has none (S1), so each face's loops are
 projected into (u,v) once: closest point for the first edge point, then Gauss–Newton along the
 loop, unwrapped across seams, filled in at poles and apexes (free parameter taken from the
@@ -305,6 +313,10 @@ contact). The waterline tracer in D09 uses predictor–corrector on `level_resid
 - bull-nose on a dense synthetic B-spline model: 321 µs.
 
 The targets are 2.3× and 16× away. The cost model is about 2 primitive solves per drop on analytic parts and about 8 on dense free-form geometry, with 40 µs per B-spline patch solve. The speed work and the decision to keep "no grids" are in the [S2 report](../plan/spikes/s2-cutter-queries.md) §5. Mesh and holder targets are not measured yet.
+
+**2026-11-02:** drops near B-spline faces of the largest NIST body (Ø6 ball, 20 000 drops
+on short lines, 0.48 patch solves per drop): 54 µs per drop before the patch-solve change,
+46 µs after; a patch solve 51–57 µs before, 40 µs after.
 
 ## 9. Tests
 
