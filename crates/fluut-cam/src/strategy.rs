@@ -8,7 +8,7 @@ mod bore;
 pub(crate) mod boundary;
 mod chamfer_2d;
 mod contour;
-mod contour_2d;
+pub(crate) mod contour_2d;
 mod drill;
 mod engrave;
 mod face;

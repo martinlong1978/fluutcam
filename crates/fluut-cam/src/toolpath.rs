@@ -3,6 +3,7 @@
 //! The strategy interface and registry (D08 §1, D09 §1).
 
 use crate::geometry::SetupGeometry;
+use crate::region::RegionFailure;
 use crate::stock::LayeredStock;
 use crate::strategy::{
     Bore, Chamfer2d, Contour, Contour2d, Drill, Engrave, Face, Horizontal, ManualNc,
@@ -222,7 +223,31 @@ pub fn find(id: ToolpathTypeId) -> &'static dyn ToolpathType {
 
 /// Calculates one toolpath with its type.
 pub fn calculate(input: &StrategyInput) -> Result<Generated, CamError> {
-    find(input.toolpath.kind()).generate(input)
+    guarded(input.toolpath, || {
+        find(input.toolpath.kind()).generate(input)
+    })
+}
+
+/// Runs `f`, turning a [`RegionFailure`] raised in it (also on a `rayon`
+/// thread, which passes the payload on) into an error on toolpath `tp`.
+/// Other panics are bugs and are not caught.
+fn guarded(
+    tp: &Toolpath,
+    f: impl FnOnce() -> Result<Generated, CamError>,
+) -> Result<Generated, CamError> {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
+        Ok(r) => r,
+        Err(e) => match e.downcast::<RegionFailure>() {
+            Ok(fail) => Err(CamError::Invalid(vec![
+                Diagnostic::error(
+                    fail.code(),
+                    format!("toolpath \"{}\" could not be calculated: {fail}", tp.name),
+                )
+                .on(&tp.id),
+            ])),
+            Err(e) => std::panic::resume_unwind(e),
+        },
+    }
 }
 
 /// Resolved parameters and heights after validation, and the warnings.
@@ -279,4 +304,85 @@ pub fn tag(diags: Vec<Diagnostic>, tp: &Toolpath) -> Vec<Diagnostic> {
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::region::{Region2, fault};
+    use rayon::prelude::*;
+
+    /// Forces region failures on this thread until dropped.
+    struct Forced;
+
+    impl Forced {
+        fn on() -> Forced {
+            fault::set(true);
+            Forced
+        }
+    }
+
+    impl Drop for Forced {
+        fn drop(&mut self) {
+            fault::set(false);
+        }
+    }
+
+    fn toolpath() -> Toolpath {
+        Toolpath::new("t7", "Roughing", ToolpathTypeId::Pocket2d, "lib#f6")
+    }
+
+    fn codes(r: Result<Generated, CamError>) -> Vec<(String, Option<String>)> {
+        match r {
+            Ok(_) => panic!("expected an error"),
+            Err(e) => e
+                .diagnostics()
+                .into_iter()
+                .map(|d| (d.code, d.toolpath))
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn a_region_failure_is_an_error_on_the_toolpath() {
+        let square = Region2::rect(0.0, 0.0, 10.0, 10.0);
+        let t = toolpath();
+        let on_t7 = |code: &str| vec![(code.to_owned(), Some("t7".to_owned()))];
+        let r = guarded(&t, || {
+            let _f = Forced::on();
+            square.offset(-1.0);
+            unreachable!()
+        });
+        assert_eq!(codes(r), on_t7("cam.region.offset_failed"));
+        let r = guarded(&t, || {
+            let _f = Forced::on();
+            square.subtract(&Region2::rect(2.0, 2.0, 4.0, 4.0));
+            unreachable!()
+        });
+        assert_eq!(codes(r), on_t7("cam.region.boolean_failed"));
+        // From a `rayon` worker too.
+        let r = guarded(&t, || {
+            let areas: Vec<f64> = (0..4)
+                .into_par_iter()
+                .map(|i| {
+                    let _f = (i == 3).then(Forced::on);
+                    square.offset(-f64::from(i)).area()
+                })
+                .collect();
+            unreachable!("{areas:?}")
+        });
+        assert_eq!(codes(r), on_t7("cam.region.offset_failed"));
+        // Without the failure, nothing changes.
+        let r = guarded(&t, || {
+            square.offset(-1.0);
+            Err(CamError::Unavailable("x".into()))
+        });
+        assert_eq!(codes(r), vec![("cam.type.unavailable".to_owned(), None)]);
+    }
+
+    #[test]
+    fn other_panics_are_not_caught() {
+        let e = std::panic::catch_unwind(|| guarded(&toolpath(), || panic!("a bug"))).unwrap_err();
+        assert_eq!(e.downcast_ref::<&str>(), Some(&"a bug"));
+    }
 }

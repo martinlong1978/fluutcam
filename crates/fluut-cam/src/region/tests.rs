@@ -476,3 +476,140 @@ fn clip_line_tangent_and_edge() {
     let iv = r.clip_line(Point2::new(0.0, 0.0), Vec2::new(1.0, 1.0));
     assert_eq!(iv, vec![(0.0, 6.0)]);
 }
+
+#[test]
+fn steep_lines_meeting_end_to_end_do_not_overlap() {
+    // Two almost collinear, almost vertical segments that only share an
+    // end. `line_line_intr` divided by the 3e-5 X extent of the second one
+    // (more than `eps`) and reported an overlap 0.11 mm along it.
+    use cavalier_contours::core::math::{LineLineIntr, Vector2, line_line_intr};
+    let a = Vector2::new(-5.25394371263927, 42.21079446367146);
+    let b = Vector2::new(-5.253939252133978, 42.10113256533973);
+    let c = Vector2::new(-5.253970535472758, 41.35137972498433);
+    match line_line_intr(a, b, b, c, 1e-5_f64) {
+        LineLineIntr::TrueIntersect { seg2_t, .. } => assert!(seg2_t.abs() < 1e-12, "{seg2_t}"),
+        r => panic!("{r:?}"),
+    }
+}
+
+#[test]
+fn offset_of_a_sliver_triangle() {
+    // A triangle 0.86 mm long and 3e-5 mm wide, from a section of the dome
+    // (`optimised_load_3d_on_the_dome` in `tests/rough3d.rs`). Its raw
+    // offset has the two segments of the test above, and the false overlap
+    // made an offset slice start off its segment, a debug assertion in
+    // `cavalier_contours`.
+    let hole = Loop2 {
+        verts: vec![
+            Vertex::new(-2.253944715120961, 42.21091648883799, 0.0),
+            Vertex::new(-2.2539402546156686, 42.10125459050626, 0.0),
+            Vertex::new(-2.2539715380825056, 41.35125459115869, 0.0),
+        ],
+    };
+    assert!(!hole.is_ccw());
+    let len = (hole.verts[0].p - hole.verts[2].p).length();
+    for d in [3.0, 2.999_999] {
+        // Clockwise, it is a hole that a growth fills.
+        let r = Region2 {
+            loops: vec![hole.clone()],
+        }
+        .offset_raw(d);
+        assert!(r.is_empty(), "{r:?}");
+        // Counter-clockwise, it grows to a stadium.
+        let r = Region2 {
+            loops: vec![hole.reversed()],
+        }
+        .offset_raw(d);
+        assert!(
+            close(r.area(), 2.0 * d * len + PI * d * d, 1e-3),
+            "{}",
+            r.area()
+        );
+    }
+}
+
+#[test]
+fn forced_failures_are_typed() {
+    let square = Region2::rect(0.0, 0.0, 10.0, 10.0);
+    fault::set(true);
+    let offset = square.try_offset(1.0);
+    let boolean = square.try_union(&Region2::rect(5.0, 5.0, 15.0, 15.0));
+    let raised = std::panic::catch_unwind(|| square.offset(-1.0));
+    let open = std::panic::catch_unwind(|| {
+        let line = crate::path2::Path2::open(vec![Seg2 {
+            a: Point2::new(0.0, 0.0),
+            b: Point2::new(5.0, 0.0),
+            bulge: 0.0,
+        }]);
+        crate::strategy::contour_2d::offset_open(&line, 1.0)
+    });
+    fault::set(false);
+    let forced = |op| RegionFailure {
+        op,
+        message: "forced region failure".to_owned(),
+    };
+    assert_eq!(offset, Err(forced(RegionOp::Offset)));
+    assert_eq!(boolean, Err(forced(RegionOp::Boolean)));
+    for r in [raised.map(|_| ()), open.map(|_| ())] {
+        let e = r.unwrap_err();
+        assert_eq!(
+            e.downcast_ref::<RegionFailure>(),
+            Some(&forced(RegionOp::Offset))
+        );
+    }
+    // Off again.
+    assert!(close(
+        square.try_offset(1.0).unwrap().area(),
+        140.0 + PI,
+        1e-9
+    ));
+}
+
+#[test]
+fn offsets_at_near_tangent_contacts() {
+    // Found by the `region` fuzz target. A circle 1.5 µm past the edge of
+    // a strip, and one 1 µm short of a rectangle's edge, leave micrometre
+    // bumps where the offset slices meet almost tangentially. The offset
+    // of the closed loop came back open, which the shape offset took as a
+    // loop (a debug assertion in `cavalier_contours`).
+    let a = Region2::rect(13.75, 13.75, 13.750001, 21.250002)
+        .union(&Region2::circle(15.75, 15.750003, 2.0000015));
+    let r = a.try_offset(-1.46875).unwrap();
+    assert!(
+        close(r.area(), PI * 0.5312515f64.powi(2), 1e-5),
+        "{}",
+        r.area()
+    );
+    let b = Region2::rect(10.500001, 4.0, 26.250004, 19.750003)
+        .subtract(&Region2::circle(15.75, 10.500003, 5.2500005))
+        .offset(3.1875);
+    // The same area as a release build without the fix.
+    let r = b.try_offset(-4.0).unwrap();
+    assert!(close(r.area(), 94.32710442594538, 1e-9), "{}", r.area());
+}
+
+#[test]
+fn offset_of_loops_touching_at_a_vertex() {
+    // Found by the `region` fuzz target. A triangle with a corner on a
+    // strip's corner, grown by 3.97: the shape offset closed its result
+    // with a second vertex on top of the first, and the zero-length arc
+    // made a later boolean fail a debug assertion in `cavalier_contours`.
+    let a = Region2::polygon(&[
+        (15.500002, 2.500001),
+        (15.750003, 15.750003),
+        (10.500001, 10.500001),
+    ])
+    .union(&Region2::rect(15.750003, 0.0, 16.250003, 15.750003));
+    assert_eq!(a.loops.len(), 2);
+    let g = a.try_offset(3.96875).unwrap();
+    for l in &g.loops {
+        let n = l.verts.len();
+        for i in 0..n {
+            let d = (l.verts[(i + 1) % n].p - l.verts[i].p).length();
+            assert!(d > 1e-6, "{l:?}");
+        }
+    }
+    let b = Region2::rect(0.0, 12.250003, 15.750003, 27.500003);
+    let u = g.try_union(&b).unwrap();
+    assert!(u.area() > g.area().max(b.area()), "{}", u.area());
+}
