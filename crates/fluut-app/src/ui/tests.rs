@@ -45,14 +45,23 @@ fn enabled(h: &Harness<'static, State>, label: &str) -> bool {
     !h.get_by_label(label).accesskit_node().is_disabled()
 }
 
+/// Clicks a stage tab, by its upper-case label.
+pub(crate) fn stage(h: &mut Harness<'static, State>, label: &str) {
+    h.get_by_label(label).click();
+    h.run_steps(2);
+}
+
 #[test]
 fn ribbon_without_a_project() {
     let mut h = harness();
     h.run_steps(2);
     assert!(enabled(&h, "Open"));
-    assert!(!enabled(&h, "Calculate all"));
-    assert!(!enabled(&h, "Post"));
     assert!(!enabled(&h, "Cancel"));
+    stage(&mut h, "TOOLPATHS");
+    assert!(!enabled(&h, "Calculate all"));
+    stage(&mut h, "POST");
+    assert!(!enabled(&h, "Post"));
+    stage(&mut h, "MODEL");
     h.get_by_label("Open a project to see its Setups and toolpaths.");
     h.get_by_label("Ready");
 }
@@ -65,6 +74,7 @@ fn open_select_and_edit_through_the_window() {
     h.get_by_label("Open").click();
     settle(&mut h);
     h.get_by_label("Opened block.fluut");
+    stage(&mut h, "TOOLPATHS");
     assert!(enabled(&h, "Calculate all"));
     // The browser lists the toolpaths with their status.
     h.get_by_label("Pocket floor raster").click();
@@ -162,6 +172,219 @@ fn simulation_tab_steps_and_shows_the_rest_legend() {
     h.run_steps(2);
     h.get_by_label("Not cut");
     assert!(h.query_by_label("Above tolerance").is_none());
+}
+
+// --- the ribbon ------------------------------------------------------------
+
+#[test]
+fn each_stage_renders_its_commands_in_both_themes() {
+    let cases: [(&str, &[&str]); 6] = [
+        (
+            "MODEL",
+            &[
+                "New project",
+                "Open",
+                "Save as",
+                "Import model",
+                "Re-import",
+            ],
+        ),
+        (
+            "SETUP",
+            &[
+                "New 3-axis Setup",
+                "New Rotary Setup",
+                "New Indexed Setup",
+                "New Setup based on selected",
+                "Stock",
+                "Work zero",
+            ],
+        ),
+        (
+            "TOOLPATHS",
+            &[
+                "2D optimised load",
+                "Drill",
+                "3D optimised load",
+                "Steep and shallow",
+                "Rotary spiral",
+                "Manual NC",
+                "Calculate selected",
+                "Calculate all",
+            ],
+        ),
+        (
+            "SIMULATE",
+            &["Simulate", "Play or pause", "Step back", "Step forward"],
+        ),
+        ("POST", &["Post"]),
+        ("LIBRARY", &["Tools", "Machines", "Posts"]),
+    ];
+    let mut h = harness();
+    h.step();
+    for dark in [true, false] {
+        app(&mut h).ui.dark = dark;
+        for (tab, labels) in cases {
+            stage(&mut h, tab);
+            for l in labels {
+                h.get_by_label(l);
+            }
+            h.get_by_label("Cancel");
+        }
+    }
+}
+
+#[test]
+fn switching_stage_leaves_the_viewport_alone() {
+    let mut h = harness();
+    h.step();
+    app(&mut h).ui.open_path = project("block").display().to_string();
+    h.get_by_label("Open").click();
+    settle(&mut h);
+    let a = app(&mut h);
+    a.view.camera.target = glam::Vec3::new(1.0, 2.0, 3.0);
+    let camera = format!("{:?}", a.view.camera);
+    let selection = a.ui.selection.clone();
+    for tab in ["SETUP", "TOOLPATHS", "SIMULATE", "POST", "LIBRARY", "MODEL"] {
+        stage(&mut h, tab);
+        assert_eq!(format!("{:?}", app(&mut h).view.camera), camera);
+        assert_eq!(app(&mut h).ui.selection, selection);
+    }
+}
+
+#[test]
+fn commands_to_come_are_disabled_and_their_keys_do_nothing() {
+    let mut h = harness();
+    h.run_steps(2);
+    for l in [
+        "New project",
+        "Save",
+        "Save as",
+        "Import model",
+        "Re-import",
+    ] {
+        assert!(!enabled(&h, l), "{l}");
+    }
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::S);
+    h.key_press_modifiers(
+        egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
+        egui::Key::S,
+    );
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::N);
+    h.run_steps(2);
+    assert!(app(&mut h).jobs.snapshot.is_none());
+}
+
+#[test]
+fn ctrl_o_opens_the_path() {
+    let mut h = harness();
+    h.step();
+    app(&mut h).ui.open_path = project("block").display().to_string();
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::O);
+    h.step();
+    settle(&mut h);
+    h.get_by_label("Opened block.fluut");
+}
+
+#[test]
+fn calculate_selected_calculates_the_selection() {
+    let mut h = harness();
+    h.step();
+    app(&mut h).ui.open_path = project("block").display().to_string();
+    h.get_by_label("Open").click();
+    settle(&mut h);
+    h.get_by_label("Pocket floor raster").click();
+    h.run_steps(2);
+    stage(&mut h, "TOOLPATHS");
+    h.get_by_label("Calculate selected").click();
+    h.run_steps(2);
+    settle(&mut h);
+    let snap = app(&mut h).jobs.snapshot.clone().unwrap();
+    // `t2` needs the stock `t1` leaves; `t3` comes after it.
+    assert!(snap.paths.contains_key("t2"));
+    assert!(!snap.paths.contains_key("t3"));
+}
+
+#[test]
+fn the_gallery_follows_the_setup_kind() {
+    let mut h = harness();
+    h.step();
+    stage(&mut h, "TOOLPATHS");
+    h.get_by_label("Rotary spiral");
+    h.get_by_label("Drill");
+    app(&mut h).ui.open_path = project("shaft").display().to_string();
+    stage(&mut h, "MODEL");
+    h.get_by_label("Open").click();
+    settle(&mut h);
+    stage(&mut h, "TOOLPATHS");
+    h.get_by_label("Rotary spiral");
+    assert!(h.query_by_label("Drill").is_none());
+}
+
+#[test]
+fn ribbon_playback_moves_the_playhead() {
+    let mut h = harness();
+    h.step();
+    app(&mut h).ui.open_path = project("block").display().to_string();
+    h.get_by_label("Open").click();
+    settle(&mut h);
+    app(&mut h).jobs.simulate("s1");
+    settle(&mut h);
+    stage(&mut h, "SIMULATE");
+    let end = app(&mut h).ui.playback.t;
+    assert!(end > 0.0);
+    h.get_by_label("Step back").click();
+    h.run_steps(2);
+    assert!(app(&mut h).ui.playback.t < end);
+    h.get_by_label("Play or pause").click();
+    h.run_steps(1);
+    assert!(app(&mut h).ui.playback.playing);
+}
+
+/// Writes a picture of each stage in both themes, to `FLUUT_SHOTS` or the
+/// system temporary folder. Needs a GPU adapter, so it is not in the normal
+/// run: `cargo test -p fluut-app ribbon_screenshots -- --ignored`.
+#[test]
+#[ignore = "needs a GPU adapter; writes PNG files"]
+fn ribbon_screenshots() {
+    let dir = std::env::var_os("FLUUT_SHOTS").map_or_else(std::env::temp_dir, PathBuf::from);
+    std::fs::create_dir_all(&dir).unwrap();
+    for scale in [1.0, 2.0] {
+        shots_at(&dir, scale);
+    }
+}
+
+fn shots_at(dir: &std::path::Path, scale: f32) {
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1440.0, 900.0))
+        .with_pixels_per_point(scale)
+        .wgpu()
+        .build_ui_state(
+            |ui, app: &mut State| {
+                app.get_or_insert_with(|| FluutApp::new(ui.ctx(), None, None, Instant::now()))
+                    .frame(ui);
+            },
+            None,
+        );
+    h.step();
+    app(&mut h).ui.open_path = project("block").display().to_string();
+    h.get_by_label("Open").click();
+    settle(&mut h);
+    for dark in [true, false] {
+        let a = app(&mut h);
+        a.ui.dark = dark;
+        let theme = if dark { "dark" } else { "light" };
+        h.run_steps(1);
+        brand::apply_theme(&h.ctx, dark);
+        for tab in ["MODEL", "SETUP", "TOOLPATHS", "SIMULATE", "POST", "LIBRARY"] {
+            stage(&mut h, tab);
+            let image = h.render().expect("render");
+            let (w, h) = (1440 * scale as u32, 260 * scale as u32);
+            let top = image::imageops::crop_imm(&image, 0, 0, w, h).to_image();
+            let name = format!("ribbon-{}-{theme}-{scale}x.png", tab.to_lowercase());
+            top.save(dir.join(name)).unwrap();
+        }
+    }
 }
 
 // --- the update check ------------------------------------------------------
