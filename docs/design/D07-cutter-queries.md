@@ -314,6 +314,8 @@ contact). The waterline tracer in D09 uses predictor–corrector on `level_resid
 
 The targets are 2.3× and 16× away. The cost model is about 2 primitive solves per drop on analytic parts and about 8 on dense free-form geometry, with 40 µs per B-spline patch solve. The speed work and the decision to keep "no grids" are in the [S2 report](../plan/spikes/s2-cutter-queries.md) §5. Mesh and holder targets are not measured yet.
 
+**2026-11-04:** B-spline patches and edges keep sub-boxes and are queued again under their bound (`drop_bench`, one thread, median / p99 us): rough synthetic 5 000 faces, ball 6, 170 / 467 to 57 / 160; smooth `sculpted` 4 900 faces of 3 mm, ball 6, 255 / 558 to 91 / 191, bull 6 r1 488 to 185; 12 mm faces, ball 6, 345 to 97. Patch solves per drop 5-16 to 1.3-3.6, about 20 us each. Warm starts from the previous drop were built and gave nothing (even an oracle floor): the contact's patch is always solved and the rest are bounded by the sub-boxes. The 20 us target is still 3-5 times away. Sub-boxes cost 1.3 kB per patch. [Plan](../plan/2026-11-04-drop-bspline-speed.md).
+
 **2026-11-02:** drops near B-spline faces of the largest NIST body (Ø6 ball, 20 000 drops
 on short lines, 0.48 patch solves per drop): 54 µs per drop before the patch-solve change,
 46 µs after; a patch solve 51–57 µs before, 40 µs after.
