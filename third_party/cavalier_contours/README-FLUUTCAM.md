@@ -17,7 +17,7 @@ differ in the last bit between platforms. See the S3 report, `docs/plan/spikes/s
 
 ## What changed
 
-The trigonometric calls, and four fixes for nearly degenerate offsets (one of them extended). Everything else is as
+The trigonometric calls, and five fixes for nearly degenerate offsets and intersections. Everything else is as
 published.
 
 - `src/core/math/line_line_intersect.rs`, `line_line_intr`: for collinear segments, the
@@ -54,6 +54,14 @@ published.
   later boolean failed a debug assertion in `seg_arc_radius_and_center`. Found by the
   `region` fuzz target (`offset_of_loops_touching_at_a_vertex`).
 
+- `src/core/math/line_circle_intersect.rs`, `line_circle_intr`: a line whose X extent is within
+  the default epsilon of zero but not zero is written as dy·x − dx·y + C = 0 instead of being
+  taken as vertical at its mean X. The vertical shortcut put intersection points far along a
+  short, nearly vertical line (2 700 line lengths for 6e-10 mm of X over 1.07e-3 mm of Y) off
+  it by more than the 1e-9 epsilon of the booleans, which failed the debug assertion in
+  `parametric_from_point`. Exactly vertical lines and all others are unchanged. Found by the
+  `region` fuzz target (`intersection_with_a_nearly_vertical_line`). Upstream (`master`,
+  November 2026) has the same code.
 - `src/polyline/pline_view.rs`, `PlineViewData::create_on_single_segment`: returns `None`
   when the end point lies within `VALIDATION_EPS` of the segment's start vertex. Such a slice
   is collapsed, but it was built anyway and failed `validate_for_source`, which panicked in

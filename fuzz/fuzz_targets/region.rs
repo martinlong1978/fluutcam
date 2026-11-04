@@ -135,11 +135,13 @@ fuzz_target!(
                     }
                 }
             };
-            // Repeated offsets can multiply micrometre loops (an open issue in
-            // `docs/plan/2026-11-03-cavalier-panic.md`); stop before that turns
-            // into timeouts.
-            if acc.loops.iter().map(|l| l.verts.len()).sum::<usize>() > 500 {
-                return;
+            // At most nine shapes of up to four vertices, each offset adding an
+            // arc per vertex: a few hundred vertices. Thousands are the loop
+            // blow-up of `docs/plan/2026-11-03-region-micro-loops.md`.
+            let verts = acc.loops.iter().map(|l| l.verts.len()).sum::<usize>();
+            if verts > 2000 {
+                save_input();
+                panic!("{verts} vertices in {} loops", acc.loops.len());
             }
         }
     }

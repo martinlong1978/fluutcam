@@ -719,3 +719,36 @@ fn tidied_removes_only_tiny_features() {
     assert_eq!(arc(5e-4, 5e-7).tidied().unwrap().verts[0].bulge, 0.0);
     assert_ne!(arc(1e-2, 5e-7).tidied().unwrap().verts[0].bulge, 0.0);
 }
+
+#[test]
+fn polygons_without_area_are_empty() {
+    // Found by the `region` fuzz target: a triangle 2e-6 mm across
+    // intersected with a "triangle" with two equal points failed a debug
+    // assertion in `parametric_from_point` (from `line_line_intr`, a
+    // zero-length edge) on every retry.
+    let a = Region2::polygon(&[(0.750002, 0.750002), (0.75, 0.750002), (0.750002, 0.75)]);
+    let b = Region2::polygon(&[(0.750002, 0.750002), (0.750002, 0.750002), (7.75, 3.75)]);
+    assert!(a.is_empty() && b.is_empty());
+    let c = Region2::rect(0.0, 0.0, 1.0, 1.0);
+    assert!(c.try_intersect(&b).unwrap().is_empty());
+    // Repeated points are left out of a polygon with area.
+    let d = Region2::polygon(&[(0.0, 0.0), (1.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 0.0)]);
+    assert_eq!(d.loops[0].verts.len(), 3);
+    assert!(close(d.area(), 0.5, 1e-12));
+}
+
+#[test]
+fn intersection_with_a_nearly_vertical_line() {
+    // Found by the `region` fuzz target. The shrunk union holds a line
+    // 1.07e-3 mm long with an X extent of 6e-10 mm. `line_circle_intr`
+    // took it as vertical, and the intersection points with the circle,
+    // 2 700 line lengths away, came out 1.6e-6 mm off it: a debug assertion
+    // in `parametric_from_point` on every retry.
+    let c = Region2::circle(4.000001, 5.750002, 2.875001);
+    let a = c
+        .union(&Region2::circle(5.750002, 5.750001, 4.625))
+        .offset(0.125)
+        .offset(-2.71875);
+    let r = a.try_intersect(&c).unwrap();
+    assert!(r.area() > 0.0 && r.area() < a.area(), "{}", r.area());
+}

@@ -59,8 +59,10 @@ The `region` target needs no seeds or dictionary. Any panic in
 caught; with `REGION_FUZZ_LENIENT` set, only a failure after the retries is
 (on Windows with ASan, unwinding through a caught panic crashes, so use the
 lenient mode without ASan or on Linux). The target saves each failing input to
-`artifacts/region/` itself. With `-a`, the debug assertions of
-`cavalier_contours` are findings too:
+`artifacts/region/` itself. A region of more than 2 000 vertices is a finding
+too: the inputs make a few hundred at most, and thousands mean offsets are
+multiplying loops again (`docs/plan/2026-11-03-region-micro-loops.md`). With
+`-a`, the debug assertions of `cavalier_contours` are findings as well:
 
 ```bash
 mkdir -p corpus/region

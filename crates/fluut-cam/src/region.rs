@@ -435,11 +435,25 @@ impl Region2 {
         Region2::polygon(&[(x0, y0), (x1, y0), (x1, y1), (x0, y1)])
     }
 
-    /// A polygon; the points may be in either order.
+    /// A polygon; the points may be in either order. Points within [`EPS`]
+    /// of the previous one are left out, and a polygon with no area (fewer
+    /// than three points left, or an area within `EPS`) is empty: zero-length
+    /// edges fail assertions in `cavalier_contours`.
     pub fn polygon(pts: &[(f64, f64)]) -> Self {
-        let l = Loop2 {
-            verts: pts.iter().map(|&(x, y)| Vertex::new(x, y, 0.0)).collect(),
-        };
+        let mut verts: Vec<Vertex> = Vec::with_capacity(pts.len());
+        for &(x, y) in pts {
+            let p = Point2::new(x, y);
+            if verts.last().is_none_or(|v| v.p.distance(p) > EPS) {
+                verts.push(Vertex::new(x, y, 0.0));
+            }
+        }
+        while verts.len() > 1 && verts[0].p.distance(verts[verts.len() - 1].p) <= EPS {
+            verts.pop();
+        }
+        let l = Loop2 { verts };
+        if l.verts.len() < 3 || l.area().abs() <= EPS {
+            return Region2::empty();
+        }
         Region2::from_outer(l)
     }
 

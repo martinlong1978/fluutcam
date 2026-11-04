@@ -66,9 +66,9 @@ All earlier Global Constraints apply. In addition:
 
 ### Task 5: Fuzz
 
-**Files:** `fuzz/{README.md, fuzz_targets/region.rs}`.
+**Files:** `fuzz/{README.md, fuzz_targets/region.rs}`, `crates/fluut-cam/src/{region.rs, region/tests.rs}`, `third_party/cavalier_contours/{src/core/math/line_circle_intersect.rs, README-FLUUTCAM.md}`.
 
-- [ ] **Step 1:** Raise or remove the 500-vertex stop; run with debug assertions and in release; record executions and findings below; fix what it finds the same way. Commit.
+- [x] **Step 1:** Raise or remove the 500-vertex stop; run with debug assertions and in release; record executions and findings below; fix what it finds the same way. Commit.
 
 ### Task 6: Finish
 
@@ -85,11 +85,26 @@ Each self-overlap made the next offset worse; at the fifth, a line–circle inte
 
 **Fix.** In the vendored crate (README entry): the closing patch removes a tail that repeats the start, and drops open pieces no wider than `pos_equal_eps` once closed. In `fluut-cam`: every offset loop is tidied (`Loop2::tidied`): vertices within `TIDY` (1e-5 mm) merged, spikes (a vertex where the loop turns back, within `TIDY` of its neighbours' line) removed, kinks within `TIDY` of a straight line removed where a segment is at most `TIDY_SHORT` (1e-3 mm) long, short arcs with a sagitta under `TIDY_FLAT` (1e-6 mm) turned into lines, and loops narrower than `TIDY` dropped. The length limit keeps every vertex on long straight edges: without it, collinear points vanished from the `rough3d` G-code, and flattening arcs up to 1e-5 mm sagitta changed one link in `plate2d` (both harmless, but not needed). The chain now stays at 5 to 12 vertices.
 
+**Fuzz findings, fixed the same way** (Task 5):
+
+- A triangle 2e-6 mm across intersected with a "triangle" with two equal points failed a debug assertion in `parametric_from_point` (from `line_line_intr`, a zero-length edge) on every retry. `Region2::polygon` now leaves out points within `EPS` of the previous one and makes a polygon without area empty (`polygons_without_area_are_empty`).
+- A shrunk union of two circles holds a line 1.07e-3 mm long with an X extent of 6e-10 mm. `line_circle_intr` took it as vertical at its mean X (X extent under the default epsilon), and the intersections with a circle, 2 700 line lengths along it, came out 1.6e-6 mm off the line, more than the booleans' 1e-9 epsilon: a debug assertion on every retry. Vendored fix: such a line, nearly but not exactly vertical, uses the general line form; exactly vertical lines and all others are unchanged (`intersection_with_a_nearly_vertical_line`, README entry).
+
 **Crash reports.** `region::guard` runs through `region::catch_quiet`, which marks the thread; the crash hook (`fluut-core`) skips a panic while the mark is set (no report, no message). The panic message still travels in the `RegionFailure` if every retry fails.
 
 ## Fuzz results
 
-(Task 5.)
+`fuzz/fuzz_targets/region.rs`, Windows, nightly, ASan, from an empty corpus. The 500-vertex stop is gone; more than 2 000 vertices is now a finding (none found).
+
+- **With debug assertions (`-a`), any caught panic a finding:** 35 113 executions to the zero-area polygon finding, then 34 648 to the nearly vertical line (both fixed, above), then 206 794 executions in 600 s with no finding.
+- **Release (no `-a`, what users run):** 210 386 executions in 900 s, no finding, no timeout (the cavalier panic plan had three timeouts in 289 949). Release on Windows needs ASan: `-s none` does not link (`__stop___sancov_pcs`).
+
+Class 3 (`chained_offsets_of_a_ring_with_a_sliver_bump`) and the loop blow-up (`vertex_counts_stay_bounded_under_chained_offsets`) are regression tests.
+
+## Open issues
+
+- **Empty growths near a collapsing arc.** `cavalier_contours` returns nothing for a growth when an arc's offset radius comes within about 1e-5 mm of zero: a 0.26 mm² loop with a concave arc of radius 3.000000 grown by 2.999999 (as `optimised_load::shrink` grows the holes of a cleared region by R − 1e-6) gives no loop, while 2.9999 and 3.0 give 36.9 mm². In `optimised_load_2d`'s tests alone this happens 267 times, so those holes vanish from the shrunk cleared region. A check that a growth holds its input (with a retry on a coarser tidy) catches it, but changes the `plate2d` and `rough3d` golden G-code through the chaotic clearing order, so it is left for its own task. Release builds have always given these results.
+- **Empty growth of short, nearly collinear lines.** Three lines 0.014 to 0.042 mm long, collinear within 4.3e-5 mm (above `TIDY`), next to a nearly tangent arc, grown by 3.5625: `cavalier_contours` drops the whole raw offset (its middle segment comes out reversed and the slice validation rejects everything) and fails the `parametric_from_point` assertion in `line_line_join` on the way. Reached by a longer chain of the class 3 ring before the clean-up tolerances were settled; the same growth check would catch it. The loop (x, y, bulge): (6.964288267857258, 7.479660399608717, −0.07626804134349185), (7.312397383992374, 5.2892095561762975, 0), (7.312455771167016, 5.267258283738914, 0), (7.312444408467266, 5.224778705253155, 0), (7.312397383992378, 5.2107924438222035, −0.07626804134344047), (6.964288267857265, 3.020341600391289, 0.23291380525219202), (8.062502000000002, 5.250001000000001, 0.23291380525219368); grown by 3.5625 it should be 76.735 mm². The collapsing-arc loop: (20.412821428802026, 19.30420795048225, −6.621615729048858e-6), (20.412899018905485, 19.30422508437571, 0), (20.46410677843245, 19.69318663440609, 0), (20.5415041911791, 20.38041847575817, 0), (19.991516959012024, 20.379028816162474, −0.09711078463494548), grown by 2.999999.
 
 ## Re-blessed golden files
 

@@ -102,7 +102,12 @@ where
     // note: using Real number's defined epsilon for this check since it's just avoiding division by
     // too small a number, using the epsilon passed into this function causes unneeded loss of
     // precision (this branch is not directly determining the intersect result case returned)
-    let (a, b, c) = if dx.fuzzy_eq_zero() {
+    let (a, b, c) = if dx.fuzzy_eq_zero() && dx != T::zero() {
+        // FluutCAM patch: a nearly vertical line in the form dy·x − dx·y + C = 0. Taking it as
+        // vertical (below) puts intersections far along the line off it by dx·t, more than a
+        // tight epsilon, which failed the debug assertion in `parametric_from_point`.
+        (dy, -dx, dx * p1_shifted.y - dy * p1_shifted.x)
+    } else if dx.fuzzy_eq_zero() {
         // vertical line, using average of point x values for fuzziness
         let x_pos = (p1_shifted.x + p0_shifted.x) / T::two();
         // x = x_pos
