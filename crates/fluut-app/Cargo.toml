@@ -36,7 +36,10 @@ resvg = { version = "0.49", default-features = false }
 winresource = "0.1"
 
 [dev-dependencies]
-egui_kittest = "0.36"
+# `wgpu`: the ignored test that renders the ribbon screenshots.
+egui_kittest = { version = "0.36", features = ["wgpu"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
+resvg = { version = "0.49", default-features = false }
 
 [lints]
 workspace = true

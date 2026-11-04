@@ -9,6 +9,7 @@
 
 mod about;
 mod browser;
+mod icons;
 mod inspector;
 mod menu;
 mod ribbon;
@@ -24,6 +25,7 @@ use crate::text::{diagnostic, tr};
 use crate::updates::Updates;
 use crate::vm::Selection;
 use crate::vm::playback::{Playback, StockColour};
+use crate::vm::ribbon::Stage;
 use crate::vm::status::StatusVm;
 use eframe::egui::{self, Color32, CornerRadius, Stroke};
 use eframe::egui_wgpu;
@@ -48,6 +50,8 @@ pub enum Tab {
 /// UI state that is not part of the document (D13 §2 `UiState`).
 #[derive(Debug)]
 pub struct UiState {
+    /// The ribbon tab. Changing it changes the ribbon, nothing else.
+    pub stage: Stage,
     pub selection: Selection,
     pub dark: bool,
     /// Text of the Open field.
@@ -83,6 +87,7 @@ pub struct UiState {
 impl Default for UiState {
     fn default() -> Self {
         UiState {
+            stage: Stage::default(),
             selection: Selection::None,
             dark: true,
             open_path: String::new(),
