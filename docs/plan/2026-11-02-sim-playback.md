@@ -70,6 +70,6 @@ All earlier Global Constraints apply. In addition:
 - "Step one segment" is read as one pass (a `Pass` of the result); moves are the result's segments, and stepping by toolpath was added. Moves and passes end with their last chord, so moves that touch no stock are stepped over; toolpaths end at their clip's end.
 - Rest classes are by the vertical distance at the Z rays around a vertex, from the part heights the verification already queries, not by closest-point distance; walls take the class of the columns beside them.
 - The toolpath colour is the last toolpath that changed one of the four Z rays around a vertex; a wall cut only through X or Y rays takes the colour of the columns beside it.
-- Stepping back re-cuts from the checkpoint: 75–81 ms for 300 moves on the relief at 0.2 mm, 1.1 s on the rotary wrap. Not changed here.
+- Stepping back re-cuts from the checkpoint: 75–81 ms for 300 moves on the relief at 0.2 mm, 1.1 s on the rotary wrap. Not changed here; done in [the step-back plan](2026-11-04-sim-step-back.md).
 - The legend is in the Simulation tab, not over the viewport.
 - The render test is a headless `wgpu` render of `plate2d` read back and checked for the rest colours; `egui_kittest` (no GPU) checks the controls and the legend.
