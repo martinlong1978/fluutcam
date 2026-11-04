@@ -239,7 +239,11 @@ the tool to the larger turn clearance of that Setup and the one before it (spec 
 zero lies on the axis, so Z alone is the height above it, and a tool pointing up from a tip at
 that height has all of its assembly outside the cylinder, wherever it is in X and Y. The
 retract is in the post, not in the results: the toolpaths and their cache keys do not depend on
-the next Setup. Above the machine's Z travel the post fails (`setup.clearance.index_travel`). In
+the next Setup. The machine's Z travel limits the spindle gauge line, not the tip (spec 02
+§2.3, 2026-11-03): when the turn height + the gauge length of the tool in the spindle
+(overall length + holder length) is above the travel the post fails
+(`setup.clearance.index_travel`). Fixtures that turn with A count in the turn radius through
+one hook, `frame::turning_fixture_radius`; no fixture model exists yet, so it adds nothing. In
 a rotary Setup A turns on rapids at the clearance cylinder, which the post cannot change, so a
 clearance cylinder not larger than the turn radius is refused (`setup.clearance.index_unsafe`).
 
