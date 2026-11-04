@@ -43,4 +43,4 @@ pub use stock::Stock;
 pub use sweep::Sweep;
 pub use time::{Feeds, Kinematics};
 pub use tool::{Pose, Tool};
-pub use verify::{Part, PartHeights, Rest, index_turn};
+pub use verify::{ClearCache, Clearance, Part, PartHeights, Rest, index_turn};

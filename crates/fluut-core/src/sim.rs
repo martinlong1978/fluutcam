@@ -9,7 +9,8 @@
 //!   wider than the cutter and the holder become the probes of D11 §5; the
 //!   holder starts at the tool's overall length.
 //! - **Part:** the exact top of the Setup's bodies by a drop query (D07) of
-//!   a 1 µm flat cutter.
+//!   a 1 µm flat cutter; the distance to the part, for the rest colours, by
+//!   a ball-nosed drop query of the tolerance as radius.
 //! - **Machine:** cutting and rapid feed limits; machine definitions have no
 //!   acceleration yet, so none is used.
 
@@ -20,8 +21,9 @@ use fluut_model::Diagnostic;
 use fluut_model::machine::Machine;
 use fluut_model::resolve::resolve;
 use fluut_model::tools::{Tool as ModelTool, ToolShape};
-use fluut_sim::{Assembly, Check, Feeds, Kinematics, Part, Simulation, Tool};
+use fluut_sim::{Assembly, Check, Clearance, Feeds, Kinematics, Part, Simulation, Tool};
 use std::f64::consts::FRAC_PI_2;
+use std::sync::Arc;
 
 /// How fine a simulation is.
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -126,20 +128,22 @@ pub fn kinematics(m: Option<&Machine>) -> Kinematics {
 
 /// The part's top by drop queries on its bodies.
 #[derive(Debug)]
-pub struct DropPart<'a> {
-    bodies: Vec<QueryGeometry<'a>>,
+pub struct DropPart {
+    bodies: Arc<[QueryGeometry<'static>]>,
     cutter: Cutter,
 }
 
-impl<'a> DropPart<'a> {
-    pub fn new(g: &'a SetupGeometry) -> DropPart<'a> {
+impl DropPart {
+    /// Keeps its own copy of the Setup's bodies, so that the simulation can
+    /// keep the part's distance query after the geometry is gone.
+    pub fn new(g: &SetupGeometry) -> DropPart {
         let opts = BuildOptions::default();
         DropPart {
             bodies: g
                 .bodies
                 .iter()
                 .filter_map(|b| match &b.geom {
-                    BodyGeom::Brep(body) => Some(QueryGeometry::new(body, &opts)),
+                    BodyGeom::Brep(body) => Some(QueryGeometry::new(body, &opts).into_owned()),
                     BodyGeom::Wire(_) => None,
                 })
                 .collect(),
@@ -148,13 +152,44 @@ impl<'a> DropPart<'a> {
     }
 }
 
-impl Part for DropPart<'_> {
+impl Part for DropPart {
     fn top(&self, x: f64, y: f64) -> Option<f64> {
         let mut st = SolveStats::default();
         self.bodies
             .iter()
             .filter_map(|q| drop(q, &self.cutter, x, y, &DropOptions::default(), &mut st))
             .map(|c| c.tau)
+            .reduce(f64::max)
+    }
+
+    fn clearance(&self) -> Option<Arc<dyn Clearance>> {
+        (!self.bodies.is_empty()).then(|| {
+            Arc::new(BallClearance {
+                bodies: self.bodies.clone(),
+            }) as _
+        })
+    }
+}
+
+/// The part's distance to a point by a ball-nosed drop query on its exact
+/// faces (D07): a ball of radius `r` rests on the part at the highest
+/// position its centre can have over `(x, y)`, and a point is at least `r`
+/// from the part exactly when it is at or above that centre. For a part a
+/// three-axis tool reaches that is the closest-point distance; stock under
+/// an overhang reads as near the part.
+#[derive(Debug)]
+struct BallClearance {
+    bodies: Arc<[QueryGeometry<'static>]>,
+}
+
+impl Clearance for BallClearance {
+    fn clear_height(&self, x: f64, y: f64, r: f64) -> Option<f64> {
+        let ball = Cutter::ball(2.0 * r)?;
+        let mut st = SolveStats::default();
+        self.bodies
+            .iter()
+            .filter_map(|q| drop(q, &ball, x, y, &DropOptions::default(), &mut st))
+            .map(|c| c.tau + r)
             .reduce(f64::max)
     }
 }

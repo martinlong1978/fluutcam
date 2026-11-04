@@ -409,7 +409,7 @@ impl<'a> SurfaceQuery<'a> {
     pub fn drive_box(&self) -> Option<(Point2, Point2)> {
         let mut bb = Aabb3::empty();
         for b in &self.bodies {
-            let body = b.q.body;
+            let body = &*b.q.body;
             for (fi, f) in body.faces.iter().enumerate() {
                 if !b.drive_face[fi] || b.q.faces[fi].is_none() {
                     continue;

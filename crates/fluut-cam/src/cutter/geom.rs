@@ -6,6 +6,7 @@
 use super::trim::{Trim, TrimError};
 use fluut_geom::{Aabb3, Curve3, Interval, Point3, Surface, UvBox, Vec3};
 use fluut_topo::{BrepBody, Bvh};
+use std::borrow::Cow;
 
 /// A leaf primitive of the query BVH.
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -91,7 +92,7 @@ impl Default for BuildOptions {
 
 #[derive(Debug)]
 pub struct QueryGeometry<'a> {
-    pub body: &'a BrepBody,
+    pub body: Cow<'a, BrepBody>,
     /// Per face; `None` when its trim could not be built (see `issues`).
     pub faces: Vec<Option<QueryFace>>,
     pub prims: Vec<Prim>,
@@ -349,12 +350,25 @@ impl<'a> QueryGeometry<'a> {
             boxes.push(Aabb3::from_points(&[v.p]));
         }
         QueryGeometry {
-            body,
+            body: Cow::Borrowed(body),
             faces,
             bvh: Bvh::new(&boxes),
             trim_chord: opts.trim_chord,
             prims,
             issues,
+        }
+    }
+
+    /// The same geometry with its own copy of the body, for a query that
+    /// outlives the body it was built from.
+    pub fn into_owned(self) -> QueryGeometry<'static> {
+        QueryGeometry {
+            body: Cow::Owned(self.body.into_owned()),
+            faces: self.faces,
+            prims: self.prims,
+            bvh: self.bvh,
+            trim_chord: self.trim_chord,
+            issues: self.issues,
         }
     }
 

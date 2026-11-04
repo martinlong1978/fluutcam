@@ -95,6 +95,13 @@ pub struct Column {
 /// block whose rays did not change keeps its paint.
 pub trait Paint: Sync {
     fn column(&self, i: usize, j: usize) -> Column;
+
+    /// The class of the vertex at `p` (stock frame) whose columns gave
+    /// `class`. May depend only on `p` and `class`, so that a block whose
+    /// rays did not change keeps its paint.
+    fn vertex(&self, _p: DVec3, class: u8) -> u8 {
+        class
+    }
 }
 
 /// Plain stock.
@@ -551,7 +558,7 @@ fn build(d: &TriDexel, paint: &dyn Paint, bx: usize, by: usize) -> StockMesh {
                     col(cx, cy + 1),
                     col(cx + 1, cy + 1),
                 ]);
-                m.tags.push(tag(class, tp));
+                m.tags.push(tag(paint.vertex(verts[v], class), tp));
             }
         }
         let q = q.map(|v| local[v]);

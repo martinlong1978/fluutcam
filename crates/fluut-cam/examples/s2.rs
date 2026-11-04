@@ -48,7 +48,7 @@ struct Run {
 }
 
 fn raster(g: &QueryGeometry, c: &Cutter, o: &DropOptions, cols: usize, rows: usize) -> Run {
-    let b = body_box(g.body).expand(c.radius());
+    let b = body_box(&g.body).expand(c.radius());
     let mut run = Run {
         times_us: Vec::with_capacity(cols * rows),
         stats: SolveStats::default(),
@@ -101,7 +101,7 @@ struct Misses {
 }
 
 fn misses(g: &QueryGeometry, c: &Cutter, seeding: Seeding, n: usize, seed: u64) -> Misses {
-    let b = body_box(g.body).expand(0.5 * c.radius());
+    let b = body_box(&g.body).expand(0.5 * c.radius());
     let mut rng = Lcg(seed);
     let o = DropOptions {
         seeding,
@@ -127,7 +127,7 @@ fn misses(g: &QueryGeometry, c: &Cutter, seeding: Seeding, n: usize, seed: u64) 
                 m.worst = m.worst.max(w - tau);
                 let f = fine.get_or_insert_with(|| {
                     QueryGeometry::new(
-                        g.body,
+                        &g.body,
                         &BuildOptions {
                             trim_chord: 1e-6,
                             ..Default::default()
