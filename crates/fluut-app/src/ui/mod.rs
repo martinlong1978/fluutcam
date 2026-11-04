@@ -271,6 +271,12 @@ impl FluutApp {
         egui::Panel::top("title")
             .frame(egui::Frame::new().fill(c(p.base)).inner_margin(6.0))
             .show(ui, |ui| self.title_bar(ui, &p));
+        // TEMPORARY: the ribbon takes the File menu over (ui/menu.rs).
+        egui::Panel::top("menu")
+            .frame(egui::Frame::new().fill(c(p.base)).inner_margin(2.0))
+            .show(ui, |ui| {
+                menu::bar(ui, &mut self.jobs, &mut self.ui, &mut self.dialogs);
+            });
         egui::Panel::top("ribbon")
             .frame(egui::Frame::new().fill(c(p.raised)).inner_margin(6.0))
             .show(ui, |ui| ribbon::show(ui, &mut self.jobs, &mut self.ui));
@@ -330,8 +336,6 @@ impl FluutApp {
             ui.painter()
                 .circle_filled(r.center(), 6.0, c(brand::CUTTER_ORANGE));
             ui.label(egui::RichText::new(tr("app-title")).strong());
-            // TEMPORARY: the ribbon takes the File menu over (ui/menu.rs).
-            menu::bar(ui, &mut self.jobs, &mut self.ui, &mut self.dialogs);
             let name = self.jobs.snapshot.as_ref().map_or_else(
                 || tr("app-untitled"),
                 |s| {
