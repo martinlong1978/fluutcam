@@ -27,12 +27,32 @@ use crate::run::{Assembly, Check, Finding, Simulation};
 use crate::sim::ray_range;
 use glam::DVec3;
 use rayon::prelude::*;
+use std::collections::HashMap;
+use std::sync::Arc;
 
 /// The part to verify against, in the stock frame.
 pub trait Part: Sync {
     /// The top of the part on the vertical line through `(x, y)`, or `None`
     /// where the line misses it.
     fn top(&self, x: f64, y: f64) -> Option<f64>;
+
+    /// An owned distance query on the part's exact surface, kept to colour
+    /// the stock by its true distance to the part (D11 §5, §10). `None`
+    /// colours by the vertical distance at the Z rays.
+    fn clearance(&self) -> Option<Arc<dyn Clearance>> {
+        None
+    }
+}
+
+/// How near the part is to a point.
+pub trait Clearance: Send + Sync + std::fmt::Debug {
+    /// The lowest height `z` such that a ball of radius `r` centred at
+    /// `(x, y, z)` touches nothing of the part, nor lies inside it: the
+    /// part's surface offset by `r`, seen from above. A point `(x, y, z)` is
+    /// at least `r` from the part (outside it) when `z` is at or above this.
+    /// `None` where the part is not under the ball at all. Must depend on
+    /// its arguments only.
+    fn clear_height(&self, x: f64, y: f64, r: f64) -> Option<f64>;
 }
 
 /// Material left against the part.
@@ -50,13 +70,72 @@ pub struct Rest {
 
 /// The part's top at every Z ray of the stock, kept from the verification
 /// to paint the stock (D11 §5).
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct PartHeights {
     /// Gouge tolerance, mm.
     pub tol: f64,
     /// By Z ray, row by row; NaN where the ray misses the part or the
     /// stock.
     pub top: Vec<f32>,
+    /// The part's distance query, when it has one.
+    pub clearance: Option<Arc<dyn Clearance>>,
+    /// Answers of `clearance` by position, kept from one mesh update to the
+    /// next. Never changes a result.
+    pub cache: Arc<ClearCache>,
+}
+
+const SHARDS: usize = 64;
+/// Answers kept per shard before it is emptied.
+const SHARD_LIMIT: usize = 1 << 15;
+
+/// Remembers `Clearance::clear_height` answers by position (the bits of the
+/// two `f32` coordinates), at the tolerance of its `PartHeights`. The answer
+/// is a function of the position alone, so the cache only saves time: what
+/// it holds, and when a shard is emptied, never reaches a result. The
+/// vertices up a vertical wall share one answer.
+pub struct ClearCache {
+    shards: Vec<std::sync::Mutex<HashMap<[u32; 2], Option<f64>>>>,
+}
+
+impl std::fmt::Debug for ClearCache {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ClearCache")
+    }
+}
+
+impl Default for ClearCache {
+    fn default() -> ClearCache {
+        ClearCache::new()
+    }
+}
+
+impl ClearCache {
+    pub fn new() -> ClearCache {
+        ClearCache {
+            shards: (0..SHARDS).map(|_| Default::default()).collect(),
+        }
+    }
+
+    /// The remembered answer at `key`, else `answer()`.
+    pub fn get_or(&self, key: [u32; 2], answer: impl FnOnce() -> Option<f64>) -> Option<f64> {
+        let mix = key.iter().fold(0u32, |h, &k| {
+            (h ^ k).wrapping_mul(0x9E37_79B1).rotate_left(13)
+        });
+        let Some(shard) = self.shards.get(mix as usize % SHARDS) else {
+            return answer();
+        };
+        if let Some(a) = shard.lock().ok().and_then(|m| m.get(&key).copied()) {
+            return a;
+        }
+        let a = answer();
+        if let Ok(mut m) = shard.lock() {
+            if m.len() >= SHARD_LIMIT {
+                m.clear();
+            }
+            m.insert(key, a);
+        }
+        a
+    }
 }
 
 impl PartHeights {
@@ -192,6 +271,8 @@ pub(crate) fn gouges_and_rest(
             .flatten()
             .map(|s| s.part.map_or(f32::NAN, |p| p as f32))
             .collect(),
+        clearance: part.clearance(),
+        cache: Arc::new(ClearCache::new()),
     };
     Some((attribute(sim, &gouges, limit), rest, heights))
 }

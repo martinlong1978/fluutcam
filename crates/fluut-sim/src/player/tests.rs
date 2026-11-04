@@ -3,10 +3,11 @@
 use super::*;
 use crate::mesh::{GOUGE, REST, WITHIN, tag_class, tag_toolpath};
 use crate::run::tests::{block, feed, path, program, settings, xyz};
-use crate::run::{Quiet, Simulation, Step};
+use crate::run::{Quiet, Settings, Simulation, Step};
 use crate::tool::Tool;
 use crate::verify::Part;
 use fluut_path::{Pass, PassKind, ToolpathResult};
+use glam::DVec3;
 
 /// A zigzag raster of `rows` rows along X at height `z`, one pass per row:
 /// a step in Y onto the row, then the row in two moves.
@@ -338,4 +339,207 @@ fn snapshots_share_tiles_and_are_bounded() {
     }
     assert!(q.snapshot_bytes() <= all / 4);
     assert!(q.snapshot_bytes() > 0);
+}
+
+// ---- Rest classes by the true distance to the part (D11 §10 "Paint") ----
+
+/// A part with a wall: solid where `x ≤ 10` and `z ≤ 8`, and below `z = 3`.
+/// With `exact`, it answers distance queries.
+#[derive(Debug)]
+struct Wall {
+    exact: bool,
+}
+
+impl Part for Wall {
+    fn top(&self, x: f64, _: f64) -> Option<f64> {
+        Some(if x <= 10.0 { 8.0 } else { 3.0 })
+    }
+
+    fn clearance(&self) -> Option<std::sync::Arc<dyn crate::verify::Clearance>> {
+        self.exact
+            .then(|| std::sync::Arc::new(Wall { exact: true }) as _)
+    }
+}
+
+impl crate::verify::Clearance for Wall {
+    fn clear_height(&self, x: f64, _: f64, r: f64) -> Option<f64> {
+        let beside = x - 10.0;
+        Some(if beside <= 0.0 {
+            8.0 + r
+        } else if beside < r {
+            // The ball rests on the wall's top edge.
+            8.0 + (r * r - beside * beside).sqrt()
+        } else {
+            3.0 + r
+        })
+    }
+}
+
+/// A block cut down to the wall's floor (z = 3) beyond a skin of stock
+/// `skin` thick against the wall, tolerance 0.2 mm.
+fn walled(skin: f64, part: &Wall) -> Simulation {
+    let r = path(&[xyz(15.0 + skin, -6.0, 3.0), xyz(15.0 + skin, 16.0, 3.0)]);
+    Simulation::run(
+        block(20.0, 10.0, 8.0),
+        &[program("t1", &r, Tool::flat(5.0))],
+        &Settings {
+            tol: 0.2,
+            ..settings(0.25)
+        },
+        Some(part),
+        &Quiet,
+    )
+    .unwrap()
+}
+
+/// The classes of the vertices on the outer face of the skin, away from its
+/// ends.
+fn skin_classes(s: &Simulation, skin: f64) -> Vec<u8> {
+    let m = Player::new(s, s.chords.len()).mesh().joined();
+    m.positions
+        .iter()
+        .zip(&m.tags)
+        .filter(|(p, _)| {
+            (f64::from(p[0]) - 10.0 - skin).abs() < 1e-3
+                && (3.3..7.7).contains(&p[2])
+                && (2.0..8.0).contains(&p[1])
+        })
+        .map(|(_, &t)| tag_class(t))
+        .collect()
+}
+
+#[test]
+fn a_thin_skin_against_a_wall_is_within() {
+    // 0.14 mm of stock covers the Z ray beside the wall, which the vertical
+    // distance reads as 5 mm of rest; by distance it is under the 0.2 mm
+    // tolerance.
+    let by_distance = skin_classes(&walled(0.14, &Wall { exact: true }), 0.14);
+    assert!(by_distance.len() > 20);
+    assert!(by_distance.iter().all(|&c| c == WITHIN), "{by_distance:?}");
+    // Without a distance query the part keeps the vertical method.
+    let vertical = skin_classes(&walled(0.14, &Wall { exact: false }), 0.14);
+    assert!(vertical.iter().all(|&c| c == REST), "{vertical:?}");
+}
+
+#[test]
+fn a_thick_skin_against_a_wall_is_rest() {
+    let by_distance = skin_classes(&walled(0.3, &Wall { exact: true }), 0.3);
+    assert!(by_distance.len() > 20);
+    assert!(by_distance.iter().all(|&c| c == REST), "{by_distance:?}");
+}
+
+/// A part with a flat top at 7 over x ≤ 15 that answers distance queries.
+#[derive(Debug)]
+struct ShelfExact;
+
+impl Part for ShelfExact {
+    fn top(&self, x: f64, y: f64) -> Option<f64> {
+        Shelf.top(x, y)
+    }
+
+    fn clearance(&self) -> Option<std::sync::Arc<dyn crate::verify::Clearance>> {
+        Some(std::sync::Arc::new(ShelfExact))
+    }
+}
+
+impl crate::verify::Clearance for ShelfExact {
+    fn clear_height(&self, x: f64, _: f64, r: f64) -> Option<f64> {
+        let beside = x - 15.0;
+        if beside <= 0.0 {
+            Some(7.0 + r)
+        } else if beside < r {
+            Some(7.0 + (r * r - beside * beside).sqrt())
+        } else {
+            None
+        }
+    }
+}
+
+#[test]
+fn a_flat_floor_keeps_its_class() {
+    // t1 leaves 1 mm of rest over the shelf at z = 8.
+    let floor = |part: &dyn Part| -> Vec<u8> {
+        let s = sim(Some(part));
+        let m = Player::new(&s, s.toolpaths[0].chords.end).mesh().joined();
+        m.positions
+            .iter()
+            .zip(&m.tags)
+            .filter(|(p, _)| {
+                (f64::from(p[2]) - 8.0).abs() < 1e-3
+                    && (3.0..14.0).contains(&p[0])
+                    && (2.0..8.0).contains(&p[1])
+            })
+            .map(|(_, &t)| tag_class(t))
+            .collect()
+    };
+    let (vertical, exact) = (floor(&Shelf), floor(&ShelfExact));
+    assert!(vertical.len() > 100);
+    assert_eq!(vertical, exact);
+    assert!(exact.iter().all(|&c| c == REST));
+}
+
+/// A part whose top rises 1:1, solid below it, with exact distances.
+#[derive(Debug)]
+struct Slope;
+
+impl Part for Slope {
+    fn top(&self, x: f64, _: f64) -> Option<f64> {
+        Some(x)
+    }
+
+    fn clearance(&self) -> Option<std::sync::Arc<dyn crate::verify::Clearance>> {
+        Some(std::sync::Arc::new(Slope))
+    }
+}
+
+impl crate::verify::Clearance for Slope {
+    fn clear_height(&self, x: f64, _: f64, r: f64) -> Option<f64> {
+        Some(x + r * std::f64::consts::SQRT_2)
+    }
+}
+
+#[test]
+fn a_wall_at_45_degrees_is_judged_by_its_perpendicular_distance() {
+    // Tolerance 0.2: a vertex 0.25 above the slope is rest vertically, but
+    // 0.25 / √2 = 0.177 from it; 0.3 above is 0.212 from it.
+    let r = path(&[xyz(1.0, 5.0, 9.0), xyz(2.0, 5.0, 9.0)]);
+    let s = Simulation::run(
+        block(20.0, 10.0, 10.0),
+        &[program("t1", &r, Tool::flat(1.0))],
+        &Settings {
+            tol: 0.2,
+            ..settings(0.25)
+        },
+        Some(&Slope),
+        &Quiet,
+    )
+    .unwrap();
+    let d = s.stock_final().clone();
+    let paint = SimPaint::new(&s, &d, s.chords.len());
+    let at = |gap: f64| paint.vertex(DVec3::new(5.0, 5.0, 5.0 + gap), REST);
+    assert_eq!(at(0.25), WITHIN);
+    assert_eq!(at(0.3), REST);
+    assert_eq!(at(2.0), REST);
+    // Under the slope (inside the part) is never rest: the stock's bottom.
+    assert_eq!(paint.vertex(DVec3::new(5.0, 5.0, 2.0), REST), WITHIN);
+    // Gouge and within are kept as they are.
+    assert_eq!(paint.vertex(DVec3::new(5.0, 5.0, 5.0), WITHIN), WITHIN);
+    assert_eq!(paint.vertex(DVec3::new(5.0, 5.0, 4.0), GOUGE), GOUGE);
+}
+
+#[test]
+fn rest_colours_do_not_depend_on_the_thread_count() {
+    let on = |threads: usize| {
+        // A simulation each: its cache of answers starts empty.
+        let s = walled(0.14, &Wall { exact: true });
+        let n = s.chords.len();
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(threads)
+            .build()
+            .unwrap();
+        pool.install(|| Player::new(&s, n).mesh().joined())
+    };
+    let (a, b, c) = (on(1), on(3), on(8));
+    assert!(a.tags.iter().any(|&t| tag_class(t) == WITHIN));
+    assert!(a == b && a == c);
 }

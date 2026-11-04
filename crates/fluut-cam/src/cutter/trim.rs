@@ -40,6 +40,47 @@ pub struct Trim {
     /// No loops: the whole surface.
     all: bool,
     uv: UvBox,
+    /// Runs of [`CHUNK`] segments with their range of `a`, so that
+    /// [`Trim::contains`] skips the runs a vertical line cannot cross.
+    chunks: Vec<Chunk>,
+}
+
+/// Segments per [`Chunk`].
+const CHUNK: usize = 16;
+
+/// Segments `start..end` of loop `l`, which lie within `lo..=hi` in `a`.
+#[derive(Debug, Clone, Copy)]
+struct Chunk {
+    l: usize,
+    start: usize,
+    end: usize,
+    lo: f64,
+    hi: f64,
+}
+
+fn chunks(loops: &[Vec<[f64; 2]>]) -> Vec<Chunk> {
+    let mut out = Vec::new();
+    for (l, pts) in loops.iter().enumerate() {
+        let n = pts.len().saturating_sub(1);
+        let mut start = 0;
+        while start < n {
+            let end = (start + CHUNK).min(n);
+            let (mut lo, mut hi) = (f64::INFINITY, f64::NEG_INFINITY);
+            for p in &pts[start..=end] {
+                lo = lo.min(p[0]);
+                hi = hi.max(p[0]);
+            }
+            out.push(Chunk {
+                l,
+                start,
+                end,
+                lo,
+                hi,
+            });
+            start = end;
+        }
+    }
+    out
 }
 
 /// Whether a parameter is free at a singular point (a pole or apex).
@@ -312,6 +353,7 @@ impl Trim {
                 _ => return Err(TrimError::Unbounded),
             };
             return Ok(Trim {
+                chunks: Vec::new(),
                 loops,
                 swap: false,
                 period_a: pu,
@@ -388,6 +430,7 @@ impl Trim {
             UvBox::new(ia, ib)
         };
         Ok(Trim {
+            chunks: chunks(&ab),
             loops: ab,
             swap,
             period_a,
@@ -425,6 +468,13 @@ impl Trim {
     /// Whether `(u, v)` (any period) is inside the trimmed face. Points
     /// within about the projection chord of the boundary may go either way.
     pub fn contains(&self, u: f64, v: f64) -> bool {
+        self.scan(u, v, true)
+    }
+
+    /// [`Trim::contains`]; `skip` leaves out the runs of segments that a
+    /// vertical line at `a` cannot cross (without it, every segment is
+    /// looked at, to test that).
+    fn scan(&self, u: f64, v: f64, skip: bool) -> bool {
         if self.all {
             return true;
         }
@@ -433,8 +483,8 @@ impl Trim {
             b = self.b_lo + (b - self.b_lo).rem_euclid(pb);
         }
         let mut count = usize::from(self.top_inside);
-        for l in &self.loops {
-            for w in l.windows(2) {
+        let mut run = |l: usize, start: usize, end: usize| {
+            for w in self.loops[l][start..=end].windows(2) {
                 let (p0, p1) = (w[0], w[1]);
                 let (lo, hi) = if p0[0] <= p1[0] {
                     (p0[0], p1[0])
@@ -459,6 +509,23 @@ impl Trim {
                             cross(a + k as f64 * pa);
                         }
                     }
+                }
+            }
+        };
+        if skip {
+            for c in &self.chunks {
+                let possible = match self.period_a {
+                    None => c.lo <= a && a <= c.hi,
+                    Some(pa) => ((c.lo - a) / pa).ceil() <= ((c.hi - a) / pa).floor(),
+                };
+                if possible {
+                    run(c.l, c.start, c.end);
+                }
+            }
+        } else {
+            for (l, pts) in self.loops.iter().enumerate() {
+                if pts.len() > 1 {
+                    run(l, 0, pts.len() - 1);
                 }
             }
         }

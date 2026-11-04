@@ -19,6 +19,10 @@ pub struct DropOptions {
     /// Stop at the first contact at or above this tip height: the result
     /// is then some contact that high, not the highest.
     pub ceiling: f64,
+    /// Search the boundaries of faces whose contact fell outside their trim
+    /// (see [`drop`]). Off, a model gap between edges can be missed; the
+    /// query is then much cheaper over holes.
+    pub rims: bool,
 }
 
 impl Default for DropOptions {
@@ -28,6 +32,7 @@ impl Default for DropOptions {
             slack: 1e-7,
             floor: f64::NEG_INFINITY,
             ceiling: f64::INFINITY,
+            rims: true,
         }
     }
 }
@@ -60,7 +65,11 @@ pub fn solve_prim(
         }
         Prim::Edge(e) => {
             stats.edges += 1;
-            solve::edge(g, e, ax, c)
+            if seeding.split_edges {
+                solve::edge_split(g, e, ax, c)
+            } else {
+                solve::edge(g, e, ax, c)
+            }
         }
         Prim::Face { face, uv } => solve::face(g, face, uv, g.prim_box(i), ax, c, seeding, stats),
     }
@@ -117,7 +126,7 @@ pub fn drop(
     // The boundary of such a face, where it beats every contact by more
     // than the trim chord: the edges missed it (a model gap).
     let floor = best.map_or(opts.floor, |b| b.tau.max(opts.floor));
-    if floor < opts.ceiling {
+    if opts.rims && floor < opts.ceiling {
         // Highest τ first per face, so `dedup` keeps it.
         trimmed.sort_by(|a, b| a.0.cmp(&b.0).then(b.1.total_cmp(&a.1)));
         trimmed.dedup_by(|a, b| a.0 == b.0);

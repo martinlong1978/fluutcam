@@ -484,3 +484,52 @@ fn rim_finds_contacts_between_its_points() {
     let d = drop(&g, &c, ax.x, ax.y, &DropOptions::default(), &mut st).unwrap();
     assert!(d.tau >= got.tau - 1e-3, "{d:?} {got:?}");
 }
+
+/// A cylinder wall of radius 2 and height 1 between two full circles.
+fn wall() -> BrepBody {
+    use super::synth::iso_v;
+    use std::f64::consts::TAU;
+    let mut b = Builder::new("wall");
+    let s = Surface::cylinder(Frame::world_xy(), 2.0).unwrap();
+    let (c0, r) = iso_v(&s, 0.0, iv(0.0, TAU)).unwrap();
+    let (c1, _) = iso_v(&s, 1.0, iv(0.0, TAU)).unwrap();
+    let (p0, p1) = (c0.eval(0.0), c1.eval(0.0));
+    let e0 = b.edge(Some(c0), r, p0);
+    let e1 = b.edge(Some(c1), r, p1);
+    b.face(s, true, &[vec![(e0, true)], vec![(e1, false)]]);
+    b.build()
+}
+
+#[test]
+fn a_small_ball_finds_the_same_contacts_with_split_edges_and_without_rims() {
+    let body = wall();
+    let g = QueryGeometry::new(&body, &BuildOptions::default());
+    let ball = Cutter::ball(0.02).unwrap();
+    let plain = DropOptions::default();
+    let fast = DropOptions {
+        rims: false,
+        seeding: Seeding {
+            split_edges: true,
+            ..Seeding::default()
+        },
+        ..DropOptions::default()
+    };
+    let mut seen = 0;
+    for i in 0..40 {
+        for j in 0..40 {
+            let (x, y) = (-2.1 + 0.105 * i as f64, -2.1 + 0.105 * j as f64);
+            let mut st = SolveStats::default();
+            let a = drop(&g, &ball, x, y, &plain, &mut st).map(|c| c.tau);
+            let b = drop(&g, &ball, x, y, &fast, &mut st).map(|c| c.tau);
+            match (a, b) {
+                (None, None) => {}
+                (Some(a), Some(b)) => {
+                    seen += 1;
+                    assert!((a - b).abs() < 1e-7, "{x} {y}: {a} {b}");
+                }
+                other => panic!("{x} {y}: {other:?}"),
+            }
+        }
+    }
+    assert!(seen > 0);
+}

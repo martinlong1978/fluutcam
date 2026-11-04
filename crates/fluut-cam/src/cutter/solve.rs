@@ -38,6 +38,9 @@ pub struct Seeding {
     pub grid: usize,
     pub rings: usize,
     pub starts: usize,
+    /// Search long curved edges only where the tool reaches them
+    /// ([`edge_split`]): for tools far smaller than the edges.
+    pub split_edges: bool,
 }
 
 impl Default for Seeding {
@@ -46,6 +49,7 @@ impl Default for Seeding {
             grid: 4,
             rings: 2,
             starts: 3,
+            split_edges: false,
         }
     }
 }
@@ -320,7 +324,44 @@ fn footprint_runs(curve: &Curve3, range: Interval, ax: Axis, c: &Cutter) -> Vec<
     runs
 }
 
+/// As [`edge`], for a tool much smaller than the edge: the edge is halved
+/// again and again, keeping the halves whose box reaches the footprint, so
+/// that a long curved edge far from the tool is not sampled along its whole
+/// length.
+pub fn edge_split(g: &QueryGeometry, i: u32, ax: Axis, c: &Cutter) -> Option<Contact> {
+    let e = &g.body.edges[i as usize];
+    let curve = &g.body.curves[e.curve? as usize];
+    let rad = c.radius();
+    let mut best: Option<Contact> = None;
+    let mut stack = vec![(e.range, 0u32)];
+    while let Some((r, depth)) = stack.pop() {
+        let b = curve_box(curve, r);
+        let dx = (b.min.x() - ax.x).max(ax.x - b.max.x()).max(0.0);
+        let dy = (b.min.y() - ax.y).max(ax.y - b.max.y()).max(0.0);
+        if libm::hypot(dx, dy) > rad {
+            continue;
+        }
+        if depth < 14 && (b.max - b.min).length() > 8.0 * rad {
+            let m = 0.5 * (r.lo + r.hi);
+            // Higher parameters first, so the lower are popped first.
+            stack.push((Interval { lo: m, hi: r.hi }, depth + 1));
+            stack.push((Interval { lo: r.lo, hi: m }, depth + 1));
+            continue;
+        }
+        if let Some(x) = edge_in(g, i, r, ax, c)
+            && best.is_none_or(|b| x.tau > b.tau)
+        {
+            best = Some(x);
+        }
+    }
+    best
+}
+
 pub fn edge(g: &QueryGeometry, i: u32, ax: Axis, c: &Cutter) -> Option<Contact> {
+    edge_in(g, i, g.body.edges[i as usize].range, ax, c)
+}
+
+fn edge_in(g: &QueryGeometry, i: u32, range: Interval, ax: Axis, c: &Cutter) -> Option<Contact> {
     let e = &g.body.edges[i as usize];
     let curve = &g.body.curves[e.curve? as usize];
     let f = |t: f64| ax.tau(c, curve.eval(t));
@@ -330,7 +371,7 @@ pub fn edge(g: &QueryGeometry, i: u32, ax: Axis, c: &Cutter) -> Option<Contact> 
             best = Some((t, v));
         }
     };
-    for run in footprint_runs(curve, e.range, ax, c) {
+    for run in footprint_runs(curve, range, ax, c) {
         let vals: Vec<Option<f64>> = run.iter().map(|&t| f(t)).collect();
         for k in 0..run.len() {
             let Some(vk) = vals[k] else { continue };
