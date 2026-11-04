@@ -65,4 +65,6 @@ All earlier Global Constraints apply. In addition:
 
 **Done.** Six stages; 45 icons, all drawn for FluutCAM. Cancel ends every stage rather than sitting on Simulate alone, so a job started on any stage can be stopped there, and the group row has a fixed height, so switching stage does not move the viewport. The stage tabs are shown in capitals (as in S 08 §8.2), which also keeps their accessible names apart from the commands of the same name (`POST` and `Post`). The Multi-axis gallery of S 08 §8.3 has no v1 types, so it is left out.
 
+`app-project-ops` landed while this was in progress. Its temporary `ui/menu.rs` stays until the wiring task, and takes Ctrl+N, Ctrl+O, Ctrl+S and Ctrl+Shift+S earlier in the frame, so those keys already run the real operations and `ribbon::shortcuts` sees nothing until that module goes.
+
 Open: the hover preview of a strategy (S 08 §8.3) is not done; Calculate selected on a toolpath also calculates what it depends on, as `CalcTargets::Toolpaths` does; shortcut text says `Ctrl`, also on macOS, where `egui` maps the chord to Cmd; the ribbon is not collapsible to tabs yet (S 08 §8.2); panels do not yet adapt to the stage.

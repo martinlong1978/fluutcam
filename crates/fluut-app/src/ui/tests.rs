@@ -253,7 +253,7 @@ fn switching_stage_leaves_the_viewport_alone() {
 }
 
 #[test]
-fn commands_to_come_are_disabled_and_their_keys_do_nothing() {
+fn commands_to_come_are_disabled() {
     let mut h = harness();
     h.run_steps(2);
     for l in [
@@ -265,25 +265,6 @@ fn commands_to_come_are_disabled_and_their_keys_do_nothing() {
     ] {
         assert!(!enabled(&h, l), "{l}");
     }
-    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::S);
-    h.key_press_modifiers(
-        egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
-        egui::Key::S,
-    );
-    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::N);
-    h.run_steps(2);
-    assert!(app(&mut h).jobs.snapshot.is_none());
-}
-
-#[test]
-fn ctrl_o_opens_the_path() {
-    let mut h = harness();
-    h.step();
-    app(&mut h).ui.open_path = project("block").display().to_string();
-    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::O);
-    h.step();
-    settle(&mut h);
-    h.get_by_label("Opened block.fluut");
 }
 
 #[test]
@@ -536,4 +517,57 @@ mod update_check {
         h.run_steps(2);
         assert!(app(&mut h).updates.auto_check());
     }
+}
+
+#[test]
+fn file_menu_adds_setups_and_toolpaths_and_undoes() {
+    let d = std::env::temp_dir().join(format!("fluut-app-menu-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&d);
+    std::fs::create_dir_all(&d).unwrap();
+    let mut h = harness();
+    h.step();
+    // Without a project the operations that need one are off.
+    h.get_all_by_label("File").next().unwrap().click();
+    h.run_steps(2);
+    assert!(enabled(&h, "New project (mm)..."));
+    assert!(!enabled(&h, "Import model..."));
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    app(&mut h)
+        .jobs
+        .new_project(d.join("menu"), fluut_model::project::DisplayUnit::Mm);
+    settle(&mut h);
+    app(&mut h)
+        .jobs
+        .import_model(project("boss").with_file_name("boss.step"));
+    settle(&mut h);
+    h.get_by_label("menu.fluut *");
+    // Add Setup > 3-axis.
+    h.get_all_by_label("File").next().unwrap().click();
+    h.run_steps(2);
+    h.get_by_label("Add Setup ⏵").click();
+    h.run_steps(2);
+    h.get_by_label("3-axis").click();
+    settle(&mut h);
+    assert_eq!(app(&mut h).ui.selection, Selection::Setup("s1".into()));
+    h.get_all_by_label("Setup 1").next().unwrap();
+    // Add toolpath > Parallel, on the selected Setup.
+    h.get_all_by_label("File").next().unwrap().click();
+    h.run_steps(2);
+    h.get_by_label("Add toolpath ⏵").click();
+    h.run_steps(2);
+    h.get_by_label("Parallel").click();
+    settle(&mut h);
+    assert_eq!(app(&mut h).ui.selection, Selection::Toolpath("t1".into()));
+    h.get_all_by_label("Parallel 1").next().unwrap();
+    // Ctrl+Z undoes the toolpath.
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    settle(&mut h);
+    let s = app(&mut h).jobs.snapshot.clone().unwrap();
+    assert!(s.project.setups[0].toolpaths.is_empty() && s.can_redo);
+    // Ctrl+S saves: the star goes.
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::S);
+    settle(&mut h);
+    h.get_by_label("menu.fluut");
+    assert!(!app(&mut h).jobs.snapshot.as_ref().unwrap().dirty);
 }

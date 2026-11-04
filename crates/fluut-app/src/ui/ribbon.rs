@@ -288,6 +288,10 @@ fn run(c: Command, vm: &RibbonVm, jobs: &mut Jobs, state: &mut UiState) {
 /// The shortcuts of [`Command::shortcut`], even of disabled commands, so
 /// the keys stay ours. The ones with Shift go first: without Shift, a
 /// chord also matches the key pressed with Shift.
+///
+/// While the temporary `ui/menu.rs` lives it takes these chords earlier in
+/// the frame, so nothing reaches this; it takes over when the commands are
+/// wired and that module goes.
 fn shortcuts(ctx: &egui::Context, vm: &RibbonVm, jobs: &mut Jobs, state: &mut UiState) {
     let mut keyed: Vec<_> = Command::all()
         .into_iter()

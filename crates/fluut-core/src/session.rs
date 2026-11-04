@@ -20,7 +20,7 @@ use fluut_model::machine::{BUILTIN_MACHINES, Machine};
 use fluut_model::project::{BodyEntry, Project, SetupKind, read};
 use fluut_model::resolve::{Coolant, DrillCycle, resolve};
 use fluut_model::setup::{ResolvedSetup, resolve_all};
-use fluut_model::tools::ToolStore;
+use fluut_model::tools::{BUILTIN_TOOLS, ToolLibrary, ToolStore};
 use fluut_model::validate::{CycleSet, PostCaps, ValidateCx, validate};
 use fluut_model::{DefRef, DefStore, Diagnostic, Severity};
 use fluut_path::{PathStats, ToolpathResult};
@@ -95,6 +95,12 @@ pub fn builtin_library() -> Library {
         l.add(DefKind::Machine, LayerKind::BuiltIn, id, text)
             .unwrap_or_else(|e| panic!("built-in machine {id}: {e}"));
     }
+    for (id, text) in BUILTIN_TOOLS {
+        let (lib, _) =
+            ToolLibrary::parse(text).unwrap_or_else(|e| panic!("built-in tools {id}: {e}"));
+        l.add_tools(LayerKind::BuiltIn, lib)
+            .unwrap_or_else(|e| panic!("built-in tools {id}: {e}"));
+    }
     l
 }
 
@@ -107,6 +113,8 @@ struct Cached {
 #[derive(Debug)]
 pub struct Session {
     pub project: Project,
+    /// The project as last saved or opened, for [`Session::is_dirty`].
+    pub(crate) saved: Project,
     /// Directory of the project file; geometry paths are relative to it.
     pub dir: PathBuf,
     pub store: ModelStore,
@@ -133,6 +141,7 @@ impl Session {
     pub fn new(project: Project, dir: PathBuf, store: ModelStore, library: Library) -> Session {
         Session {
             doc: Document::new(project.clone()),
+            saved: project.clone(),
             project,
             dir,
             store,
@@ -269,10 +278,28 @@ impl Session {
         self.doc.end_group()
     }
 
+    /// Whether there is an edit to undo.
+    pub fn can_undo(&self) -> bool {
+        *self.doc.project() == self.project && self.doc.can_undo()
+    }
+
+    /// Whether there is an undone edit to redo.
+    pub fn can_redo(&self) -> bool {
+        *self.doc.project() == self.project && self.doc.can_redo()
+    }
+
+    /// The label of the edit that [`Session::undo`] would undo.
+    pub fn undo_label(&self) -> Option<String> {
+        (*self.doc.project() == self.project)
+            .then(|| self.doc.undo_labels().next().map(str::to_owned))
+            .flatten()
+    }
+
     pub fn undo(&mut self) -> Option<Outcome> {
         self.sync_doc();
         let out = self.doc.undo()?;
         self.project = self.doc.project().clone();
+        self.sync_store();
         Some(out)
     }
 
@@ -280,7 +307,30 @@ impl Session {
         self.sync_doc();
         let out = self.doc.redo()?;
         self.project = self.doc.project().clone();
+        self.sync_store();
         Some(out)
+    }
+
+    /// Makes the model store hold the project's sources again after an undo
+    /// or redo of an import: sources the project no longer lists are
+    /// dropped, new ones are read from their files (problems go to
+    /// `warnings`).
+    fn sync_store(&mut self) {
+        let gone: Vec<String> = self
+            .store
+            .sources()
+            .map(|(id, _)| id.to_owned())
+            .filter(|id| self.project.source(id).is_none())
+            .collect();
+        for id in gone {
+            self.store.remove(&id);
+        }
+        for g in &self.project.geometry {
+            if self.store.source(&g.id).is_none() {
+                let d = self.store.load(g, &self.dir);
+                self.warnings.extend(d);
+            }
+        }
     }
 
     /// A project changed directly (not through `apply`) starts a new
@@ -310,6 +360,7 @@ impl Session {
         let saved = fluut_model::persist::save(&path, &self.project).map_err(|e| {
             Diagnostic::error("model.project.save", format!("{}: {e}", path.display()))
         })?;
+        self.saved = self.project.clone();
         if let Some(j) = self.doc.journal_mut() {
             j.reset(&file_hash(&saved.bytes)).map_err(|e| {
                 Diagnostic::error(

@@ -55,30 +55,6 @@ ribbon-gallery-3d = 3D
 ribbon-gallery-rotary = Rotary
 ribbon-gallery-utility = Utility
 
-# Toolpath types (04 section 4.13)
-toolpath-type-face = Face
-toolpath-type-optimised_load_2d = 2D optimised load
-toolpath-type-pocket_2d = 2D pocket
-toolpath-type-contour_2d = 2D contour
-toolpath-type-trace = Trace
-toolpath-type-engrave = Engrave
-toolpath-type-chamfer_2d = 2D chamfer
-toolpath-type-bore = Bore
-toolpath-type-drill = Drill
-toolpath-type-optimised_load_3d = 3D optimised load
-toolpath-type-pocket_3d = 3D pocket
-toolpath-type-parallel = Parallel
-toolpath-type-contour = Contour
-toolpath-type-horizontal = Horizontal
-toolpath-type-spiral = Spiral
-toolpath-type-scallop = Scallop
-toolpath-type-steep_and_shallow = Steep and shallow
-toolpath-type-rotary_rough = Rotary rough
-toolpath-type-rotary_along_x = Along X
-toolpath-type-rotary_around_a = Around A
-toolpath-type-rotary_spiral = Rotary spiral
-toolpath-type-manual_nc = Manual NC
-
 # Title bar
 title-units = Project units
 title-theme-dark = Dark theme

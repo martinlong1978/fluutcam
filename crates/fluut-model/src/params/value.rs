@@ -105,6 +105,12 @@ pub enum PValue {
 }
 
 impl PValue {
+    /// The value in file syntax (an inline TOML value), as an edit carries
+    /// it.
+    pub fn to_toml(&self) -> String {
+        write_value(self)
+    }
+
     pub fn num(&self) -> Option<f64> {
         match self {
             PValue::Num(n) => Some(n.v),

@@ -14,6 +14,7 @@
 
 pub mod bench;
 pub mod brand;
+pub mod dialogs;
 pub mod icons;
 pub mod jobs;
 pub mod scene;

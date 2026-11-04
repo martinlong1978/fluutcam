@@ -1,0 +1,99 @@
+# The starter tool library: a few common router bits so that a new
+# project can add toolpaths at once. Cutting data is cautious data for MDF
+# on a small router; it is a starting point, not a recommendation (spec 02
+# §2.4). Copy a tool into your own library to change it.
+format  = "fluut.tools/1"
+id      = "fluut/starter"
+version = "1.0"
+name    = "Starter tools"
+
+[[tool]]
+id             = "flat-6"
+name           = "6 mm flat end mill"
+number         = 1
+shape          = "flat"
+diameter       = 6.0
+flute_length   = 22
+overall_length = 60
+shank_diameter = 6.0
+
+  [[tool.preset]]
+  material  = "MDF"
+  rpm       = 18000
+  feed      = 2000
+  plunge    = 600
+  stepover  = 2.4
+  step_down = 3.0
+
+[[tool]]
+id             = "flat-12"
+name           = "12 mm flat end mill"
+number         = 2
+shape          = "flat"
+diameter       = 12.0
+flute_length   = 25
+overall_length = 70
+shank_diameter = 12.0
+
+  [[tool.preset]]
+  material  = "MDF"
+  rpm       = 16000
+  feed      = 2500
+  plunge    = 600
+  stepover  = 7.2
+  step_down = 3.0
+
+[[tool]]
+id             = "ball-6"
+name           = "6 mm ball end mill"
+number         = 3
+shape          = "ball"
+diameter       = 6.0
+flute_length   = 22
+overall_length = 60
+shank_diameter = 6.0
+
+  [[tool.preset]]
+  material  = "MDF"
+  rpm       = 18000
+  feed      = 2000
+  plunge    = 600
+  stepover  = 0.6
+  step_down = 3.0
+
+[[tool]]
+id             = "vbit-60"
+name           = "60 degree V bit"
+number         = 4
+shape          = "v"
+diameter       = 12.0
+half_angle_deg = 30
+tip_diameter   = 0.0
+flute_length   = 10
+overall_length = 50
+shank_diameter = 6.0
+
+  [[tool.preset]]
+  material  = "MDF"
+  rpm       = 18000
+  feed      = 1500
+  plunge    = 500
+  stepover  = 1.0
+  step_down = 2.0
+
+[[tool]]
+id             = "drill-5"
+name           = "5 mm drill"
+number         = 5
+shape          = "drill"
+diameter       = 5.0
+flute_length   = 40
+overall_length = 70
+shank_diameter = 5.0
+
+  [[tool.preset]]
+  material  = "MDF"
+  rpm       = 8000
+  feed      = 600
+  plunge    = 600
+  step_down = 5.0
