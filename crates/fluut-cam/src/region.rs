@@ -716,8 +716,29 @@ impl Region2 {
     /// retried with `o` moved by a nanometre, which is far below any
     /// tolerance.
     fn guarded(&self, o: &Region2, op: boolean::Op) -> Result<Region2, RegionFailure> {
-        let run =
-            |a: &Region2, b: &Region2| guard(RegionOp::Boolean, || boolean::boolean(a, b, op));
+        // A result whose area is impossible for the operation (a union
+        // smaller than either input, an intersection larger than either, a
+        // difference larger than `self`) is retried like a panic
+        // (docs/plan/2026-11-04-region-empty-growth.md).
+        let (sa, oa) = (self.area(), o.area());
+        let slack = TIDY * (self.perimeter() + o.perimeter());
+        let run = |a: &Region2, b: &Region2| {
+            let r = guard(RegionOp::Boolean, || boolean::boolean(a, b, op))?;
+            let ra = r.area();
+            let plausible = match op {
+                boolean::Op::Union => ra >= sa.max(oa) - slack,
+                boolean::Op::Intersect => ra <= sa.min(oa) + slack && ra >= -slack,
+                boolean::Op::Subtract => ra <= sa + slack && ra >= -slack,
+            };
+            if plausible {
+                Ok(r)
+            } else {
+                Err(RegionFailure {
+                    op: RegionOp::Boolean,
+                    message: format!("the result has an impossible area ({ra} from {sa} and {oa})"),
+                })
+            }
+        };
         let mut last = match run(self, o) {
             Ok(r) => return Ok(r),
             Err(e) => e,

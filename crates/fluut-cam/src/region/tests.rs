@@ -1038,3 +1038,86 @@ fn growths_of_a_shape_with_spike_tips() {
     let (lo, _) = g.bbox();
     assert!(close(lo.x(), s.bbox().0.x() - 1.0, 1e-6), "{lo:?}");
 }
+
+#[test]
+fn growth_of_a_loop_pinched_at_a_tangent_hole_is_never_wrong() {
+    // Found by the `region` fuzz target through the containment guard (open,
+    // docs/plan/2026-11-04-region-empty-growth.md): a circular cut whose
+    // circle touches the left edge leaves one loop pinched to a channel
+    // 0.01 mm wide. Grown by up to 2.9 its offset is right (an outer loop
+    // and a hole); from about 2.95 `cavalier_contours` returns only a part
+    // of it (144 mm² for 3.0, where the input alone is 395 mm²). The guard
+    // must then report a failure, never return the part.
+    let mut r = Region2::rect(8.250001, 8.250001, 24.000003999999997, 24.000003999999997)
+        .subtract(&Region2::rect(15.750003, 15.750003, 31.500006, 31.500006));
+    r = r.try_offset(3.875).unwrap();
+    r = r
+        .try_subtract(&Region2::circle(11.0, 15.25, 6.625001))
+        .unwrap();
+    r = r
+        .try_union(&Region2::circle(8.250001, 3.750002, 5.625))
+        .unwrap();
+    let g = r.try_offset(2.9).unwrap();
+    assert_eq!(g.loops.len(), 2);
+    for d in [2.95, 3.0, 3.65625] {
+        match r.try_offset(d) {
+            Ok(g) => assert!(g.area() > r.area(), "{d}: {}", g.area()),
+            Err(e) => assert_eq!(e.code(), "cam.region.offset_failed"),
+        }
+    }
+}
+
+#[test]
+fn union_with_a_micrometre_strip_across_a_notch_is_never_wrong() {
+    // Found by the `region` fuzz target (release build) through the
+    // containment guard of a later shrink (open,
+    // docs/plan/2026-11-04-region-empty-growth.md): a U-shaped region and a
+    // strip 1e-6 mm high along its bottom edge, across the notch. The union
+    // came back as the notch alone, a hole with no outer loop (area −6.56):
+    // the side probe that classifies coincident pieces (1e-5 mm) reaches
+    // across the strip. The boolean guard must report a failure, never
+    // return that.
+    let a = Region2::rect(15.250002, 15.750003, 31.000005, 18.500003)
+        .try_subtract(&Region2::rect(15.750003, 15.750003, 19.500006, 17.500004))
+        .unwrap();
+    let strip = Region2::rect(15.750003, 15.750003, 29.500003999999997, 15.750003999999999);
+    match a.try_union(&strip) {
+        Ok(u) => assert!(u.area() >= a.area() - 1e-6, "{}", u.area()),
+        Err(e) => assert_eq!(e.code(), "cam.region.boolean_failed"),
+    }
+}
+
+#[test]
+fn booleans_with_impossible_areas_are_retried_then_raised() {
+    // The boolean guard accepts ordinary results.
+    let p = plate();
+    let c = Region2::circle(50.0, 30.0, 20.0);
+    assert!(close(p.try_union(&c).unwrap().area(), 6000.0, 1e-6));
+    assert!(close(p.try_intersect(&c).unwrap().area(), 300.0 * PI, 1e-6));
+    assert!(close(
+        p.try_subtract(&c).unwrap().area(),
+        6000.0 - 400.0 * PI,
+        1e-6
+    ));
+    assert!(p.try_subtract(&p).unwrap().area().abs() < 1e-9);
+}
+
+#[test]
+fn union_at_a_near_tangent_crossing() {
+    // From `optimised_load_3d_on_the_dome`, caught by the boolean guard: at
+    // a near-tangent crossing the two regions were cut 2.5e-7 mm apart, the
+    // stitching found no piece starting within `JOIN` (1e-7) and dropped
+    // the loop, so the union came back empty.
+    let [a, b]: [Region2; 2] = include!("test_data/dome_union.rs");
+    let i = a.try_intersect(&b).unwrap();
+    let u = a.try_union(&b).unwrap();
+    assert_eq!(u.loops.len(), 1);
+    assert!(
+        close(u.area(), a.area() + b.area() - i.area(), 1e-6),
+        "{} {} {} {}",
+        u.area(),
+        a.area(),
+        b.area(),
+        i.area()
+    );
+}

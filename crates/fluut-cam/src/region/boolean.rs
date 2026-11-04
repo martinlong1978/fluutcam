@@ -24,6 +24,9 @@ use std::f64::consts::TAU;
 
 /// Points closer than this are the same point when splitting and stitching.
 const JOIN: f64 = 1e-7;
+/// How far apart a piece's end and the next piece's start may lie when
+/// stitching finds no start within [`JOIN`].
+const LOOSE: f64 = 1e-6;
 /// Distance of the side probe used to classify coincident pieces.
 const PROBE: f64 = 1e-5;
 /// Directions closer than this (radians) are the same when stitching.
@@ -389,12 +392,22 @@ impl ByX {
 
     /// Indices of the points within [`JOIN`] of `p`.
     fn near<'a>(&'a self, pts: &'a [Point2], p: Point2) -> impl Iterator<Item = usize> + 'a {
-        let lo = self.xs.partition_point(|&x| x < p.x() - JOIN);
+        self.within(pts, p, JOIN)
+    }
+
+    /// Indices of the points within `r` of `p`.
+    fn within<'a>(
+        &'a self,
+        pts: &'a [Point2],
+        p: Point2,
+        r: f64,
+    ) -> impl Iterator<Item = usize> + 'a {
+        let lo = self.xs.partition_point(|&x| x < p.x() - r);
         self.order[lo..]
             .iter()
             .copied()
-            .take_while(move |&i| pts[i].x() <= p.x() + JOIN)
-            .filter(move |&i| pts[i].distance(p) <= JOIN)
+            .take_while(move |&i| pts[i].x() <= p.x() + r)
+            .filter(move |&i| pts[i].distance(p) <= r)
     }
 }
 
@@ -428,6 +441,25 @@ fn stitch(pieces: Vec<Seg2>) -> Region2 {
                 if best.is_none_or(|(_, b)| turns_before(key, b)) {
                     best = Some((k, key));
                 }
+            }
+            // No piece starts within JOIN: at a near-tangent crossing the
+            // two regions can be cut a few 1e-7 mm apart (a cut point that
+            // one side drops next to a vertex), and the loop would be lost
+            // (a union of a dome section came back empty;
+            // docs/plan/2026-11-04-region-empty-growth.md). Take the nearest
+            // free start within LOOSE.
+            if best.is_none() {
+                let end = pieces[cur].b;
+                best = by_start
+                    .within(&starts, end, LOOSE)
+                    .filter(|&k| !used[k] || (k == first && verts.len() > 1))
+                    .min_by(|&i, &j| {
+                        starts[i]
+                            .distance(end)
+                            .total_cmp(&starts[j].distance(end))
+                            .then(i.cmp(&j))
+                    })
+                    .map(|k| (k, (0.0, 0.0)));
             }
             match best {
                 None => break false,
