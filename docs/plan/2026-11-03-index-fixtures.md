@@ -43,17 +43,28 @@ All earlier Global Constraints apply. In addition:
 
 ### Task 1: Plan
 
-- [ ] **Step 1:** This plan; README row. Commit.
+- [x] **Step 1:** This plan; README row. Commit.
 
 ### Task 2: Z travel at the gauge line, fixture hook
 
 **Files:** `crates/fluut-core/src/{frame.rs, session.rs}`, `tests/rotary_frame.rs`; `crates/fluut-cli/tests/cli.rs`.
 
-- [ ] **Step 1:** Tests: a gauge length from the overall length and the holder, from the overall length alone, and 0 when unknown; `flipside` with a 60 mm tool fails a Z travel that clears its tip (`setup.clearance.index_travel`, and the message gives both Zs), and passes a longer travel.
-- [ ] **Step 2:** Implement; pass. Commit.
+- [x] **Step 1:** Tests: a gauge length from the overall length and the holder, from the overall length alone, and 0 when unknown; `flipside` with a 60 mm tool fails a Z travel that clears its tip (`setup.clearance.index_travel`, and the message gives both Zs), and passes a longer travel.
+- [x] **Step 2:** Implement; pass. Commit.
 
 ### Task 3: Docs
 
 **Files:** spec 02 §2.3, spec 03 §3.9.5, D08 §7; this plan; README row.
 
-- [ ] **Step 1:** Docs. Merge `main`, run all checks, mark done. Commit.
+- [x] **Step 1:** Docs. Merge `main`, run all checks, mark done. Commit.
+
+## Re-blessed golden files
+
+None. No reference project has a `travel.z` together with a rotary axis, so no program changes.
+
+**Done.** Before an A turn, the Z travel check compares the spindle gauge line with `travel.z`. The gauge line is at the turn height + the gauge length (`Tool::gauge_length`: overall length + holder length) of the tool in the spindle. The message gives the tip's Z and the gauge line's. Turning fixtures count in the turn radius through `frame::turning_fixture_radius`, which is `None` because the project model has no fixtures. Deviations from this plan: none.
+
+Follow-ups:
+- A fixture model (chuck, tailstock, clamps on the rotary, each marked as turning or fixed) that feeds `turning_fixture_radius`, and fixtures in `sim.index_turn`.
+- A tool without `overall_length` is checked at the tip only, without a warning. A warning when the machine has `travel.z` would make this visible.
+- In a rotary Setup, `setup.clearance.index_unsafe` still compares the clearance cylinder with the stock and the bodies only, not with the fixture hook.
