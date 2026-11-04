@@ -72,7 +72,7 @@ All earlier Global Constraints apply. In addition:
 
 ### Task 6: Finish
 
-- [ ] **Step 1:** Merge `main`, run all checks, mark done. Commit.
+- [x] **Step 1:** Merge `main`, run all checks, mark done. Commit.
 
 ## Root cause
 
@@ -109,3 +109,5 @@ Class 3 (`chained_offsets_of_a_ring_with_a_sliver_bump`) and the loop blow-up (`
 ## Re-blessed golden files
 
 None. Every golden G-code file, the determinism test and the CLI simulation tests are unchanged. Earlier versions of the clean-up did change them, which set its limits (see Root cause): removing every vertex between collinear lines dropped points on straight edges from `rough3d-linuxcnc.ngc` and a 0.013 mm arc from `dome-linuxcnc.ngc`, and flattening arcs up to 1e-5 mm sagitta turned one retract in `plate2d-linuxcnc.ngc` into a stay-down move.
+
+**Done.** Class 3 and the loop blow-up are fixed and covered by regression tests; vertex counts of chained offsets stay bounded; the fuzz target runs without its vertex stop; caught region panics write no crash report. After merging `main`: fmt, clippy, 1 151 tests, check-layers and deny pass. Deviations from this plan: two more fixes from the fuzz target (above), and the clean-up has a length limit (`TIDY_SHORT`) so golden G-code stays unchanged. Open issues above.
