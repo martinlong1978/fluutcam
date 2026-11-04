@@ -78,16 +78,18 @@ published.
   `optimised_load::shrink` grows holes of a cleared region (`growth_where_a_concave_arc_collapses_to_a_point`;
   plan `docs/plan/2026-11-04-region-empty-growth.md`). Arcs with a larger offset radius are
   unchanged.
-- `src/polyline/internal/raw_pline_offset.rs`, `RawOffsetBuilder::line_line_join` (and the new
-  `short_line_crossing`): `line_line_intr` compares the perp product of the two segment
-  vectors, |v| |u| sin θ, with `pos_equal_eps`, so the offsets of short lines at a clear angle
-  (0.022 and 0.042 mm long, 2.9e-3 rad apart) count as parallel and then as overlapping. At an
-  inner join the overlap branch then asked for the parameter of a point 1.5e-5 mm off the next
-  line (a debug assertion in `parametric_from_point`), and in release builds the join came out
-  reversed and the whole offset was dropped. When `line_line_intr` reports an overlap or no
-  intersection but the current end lies more than `pos_equal_eps` off the next line, the join
-  now uses the crossing of the two lines if it lies on both segments
-  (`growth_of_short_nearly_collinear_lines`). `line_line_intr` itself is unchanged.
+- `src/core/math/line_line_intersect.rs`, `line_line_intr`: for segments with |v| |u| < 1 that
+  are not points, the parallel test compares the perp product of the segment vectors with
+  `eps · |v| |u|` (an angle of `eps`) and the collinear tests with `eps · |v|` and `eps · |u|` (a
+  distance of `eps`). The original compared these products, which scale with the lengths, with
+  `eps` itself, so short segments at a clear angle counted as parallel and then as overlapping:
+  sin θ up to 0.011 for lines 0.022 and 0.042 mm long, 0.16 rad for 6.6e-3 mm. In an offset's inner
+  line join (`line_line_join`) that asked `parametric_from_point` for a point 1.5e-5 mm off the
+  line (a debug assertion; release builds reversed the join and dropped the whole growth,
+  `growth_of_short_nearly_collinear_lines`), and in the self-intersections of a shrunk thin
+  triangle it gave a slice end off its segment (a debug assertion in `PlineViewData::create`,
+  found by the `region` fuzz target, `shrink_of_a_thin_triangle_to_near_its_inradius`).
+  Segments with |v| |u| >= 1, and point-like ones, are unchanged.
 
 The trigonometric changes:
 

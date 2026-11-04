@@ -490,16 +490,7 @@ where
             next.end,
             self.pos_equal_eps,
         ) {
-            LineLineIntr::NoIntersect => self
-                .short_line_crossing(current, next)
-                .unwrap_or_else(|| {
-                    Self::line_connection_boundary(
-                        JoinClass::InvalidInnerGap,
-                        current.end,
-                        next.start,
-                    )
-                }),
-            LineLineIntr::FalseIntersect { .. } => {
+            LineLineIntr::NoIntersect | LineLineIntr::FalseIntersect { .. } => {
                 Self::line_connection_boundary(JoinClass::InvalidInnerGap, current.end, next.start)
             }
             LineLineIntr::TrueIntersect { seg1_t, seg2_t } => {
@@ -531,9 +522,6 @@ where
                 Self::trimmed_boundary(point, current_param, next_param)
             }
             LineLineIntr::Overlapping { .. } => {
-                if let Some(boundary) = self.short_line_crossing(current, next) {
-                    return boundary;
-                }
                 // Prefer the current endpoint when it lies on the overlapping next span.
                 let next_param = next.param_at(current.end, self.pos_equal_eps);
                 if let Some(next_param) =
@@ -549,43 +537,6 @@ where
                 }
             }
         }
-    }
-
-    /// FluutCAM patch: the trimmed join of two offset lines that `line_line_intr` took as
-    /// parallel although they are not. It compares the perp product of the two segment vectors,
-    /// |v| |u| sin θ, with `pos_equal_eps`, so short lines at a clear angle count as parallel
-    /// (0.022 and 0.042 mm long, 2.9e-3 rad apart, offset by 3.5625 mm), and then as overlapping
-    /// or not by a similar test. The offset lines then do cross, close to their ends, but the
-    /// overlap branch asked for the parameter of a point 1.5e-5 mm off the line (a debug assertion
-    /// in `parametric_from_point`) and the join came out reversed, which made the whole offset
-    /// invalid. `None` when the current end lies on the next line within `pos_equal_eps` (a real
-    /// overlap) or the crossing lies off either segment.
-    fn short_line_crossing(
-        &self,
-        current: &RawOffsetLine<T>,
-        next: &RawOffsetLine<T>,
-    ) -> Option<JoinBoundary<T>> {
-        let v = current.end - current.start;
-        let u = next.end - next.start;
-        let u_len = u.length();
-        let den = v.perp_dot(u);
-        if u_len <= self.pos_equal_eps || den == T::zero() {
-            return None;
-        }
-        // Distance of the current end from the next line.
-        if (u.perp_dot(current.end - next.start) / u_len).abs() <= self.pos_equal_eps {
-            return None;
-        }
-        let w = current.start - next.start;
-        let seg1_t = u.perp_dot(w) / den;
-        let seg2_t = v.perp_dot(w) / den;
-        let current_param = self.usable_line_param(seg1_t, v.length_squared())?;
-        let next_param = self.usable_line_param(seg2_t, u.length_squared())?;
-        Some(Self::trimmed_boundary(
-            point_from_parametric(current.start, current.end, current_param),
-            current_param,
-            next_param,
-        ))
     }
 
     #[inline]

@@ -980,3 +980,30 @@ fn shrinking_a_thin_ring_around_a_hole_leaves_nothing() {
     let o = thick.try_offset(-0.5).unwrap();
     assert_eq!(o.loops.len(), 2);
 }
+
+#[test]
+fn shrink_of_a_thin_triangle_to_near_its_inradius() {
+    // Found by the `region` fuzz target: a disc minus a thin triangle,
+    // grown by 0.6875, 4.9e-4 mm less than the triangle's inradius. The
+    // shrunk triangle has sides 1.1e-3 and 6.6e-3 mm long, 0.16 rad apart at
+    // its tip; `line_line_intr` took the two long ones for overlapping
+    // (perp product under its epsilon), and slicing there failed the debug
+    // assertion in `PlineViewData::create` on every retry.
+    let tri = Region2::polygon(&[(5.250001, 5.000001), (5.250001, 3.5), (14.500003, 5.250001)]);
+    let s = tri.try_offset(-0.6875).unwrap();
+    assert!(s.area() > 0.0 && s.area() < 1e-5, "{}", s.area());
+    let mut r = Region2::circle(3.750003, 7.000001, 7.0);
+    for d in [3.0, 3.96875] {
+        r = r.try_offset(d).unwrap();
+    }
+    r = r.try_subtract(&tri).unwrap();
+    for d in [0.6875, -1.3125, -3.21875] {
+        let before = r.area();
+        r = r.try_offset(d).unwrap();
+        assert!(
+            (r.area() - before) * d > 0.0,
+            "{d}: {before} to {}",
+            r.area()
+        );
+    }
+}
