@@ -44,8 +44,26 @@ pub fn show(ui: &mut egui::Ui, jobs: &mut Jobs, state: &mut UiState) {
                 .num_columns(2)
                 .spacing([12.0, 6.0])
                 .show(ui, |ui| {
+                    let focus = state.inspector_focus.map(tr);
                     for (k, v) in &s.rows {
-                        ui.label(egui::RichText::new(k).color(c(p.weak_text)));
+                        let on = focus.as_ref() == Some(k);
+                        let key = if on {
+                            egui::RichText::new(k).color(c(p.text)).strong()
+                        } else {
+                            egui::RichText::new(k).color(c(p.weak_text))
+                        };
+                        let r = ui.label(key);
+                        if on {
+                            // Stock or Work zero pointed here.
+                            let rect = r.rect.expand2(egui::vec2(6.0, 2.0));
+                            ui.painter().rect_stroke(
+                                rect,
+                                egui::CornerRadius::same(3),
+                                egui::Stroke::new(1.5, c(brand::CUTTER_ORANGE)),
+                                egui::StrokeKind::Outside,
+                            );
+                            r.scroll_to_me(None);
+                        }
                         ui.label(v);
                         ui.end_row();
                     }

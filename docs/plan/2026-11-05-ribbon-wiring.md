@@ -1,6 +1,6 @@
 # Ribbon Wiring Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** The ribbon drives every operation the app has, and the temporary File menu goes. After `ui-ribbon-icons` (stages, galleries, icons) and `app-project-ops` (the operations, native dialogs, a temporary menu) the commands exist twice: disabled in the ribbon, enabled in the menu. This plan connects them, moves the shortcuts and the "discard unsaved changes?" prompt out of `ui/menu.rs`, and removes every file path from the ribbon: Open, Save as, Import and Post use native file dialogs.
 
@@ -30,19 +30,27 @@ All earlier Global Constraints apply. In addition:
 ## Tasks
 
 ### Task 1: Plan
-- [ ] Plan committed.
+- [x] Plan committed.
 
 ### Task 2: Wire the commands
-- [ ] Tests first (enabling per command; scripted dialogs; shortcuts).
-- [ ] `Dialogs::scripted`, `PostOutput`; `ui/project.rs`; `ribbon::run`; reimport job; undo and redo commands and icons; delete `ui/menu.rs`.
+- [x] Tests first (enabling per command; scripted dialogs; shortcuts).
+- [x] `Dialogs::scripted`, `PostOutput`; `ui/project.rs`; `ribbon::run`; reimport job; undo and redo commands and icons; delete `ui/menu.rs`.
 
 ### Task 3: No paths in the ribbon
-- [ ] Remove the Open and output fields, `open_path`, `post_output`; post dropdown from the store.
+- [x] Remove the Open and output fields, `open_path`, `post_output`; post dropdown from the store.
 
 ### Task 4: Polish
-- [ ] Heavier small icons, both themes checked in screenshots (kept out of git); Cmd tooltips.
+- [x] Heavier small icons, both themes checked in screenshots (kept out of git); Cmd tooltips.
 
 ### Task 5: End to end
-- [ ] kittest: New project, Import a reference STEP, New 3-axis Setup, a 3-D toolpath, Calculate all, Post; browser and G-code file asserted.
-- [ ] Duplicate-id test for the Fluent catalogs.
-- [ ] Merge `main`, all five checks, report.
+- [x] kittest: New project, Import a reference STEP, New 3-axis Setup, a 3-D toolpath, Calculate all, Post; browser and G-code file asserted.
+- [x] Duplicate-id test for the Fluent catalogs.
+- [x] Merge `main`, all five checks, report.
+
+**Done.** Open issues:
+- Stock and Work zero only select the Setup and outline the matching row of the read-only Setup inspector; they edit nothing until the Setup editor exists. The Library commands stay disabled ("Coming soon").
+- The New project dialog has no unit choice: a new project takes the unit of the open one, else mm.
+- Post offers no folder choice: files after the first are numbered beside the one chosen.
+- A rotary Setup does not select `fluut/linuxcnc-4x` by itself; the user picks it in the dropdown.
+- Re-import re-imports every geometry source; there is no per-source choice yet.
+- A one-off stack overflow was seen once in a parallel run of the `fluut-app` lib tests (not reproduced in later runs; cause unknown).

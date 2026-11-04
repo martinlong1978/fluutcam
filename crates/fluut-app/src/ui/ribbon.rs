@@ -4,17 +4,16 @@
 //! each stage holds, and what is enabled, comes from
 //! [`RibbonVm`]; this file paints it and runs the commands.
 
-use super::{UiState, group_frame, icons};
+use super::{UiState, group_frame, icons, project};
 use crate::brand::{self, Palette, c};
-use crate::jobs::{CalcTargets, Jobs, PostRequest};
+use crate::dialogs::{DialogKind, Dialogs};
+use crate::jobs::{CalcTargets, Jobs};
 use crate::text::tr;
+use crate::vm::Selection;
 use crate::vm::ribbon::{Command, CommandVm, GroupId, GroupVm, RibbonCx, RibbonVm, Stage};
 use eframe::egui::{self, Align2, CornerRadius, FontId, Sense, Stroke, Vec2};
 use fluut_core::fluut_sim::Step;
-use std::path::PathBuf;
-
-/// Posts the ribbon offers (the built-in store).
-pub const POSTS: [&str; 3] = ["fluut/linuxcnc", "fluut/grbl", "fluut/gcode"];
+use fluut_model::project::DisplayUnit;
 
 /// Height of a small button; three of them stack beside a large one.
 const ROW: f32 = 24.0;
@@ -26,8 +25,8 @@ const SMALL_ICON: f32 = 16.0;
 const LABEL_SIZE: f32 = 12.0;
 const GROUP_LABEL_SIZE: f32 = 11.0;
 const GROUP_LABEL_HEIGHT: f32 = 15.0;
-/// Space above a single text field, to centre it in the row.
-const FIELD_TOP: f32 = 27.0;
+/// Width of the post dropdown.
+const POST_WIDTH: f32 = 200.0;
 
 fn label_font() -> FontId {
     FontId::proportional(LABEL_SIZE)
@@ -132,39 +131,22 @@ fn commands(ui: &mut egui::Ui, g: &GroupVm, p: &Palette) -> Vec<Command> {
     clicked
 }
 
-/// The Open field: a path, until the file dialog replaces it.
-fn open_field(ui: &mut egui::Ui, state: &mut UiState) {
-    ui.allocate_ui(Vec2::new(240.0, LARGE_HEIGHT), |ui| {
+/// What Post acts on: the post. The output file is chosen in the dialog
+/// that Post opens.
+fn post_choice(ui: &mut egui::Ui, state: &mut UiState) {
+    ui.allocate_ui(Vec2::new(POST_WIDTH, LARGE_HEIGHT), |ui| {
         ui.vertical(|ui| {
-            ui.add_space(FIELD_TOP);
-            ui.add(
-                egui::TextEdit::singleline(&mut state.open_path)
-                    .hint_text(tr("ribbon-open-hint"))
-                    .desired_width(240.0),
-            )
-            .on_hover_text(tr("ribbon-open-path"));
-        });
-    });
-}
-
-/// What Post acts on: the post and the output file.
-fn output_fields(ui: &mut egui::Ui, state: &mut UiState) {
-    ui.allocate_ui(Vec2::new(280.0, LARGE_HEIGHT), |ui| {
-        ui.vertical(|ui| {
-            ui.spacing_mut().item_spacing.y = 6.0;
-            ui.add_space(12.0);
+            ui.add_space(27.0);
             egui::ComboBox::from_id_salt("post")
                 .selected_text(&state.post_id)
-                .width(280.0)
+                .width(POST_WIDTH)
                 .show_ui(ui, |ui| {
-                    for id in POSTS {
-                        ui.selectable_value(&mut state.post_id, id.to_owned(), id);
+                    for choice in crate::posts::choices() {
+                        ui.selectable_value(&mut state.post_id, choice.id.clone(), &choice.id);
                     }
                 })
                 .response
                 .on_hover_text(tr("ribbon-post-processor"));
-            ui.add(egui::TextEdit::singleline(&mut state.post_output).desired_width(280.0))
-                .on_hover_text(tr("ribbon-post-output"));
         });
     });
 }
@@ -178,16 +160,9 @@ fn group(ui: &mut egui::Ui, g: &GroupVm, state: &mut UiState, p: &Palette) -> Ve
                 ui.set_min_height(LARGE_HEIGHT);
                 ui.spacing_mut().item_spacing.x = 2.0;
                 clicked = commands(ui, g, p);
-                match g.id {
-                    GroupId::File => {
-                        ui.add_space(6.0);
-                        open_field(ui, state);
-                    }
-                    GroupId::Output => {
-                        ui.add_space(6.0);
-                        output_fields(ui, state);
-                    }
-                    _ => {}
+                if g.id == GroupId::Output {
+                    ui.add_space(6.0);
+                    post_choice(ui, state);
                 }
             });
             let galley = ui.painter().layout_no_wrap(
@@ -238,13 +213,46 @@ fn stage_tabs(ui: &mut egui::Ui, state: &mut UiState, p: &Palette) {
     });
 }
 
-fn run(c: Command, vm: &RibbonVm, jobs: &mut Jobs, state: &mut UiState) {
+fn run(c: Command, vm: &RibbonVm, jobs: &mut Jobs, state: &mut UiState, dialogs: &mut Dialogs) {
     if !vm.enabled(c) {
         return;
     }
     match c {
-        Command::Open if !state.open_path.trim().is_empty() => {
-            jobs.open(PathBuf::from(state.open_path.trim()));
+        Command::NewProject => {
+            let units = jobs
+                .snapshot
+                .as_ref()
+                .map_or(DisplayUnit::Mm, |s| s.project.units);
+            project::ask(jobs, state, dialogs, DialogKind::New(units));
+        }
+        Command::Open => project::ask(jobs, state, dialogs, DialogKind::Open),
+        Command::Save => jobs.save(),
+        Command::SaveAs => project::ask(jobs, state, dialogs, DialogKind::SaveAs),
+        Command::ImportModel => project::ask(jobs, state, dialogs, DialogKind::Import),
+        Command::Reimport => jobs.reimport(),
+        Command::Undo => jobs.undo(),
+        Command::Redo => jobs.redo(),
+        Command::NewSetup(kind) => jobs.add_setup(kind, None),
+        Command::NewSetupBasedOn => {
+            if let (Some(id), Some(kind)) = (&vm.setup, vm.setup_kind) {
+                jobs.add_setup(kind, Some(id));
+            }
+        }
+        // No Setup editor yet: show the Setup and point at the row.
+        Command::Stock | Command::WorkZero => {
+            if let Some(id) = &vm.setup {
+                state.selection = Selection::Setup(id.clone());
+                state.inspector_focus = Some(if c == Command::Stock {
+                    "setup-stock"
+                } else {
+                    "setup-zero"
+                });
+            }
+        }
+        Command::AddToolpath(t) => {
+            if let Some(setup) = &vm.setup {
+                jobs.add_toolpath(setup, t);
+            }
         }
         Command::CalculateSelected => {
             jobs.calculate(CalcTargets::Toolpaths(vm.selected_toolpaths.clone()));
@@ -271,15 +279,7 @@ fn run(c: Command, vm: &RibbonVm, jobs: &mut Jobs, state: &mut UiState) {
                 _ => state.playback.step(&v, unit, c == Command::StepForward),
             }
         }
-        Command::Post if !state.post_output.trim().is_empty() => {
-            let (date, time) = (state.clock)();
-            jobs.post(PostRequest {
-                post: state.post_id.clone(),
-                output: PathBuf::from(state.post_output.trim()),
-                date,
-                time,
-            });
-        }
+        Command::Post => project::ask(jobs, state, dialogs, DialogKind::PostOutput),
         Command::Cancel => jobs.cancel(),
         _ => {}
     }
@@ -288,15 +288,19 @@ fn run(c: Command, vm: &RibbonVm, jobs: &mut Jobs, state: &mut UiState) {
 /// The shortcuts of [`Command::shortcut`], even of disabled commands, so
 /// the keys stay ours. The ones with Shift go first: without Shift, a
 /// chord also matches the key pressed with Shift.
-///
-/// While the temporary `ui/menu.rs` lives it takes these chords earlier in
-/// the frame, so nothing reaches this; it takes over when the commands are
-/// wired and that module goes.
-fn shortcuts(ctx: &egui::Context, vm: &RibbonVm, jobs: &mut Jobs, state: &mut UiState) {
-    let mut keyed: Vec<_> = Command::all()
-        .into_iter()
-        .filter_map(|cmd| cmd.shortcut().map(|s| (cmd, s)))
-        .collect();
+fn shortcuts(
+    ctx: &egui::Context,
+    vm: &RibbonVm,
+    jobs: &mut Jobs,
+    state: &mut UiState,
+    dialogs: &mut Dialogs,
+) {
+    let typing = ctx.egui_wants_keyboard_input();
+    let mut keyed = Vec::new();
+    for cmd in Command::all() {
+        keyed.extend(cmd.shortcut().into_iter().map(|s| (cmd, s)));
+        keyed.extend(cmd.alt_shortcut().into_iter().map(|s| (cmd, s)));
+    }
     keyed.sort_by_key(|(_, s)| !s.shift);
     for (cmd, s) in keyed {
         let Some(key) = egui::Key::from_name(&s.key.to_string()) else {
@@ -310,13 +314,17 @@ fn shortcuts(ctx: &egui::Context, vm: &RibbonVm, jobs: &mut Jobs, state: &mut Ui
             m |= egui::Modifiers::SHIFT;
         }
         let chord = egui::KeyboardShortcut::new(m, key);
+        // A text field keeps Ctrl+Z for its own undo.
+        if cmd.yields_to_text() && typing {
+            continue;
+        }
         if ctx.input_mut(|i| i.consume_shortcut(&chord)) {
-            run(cmd, vm, jobs, state);
+            run(cmd, vm, jobs, state, dialogs);
         }
     }
 }
 
-pub fn show(ui: &mut egui::Ui, jobs: &mut Jobs, state: &mut UiState) {
+pub fn show(ui: &mut egui::Ui, jobs: &mut Jobs, state: &mut UiState, dialogs: &mut Dialogs) {
     let vm = RibbonVm::new(
         jobs,
         RibbonCx {
@@ -326,7 +334,7 @@ pub fn show(ui: &mut egui::Ui, jobs: &mut Jobs, state: &mut UiState) {
         },
     );
     let p = Palette::get(state.dark);
-    shortcuts(ui.ctx(), &vm, jobs, state);
+    shortcuts(ui.ctx(), &vm, jobs, state, dialogs);
     stage_tabs(ui, state, p);
     ui.add_space(6.0);
     let mut clicked = Vec::new();
@@ -342,6 +350,6 @@ pub fn show(ui: &mut egui::Ui, jobs: &mut Jobs, state: &mut UiState) {
             });
         });
     for cmd in clicked {
-        run(cmd, &vm, jobs, state);
+        run(cmd, &vm, jobs, state, dialogs);
     }
 }

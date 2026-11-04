@@ -332,6 +332,10 @@ impl Worker {
                 let outcome = self.import(&path, unit.as_deref());
                 self.finish(&cx, outcome);
             }
+            Request::Reimport(cx) => {
+                let outcome = self.reimport();
+                self.finish(&cx, outcome);
+            }
             Request::AddSetup {
                 cx,
                 kind,
@@ -533,6 +537,40 @@ impl Worker {
             }
             Err(d) => Outcome::Failed(d),
         }
+    }
+
+    /// Re-imports every geometry source, in project order. The first
+    /// failure stops it; the sources done stay re-imported.
+    fn reimport(&mut self) -> Outcome {
+        let Some(st) = self.state.as_mut() else {
+            return Outcome::Failed(vec![no_project()]);
+        };
+        let ids: Vec<String> = st
+            .session
+            .project
+            .geometry
+            .iter()
+            .map(|g| g.id.clone())
+            .collect();
+        let (mut sources, mut unmatched) = (0, 0);
+        for id in ids {
+            match st.session.reimport(&id) {
+                Ok(r) => {
+                    sources += 1;
+                    unmatched += r.unmatched.len();
+                    for d in r.diagnostics {
+                        push_unique(&mut st.session.warnings, d);
+                    }
+                }
+                Err(d) => {
+                    self.snapshot();
+                    return Outcome::Failed(d);
+                }
+            }
+        }
+        st.edit_error = None;
+        self.snapshot();
+        Outcome::Reimported { sources, unmatched }
     }
 
     /// Runs a session change and sends a snapshot; a refusal is a failed

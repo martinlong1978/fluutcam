@@ -25,6 +25,7 @@ impl StatusVm {
                 JobKind::New => tr_args("job-creating", &[("file", &r.subject)]),
                 JobKind::Save => tr_args("job-saving", &[("file", &r.subject)]),
                 JobKind::Import => tr_args("job-importing", &[("file", &r.subject)]),
+                JobKind::Reimport => tr("job-reimporting"),
                 JobKind::AddSetup => tr("job-adding-setup"),
                 JobKind::AddToolpath => tr("job-adding-toolpath"),
                 JobKind::Undo => tr("job-undoing"),
@@ -83,6 +84,16 @@ impl StatusVm {
                 Outcome::ToolpathAdded { name, .. } => {
                     (tr_args("job-toolpath-added", &[("name", name)]), false)
                 }
+                Outcome::Reimported { sources, unmatched } => (
+                    tr_args(
+                        "job-reimported",
+                        &[
+                            ("count", &sources.to_string()),
+                            ("unmatched", &unmatched.to_string()),
+                        ],
+                    ),
+                    false,
+                ),
                 Outcome::Undone { label } => (tr_args("job-undone", &[("label", label)]), false),
                 Outcome::Redone { label } => (tr_args("job-redone", &[("label", label)]), false),
                 Outcome::Calculated { count } => (
