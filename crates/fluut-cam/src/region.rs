@@ -757,6 +757,19 @@ impl Region2 {
                 Err(e) => last = e,
             }
         }
+        // Last, with features narrower than `TIDY` removed from both, as
+        // offsets do: loops a micrometre wide (a strip along an edge) are
+        // narrower than the side probe that classifies coincident pieces.
+        let tidy = |r: &Region2| Region2 {
+            loops: r.loops.iter().filter_map(Loop2::tidied).collect(),
+        };
+        let (a, b) = (tidy(&a), tidy(&b));
+        for (dx, dy) in [(0.0, 0.0), (1e-9, 0.7e-9)] {
+            match run(&a, &b.translated(Vec2::new(dx, dy))) {
+                Ok(r) => return Ok(r),
+                Err(e) => last = e,
+            }
+        }
         if let Ok(path) = std::env::var("FLUUT_DUMP") {
             let _ = std::fs::write(
                 path,

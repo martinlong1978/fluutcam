@@ -1068,23 +1068,21 @@ fn growth_of_a_loop_pinched_at_a_tangent_hole_is_never_wrong() {
 }
 
 #[test]
-fn union_with_a_micrometre_strip_across_a_notch_is_never_wrong() {
+fn union_with_a_micrometre_strip_across_a_notch() {
     // Found by the `region` fuzz target (release build) through the
-    // containment guard of a later shrink (open,
-    // docs/plan/2026-11-04-region-empty-growth.md): a U-shaped region and a
+    // containment guard of a later shrink: a U-shaped region and a
     // strip 1e-6 mm high along its bottom edge, across the notch. The union
     // came back as the notch alone, a hole with no outer loop (area −6.56):
     // the side probe that classifies coincident pieces (1e-5 mm) reaches
-    // across the strip. The boolean guard must report a failure, never
-    // return that.
+    // across the strip.
     let a = Region2::rect(15.250002, 15.750003, 31.000005, 18.500003)
         .try_subtract(&Region2::rect(15.750003, 15.750003, 19.500006, 17.500004))
         .unwrap();
     let strip = Region2::rect(15.750003, 15.750003, 29.500003999999997, 15.750003999999999);
-    match a.try_union(&strip) {
-        Ok(u) => assert!(u.area() >= a.area() - 1e-6, "{}", u.area()),
-        Err(e) => assert_eq!(e.code(), "cam.region.boolean_failed"),
-    }
+    // The boolean guard rejects it, and the retry without loops narrower
+    // than `TIDY` gives the U shape.
+    let u = a.try_union(&strip).unwrap();
+    assert!(close(u.area(), a.area(), 1e-6), "{}", u.area());
 }
 
 #[test]
