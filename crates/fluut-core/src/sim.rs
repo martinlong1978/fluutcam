@@ -15,7 +15,7 @@
 //!   acceleration yet, so none is used.
 
 use fluut_cam::cutter::solve::SolveStats;
-use fluut_cam::cutter::{BuildOptions, Cutter, DropOptions, QueryGeometry, drop};
+use fluut_cam::cutter::{BuildOptions, Cutter, DropOptions, QueryGeometry, Seeding, drop};
 use fluut_cam::geometry::{BodyGeom, SetupGeometry};
 use fluut_model::Diagnostic;
 use fluut_model::machine::Machine;
@@ -186,9 +186,19 @@ impl Clearance for BallClearance {
     fn clear_height(&self, x: f64, y: f64, r: f64) -> Option<f64> {
         let ball = Cutter::ball(2.0 * r)?;
         let mut st = SolveStats::default();
+        // Edges cover the part's boundary: the rim search is only a net for
+        // model gaps, and is the slow part over holes.
+        let opts = DropOptions {
+            rims: false,
+            seeding: Seeding {
+                split_edges: true,
+                ..Seeding::default()
+            },
+            ..DropOptions::default()
+        };
         self.bodies
             .iter()
-            .filter_map(|q| drop(q, &ball, x, y, &DropOptions::default(), &mut st))
+            .filter_map(|q| drop(q, &ball, x, y, &opts, &mut st))
             .map(|c| c.tau + r)
             .reduce(f64::max)
     }

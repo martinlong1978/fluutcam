@@ -14,6 +14,7 @@ use crate::mesh::{Column, MeshTiles, OFF, Paint, REST, WITHIN};
 use crate::run::Simulation;
 use crate::verify::{Clearance, PartHeights};
 use glam::DVec3;
+use rayon::prelude::*;
 use std::collections::BTreeMap;
 
 /// The paint of the stock after `n` chords of a simulation.
@@ -70,6 +71,13 @@ impl Paint for SimPaint<'_> {
     /// the tolerance away from it (not just below it): the vertical gap at
     /// a wall misstates the thickness. Within and gouge stay: the vertical
     /// gap is an upper bound of the distance.
+    fn vertices(&self, v: &mut [(DVec3, u8)]) {
+        // The queries of a block, which are slow near walls, in parallel.
+        v.par_iter_mut()
+            .with_min_len(32)
+            .for_each(|(p, class)| *class = self.vertex(*p, *class));
+    }
+
     fn vertex(&self, p: DVec3, class: u8) -> u8 {
         if class != REST {
             return class;
@@ -97,6 +105,9 @@ impl SimPaint<'_> {
             f64::from(p.y as f32),
             f64::from(p.z as f32),
         );
+        if self.under(part, p) {
+            return false;
+        }
         if self.far_above(part, p) {
             return true;
         }
@@ -104,6 +115,34 @@ impl SimPaint<'_> {
         part.cache
             .get_or(key, || clear.clear_height(p.x, p.y, part.tol))
             .is_none_or(|h| p.z >= h)
+    }
+
+    /// True when `p` is below the lowest sampled part height of the 3 x 3
+    /// columns around it, with the part under all of them: inside the part
+    /// (or under an overhang of it), so not clear, as the query would say.
+    /// This is the stock's bottom face and the sides of it below the part's
+    /// top, most of the vertices the columns call rest.
+    fn under(&self, part: &PartHeights, p: DVec3) -> bool {
+        let d = self.stock;
+        let g = &d.grids[2];
+        let (ci, cj) = (
+            ((p.x - d.origin.x) / d.res).floor() as i64,
+            ((p.y - d.origin.y) / d.res).floor() as i64,
+        );
+        let mut low = f64::INFINITY;
+        for j in cj - 1..=cj + 1 {
+            for i in ci - 1..=ci + 1 {
+                if i < 0 || j < 0 || i >= g.nu as i64 || j >= g.nv as i64 {
+                    return false;
+                }
+                let h = part.top[j as usize * g.nu + i as usize];
+                if h.is_nan() {
+                    return false;
+                }
+                low = low.min(f64::from(h));
+            }
+        }
+        p.z < low
     }
 
     /// True when the part heights alone show `p` more than the tolerance

@@ -194,17 +194,20 @@ fn seeding_study(name: &str, body: &BrepBody, n: usize) {
             grid: 2,
             rings: 0,
             starts: 1,
+            split_edges: false,
         },
         Seeding {
             grid: 4,
             rings: 1,
             starts: 1,
+            split_edges: false,
         },
         Seeding::default(),
         Seeding {
             grid: 6,
             rings: 3,
             starts: 6,
+            split_edges: false,
         },
     ] {
         for (label, c) in cutters() {

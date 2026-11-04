@@ -520,6 +520,8 @@ fn a_wall_at_45_degrees_is_judged_by_its_perpendicular_distance() {
     assert_eq!(at(0.25), WITHIN);
     assert_eq!(at(0.3), REST);
     assert_eq!(at(2.0), REST);
+    // Under the slope (inside the part) is never rest: the stock's bottom.
+    assert_eq!(paint.vertex(DVec3::new(5.0, 5.0, 2.0), REST), WITHIN);
     // Gouge and within are kept as they are.
     assert_eq!(paint.vertex(DVec3::new(5.0, 5.0, 5.0), WITHIN), WITHIN);
     assert_eq!(paint.vertex(DVec3::new(5.0, 5.0, 4.0), GOUGE), GOUGE);

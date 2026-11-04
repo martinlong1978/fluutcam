@@ -44,19 +44,26 @@ All earlier Global Constraints apply. In addition:
 
 - [x] **Step 1:** Re-run m7 before and after; record; workspace checks; commit.
 
-**Done.** Windows, 12 threads, release, `cargo run -p fluut-core --example m7 --release -- all`; before to after (mesh update after 300 moves from the middle of the last toolpath, ms):
+**Done.** Windows, 12 threads, release, `cargo run -p fluut-core --example m7 --release -- all`. The machine was shared with other builds (projects with no part moved by up to 25 % between runs), so the final numbers are medians of 7 alternating runs of the old binary (before this plan) and the new; mesh update after 300 moves from the middle of the last toolpath, ms:
 
-| Case | res (mm) | Mesh update | First mesh of a `Player` (s) |
-|---|---|---|---|
-| `dome` | 0.1 | 19.9 to 27.4 | 0.09 to 0.28 |
-| `dome` | 0.05 | 143 to 161 | 0.38 to 1.17 |
-| `flipside` s1 | 0.1 / 0.05 | 8.1 to 10.3 / 56 to 52 | 0.05 to 0.09 / 0.32 to 0.37 |
-| `holes` | 0.1 / 0.05 | 3.9 to 297 / 15.7 to 385 | 0.03 to 0.13 / 0.19 to 0.39 |
-| other projects, stand-ins | | unchanged within noise | unchanged |
+| Case | res (mm) | Mesh update before to after | First mesh of a `Player` (s) | Step back worst (ms) |
+|---|---|---|---|---|
+| `dome` | 0.1 | 20.2 to 21.8 (x1.08) | 0.08 to 0.09 | 10.3 to 12.9 |
+| `dome` | 0.05 | 166 to 189 (x1.14) | 0.38 to 0.46 | 15.9 to 16.1 |
+| `flipside` s1 | 0.1 / 0.05 | 8.1 to 8.8 / 59.6 to 56.6 | 0.06 to 0.05 / 0.30 to 0.30 | 16.1 to 14.7 / 69.9 to 56.8 |
+| `flipside` s2 | 0.1 / 0.05 | 7.9 to 8.3 / 42.6 to 43.5 | 0.06 / 0.32 to 0.36 | 4.3 to 4.6 / 17.1 to 17.1 |
+| `holes` | 0.1 | 4.1 to 5.7 (+1.6 ms) | 0.03 to 0.03 | 52.8 to 55.1 |
+| `holes` | 0.05 | 15.9 to 18.8 (x1.18) | 0.21 to 0.22 | 197 to 206 |
+| `boss`, `ridge`, `rough3d`, others | | within noise | within noise | within noise |
+
+The first version took `holes` from 3.9 to 297 ms. Measured fixes, in order of effect (each is in D11 section 10):
+1. Vertices below the part's lowest nearby height (the stock's bottom and sides inside the part) are within without a query: most queries.
+2. The queries themselves: a ball drop over a hole sampled the whole hole edge a quarter ball radius apart (`Seeding::split_edges`), searched face rims (`DropOptions::rims` off), and tested trim containment against every segment (`Trim` keeps runs of 16 segments with their range). A query went from about 1 ms to a few microseconds.
+3. A block refines all its vertices in parallel (`Paint::vertices`).
+Tried and not enough: a coarser or 3D cache key; the cull by the highest nearby height alone.
 
 Deviations:
-- The per-step budget (+20 %) is met on `dome` at 0.05 mm and on `flipside`, missed on `dome` at 0.1 mm (+38 %) and by far on `holes`, where a ball drop on cylindrical faces costs about 0.3 ms (25 us on average elsewhere). Not fixed here: open issue in D11 section 10.
+- `holes` at 0.1 mm is +1.6 ms (+39 %) on a base of 4 ms; the rest are inside about 20 % or the noise between runs.
 - The cache is keyed by `(x, y)` of the vertex and holds the offset height, not a yes or no per vertex, so the vertices up a wall share one query.
-- Distance is by a ball-nosed drop, not a closest-point solver: the faces have no closest-point query with trimming, and a drop is exact for what a three-axis tool reaches.
-- Two earlier versions were slower: a cull by the highest part height around the vertex only, and a cache by 3D position (`holes` update 585 ms).
+- Distance is by a ball-nosed drop, not a closest-point solver: the faces have no closest-point query with trimming, and a drop is exact for what a three-axis tool reaches. `fluut-cam` gained `Seeding::split_edges`, `DropOptions::rims` and the `Trim` runs; the default behaviour of every other drop is unchanged.
 - No golden file changed (there are no rest-colour snapshots); findings and CLI simulation results are untouched.
