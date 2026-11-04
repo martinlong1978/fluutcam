@@ -13,6 +13,7 @@
 
 pub mod bench;
 pub mod brand;
+pub mod dialogs;
 pub mod jobs;
 pub mod scene;
 pub mod session;

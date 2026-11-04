@@ -1,0 +1,28 @@
+# A generic router with a continuous A axis along X: a base for user
+# machines with a rotary axis (spec 02 §2.3).
+format  = "fluut.machine/1"
+id      = "fluut/generic-4axis-router"
+version = "1.0"
+name    = "Generic router with rotary axis"
+post    = "fluut/linuxcnc-4x@1"
+
+[travel]
+x = [0, 1000]
+y = [0, 1000]
+z = [-150, 0]
+
+[spindle]
+rpm = [6000, 24000]
+
+[feed]
+max_cut   = 10000
+max_rapid = 15000
+
+[[axis.rotary]]
+name        = "A"
+parallel_to = "X"
+centre      = [0, 500, -100]
+continuous  = true
+
+[tool_changer]
+kind = "manual"

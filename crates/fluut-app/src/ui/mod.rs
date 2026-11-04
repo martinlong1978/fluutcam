@@ -10,6 +10,7 @@
 mod about;
 mod browser;
 mod inspector;
+mod menu;
 mod ribbon;
 mod simulation;
 mod updates;
@@ -17,7 +18,8 @@ mod viewport;
 
 use crate::bench::Bench;
 use crate::brand::{self, Palette, c};
-use crate::jobs::{CalcTargets, Edit, JobKind, Jobs, Outcome};
+use crate::dialogs::Dialogs;
+use crate::jobs::{CalcTargets, Created, Edit, JobKind, Jobs, Outcome};
 use crate::text::{diagnostic, tr};
 use crate::updates::Updates;
 use crate::vm::Selection;
@@ -74,6 +76,8 @@ pub struct UiState {
     pub step: Step,
     /// The finding looked at, in the work frame.
     pub focus: Option<[f32; 3]>,
+    /// An Open or New waiting for the answer to "discard changes?".
+    pub pending: Option<menu::Pending>,
 }
 
 impl Default for UiState {
@@ -95,6 +99,7 @@ impl Default for UiState {
             stock_colour: StockColour::Plain,
             step: Step::Move,
             focus: None,
+            pending: None,
         }
     }
 }
@@ -106,6 +111,8 @@ pub struct FluutApp {
     pub view: ViewportState,
     /// The update check (spec 06 §6.4). Off until [`FluutApp::with_updates`].
     pub updates: Updates,
+    /// The native file dialogs.
+    pub dialogs: Dialogs,
     dock: DockState<Tab>,
     render: Option<egui_wgpu::RenderState>,
     bench: Bench,
@@ -148,6 +155,8 @@ impl FluutApp {
         brand::apply_theme(ctx, ui.dark);
         let wake = ctx.clone();
         let mut jobs = Jobs::start(move || wake.request_repaint());
+        let wake = ctx.clone();
+        let dialogs = Dialogs::new(move || wake.request_repaint());
         if let Some(p) = open {
             jobs.open(p);
         }
@@ -156,6 +165,7 @@ impl FluutApp {
             view: ViewportState::new(render.as_ref()),
             ui,
             updates: Updates::off(),
+            dialogs,
             dock: default_dock(),
             render,
             bench: Bench::from_env(t0),
@@ -224,6 +234,16 @@ impl FluutApp {
         if self.jobs.poll() {
             self.on_snapshot();
         }
+        // What an add operation made becomes the selection.
+        match self.jobs.created.take() {
+            Some(Created::Setup(id)) => self.ui.selection = Selection::Setup(id),
+            Some(Created::Toolpath(id)) => self.ui.selection = Selection::Toolpath(id),
+            None => {}
+        }
+        if let Some(p) = self.dialogs.poll() {
+            menu::picked(&mut self.jobs, &mut self.ui, p);
+        }
+        menu::shortcuts(ui.ctx(), &mut self.jobs, &mut self.dialogs);
         if self.bench.timing_frames() && !self.bench_ready && !self.jobs.is_busy() {
             // Time frames with the toolpaths on screen: calculate first.
             match &self.jobs.last {
@@ -251,6 +271,12 @@ impl FluutApp {
         egui::Panel::top("title")
             .frame(egui::Frame::new().fill(c(p.base)).inner_margin(6.0))
             .show(ui, |ui| self.title_bar(ui, &p));
+        // TEMPORARY: the ribbon takes the File menu over (ui/menu.rs).
+        egui::Panel::top("menu")
+            .frame(egui::Frame::new().fill(c(p.base)).inner_margin(2.0))
+            .show(ui, |ui| {
+                menu::bar(ui, &mut self.jobs, &mut self.ui, &mut self.dialogs);
+            });
         egui::Panel::top("ribbon")
             .frame(egui::Frame::new().fill(c(p.raised)).inner_margin(6.0))
             .show(ui, |ui| ribbon::show(ui, &mut self.jobs, &mut self.ui));
@@ -272,6 +298,7 @@ impl FluutApp {
                     .tab_context_menus(false)
                     .show_inside(ui, &mut tabs);
             });
+        menu::discard_prompt(ui.ctx(), &mut self.jobs, &mut self.ui);
         about::show(ui.ctx(), &mut self.ui);
         updates::settings(ui.ctx(), &mut self.ui, &mut self.updates);
         updates::prompt(ui.ctx(), &mut self.updates);
@@ -309,11 +336,16 @@ impl FluutApp {
             ui.painter()
                 .circle_filled(r.center(), 6.0, c(brand::CUTTER_ORANGE));
             ui.label(egui::RichText::new(tr("app-title")).strong());
-            let name = self
-                .jobs
-                .snapshot
-                .as_ref()
-                .map_or_else(|| tr("app-untitled"), |s| s.file_name());
+            let name = self.jobs.snapshot.as_ref().map_or_else(
+                || tr("app-untitled"),
+                |s| {
+                    if s.dirty {
+                        format!("{} *", s.file_name())
+                    } else {
+                        s.file_name()
+                    }
+                },
+            );
             ui.label(egui::RichText::new(name).color(c(p.weak_text)));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.button(tr("title-about")).clicked() {

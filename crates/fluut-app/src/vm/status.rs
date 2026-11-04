@@ -22,6 +22,13 @@ impl StatusVm {
             let (done, total) = r.cx.progress.get();
             let text = match r.kind {
                 JobKind::Open => tr_args("job-opening", &[("file", &r.subject)]),
+                JobKind::New => tr_args("job-creating", &[("file", &r.subject)]),
+                JobKind::Save => tr_args("job-saving", &[("file", &r.subject)]),
+                JobKind::Import => tr_args("job-importing", &[("file", &r.subject)]),
+                JobKind::AddSetup => tr("job-adding-setup"),
+                JobKind::AddToolpath => tr("job-adding-toolpath"),
+                JobKind::Undo => tr("job-undoing"),
+                JobKind::Redo => tr("job-redoing"),
                 JobKind::Simulate => {
                     let name = jobs
                         .snapshot
@@ -61,6 +68,23 @@ impl StatusVm {
             None => (tr("job-idle"), false),
             Some((_, o)) => match o {
                 Outcome::Opened { file } => (tr_args("job-opened", &[("file", file)]), false),
+                Outcome::Created { file } => (tr_args("job-created", &[("file", file)]), false),
+                Outcome::Saved { file } => (tr_args("job-saved", &[("file", file)]), false),
+                Outcome::Imported { file, bodies } => (
+                    tr_args(
+                        "job-imported",
+                        &[("file", file), ("count", &bodies.to_string())],
+                    ),
+                    false,
+                ),
+                Outcome::SetupAdded { name, .. } => {
+                    (tr_args("job-setup-added", &[("name", name)]), false)
+                }
+                Outcome::ToolpathAdded { name, .. } => {
+                    (tr_args("job-toolpath-added", &[("name", name)]), false)
+                }
+                Outcome::Undone { label } => (tr_args("job-undone", &[("label", label)]), false),
+                Outcome::Redone { label } => (tr_args("job-redone", &[("label", label)]), false),
                 Outcome::Calculated { count } => (
                     tr_args("job-calculated", &[("count", &count.to_string())]),
                     false,
