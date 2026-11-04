@@ -26,7 +26,9 @@ const USAGE: &str = "usage: cargo xtask <task>
   checksums <dir>
   manifest --dist D --base-url U --out F [--version V] [--date YYYY-MM-DD] [--channel C] [--previous F]
   rustflags
-  repro-check";
+  repro-check
+  screenshots [<out-dir>]
+  wiki-reference [--check]";
 
 fn run(task: &str, args: Vec<String>) -> Result<(), String> {
     match task {
@@ -55,7 +57,26 @@ fn run(task: &str, args: Vec<String>) -> Result<(), String> {
         "manifest" => manifest::run(args),
         "rustflags" => repro::print_rustflags(),
         "repro-check" => repro::repro_check(),
+        // Both run an example of the crate that owns the data, so xtask
+        // stays outside the crate layers (D01 §1) and light to build.
+        "screenshots" => cargo_example("fluut-app", "screenshots", &args),
+        "wiki-reference" => cargo_example("fluut-model", "wiki_reference", &args),
         _ => Err(USAGE.into()),
+    }
+}
+
+/// `cargo run -p <package> --example <name> -- <args>` at the workspace root.
+fn cargo_example(package: &str, example: &str, args: &[String]) -> Result<(), String> {
+    let status = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()))
+        .args(["run", "--quiet", "-p", package, "--example", example, "--"])
+        .args(args)
+        .current_dir(util::workspace_root())
+        .status()
+        .map_err(|e| format!("cannot run cargo: {e}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("example {example} failed: {status}"))
     }
 }
 

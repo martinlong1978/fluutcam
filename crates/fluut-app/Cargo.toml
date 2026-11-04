@@ -36,7 +36,10 @@ resvg = { version = "0.49", default-features = false }
 winresource = "0.1"
 
 [dev-dependencies]
-egui_kittest = "0.36"
+# `wgpu` renders frames headless for the wiki screenshots (example `screenshots`).
+egui_kittest = { version = "0.36", features = ["wgpu"] }
+# PNG output of the screenshots example.
+image = { version = "0.25", default-features = false, features = ["png"] }
 
 [lints]
 workspace = true

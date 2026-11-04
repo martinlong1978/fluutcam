@@ -42,6 +42,8 @@ Specification, design and plans are in `docs/`, so they change together with the
 | M7 | Importers, simulation, scripting | `fluut-io-2d`, `fluut-io-mesh`, `fluut-post-import` (needs CH-21 samples), `fluut-sim`, `fluut-script` | D05/D10 §6/D11/D12 tests. **Scripting done** ([m7-scripting](2026-11-01-m7-scripting.md)); 2-D and mesh importers done ([m7-io-2d-mesh](2026-11-01-m7-io-2d-mesh.md)) |
 | M8 | Release engineering | signing, installers, update manifest, crash reports, docs | signed builds on 3 platforms ([D14 §5]). **Part 1 done** ([m8-release](2026-11-01-m8-release.md)). Signing decided (D14 §5.2, [code signing policy](../CODE_SIGNING.md)): Windows through SignPath Foundation, macOS ad hoc, attestations on every file; waits for the SignPath application |
 
+**User documentation** is a GitHub wiki, written in [`docs/wiki/`](../wiki/README.md) and copied to the wiki by a workflow ([plan](2026-11-04-docs-wiki.md)). A change that alters what a user sees or does updates the pages, reruns `cargo xtask screenshots` and, for toolpath settings and diagnostics, `cargo xtask wiki-reference` ([CONTRIBUTING](../../CONTRIBUTING.md#keep-the-wiki-current)).
+
 M1 and M2 can run in parallel. S1–S5 can start as soon as M0 is done. S2 needs S1.
 
 ## Design work still owed
