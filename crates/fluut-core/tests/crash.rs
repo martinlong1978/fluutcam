@@ -1,15 +1,25 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! The panic hook writes a report file. The hook is process-wide, so this
-//! file has a single test.
+//! The panic hook writes a report file, except for panics that a region
+//! retry catches. The hook is process-wide, so this file has a single test.
 
 use fluut_core::crash;
 
 #[test]
-fn a_panic_leaves_a_report_with_message_location_and_backtrace() {
+fn a_panic_leaves_a_report_unless_a_region_retry_catches_it() {
     let dir = std::env::temp_dir().join(format!("fluut-hook-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     crash::install_in("fluut-test", dir.clone());
+
+    // A panic caught inside a region operation (and retried there) is not a
+    // crash: no report.
+    let quiet = fluut_cam::region::catch_quiet(|| panic!("caught by a region retry"));
+    assert!(quiet.is_err());
+    assert!(
+        crash::pending(&dir).is_empty(),
+        "{:?}",
+        crash::pending(&dir)
+    );
 
     let caught = std::panic::catch_unwind(|| {
         let v: Vec<u32> = Vec::new();

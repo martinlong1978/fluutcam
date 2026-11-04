@@ -159,9 +159,16 @@ fn unix_time() -> u64 {
 
 /// Installs the panic hook for the program `app`. The report goes to `dir`;
 /// the previous hook still runs, so the usual panic message is still shown.
+/// Panics caught by [`fluut_cam::region::catch_quiet`] (region retries) are
+/// skipped: neither a report nor a message.
 pub fn install_in(app: &'static str, dir: PathBuf) {
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
+        // A panic inside a region operation is retried there or becomes a
+        // diagnostic on the toolpath; it is not a crash.
+        if fluut_cam::region::in_catch_quiet() {
+            return;
+        }
         previous(info);
         let message = match info.payload().downcast_ref::<&str>() {
             Some(s) => (*s).to_owned(),
