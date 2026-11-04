@@ -173,3 +173,169 @@ fn rest_classes_against_the_part() {
     }
     assert!(m.tags.iter().any(|&t| tag_toolpath(t) == Some(1)));
 }
+
+/// A fixed pseudo-random sequence (no `rand`: the tests stay reproducible).
+fn lcg(state: &mut u64) -> usize {
+    *state = state
+        .wrapping_mul(6_364_136_223_846_793_005)
+        .wrapping_add(1_442_695_040_888_963_407);
+    (*state >> 33) as usize
+}
+
+/// The stock after `n` chords cut forward from the start, with no
+/// checkpoint and no snapshot.
+fn from_the_start(s: &Simulation, n: usize) -> TriDexel {
+    let mut d = s.stock_initial().clone();
+    s.cut(&mut d, 0..n);
+    d
+}
+
+/// Many short moves: 40 rows of three moves, then a pass across.
+fn long_sim() -> Simulation {
+    let a = raster(40, 8.0);
+    let b = path(&[xyz(-3.0, 5.0, 6.0), xyz(23.0, 5.0, 6.0)]);
+    Simulation::run(
+        block(20.0, 90.0, 10.0),
+        &[
+            program("t1", &a, Tool::flat(1.0)),
+            program("t2", &b, Tool::flat(1.0)),
+        ],
+        &settings(0.5),
+        Some(&Shelf),
+        &Quiet,
+    )
+    .unwrap()
+}
+
+#[test]
+fn seeks_equal_a_fresh_forward_cut() {
+    let s = long_sim();
+    let n = s.chords.len();
+    let limits = [
+        Limits::default(),
+        Limits {
+            stride: 7,
+            budget: usize::MAX,
+        },
+        Limits {
+            stride: 64,
+            budget: 1 << 20,
+        },
+        // So small that snapshots are evicted all the time.
+        Limits {
+            stride: 5,
+            budget: 40 << 10,
+        },
+        // Too small for any.
+        Limits {
+            stride: 5,
+            budget: 16,
+        },
+    ];
+    for (k, lim) in limits.into_iter().enumerate() {
+        let mut state = 17 + k as u64;
+        let mut p = Player::with_limits(&s, n / 2, lim);
+        let mut at = n / 2;
+        for i in 0..60 {
+            let r = lcg(&mut state);
+            at = match i % 4 {
+                // Anywhere.
+                0 => r % (n + 1),
+                // A few chords, forward or back.
+                1 => (at + r % 40).saturating_sub(20).min(n),
+                // A run of back steps.
+                2 => at.saturating_sub(1 + r % 30),
+                _ => (at + 1 + r % 200).min(n),
+            };
+            p.seek(&s, at);
+            assert_eq!(p.chords(), at);
+            assert_eq!(p.stock().hash(), from_the_start(&s, at).hash(), "{k}: {at}");
+            let fresh = Player::new(&s, at);
+            for (a, b) in p.mesh().blocks().iter().zip(fresh.mesh().blocks()) {
+                assert!(**a == **b, "{k}: blocks at {at}");
+            }
+            assert!(p.snapshot_bytes() <= lim.budget, "{k}: {at}");
+        }
+    }
+}
+
+#[test]
+fn a_step_back_cuts_at_most_a_stride() {
+    let s = long_sim();
+    let n = s.chords.len();
+    let stride = 16;
+    assert!(n > 4 * stride, "{n}");
+    let mut p = Player::with_limits(
+        &s,
+        0,
+        Limits {
+            stride,
+            budget: usize::MAX,
+        },
+    );
+    // Jump to the end (the final checkpoint: nothing is cut, no snapshots),
+    // then step back one chord at a time. The first step back cuts from the
+    // checkpoint and leaves snapshots in the last FINE strides; the steps
+    // back inside them cut a stride at most.
+    p.seek(&s, n);
+    let toolpath = s.toolpaths[1].chords.start;
+    p.seek(&s, toolpath - 1);
+    assert_eq!(p.last_cut(), toolpath - 1);
+    let zone = (toolpath - 1 - FINE * stride).div_ceil(stride) * stride;
+    assert!(zone > 0);
+    for k in (zone..toolpath - 1).rev() {
+        p.seek(&s, k);
+        assert!(p.last_cut() < stride, "at {k}: {}", p.last_cut());
+    }
+    // Below them it cuts from the checkpoint (and leaves snapshots again).
+    p.seek(&s, zone - 1);
+    assert_eq!(p.last_cut(), zone - 1);
+    p.seek(&s, zone - 2);
+    assert!(p.last_cut() < stride);
+    // A forward step of one cuts one.
+    p.seek(&s, 1);
+    assert_eq!(p.last_cut(), 1);
+}
+
+#[test]
+fn snapshots_share_tiles_and_are_bounded() {
+    let s = long_sim();
+    let n = s.toolpaths[1].chords.start;
+    let mut p = Player::with_limits(
+        &s,
+        0,
+        Limits {
+            stride: 4,
+            budget: usize::MAX,
+        },
+    );
+    for t in (0..n).step_by(12) {
+        p.seek(&s, t);
+    }
+    let all = p.snapshot_bytes();
+    assert!(all > 0);
+    // The stock's own size, for scale: every snapshot would hold a whole
+    // copy without sharing.
+    let one = s.stock_initial().memory();
+    let one = one.rays * std::mem::size_of::<crate::dexel::Spans>();
+    let count = n / 4;
+    assert!(count > 20);
+    assert!(
+        all < count * one / 2,
+        "{all} bytes for {count} snapshots of {one}"
+    );
+    // A budget evicts down to it.
+    let mut q = Player::with_limits(
+        &s,
+        0,
+        Limits {
+            stride: 4,
+            budget: all / 4,
+        },
+    );
+    for t in (0..n).step_by(12) {
+        q.seek(&s, t);
+    }
+    assert!(q.snapshot_bytes() <= all / 4);
+    assert!(q.snapshot_bytes() > 0);
+}

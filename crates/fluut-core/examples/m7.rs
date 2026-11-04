@@ -51,7 +51,7 @@ fn ms(t: Instant) -> f64 {
 /// blocks it rebuilt) and the same moves back (ms).
 fn playback(sim: &Simulation) -> String {
     let Some(last) = sim.toolpaths.last() else {
-        return "| | | | | | |".into();
+        return "| | | | | | | | |".into();
     };
     let t0 = 0.5 * (last.start + last.end);
     let n0 = sim.chords_at(t0);
@@ -80,15 +80,35 @@ fn playback(sim: &Simulation) -> String {
     let t = Instant::now();
     p.seek(sim, n2);
     let one = ms(t);
-    format!("{full:.2} | {blocks} | {one:.1} | {fwd:.1} | {mesh:.1} | {rebuilt} | {back:.1} |")
+    // Single steps back from there, as scrubbing with the step button.
+    let mut t2 = sim.step(t0, Step::Move, true);
+    let mut worst = 0.0f64;
+    let mut sum = 0.0;
+    const BACK: usize = 20;
+    for _ in 0..BACK {
+        t2 = sim.step(t2, Step::Move, false);
+        let n = sim.chords_at(t2);
+        let t = Instant::now();
+        p.seek(sim, n);
+        let e = ms(t);
+        worst = worst.max(e);
+        sum += e;
+    }
+    let avg = sum / BACK as f64;
+    let kept = p.snapshot_bytes() as f64 / (1024.0 * 1024.0);
+    format!(
+        "{full:.2} | {blocks} | {one:.1} | {fwd:.1} | {mesh:.1} | {rebuilt} | {back:.1} | {avg:.1} / {worst:.1} | {kept:.1} |"
+    )
 }
 
 fn projects(errors: &[f64]) {
     println!("\n## Reference projects ({} threads)", threads());
     println!(
-        "| project | error (mm) | res (mm) | segments | chords | memory (MB) | simulate (s) | µs per segment | scrub (s) | mesh (s) | triangles | findings | player (s) | blocks | 1 move (ms) | {STEP} moves (ms) | mesh update (ms) | rebuilt | back (ms) |"
+        "| project | error (mm) | res (mm) | segments | chords | memory (MB) | simulate (s) | µs per segment | scrub (s) | mesh (s) | triangles | findings | player (s) | blocks | 1 move (ms) | {STEP} moves (ms) | mesh update (ms) | rebuilt | back (ms) | back 1 move avg / worst (ms) | snapshots (MB) |"
     );
-    println!("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|");
+    println!(
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"
+    );
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../fluut-cli/tests/projects");
     let mut names: Vec<String> = std::fs::read_dir(&dir)
         .unwrap()
@@ -152,9 +172,9 @@ fn standins(errors: &[f64]) {
         threads()
     );
     println!(
-        "| stand-in | res (mm) | segments | chords | memory (MB) | run (s) | µs per segment | scrub (s) | mesh (s) | triangles | player (s) | blocks | 1 move (ms) | {STEP} moves (ms) | mesh update (ms) | rebuilt | back (ms) |"
+        "| stand-in | res (mm) | segments | chords | memory (MB) | run (s) | µs per segment | scrub (s) | mesh (s) | triangles | player (s) | blocks | 1 move (ms) | {STEP} moves (ms) | mesh update (ms) | rebuilt | back (ms) | back 1 move avg / worst (ms) | snapshots (MB) |"
     );
-    println!("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|");
+    println!("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|");
     let rough = result(relief::roughing(2.4, 0.5));
     let finish = result(relief::program(0.3, 0.5));
     let wrap = result(rotary::program(0.5, 2.0));

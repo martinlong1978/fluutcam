@@ -102,6 +102,15 @@ pub fn subtract(spans: &mut Spans, a: f32, b: f32) -> bool {
     true
 }
 
+/// Bytes of one tile: its rays and their spilled spans.
+fn tile_bytes(t: &Tile) -> usize {
+    t.len() * size_of::<Spans>()
+        + t.iter()
+            .filter(|r| r.spilled())
+            .map(|r| r.capacity() * size_of::<Span>())
+            .sum::<usize>()
+}
+
 impl DexelGrid {
     /// Position of ray `(i, j)` at `t = 0` (on the box's minimum face).
     pub fn ray_origin(&self, d: &TriDexel, i: usize, j: usize) -> DVec3 {
@@ -160,12 +169,21 @@ impl DexelGrid {
         let mut n = 0;
         for t in &self.tiles {
             if seen.insert(Arc::as_ptr(t) as usize) {
-                n += t.len() * size_of::<Spans>();
-                n += t
-                    .iter()
-                    .filter(|r| r.spilled())
-                    .map(|r| r.capacity() * size_of::<Span>())
-                    .sum::<usize>();
+                n += tile_bytes(t);
+            }
+        }
+        n
+    }
+
+    /// Bytes of the tiles that are not the same allocation as the tile at
+    /// the same place in `prev`, plus the list of tile pointers.
+    pub(crate) fn bytes_since(&self, prev: Option<&DexelGrid>) -> usize {
+        let mut n = self.tiles.len() * size_of::<Arc<Tile>>();
+        for (k, t) in self.tiles.iter().enumerate() {
+            if !prev.is_some_and(|p| p.tiles.get(k).is_some_and(|q| Arc::ptr_eq(q, t))) {
+                // Spilled spans estimated at 20 % (S5), not counted: this
+                // is called per snapshot and must not touch every ray.
+                n += t.len() * size_of::<Spans>() * 6 / 5;
             }
         }
         n
@@ -296,6 +314,20 @@ impl TriDexel {
 
     pub fn origin_point(&self) -> Point3 {
         Point3(self.origin)
+    }
+
+    /// Bytes this stock holds that `prev` does not (tiles are compared by
+    /// allocation), counting the tile lists: what keeping it next to `prev`
+    /// costs.
+    pub fn bytes_since(&self, prev: Option<&TriDexel>) -> usize {
+        (0..3)
+            .map(|k| self.grids[k].bytes_since(prev.map(|p| &p.grids[k])))
+            .sum()
+    }
+
+    /// Bytes of the tiles not in `seen`, which then holds them.
+    pub fn unique_bytes(&self, seen: &mut std::collections::BTreeSet<usize>) -> usize {
+        self.grids.iter().map(|g| g.unique_bytes(seen)).sum()
     }
 
     /// Material volume estimated from each family: `res² · Σ span lengths`.

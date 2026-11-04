@@ -492,6 +492,13 @@ impl Simulation {
         d
     }
 
+    /// The latest checkpoint at or before `n` chords: its chord count and
+    /// stock.
+    pub(crate) fn checkpoint_at(&self, n: usize) -> (usize, &TriDexel) {
+        let (from, d) = &self.checkpoints[self.checkpoint_index(n)];
+        (*from, d)
+    }
+
     /// The index of the latest checkpoint at or before `n` chords.
     pub(crate) fn checkpoint_index(&self, n: usize) -> usize {
         self.checkpoints.partition_point(|(m, _)| *m <= n) - 1
