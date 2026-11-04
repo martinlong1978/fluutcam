@@ -221,7 +221,15 @@ fn run_script(a: &RunArgs) -> ExitCode {
             }
         },
     };
-    let project_dir = session.as_ref().map(|s| absolute(&s.dir));
+    // A project given as a bare file name has an empty folder: that is the
+    // current folder.
+    let project_dir = session.as_ref().map(|s| {
+        absolute(if s.dir.as_os_str().is_empty() {
+            std::path::Path::new(".")
+        } else {
+            &s.dir
+        })
+    });
     let (date, time) = now_utc();
     let name = a
         .script

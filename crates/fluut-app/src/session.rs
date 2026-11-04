@@ -22,6 +22,7 @@ use fluut_core::fluut_sim::{Check, Monitor, Player, Step, StockMesh};
 use fluut_core::{JobReport, JobState, NodeId, PostOptions, Session, SetupFrame, Targets};
 use fluut_core::{SimResult, SimSettings};
 use fluut_model::PValue;
+use fluut_model::project::SetupKind;
 use fluut_model::project::{DisplayUnit, Project};
 use fluut_model::setup::{ResolvedSetup, resolve_all};
 use fluut_model::tools::ToolStore;
@@ -793,6 +794,13 @@ impl State {
         {
             scenes.insert(MODEL_SCENE.to_owned(), m);
         }
+        // The kind decides which toolpath types validate (rotary types run in
+        // rotary Setups only), and it may be inherited.
+        let kinds: BTreeMap<String, SetupKind> = resolve_all(&project)
+            .into_iter()
+            .flatten()
+            .map(|r| (r.id, r.kind))
+            .collect();
         let mut status = BTreeMap::new();
         let mut diagnostics = BTreeMap::new();
         let mut stats = BTreeMap::new();
@@ -802,6 +810,7 @@ impl State {
                 let tool = self.session.tools.get(&t.tool);
                 let cx = ValidateCx {
                     material: s.material.as_deref(),
+                    setup_kind: kinds.get(&s.id).copied().unwrap_or(SetupKind::ThreeAxis),
                     ..ValidateCx::new(tool)
                 };
                 let mut diags = validate(t, &cx);
