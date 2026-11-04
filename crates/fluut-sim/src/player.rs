@@ -10,8 +10,11 @@
 //! part and by the toolpath that last cut them.
 
 use crate::dexel::TriDexel;
-use crate::mesh::{Column, MeshTiles, OFF, Paint};
+use crate::mesh::{Column, MeshTiles, OFF, Paint, REST, WITHIN};
 use crate::run::Simulation;
+use crate::verify::{Clearance, PartHeights};
+use glam::DVec3;
+use rayon::prelude::*;
 use std::collections::BTreeMap;
 
 /// The paint of the stock after `n` chords of a simulation.
@@ -62,6 +65,117 @@ impl Paint for SimPaint<'_> {
             class,
             toolpath: toolpath.map(|k| k as u16),
         }
+    }
+
+    /// A vertex the columns call rest is rest only if the part is more than
+    /// the tolerance away from it (not just below it): the vertical gap at
+    /// a wall misstates the thickness. Within and gouge stay: the vertical
+    /// gap is an upper bound of the distance.
+    fn vertices(&self, v: &mut [(DVec3, u8)]) {
+        // The queries of a block, which are slow near walls, in parallel.
+        v.par_iter_mut()
+            .with_min_len(32)
+            .for_each(|(p, class)| *class = self.vertex(*p, *class));
+    }
+
+    fn vertex(&self, p: DVec3, class: u8) -> u8 {
+        if class != REST {
+            return class;
+        }
+        match &self.sim.part {
+            Some(part) => match &part.clearance {
+                Some(c) if !self.rest_is_clear(part, c.as_ref(), p) => WITHIN,
+                _ => class,
+            },
+            None => class,
+        }
+    }
+}
+
+/// Columns around a vertex whose part heights bound its distance to the part.
+const REACH: i64 = 2;
+
+impl SimPaint<'_> {
+    /// Whether the part is more than `part.tol` from `p`, for a vertex the
+    /// columns call rest.
+    fn rest_is_clear(&self, part: &PartHeights, clear: &dyn Clearance, p: DVec3) -> bool {
+        // The query sees the position the mesh stores.
+        let p = DVec3::new(
+            f64::from(p.x as f32),
+            f64::from(p.y as f32),
+            f64::from(p.z as f32),
+        );
+        if self.under(part, p) {
+            return false;
+        }
+        if self.far_above(part, p) {
+            return true;
+        }
+        let key = [p.x as f32, p.y as f32].map(f32::to_bits);
+        part.cache
+            .get_or(key, || clear.clear_height(p.x, p.y, part.tol))
+            .is_none_or(|h| p.z >= h)
+    }
+
+    /// True when `p` is below the lowest sampled part height of the 3 x 3
+    /// columns around it, with the part under all of them: inside the part
+    /// (or under an overhang of it), so not clear, as the query would say.
+    /// This is the stock's bottom face and the sides of it below the part's
+    /// top, most of the vertices the columns call rest.
+    fn under(&self, part: &PartHeights, p: DVec3) -> bool {
+        let d = self.stock;
+        let g = &d.grids[2];
+        let (ci, cj) = (
+            ((p.x - d.origin.x) / d.res).floor() as i64,
+            ((p.y - d.origin.y) / d.res).floor() as i64,
+        );
+        let mut low = f64::INFINITY;
+        for j in cj - 1..=cj + 1 {
+            for i in ci - 1..=ci + 1 {
+                if i < 0 || j < 0 || i >= g.nu as i64 || j >= g.nv as i64 {
+                    return false;
+                }
+                let h = part.top[j as usize * g.nu + i as usize];
+                if h.is_nan() {
+                    return false;
+                }
+                low = low.min(f64::from(h));
+            }
+        }
+        p.z < low
+    }
+
+    /// True when the part heights alone show `p` more than the tolerance
+    /// from the part. The part around `p` lies at or under the sampled
+    /// heights of the columns near it; a point of a column is at least the
+    /// larger of the vertical gap to its height and the sideways gap to the
+    /// column away, and beyond [`REACH`] columns it is at least that many
+    /// ray spacings away. (Heights are samples: a part feature narrower than
+    /// a ray spacing between them is missed, as by the vertical class.)
+    fn far_above(&self, part: &PartHeights, p: DVec3) -> bool {
+        let d = self.stock;
+        let g = &d.grids[2];
+        let res = d.res;
+        let (fx, fy) = ((p.x - d.origin.x) / res, (p.y - d.origin.y) / res);
+        let (ci, cj) = (fx.floor() as i64, fy.floor() as i64);
+        let mut near = REACH as f64 * res;
+        for j in (cj - REACH).max(0)..=(cj + REACH).min(g.nv as i64 - 1) {
+            let dy = ((j as f64 - fy).max(fy - (j + 1) as f64)).max(0.0) * res;
+            for i in (ci - REACH).max(0)..=(ci + REACH).min(g.nu as i64 - 1) {
+                let h = part.top[j as usize * g.nu + i as usize];
+                if h.is_nan() {
+                    continue;
+                }
+                let dx = ((i as f64 - fx).max(fx - (i + 1) as f64)).max(0.0) * res;
+                // A lower bound of the sideways distance, √(dx² + dy²).
+                let sideways = dx.max(dy);
+                near = near.min((p.z - f64::from(h)).max(sideways));
+                if near <= part.tol {
+                    return false;
+                }
+            }
+        }
+        near > part.tol
     }
 }
 

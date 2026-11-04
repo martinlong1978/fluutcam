@@ -95,6 +95,21 @@ pub struct Column {
 /// block whose rays did not change keeps its paint.
 pub trait Paint: Sync {
     fn column(&self, i: usize, j: usize) -> Column;
+
+    /// The class of the vertex at `p` (stock frame) whose columns gave
+    /// `class`. May depend only on `p` and `class`, so that a block whose
+    /// rays did not change keeps its paint.
+    fn vertex(&self, _p: DVec3, class: u8) -> u8 {
+        class
+    }
+
+    /// [`Paint::vertex`] for all the vertices of a block at once, `(position,
+    /// class)` in place; may work on them in parallel.
+    fn vertices(&self, v: &mut [(DVec3, u8)]) {
+        for (p, class) in v {
+            *class = self.vertex(*p, *class);
+        }
+    }
 }
 
 /// Plain stock.
@@ -533,6 +548,8 @@ fn build(d: &TriDexel, paint: &dyn Paint, bx: usize, by: usize) -> StockMesh {
     }
     let col = |i: i64, j: i64| cols[(j - y0 + 1) as usize * pw + (i - x0 + 1) as usize];
     let mut m = StockMesh::default();
+    // Position and class of each vertex of `m`, for the paint to refine.
+    let mut refine: Vec<(DVec3, u8)> = Vec::new();
     let mut local = vec![u32::MAX; verts.len()];
     let f = |p: DVec3| [p.x as f32, p.y as f32, p.z as f32];
     for e in edges.iter().filter(|e| inner(e, MARGIN)) {
@@ -552,10 +569,15 @@ fn build(d: &TriDexel, paint: &dyn Paint, bx: usize, by: usize) -> StockMesh {
                     col(cx + 1, cy + 1),
                 ]);
                 m.tags.push(tag(class, tp));
+                refine.push((verts[v], class));
             }
         }
         let q = q.map(|v| local[v]);
         m.indices.extend([q[0], q[1], q[2], q[0], q[2], q[3]]);
+    }
+    paint.vertices(&mut refine);
+    for (t, (_, class)) in m.tags.iter_mut().zip(&refine) {
+        *t = tag(*class, tag_toolpath(*t));
     }
     m
 }

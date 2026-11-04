@@ -68,7 +68,7 @@ All earlier Global Constraints apply. In addition:
 - Tasks 1–3 were committed together; the measurements and documents separately.
 - Blocks are 16 lattice columns square, not 32: about 25 % faster updates on the relief, at more draw calls (2 961 blocks at 0.2 mm). A dense cell index instead of sorting the crossings was tried and was slower.
 - "Step one segment" is read as one pass (a `Pass` of the result); moves are the result's segments, and stepping by toolpath was added. Moves and passes end with their last chord, so moves that touch no stock are stepped over; toolpaths end at their clip's end.
-- Rest classes are by the vertical distance at the Z rays around a vertex, from the part heights the verification already queries, not by closest-point distance; walls take the class of the columns beside them.
+- Rest classes were by the vertical distance at the Z rays around a vertex, from the part heights the verification already queries, not by closest-point distance; walls took the class of the columns beside them. **Superseded 2026-11-04** by the distance from each vertex to the part: [the rest-closest plan](2026-11-04-sim-rest-closest.md), [D11 section 10](../design/D11-simulation.md#10-m7-implementation-2026-11-01).
 - The toolpath colour is the last toolpath that changed one of the four Z rays around a vertex; a wall cut only through X or Y rays takes the colour of the columns beside it.
 - Stepping back re-cuts from the checkpoint: 75–81 ms for 300 moves on the relief at 0.2 mm, 1.1 s on the rotary wrap. Not changed here; done in [the step-back plan](2026-11-04-sim-step-back.md).
 - The legend is in the Simulation tab, not over the viewport.

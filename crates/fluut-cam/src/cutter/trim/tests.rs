@@ -161,3 +161,40 @@ fn tilted_torus_patch() {
     assert!(!t.contains(6.0, 2.0));
     assert!(!t.contains(5.0, 3.0));
 }
+
+#[test]
+fn skipping_runs_gives_the_same_answer_as_looking_at_every_segment() {
+    // A plate with a round hole of many segments, and a cylinder band.
+    let mut b = Builder::new("plate");
+    let outer = polygon(
+        &mut b,
+        &[(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)],
+    );
+    let ring: Vec<(f64, f64)> = (0..200)
+        .map(|k| {
+            let (s, c) = libm::sincos(k as f64 * 2.0 * PI / 200.0);
+            (5.0 + 2.0 * c, 5.0 + 2.0 * s)
+        })
+        .collect();
+    let hole = polygon(&mut b, &ring);
+    b.face(Surface::plane(Frame::world_xy()), true, &[outer, hole]);
+    let t = Trim::build(&b.build(), 0, 0.001).unwrap();
+    assert!(t.chunks.len() > 8);
+    let mut n = 0;
+    for i in 0..60 {
+        for j in 0..60 {
+            let (u, v) = (-1.0 + 0.2 * i as f64, -1.0 + 0.2 * j as f64 + 0.013);
+            assert_eq!(t.scan(u, v, true), t.scan(u, v, false), "{u} {v}");
+            n += usize::from(t.contains(u, v));
+        }
+    }
+    assert!(n > 0);
+    // Periodic in a.
+    let t = Trim::build(&band(true), 0, 0.001).unwrap();
+    for i in 0..80 {
+        for j in 0..20 {
+            let (u, v) = (-7.0 + 0.2 * i as f64, -2.0 + 0.3 * j as f64);
+            assert_eq!(t.scan(u, v, true), t.scan(u, v, false), "{u} {v}");
+        }
+    }
+}
