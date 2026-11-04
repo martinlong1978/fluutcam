@@ -659,6 +659,13 @@ fn newton_contact(
     for _ in 0..20 {
         let rn = libm::hypot(r[0], r[1]);
         if rn < tol {
+            // One more full step with the Jacobian in hand: the residual
+            // goes from below `tol` to about its square, so a contact on
+            // the footprint rim is not turned away for sitting a few 1e-9
+            // outside it.
+            if let Some(step) = solve2(j, [-r[0], -r[1]]) {
+                return Some(bounds.clamp(u + step[0], v + step[1]));
+            }
             return Some((u, v));
         }
         let step = solve2(j, [-r[0], -r[1]])?;

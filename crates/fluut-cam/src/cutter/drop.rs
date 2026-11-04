@@ -3,7 +3,7 @@
 //! The drop query (D07 §2–§3): highest tool position along −Z, by
 //! best-first branch and bound over the primitive BVH.
 
-use super::geom::{Prim, QueryGeometry};
+use super::geom::{Prim, QueryGeometry, SubBox};
 use super::profile::Cutter;
 use super::solve::{self, Axis, Contact, Seeding, SolveStats};
 use fluut_geom::Aabb3;
@@ -49,6 +49,26 @@ pub fn bound(b: &Aabb3, ax: Axis, c: &Cutter) -> f64 {
     }
 }
 
+/// [`bound`] over the sub-boxes of a B-spline patch or edge: the highest
+/// bound of any of them, which is at most the bound of the whole box.
+pub fn sub_bound(subs: &[SubBox], ax: Axis, c: &Cutter) -> f64 {
+    let r = c.radius();
+    let mut best = f64::NEG_INFINITY;
+    for b in subs {
+        let dx = (f64::from(b.min_x) - ax.x)
+            .max(ax.x - f64::from(b.max_x))
+            .max(0.0);
+        let dy = (f64::from(b.min_y) - ax.y)
+            .max(ax.y - f64::from(b.max_y))
+            .max(0.0);
+        let d = libm::hypot(dx, dy);
+        if d <= r {
+            best = best.max(f64::from(b.max_z) - c.h(d));
+        }
+    }
+    best
+}
+
 /// Highest contact on primitive `i`.
 pub fn solve_prim(
     g: &QueryGeometry,
@@ -89,9 +109,21 @@ pub fn drop(
     let mut best: Option<Contact> = None;
     // Faces whose highest stationary point is outside their trim, with its τ.
     let mut trimmed: Vec<(u32, f64)> = Vec::new();
-    g.bvh.best_first(
+    g.bvh.best_first_refined(
         opts.floor,
         |b| bound(b, ax, c) - opts.slack,
+        // A B-spline patch or edge goes back into the queue under the
+        // bound of its sub-boxes, so that the primitives are solved in the
+        // order of the tighter bounds and those that cannot beat the best
+        // contact are never solved.
+        |i, bound| {
+            let subs = g.sub_boxes(i);
+            if subs.is_empty() {
+                bound
+            } else {
+                bound.min(sub_bound(subs, ax, c) - opts.slack)
+            }
+        },
         |i, _| {
             let r = match g.prims[i as usize] {
                 Prim::Face { face, uv } => {

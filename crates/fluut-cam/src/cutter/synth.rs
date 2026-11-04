@@ -421,3 +421,32 @@ pub fn tiled(n: usize, freeform: bool) -> BrepBody {
     }
     b.build()
 }
+
+/// Height of the smooth sculpted surface of [`sculpted`] at `(x, y)`: slopes
+/// up to about 1, ripples of a few millimetres over 10 to 60 mm.
+pub fn sculpt_height(x: f64, y: f64) -> f64 {
+    6.0 * libm::sin(0.09 * x)
+        + 4.0 * libm::cos(0.07 * y + 0.5)
+        + 2.0 * libm::sin(0.21 * x + 0.15 * y)
+        + 0.6 * libm::sin(0.5 * x) * libm::cos(0.45 * y)
+}
+
+/// A smooth free-form surface of `n × n` bicubic B-spline faces of side
+/// `size` mm, `poles × poles` poles each, whose pole heights follow
+/// [`sculpt_height`] (so neighbours meet along shared boundary curves). It
+/// stands for a sculpted model whose faces are larger than a ripple, unlike
+/// the rough [`tiled`] model.
+pub fn sculpted(n: usize, size: f64, poles: usize) -> BrepBody {
+    let mut b = Builder::new("sculpted");
+    let step = size / (poles - 1) as f64;
+    for i in 0..n {
+        for j in 0..n {
+            let (ox, oy) = (size * i as f64, size * j as f64);
+            let (s, bd) = bspline_square(Point3::new(ox, oy, 0.0), size, poles, |a, c| {
+                sculpt_height(ox + a as f64 * step, oy + c as f64 * step)
+            });
+            b.bspline_patch(s, bd);
+        }
+    }
+    b.build()
+}
