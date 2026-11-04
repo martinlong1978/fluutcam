@@ -1554,3 +1554,41 @@ fn unions_of_neighbouring_tool_sweeps() {
         check_boolean(&a, &b, op);
     }
 }
+
+#[test]
+#[ignore = "open: docs/plan/2026-11-04-region-touching-booleans.md"]
+fn growth_of_a_grown_strip_with_a_micrometre_slit() {
+    // crash-cc2e80593715d9c4 (fuzzing after the fixes, debug assertions):
+    // reported as `cam.region.offset_failed`.
+    let r = check_boolean(
+        &Region2::rect(0.500002, 3e-6, 1.0000019999999998, 3.000003),
+        &Region2::rect(0.500002, 0.500002, 0.5000049999999999, 2.000002),
+        S,
+    );
+    let r = check_offset(&r, 1.625);
+    check_offset(&r, 3.96875);
+}
+
+#[test]
+#[ignore = "open: docs/plan/2026-11-04-region-touching-booleans.md"]
+fn growth_after_a_shrink_of_unions_with_a_thin_triangle() {
+    // crash-f5007002f8629b1e (fuzzing after the fixes, release): reported
+    // as `cam.region.offset_failed`.
+    let r = check_boolean(
+        &Region2::rect(4.000001, 0.250001, 18.500002, 5.250003),
+        &Region2::circle(2.25, 11.000003, 2.250001),
+        S,
+    );
+    let r = check_boolean(
+        &r,
+        &Region2::rect(4.0, 6.750001, 10.750001000000001, 13.500002),
+        U,
+    );
+    let r = check_boolean(
+        &r,
+        &Region2::polygon(&[(15.500002, 6.000001), (1.750002, 11.000003), (0.0, 0.0)]),
+        U,
+    );
+    let r = check_offset(&r, -3.75);
+    check_offset(&r, 1.0);
+}
