@@ -73,13 +73,12 @@ pub const TARGET_SECS: f64 = 0.003;
 pub const MIN_STRIDE: usize = 8;
 pub const MAX_STRIDE: usize = 4096;
 /// A seek keeps a snapshot at every stride in the last `FINE` strides before
-/// its target, and before that only at every `COARSE`th stride: a long cut
-/// (from a checkpoint) would otherwise leave hundreds of snapshots, each
-/// holding a copy of the tiles its strides changed (4 times the stock on
-/// the S5 relief). Back scrubbing then costs at most `COARSE` strides of
-/// cutting at the edge of the fine zone.
-const FINE: usize = 32;
-const COARSE: usize = 8;
+/// its target and cuts the rest in one batch, as without snapshots: a long
+/// cut in stride-sized pieces with a snapshot at each was 1.2 to 3 times
+/// slower (every snapshot makes the cut copy the tiles it touches next).
+/// Back scrubbing past the fine zone cuts from the checkpoint again, no
+/// slower than before.
+const FINE: usize = 6;
 /// The adaptive stride before any cut has been timed.
 const FIRST_STRIDE: usize = 32;
 /// Default bytes the snapshots of one player may hold.
@@ -254,14 +253,15 @@ impl Player {
         let fine = n.saturating_sub(FINE * stride).div_ceil(stride) * stride;
         while at < n {
             // The next place to keep a snapshot: every stride in the fine
-            // zone before `n`, else every `COARSE`th, up to the fine zone.
-            let step = if at >= fine { stride } else { COARSE * stride };
-            let mut stop = (at / step + 1) * step;
-            if at < fine {
-                stop = stop.min(fine);
-            }
+            // zone before `n`; before it, the start of the fine zone.
+            let stop = if at >= fine {
+                (at / stride + 1) * stride
+            } else {
+                fine
+            };
             let to = stop.min(n);
-            let timed = self.limits.stride == 0 && to - at >= 2 * MIN_STRIDE;
+            // Only the pieces of the fine zone give the speed of small cuts.
+            let timed = self.limits.stride == 0 && at >= fine && to - at >= MIN_STRIDE;
             let t = timed.then(std::time::Instant::now);
             sim.cut(&mut d, at..to);
             if let Some(t) = t {
