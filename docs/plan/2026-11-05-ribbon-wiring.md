@@ -53,4 +53,4 @@ All earlier Global Constraints apply. In addition:
 - Post offers no folder choice: files after the first are numbered beside the one chosen.
 - A rotary Setup does not select `fluut/linuxcnc-4x` by itself; the user picks it in the dropdown.
 - Re-import re-imports every geometry source; there is no per-source choice yet.
-- A one-off stack overflow was seen once in a parallel run of the `fluut-app` lib tests (not reproduced in later runs; cause unknown).
+- Fixed: the `fluut-app` lib tests sometimes died with `STATUS_STACK_OVERFLOW` in `wgpu-hal WGL Instance Thread`. `viewport::render::headless()` made a wgpu instance from the environment, which includes the GL backend (WGL on Windows); its helper thread overflows its stack in debug builds. `headless()` now masks the backends to `Backends::PRIMARY` (Vulkan, Metal, DX12), so tests, benches and the viewport example never start GL. Before the fix 1 of 7 parallel runs crashed; after it 10 of 10 passed. The app itself still uses eframe's default wgpu options (GL stays a deliberate fallback there, on the main thread with its large stack); the kittest `.wgpu()` harness is only in the ignored screenshot test.
