@@ -8,7 +8,7 @@
 use fluut_model::MemStore;
 
 /// `(id, file text)` of every built-in post.
-pub const BUILTIN_POSTS: [(&str, &str); 4] = [
+pub const BUILTIN_POSTS: [(&str, &str); 5] = [
     (
         "fluut/gcode",
         include_str!("../posts/fluut/gcode.post.toml"),
@@ -17,6 +17,10 @@ pub const BUILTIN_POSTS: [(&str, &str); 4] = [
     (
         "fluut/linuxcnc",
         include_str!("../posts/fluut/linuxcnc.post.toml"),
+    ),
+    (
+        "fluut/linuxcnc-4x",
+        include_str!("../posts/fluut/linuxcnc-4x.post.toml"),
     ),
     (
         "fluut/mixin/rotary-a",

@@ -12,10 +12,16 @@ use toml::Table;
 pub const MACHINE_FORMAT: &str = "fluut.machine/1";
 
 /// `(id, file text)` of every built-in machine.
-pub const BUILTIN_MACHINES: [(&str, &str); 1] = [(
-    "fluut/generic-3axis-router",
-    include_str!("../machines/fluut/generic-3axis-router.machine.toml"),
-)];
+pub const BUILTIN_MACHINES: [(&str, &str); 2] = [
+    (
+        "fluut/generic-3axis-router",
+        include_str!("../machines/fluut/generic-3axis-router.machine.toml"),
+    ),
+    (
+        "fluut/generic-4axis-router",
+        include_str!("../machines/fluut/generic-4axis-router.machine.toml"),
+    ),
+];
 
 #[derive(Clone, PartialEq, Debug, Deserialize, Default)]
 #[serde(deny_unknown_fields)]

@@ -1,0 +1,7 @@
+# LinuxCNC with a rotary A axis parallel to X (spec 05 §5.2.1 mixins).
+format  = "fluut.post/1"
+id      = "fluut/linuxcnc-4x"
+version = "1.0"
+name    = "LinuxCNC, 4 axes"
+extends = "fluut/linuxcnc@1"
+mixins  = ["fluut/mixin/rotary-a"]
