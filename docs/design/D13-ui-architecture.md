@@ -73,7 +73,8 @@ pub struct CommandDef {
 }
 ```
 
-- The ribbon is data: an embedded TOML file lists tabs → groups → command ids [S 08 §8.3].
+- The ribbon is data: an embedded TOML file lists tabs → groups → command ids [S 08 §8.3]. For
+  now the table is in code (`RibbonVm::layout`); it moves to TOML when commands become editable.
   Toolpath galleries are generated from the strategy registry (D09 §1), filtered by the
   selected Setup's kind.
 - The command palette searches command labels, toolpath types and object names with `nucleo`

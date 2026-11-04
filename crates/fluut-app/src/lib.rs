@@ -9,11 +9,13 @@
 //! - `vm`: view models, independent of the toolkit.
 //! - `viewport`: the `wgpu` renderer and camera.
 //! - `ui`: the `egui` widget layer.
-//! - `text`, `brand`: user-visible text and the brand.
+//! - `text`, `brand`, `icons`: user-visible text, the brand and the ribbon
+//!   icons.
 
 pub mod bench;
 pub mod brand;
 pub mod dialogs;
+pub mod icons;
 pub mod jobs;
 pub mod scene;
 pub mod session;

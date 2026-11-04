@@ -180,6 +180,8 @@ fn window_opens_calculates_and_posts() {
     settle(&mut h);
     h.get_by_label("Opened block.fluut");
 
+    h.get_by_label("TOOLPATHS").click();
+    h.run_steps(2);
     h.get_by_label("Calculate all").click();
     // One frame handles the click, the next shows the running job.
     h.run_steps(2);
@@ -200,6 +202,8 @@ fn window_opens_calculates_and_posts() {
     h.get_by_label("Calculated with warnings");
 
     app(&mut h).ui.post_output = out.display().to_string();
+    h.get_by_label("POST").click();
+    h.run_steps(2);
     h.get_by_label("Post").click();
     settle(&mut h);
     h.get_by_label(&format!("Wrote {}", out.display()));
