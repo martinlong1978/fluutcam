@@ -38,8 +38,9 @@ pub struct SetupFrame {
     /// of the clearance cylinder.
     pub clearance: f64,
     /// Rotary and indexed Setups: the largest distance from the rotary
-    /// axis of the stock and the bodies. Everything that turns with A lies
-    /// within it, at any moment (spec 03 §3.9.5).
+    /// axis of the stock, the bodies and the fixtures that turn with A
+    /// (none are modelled yet). Everything that turns with A lies within
+    /// it, at any moment (spec 03 §3.9.5).
     pub turn_radius: Option<f64>,
     /// The turn radius + the clearance offset: the Z in W the tool rises
     /// to before A turns.
@@ -438,6 +439,17 @@ fn box_radius(b: &Aabb3) -> f64 {
     (y * y + z * z).sqrt()
 }
 
+/// Hook for fixtures that turn with A (a chuck, a tailstock centre, clamps
+/// on the rotary table): the largest distance of any of them from the
+/// rotary axis, which the turn radius must include. The project model has
+/// no fixture model yet, so this is `None`. Fixture bodies imported with
+/// the model are Setup bodies and already count in the turn radius.
+/// Fixtures fixed to the table outside the rotary do not turn and do not
+/// belong here.
+fn turning_fixture_radius(_s: &ResolvedSetup) -> Option<f64> {
+    None
+}
+
 /// The Setup's clearance offset: the plane's, else the default.
 fn clearance_offset(s: &ResolvedSetup) -> f64 {
     s.clearance
@@ -556,6 +568,8 @@ fn rotary_frame(
         )
         .at("clearance"));
     }
+    // Fixtures turning with A sweep the same cylinder between Setups.
+    let turn = turning_fixture_radius(s).map_or(turn, |f| turn.max(f));
     let (x0, x1) = (x0 - zx, x1 - zx);
     Ok(SetupFrame {
         to_work,
@@ -653,6 +667,7 @@ fn indexed_frame(
     let turn_radius = cylinder
         .unwrap_or_else(|| box_radius(&at_zero))
         .max(box_radius(mb));
+    let turn_radius = turning_fixture_radius(s).map_or(turn_radius, |f| turn_radius.max(f));
     Ok(SetupFrame {
         to_work,
         geometry,

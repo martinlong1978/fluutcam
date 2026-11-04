@@ -195,7 +195,7 @@ name    = "My router"
 extends = "fluut/generic-3axis-router@1"
 post    = "user/my-router@3"
 
-[travel]
+[travel]                                       # machine coordinates of the spindle gauge line
 x = [0, 1220]
 y = [0, 2440]
 z = [-150, 0]
@@ -226,6 +226,11 @@ slots  = 8
 "words.F.decimals" = 0
 ```
 
+Travel limits and the rotary `centre` are machine coordinates of the **spindle gauge line**, the
+point where a tool of zero length would have its tip, as the soft limits of most controls. Tool
+length compensation moves the tip below the gauge line by the tool's gauge length (§2.4); it does
+not change the limits.
+
 ## 2.4 Tool library
 
 One file holds many tools. Geometry uses the cutter profile of
@@ -251,8 +256,10 @@ centre_cutting = true                         # can plunge straight down; defaul
 # pitch          = 1.0                        # taps only: thread pitch, mm
 overall_length = 60
 shank_diameter = 6.0
-holder      = { diameter = 20, length = 40 }  # check geometry (04 §4.2.1)
+holder      = { diameter = 20, length = 40 }  # check geometry (04 §4.2.1); starts at overall_length
 names       = { de = "6 mm Schaftfräser" }    # localized names
+
+# gauge length (tip to spindle gauge line) = overall_length + holder.length
 
   [[tool.preset]]                             # cutting data per material
   material   = "MDF"

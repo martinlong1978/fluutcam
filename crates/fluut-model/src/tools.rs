@@ -146,6 +146,17 @@ impl Tool {
         Some((self.radius() - self.tip_radius()) / libm::tan(a))
     }
 
+    /// Length from the tip to the spindle gauge line, which the machine's
+    /// travel limits refer to (spec 02 §2.3): the overall length + the
+    /// holder's length (the holder starts at the overall length, D11 §5).
+    /// With no holder the overall length, which is conservative: part of
+    /// the shank is in the collet. `None` without an overall length.
+    pub fn gauge_length(&self) -> Option<f64> {
+        let l = self.overall_length.filter(|l| l.is_finite() && *l > 0.0)?;
+        let h = self.holder.as_ref().map_or(0.0, |h| h.length.max(0.0));
+        Some(l + h)
+    }
+
     /// Point angle of a drill in degrees (default 118, D15b §9 decision 3).
     pub fn point_angle(&self) -> f64 {
         self.point_angle_deg.unwrap_or(118.0)
@@ -407,5 +418,22 @@ colour = "red"
         assert!(
             ToolLibrary::parse("format = \"fluut.tools/1\"\nid = \"x\"\nversion = \"1\"").is_err()
         );
+    }
+
+    #[test]
+    fn gauge_length_is_the_overall_length_and_the_holder() {
+        let (lib, _) = ToolLibrary::parse(LIB).unwrap();
+        let mut t = lib.tools[0].clone();
+        assert_eq!(t.gauge_length(), Some(100.0));
+        t.holder = None;
+        assert_eq!(t.gauge_length(), Some(60.0));
+        t.overall_length = None;
+        assert_eq!(t.gauge_length(), None);
+        // A holder without the tool's length does not say where the tip is.
+        t.holder = Some(Holder {
+            diameter: 20.0,
+            length: 40.0,
+        });
+        assert_eq!(t.gauge_length(), None);
     }
 }
