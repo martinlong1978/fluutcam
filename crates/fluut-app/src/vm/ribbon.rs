@@ -4,9 +4,9 @@
 //! when each command is enabled. The ribbon holds commands only, never
 //! parameters.
 //!
-//! The commands of the project operations exist here before their
-//! operations do: [`Command::wired`] is false for them, so they show,
-//! disabled, with a hover text saying they are coming.
+//! A command whose operation does not exist yet ([`Command::wired`] is
+//! false, today the Library stage) shows, disabled, with a hover text
+//! saying it is coming.
 
 use super::Selection;
 use super::playback::{Playback, PlaybackVm, StockColour};
@@ -135,11 +135,17 @@ pub struct Shortcut {
 }
 
 impl Shortcut {
-    /// As shown in tooltips, for example `Ctrl+Shift+S`.
+    /// As shown in tooltips, for example `Ctrl+Shift+S`, or `Cmd+Shift+S`
+    /// on macOS.
     pub fn text(self) -> String {
+        self.text_for(cfg!(target_os = "macos"))
+    }
+
+    /// As [`Shortcut::text`], for either platform.
+    pub fn text_for(self, mac: bool) -> String {
         let mut s = String::new();
         if self.command {
-            s.push_str("Ctrl+");
+            s.push_str(if mac { "Cmd+" } else { "Ctrl+" });
         }
         if self.shift {
             s.push_str("Shift+");
@@ -157,6 +163,8 @@ pub enum Command {
     SaveAs,
     ImportModel,
     Reimport,
+    Undo,
+    Redo,
     NewSetup(SetupKind),
     NewSetupBasedOn,
     Stock,
@@ -185,6 +193,8 @@ impl Command {
             Command::SaveAs,
             Command::ImportModel,
             Command::Reimport,
+            Command::Undo,
+            Command::Redo,
         ];
         v.extend(SetupKind::ALL.map(Command::NewSetup));
         v.extend([Command::NewSetupBasedOn, Command::Stock, Command::WorkZero]);
@@ -215,6 +225,8 @@ impl Command {
             Command::SaveAs => "project.save_as",
             Command::ImportModel => "model.import",
             Command::Reimport => "model.reimport",
+            Command::Undo => "edit.undo",
+            Command::Redo => "edit.redo",
             Command::NewSetup(SetupKind::ThreeAxis) => "setup.new_3axis",
             Command::NewSetup(SetupKind::Rotary) => "setup.new_rotary",
             Command::NewSetup(SetupKind::Indexed) => "setup.new_indexed",
@@ -270,6 +282,8 @@ impl Command {
             Command::SaveAs => "ribbon-save-as",
             Command::ImportModel => "ribbon-import-model",
             Command::Reimport => "ribbon-reimport",
+            Command::Undo => "ribbon-undo",
+            Command::Redo => "ribbon-redo",
             Command::NewSetup(SetupKind::ThreeAxis) => "ribbon-new-setup-3axis",
             Command::NewSetup(SetupKind::Rotary) => "ribbon-new-setup-rotary",
             Command::NewSetup(SetupKind::Indexed) => "ribbon-new-setup-indexed",
@@ -301,6 +315,8 @@ impl Command {
             Command::SaveAs => "save-as",
             Command::ImportModel => "import",
             Command::Reimport => "reimport",
+            Command::Undo => "undo",
+            Command::Redo => "redo",
             Command::NewSetup(SetupKind::ThreeAxis) => "new-setup-3axis",
             Command::NewSetup(SetupKind::Rotary) => "new-setup-rotary",
             Command::NewSetup(SetupKind::Indexed) => "new-setup-indexed",
@@ -358,23 +374,35 @@ impl Command {
             Command::Open => chord(false, 'O'),
             Command::Save => chord(false, 'S'),
             Command::SaveAs => chord(true, 'S'),
+            Command::ImportModel => chord(false, 'I'),
+            Command::Undo => chord(false, 'Z'),
+            Command::Redo => chord(false, 'Y'),
             _ => None,
         }
     }
 
+    /// A second chord for the same command.
+    pub fn alt_shortcut(self) -> Option<Shortcut> {
+        match self {
+            Command::Redo => Some(Shortcut {
+                command: true,
+                shift: true,
+                key: 'Z',
+            }),
+            _ => None,
+        }
+    }
+
+    /// Whether the keys of the command are left to a focused text field.
+    pub fn yields_to_text(self) -> bool {
+        matches!(self, Command::Undo | Command::Redo)
+    }
+
     /// The operation exists, so the command can run.
     pub fn wired(self) -> bool {
-        matches!(
+        !matches!(
             self,
-            Command::Open
-                | Command::CalculateSelected
-                | Command::Calculate
-                | Command::Simulate
-                | Command::StepBack
-                | Command::PlayPause
-                | Command::StepForward
-                | Command::Post
-                | Command::Cancel
+            Command::LibraryTools | Command::LibraryMachines | Command::LibraryPosts
         )
     }
 
@@ -385,6 +413,8 @@ impl Command {
             Command::Save
                 | Command::SaveAs
                 | Command::Reimport
+                | Command::Undo
+                | Command::Redo
                 | Command::NewSetupBasedOn
                 | Command::AddToolpath(_)
                 | Command::StepBack
@@ -393,8 +423,7 @@ impl Command {
     }
 }
 
-/// A group of the ribbon. `File` and `Output` also hold the path and post
-/// fields, until the file dialogs replace them.
+/// A group of the ribbon. `Output` also holds the post choice.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum GroupId {
     File,
@@ -407,6 +436,7 @@ pub enum GroupId {
     Playback,
     Output,
     Library,
+    Edit,
     Job,
 }
 
@@ -425,6 +455,7 @@ impl GroupId {
             GroupId::Playback => "ribbon-group-playback",
             GroupId::Output => "ribbon-group-output",
             GroupId::Library => "ribbon-group-library",
+            GroupId::Edit => "ribbon-group-edit",
             GroupId::Job => "ribbon-group-job",
             GroupId::Gallery(_) => unreachable!("returned above"),
         })
@@ -465,15 +496,20 @@ pub struct RibbonVm {
     pub setup_kind: Option<SetupKind>,
     /// What Calculate selected calculates.
     pub selected_toolpaths: Vec<String>,
+    /// The Setup the selection belongs to, else the first.
+    pub setup: Option<String>,
     busy: bool,
     open: bool,
+    has_geometry: bool,
+    can_undo: bool,
+    can_redo: bool,
     can_play: bool,
     can_back: bool,
     can_forward: bool,
 }
 
 /// The Setup a selection belongs to, else the first (as the viewport shows).
-fn current_setup(s: &Snapshot, selection: &Selection) -> Option<String> {
+pub(crate) fn current_setup(s: &Snapshot, selection: &Selection) -> Option<String> {
     let id = match selection {
         Selection::Setup(id) | Selection::Face { setup: id, .. } => Some(id.clone()),
         Selection::Toolpath(t) => s.project.toolpath(t).map(|(st, _)| st.id.clone()),
@@ -505,14 +541,22 @@ impl RibbonVm {
             groups: Vec::new(),
             setup_kind: None,
             selected_toolpaths: Vec::new(),
+            setup: None,
             busy: jobs.is_busy(),
             open: jobs.snapshot.is_some(),
+            has_geometry: false,
+            can_undo: false,
+            can_redo: false,
             can_play: false,
             can_back: false,
             can_forward: false,
         };
         if let Some(s) = &jobs.snapshot {
             let setup = current_setup(s, cx.selection);
+            vm.setup = setup.clone();
+            vm.has_geometry = !s.project.geometry.is_empty();
+            vm.can_undo = s.can_undo;
+            vm.can_redo = s.can_redo;
             vm.setup_kind = setup
                 .as_deref()
                 .and_then(|id| fluut_model::setup::resolve_setup(&s.project, id).ok())
@@ -590,6 +634,7 @@ impl RibbonVm {
                 vec![C::LibraryTools, C::LibraryMachines, C::LibraryPosts],
             )],
         };
+        groups.push((GroupId::Edit, vec![C::Undo, C::Redo]));
         groups.push((GroupId::Job, vec![C::Cancel]));
         groups
     }
@@ -622,7 +667,15 @@ impl RibbonVm {
         let ready = self.open && !self.busy;
         c.wired()
             && match c {
-                Command::Open => !self.busy,
+                Command::NewProject | Command::Open => !self.busy,
+                Command::Save | Command::SaveAs | Command::ImportModel => ready,
+                Command::Reimport => ready && self.has_geometry,
+                Command::Undo => ready && self.can_undo,
+                Command::Redo => ready && self.can_redo,
+                Command::NewSetup(_) => ready,
+                Command::NewSetupBasedOn => ready && self.setup_kind.is_some(),
+                Command::Stock | Command::WorkZero => ready && self.setup.is_some(),
+                Command::AddToolpath(_) => ready && self.setup.is_some(),
                 Command::CalculateSelected => ready && !self.selected_toolpaths.is_empty(),
                 Command::Calculate | Command::Post | Command::Simulate => ready,
                 Command::PlayPause => self.can_play,

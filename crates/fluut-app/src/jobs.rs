@@ -119,6 +119,8 @@ pub enum Request {
     Save(JobCx, Option<PathBuf>),
     /// Imports a model file; the unit applies to STL and DXF files.
     Import(JobCx, PathBuf, Option<String>),
+    /// Re-reads every geometry source from its file.
+    Reimport(JobCx),
     AddSetup {
         cx: JobCx,
         kind: SetupKind,
@@ -152,6 +154,7 @@ pub enum JobKind {
     New,
     Save,
     Import,
+    Reimport,
     AddSetup,
     AddToolpath,
     Undo,
@@ -176,6 +179,11 @@ pub enum Outcome {
     Imported {
         file: String,
         bodies: usize,
+    },
+    Reimported {
+        sources: usize,
+        /// Selections that no entity of the new file matches.
+        unmatched: usize,
     },
     SetupAdded {
         id: String,
@@ -364,6 +372,15 @@ impl Jobs {
         }
         let name = file_label(&path);
         self.start_job(JobKind::Import, name, |cx| Request::Import(cx, path, unit));
+    }
+
+    /// Re-reads the project's geometry files and matches their entities to
+    /// the earlier ones. Ignored while a job runs or with no project.
+    pub fn reimport(&mut self) {
+        if self.is_busy() || self.snapshot.is_none() {
+            return;
+        }
+        self.start_job(JobKind::Reimport, String::new(), Request::Reimport);
     }
 
     /// Adds a Setup of `kind`, optionally based on Setup `based_on`, named

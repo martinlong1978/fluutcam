@@ -2,23 +2,6 @@
 # Project operations: the File menu, dialogs and default names (plan
 # 2026-11-04-app-project-ops).
 
-# File menu (temporary; the ribbon takes these commands over)
-menu-file = File
-menu-new-mm = New project (mm)...
-menu-new-inch = New project (inch)...
-menu-open = Open...
-menu-save = Save
-menu-save-as = Save as...
-menu-import = Import model...
-menu-add-setup = Add Setup
-menu-add-setup-based = Add Setup based on selected
-menu-add-toolpath = Add toolpath
-menu-undo = Undo
-menu-redo = Redo
-menu-undo-label = Undo { $label }
-menu-no-setup = Select a Setup first
-menu-no-project = Open or start a project first
-
 # Default names
 name-numbered = { $name } { $n }
 setup-name = Setup
@@ -34,6 +17,8 @@ dialog-import-title = Import model
 dialog-filter-project = FluutCAM projects
 dialog-filter-model = Models (STEP, STL, DXF, SVG)
 dialog-filter-step = STEP files
+dialog-post-title = Post to file
+dialog-filter-gcode = G-code files
 
 # Unsaved changes
 discard-title = Unsaved changes
@@ -47,6 +32,7 @@ job-saving = Saving { $file }
 job-importing = Importing { $file }
 job-adding-setup = Adding a Setup
 job-adding-toolpath = Adding a toolpath
+job-reimporting = Re-importing models
 job-undoing = Undoing
 job-redoing = Redoing
 job-created = Created { $file }
@@ -54,6 +40,7 @@ job-saved = Saved { $file }
 job-imported = Imported { $file } ({ $count } bodies)
 job-setup-added = Added { $name }
 job-toolpath-added = Added { $name }
+job-reimported = Re-imported { $count } models, { $unmatched } selections not found
 job-undone = Undid { $label }
 job-redone = Redid { $label }
 

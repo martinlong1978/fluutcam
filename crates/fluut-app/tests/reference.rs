@@ -11,6 +11,7 @@ use eframe::egui;
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
 use fluut_app::FluutApp;
+use fluut_app::dialogs::{DialogKind, Dialogs};
 use fluut_app::jobs::{CalcTargets, Jobs, Outcome, PostRequest};
 use fluut_app::session::ToolpathStatus;
 use std::path::{Path, PathBuf};
@@ -143,7 +144,7 @@ fn app<'a>(h: &'a mut Harness<'static, State>) -> &'a mut FluutApp {
 fn settle(h: &mut Harness<'static, State>) {
     for _ in 0..4000 {
         h.step();
-        if !app(h).jobs.is_busy() {
+        if !app(h).jobs.is_busy() && !app(h).dialogs.is_open() {
             h.step();
             return;
         }
@@ -173,7 +174,9 @@ fn window_opens_calculates_and_posts() {
     let out = out_dir("window").join("block.ngc");
     {
         let a = app(&mut h);
-        a.ui.open_path = cli("projects/block/block.fluut").display().to_string();
+        a.dialogs = Dialogs::scripted();
+        a.dialogs
+            .answer(DialogKind::Open, cli("projects/block/block.fluut"));
         a.ui.clock = fixed_clock;
     }
     h.get_by_label("Open").click();
@@ -201,7 +204,9 @@ fn window_opens_calculates_and_posts() {
     h.get_by_label("Calculated 3 toolpaths");
     h.get_by_label("Calculated with warnings");
 
-    app(&mut h).ui.post_output = out.display().to_string();
+    app(&mut h)
+        .dialogs
+        .answer(DialogKind::PostOutput, out.clone());
     h.get_by_label("POST").click();
     h.run_steps(2);
     h.get_by_label("Post").click();

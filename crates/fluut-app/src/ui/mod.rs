@@ -11,7 +11,7 @@ mod about;
 mod browser;
 mod icons;
 mod inspector;
-mod menu;
+mod project;
 mod ribbon;
 mod simulation;
 mod updates;
@@ -54,11 +54,11 @@ pub struct UiState {
     pub stage: Stage,
     pub selection: Selection,
     pub dark: bool,
-    /// Text of the Open field.
-    pub open_path: String,
+    /// The post Post uses (the dropdown of the Post stage).
     pub post_id: String,
-    /// Text of the output file field.
-    pub post_output: String,
+    /// The row of the Setup inspector that Stock or Work zero pointed at:
+    /// the message id of its name.
+    pub inspector_focus: Option<&'static str>,
     pub show_about: bool,
     pub show_settings: bool,
     /// Inspector tab per toolpath type (by group index).
@@ -81,7 +81,7 @@ pub struct UiState {
     /// The finding looked at, in the work frame.
     pub focus: Option<[f32; 3]>,
     /// An Open or New waiting for the answer to "discard changes?".
-    pub pending: Option<menu::Pending>,
+    pub pending: Option<project::Pending>,
 }
 
 impl Default for UiState {
@@ -90,9 +90,8 @@ impl Default for UiState {
             stage: Stage::default(),
             selection: Selection::None,
             dark: true,
-            open_path: String::new(),
             post_id: "fluut/linuxcnc".into(),
-            post_output: String::new(),
+            inspector_focus: None,
             show_about: false,
             show_settings: false,
             inspector_tab: 3,
@@ -199,8 +198,7 @@ impl FluutApp {
         self.jobs.edit(e);
     }
 
-    /// Keeps the selection valid after the document changes, and fills the
-    /// output path from the project name once.
+    /// Keeps the selection valid after the document changes.
     fn on_snapshot(&mut self) {
         let Some(s) = self.jobs.snapshot.clone() else {
             return;
@@ -208,20 +206,7 @@ impl FluutApp {
         if s.revision == self.seen {
             return;
         }
-        let first = self.seen == 0 || s.revision < self.seen;
         self.seen = s.revision;
-        if first || self.ui.post_output.is_empty() {
-            let stem = s
-                .path
-                .file_stem()
-                .map_or_else(|| "output".to_owned(), |n| n.to_string_lossy().into_owned());
-            self.ui.post_output = s
-                .path
-                .with_file_name(format!("{stem}.ngc"))
-                .display()
-                .to_string();
-            self.ui.open_path = s.path.display().to_string();
-        }
         let valid = match &self.ui.selection {
             Selection::None => false,
             Selection::Setup(id) | Selection::Face { setup: id, .. } => {
@@ -253,9 +238,8 @@ impl FluutApp {
             None => {}
         }
         if let Some(p) = self.dialogs.poll() {
-            menu::picked(&mut self.jobs, &mut self.ui, p);
+            project::picked(&mut self.jobs, &mut self.ui, p);
         }
-        menu::shortcuts(ui.ctx(), &mut self.jobs, &mut self.dialogs);
         if self.bench.timing_frames() && !self.bench_ready && !self.jobs.is_busy() {
             // Time frames with the toolpaths on screen: calculate first.
             match &self.jobs.last {
@@ -283,15 +267,11 @@ impl FluutApp {
         egui::Panel::top("title")
             .frame(egui::Frame::new().fill(c(p.base)).inner_margin(6.0))
             .show(ui, |ui| self.title_bar(ui, &p));
-        // TEMPORARY: the ribbon takes the File menu over (ui/menu.rs).
-        egui::Panel::top("menu")
-            .frame(egui::Frame::new().fill(c(p.base)).inner_margin(2.0))
-            .show(ui, |ui| {
-                menu::bar(ui, &mut self.jobs, &mut self.ui, &mut self.dialogs);
-            });
         egui::Panel::top("ribbon")
             .frame(egui::Frame::new().fill(c(p.raised)).inner_margin(6.0))
-            .show(ui, |ui| ribbon::show(ui, &mut self.jobs, &mut self.ui));
+            .show(ui, |ui| {
+                ribbon::show(ui, &mut self.jobs, &mut self.ui, &mut self.dialogs);
+            });
         egui::Panel::bottom("status")
             .frame(egui::Frame::new().fill(c(p.base)).inner_margin(6.0))
             .show(ui, |ui| self.status_bar(ui, &p));
@@ -310,7 +290,7 @@ impl FluutApp {
                     .tab_context_menus(false)
                     .show_inside(ui, &mut tabs);
             });
-        menu::discard_prompt(ui.ctx(), &mut self.jobs, &mut self.ui);
+        project::discard_prompt(ui.ctx(), &mut self.jobs, &mut self.ui);
         about::show(ui.ctx(), &mut self.ui);
         updates::settings(ui.ctx(), &mut self.ui, &mut self.updates);
         updates::prompt(ui.ctx(), &mut self.updates);
