@@ -17,7 +17,7 @@ differ in the last bit between platforms. See the S3 report, `docs/plan/spikes/s
 
 ## What changed
 
-The trigonometric calls, and five fixes for nearly degenerate offsets and intersections. Everything else is as
+The trigonometric calls, and eight fixes for nearly degenerate offsets and intersections. Everything else is as
 published.
 
 - `src/core/math/line_line_intersect.rs`, `line_line_intr`: for collinear segments, the
@@ -67,6 +67,37 @@ published.
   is collapsed, but it was built anyway and failed `validate_for_source`, which panicked in
   debug builds. It happened when an inward offset reached exactly half a slot's width
   (`offset_to_exactly_half_the_width` in `crates/fluut-cam/src/region/tests.rs`).
+
+- `src/polyline/internal/raw_pline_offset.rs`, `RawOffsetBuilder::join_without_intersection`
+  (and the new `join_tangent`): an arc whose offset radius is at most `pos_equal_eps` uses the
+  source arc's tangent at the shared vertex to classify its joins. An arc counts as collapsed
+  only when its offset radius is below the default epsilon (1e-8); between that and
+  `pos_equal_eps` (1e-5) it stayed an arc, and its tangent, as long as its radius, was taken for
+  a zero-length segment: every join next to it became an invalid gap and the whole closed offset
+  was dropped. It happened when growing a loop with a concave arc of radius R by R − 1e-6, as
+  `optimised_load::shrink` grows holes of a cleared region (`growth_where_a_concave_arc_collapses_to_a_point`;
+  plan `docs/plan/2026-11-04-region-empty-growth.md`). Arcs with a larger offset radius are
+  unchanged.
+- `src/polyline/internal/raw_pline_offset.rs`, `RawOffsetBuilder::join_without_intersection`: a
+  join whose tangents are nearly opposite, within `pos_equal_eps / |offset|` rad, is a reversal
+  (bridged by a round connector), not only within the default epsilon. At a spike tip where two
+  arcs meet back to back, rounding can leave the tangents turning back a micro-radian on the
+  inner side; the join was then an inner join, the offsets on either side of a tip do not cross,
+  the join became an invalid gap and every growth of the shape came back empty. Found by the
+  `region` fuzz target through FluutCAM's containment check
+  (`growths_of_a_shape_with_spike_tips`).
+- `src/core/math/line_line_intersect.rs`, `line_line_intr`: for segments with |v| |u| < 1 that
+  are not points, the parallel test compares the perp product of the segment vectors with
+  `eps · |v| |u|` (an angle of `eps`) and the collinear tests with `eps · |v|` and `eps · |u|` (a
+  distance of `eps`). The original compared these products, which scale with the lengths, with
+  `eps` itself, so short segments at a clear angle counted as parallel and then as overlapping:
+  sin θ up to 0.011 for lines 0.022 and 0.042 mm long, 0.16 rad for 6.6e-3 mm. In an offset's inner
+  line join (`line_line_join`) that asked `parametric_from_point` for a point 1.5e-5 mm off the
+  line (a debug assertion; release builds reversed the join and dropped the whole growth,
+  `growth_of_short_nearly_collinear_lines`), and in the self-intersections of a shrunk thin
+  triangle it gave a slice end off its segment (a debug assertion in `PlineViewData::create`,
+  found by the `region` fuzz target, `shrink_of_a_thin_triangle_to_near_its_inradius`).
+  Segments with |v| |u| >= 1, and point-like ones, are unchanged.
 
 The trigonometric changes:
 

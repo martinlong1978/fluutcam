@@ -354,8 +354,13 @@ where
         next: &RawOffsetSeg<T>,
         shared_source_vertex: Vector2<T>,
     ) -> Option<JoinBoundary<T>> {
-        let incoming = current.end_tangent();
-        let outgoing = next.start_tangent();
+        // FluutCAM patch: an arc whose offset radius is within `pos_equal_eps` of zero (but not
+        // collapsed, see `create_untrimmed_raw_offset_segs`) has a tangent as short as its radius
+        // here, which the degenerate check below took for a zero-length segment: the join became
+        // an invalid gap and the whole offset was dropped. Its direction is that of the source
+        // arc at the shared vertex, as for a collapsed arc.
+        let incoming = self.join_tangent(current, shared_source_vertex, true);
+        let outgoing = self.join_tangent(next, shared_source_vertex, false);
         let incoming_len_sq = incoming.length_squared();
         let outgoing_len_sq = outgoing.length_squared();
         let position_eps_sq = self.pos_equal_eps * self.pos_equal_eps;
@@ -373,7 +378,17 @@ where
         let alignment = incoming.dot(outgoing);
         let angle_eps = T::fuzzy_epsilon();
 
-        if turn * turn <= angle_eps * angle_eps * incoming_len_sq * outgoing_len_sq {
+        // FluutCAM patch: a reversal (a spike tip, where two arcs or lines meet back to back) is
+        // also taken as one when the tangents turn back by less than `pos_equal_eps / |offset|`
+        // from opposite, not only by less than the angle epsilon. A tip that rounding left a
+        // micro-radian on the inner side was an inner join; the offsets on either side of a tip do
+        // not cross, so that join became an invalid gap and the whole closed offset was dropped,
+        // at every distance.
+        let reversal_eps = self.pos_equal_eps / self.offset.abs();
+        if (turn * turn <= angle_eps * angle_eps * incoming_len_sq * outgoing_len_sq)
+            || (alignment < T::zero()
+                && turn * turn <= reversal_eps * reversal_eps * incoming_len_sq * outgoing_len_sq)
+        {
             if alignment < T::zero() {
                 // Reversal round: bridge opposite collinear tangents with an arc.
                 Some(self.arc_connection_boundary(
@@ -401,6 +416,27 @@ where
                 next.start(),
                 shared_source_vertex,
             ))
+        }
+    }
+
+    /// FluutCAM patch: the tangent of `seg` at its end (`at_end`) or start, which is the offset
+    /// of `shared_source_vertex`. An arc with an offset radius within `pos_equal_eps` of zero
+    /// uses the source arc's tangent there (the radius from its centre to the source vertex).
+    fn join_tangent(
+        &self,
+        seg: &RawOffsetSeg<T>,
+        shared_source_vertex: Vector2<T>,
+        at_end: bool,
+    ) -> Vector2<T> {
+        if let RawOffsetSeg::Arc(arc) = seg
+            && arc.radius <= self.pos_equal_eps
+        {
+            return arc.tangent_at(shared_source_vertex);
+        }
+        if at_end {
+            seg.end_tangent()
+        } else {
+            seg.start_tangent()
         }
     }
 

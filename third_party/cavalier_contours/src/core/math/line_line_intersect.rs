@@ -112,14 +112,33 @@ where
 
     let eps = epsilon;
 
+    // FluutCAM patch: the perp products below scale with the segment lengths, so comparing them
+    // with `eps` (a distance) took short segments at a clear angle for parallel (sin θ up to
+    // eps / (|v| |u|): 0.16 rad for two lines 6.6e-3 mm long) and then for collinear (up to
+    // eps / |v| apart). For segments with |v| |u| < 1 that are not points, the tolerances scale
+    // with the lengths: parallel within an angle of `eps`, collinear within a distance of `eps`.
+    // Segments with |v| |u| >= 1 and point-like segments are unchanged.
+    let v_len = v.length();
+    let u_len = u.length();
+    let short = v_len > eps && u_len > eps && v_len * u_len < T::one();
+    let (parallel_eps, v_line_eps, u_line_eps) = if short {
+        (
+            eps * v_len * u_len,
+            eps * num_traits::real::Real::min(v_len, T::one()),
+            eps * num_traits::real::Real::min(u_len, T::one()),
+        )
+    } else {
+        (eps, eps, eps)
+    };
+
     // threshold check here to avoid almost parallel lines resulting in very distant intersection
-    if !v_pdot_u.fuzzy_eq_zero_eps(eps) {
+    if !v_pdot_u.fuzzy_eq_zero_eps(parallel_eps) {
         // segments not parallel or collinear
         let seg1_t = u.perp_dot(w) / v_pdot_u;
         let seg2_t = v.perp_dot(w) / v_pdot_u;
         // Segment lengths scale the parametric values so epsilon is applied at a position scale.
-        let seg1_length = v.length();
-        let seg2_length = u.length();
+        let seg1_length = v_len;
+        let seg2_length = u_len;
         if !(seg1_t * seg1_length).fuzzy_in_range_eps(T::zero(), seg1_length, eps)
             || !(seg2_t * seg2_length).fuzzy_in_range_eps(T::zero(), seg2_length, eps)
         {
@@ -133,7 +152,7 @@ where
     let u_pdot_w = u.perp_dot(w);
 
     // threshold check here, we consider almost parallel lines to be parallel
-    if !v_pdot_w.fuzzy_eq_zero_eps(eps) || !u_pdot_w.fuzzy_eq_zero_eps(eps) {
+    if !v_pdot_w.fuzzy_eq_zero_eps(v_line_eps) || !u_pdot_w.fuzzy_eq_zero_eps(u_line_eps) {
         // parallel and not collinear so no intersect
         return NoIntersect;
     }
