@@ -238,10 +238,10 @@ impl Player {
         let n = n.min(sim.chords.len());
         let (cp, cd) = sim.checkpoint_at(n);
         let mut base = (cp, cd);
-        if let Some((&k, (s, _))) = self.snaps.map.range(..=n).next_back() {
-            if k > base.0 {
-                base = (k, s);
-            }
+        if let Some((&k, (s, _))) = self.snaps.map.range(..=n).next_back()
+            && k > base.0
+        {
+            base = (k, s);
         }
         if self.n <= n && self.n >= base.0 {
             base = (self.n, self.mesh.stock());
