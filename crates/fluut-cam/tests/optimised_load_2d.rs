@@ -32,13 +32,18 @@ fn pocket(g: &fluut_cam::geometry::SetupGeometry, extra: &str) -> fluut_model::p
 
 /// The region swept by the tool (R 3) along every cut and ramp move.
 fn swept(r: &fluut_cam::Generated) -> Region2 {
+    swept_at(r, 12.0)
+}
+
+/// [`swept`] at the level `z`.
+fn swept_at(r: &fluut_cam::Generated, z: f64) -> Region2 {
     let mut parts = Vec::new();
     for s in r.result.segments() {
         let Some(m) = s.motion() else { continue };
         if !matches!(m.motion, Motion::Cut | Motion::Link | Motion::Ramp) {
             continue;
         }
-        if (end(s).z() - 12.0).abs() > 1e-9 {
+        if (end(s).z() - z).abs() > 1e-9 {
             continue;
         }
         for l in fluut_path::linearize(s, 1e-4) {
@@ -253,7 +258,12 @@ fn calculation_codes() {
         "{:?}",
         codes(&r)
     );
-    // A large minimum cutting radius leaves material.
+    // A large minimum cutting radius leaves slivers between the passes,
+    // and the sliver moves cut them all. (Until the growth of holes near
+    // a collapsing arc was fixed, the shrunk cleared region lost holes, the
+    // moves to three slivers started inside them and were dropped, and
+    // this case reported `incomplete`; docs/plan/2026-11-04-region-empty-growth.md.)
+    // The `incomplete` code is covered by `optimised_load_3d_incomplete_code`.
     let big = tp(
         "optimised_load_2d",
         "f6",
@@ -263,14 +273,52 @@ fn calculation_codes() {
     );
     let r = run(&sq(30.0), &big, s);
     assert!(
-        codes(&r).contains(&"cam.optimised_load_2d.incomplete".into()),
+        !codes(&r).contains(&"cam.optimised_load_2d.incomplete".into()),
         "{:?}",
         codes(&r)
     );
+    let reach = Region2::rect(0.0, 0.0, 30.0, 30.0).offset(-3.0).offset(3.0);
+    let left = reach.subtract(&swept_at(&r, 8.0));
+    assert!(left.offset(-0.01).is_empty(), "{} mm² left", left.area());
     let r = run(&sq(30.0), &t, s);
     assert!(
         !codes(&r).contains(&"cam.optimised_load_2d.incomplete".into()),
         "{:?}",
         codes(&r)
     );
+}
+
+#[test]
+fn shrunk_cleared_regions_keep_their_holes() {
+    // `optimised_load::shrink` grows each hole of the cleared region by
+    // R − 1e-6. Where a hole has a concave arc of radius R, that arc's
+    // offset radius is 1e-6 mm, and `cavalier_contours` returned no loop:
+    // 267 holes vanished from the shrunk cleared regions of this file's
+    // scenarios (docs/plan/2026-11-04-region-empty-growth.md). The region
+    // guard now retries such a growth; none should need it.
+    let before = fluut_cam::region::containment_retries();
+    let g = load(&step::plate([0.0; 3]));
+    let r = run(&g, &pocket(&g, ""), plate_stock());
+    assert!(r.diagnostics.is_empty(), "{:?}", codes(&r));
+    let sq = wire(&[
+        [0.0, 0.0, 10.0],
+        [30.0, 0.0, 10.0],
+        [30.0, 30.0, 10.0],
+        [0.0, 30.0, 10.0],
+        [0.0, 0.0, 10.0],
+    ]);
+    let s = Stock::new([-20.0, -20.0, 0.0], [50.0, 50.0, 10.0]);
+    for extra in ["", "min_cutting_radius = 40\n"] {
+        let t = tp(
+            "optimised_load_2d",
+            "f6",
+            &format!(
+                "[geometry]\ndrive_curves = [{{ body = \"b-w\" }}]\n\
+                 [heights]\nbottom = {{ ref = \"selection\", offset = -2 }}\n\
+                 [passes]\n{extra}"
+            ),
+        );
+        run(&sq, &t, s);
+    }
+    assert_eq!(fluut_cam::region::containment_retries(), before);
 }
