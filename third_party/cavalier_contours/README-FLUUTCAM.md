@@ -17,7 +17,7 @@ differ in the last bit between platforms. See the S3 report, `docs/plan/spikes/s
 
 ## What changed
 
-The trigonometric calls, and five fixes for nearly degenerate offsets and intersections. Everything else is as
+The trigonometric calls, and seven fixes for nearly degenerate offsets and intersections. Everything else is as
 published.
 
 - `src/core/math/line_line_intersect.rs`, `line_line_intr`: for collinear segments, the
@@ -67,6 +67,27 @@ published.
   is collapsed, but it was built anyway and failed `validate_for_source`, which panicked in
   debug builds. It happened when an inward offset reached exactly half a slot's width
   (`offset_to_exactly_half_the_width` in `crates/fluut-cam/src/region/tests.rs`).
+
+- `src/polyline/internal/raw_pline_offset.rs`, `RawOffsetBuilder::join_without_intersection`
+  (and the new `join_tangent`): an arc whose offset radius is at most `pos_equal_eps` uses the
+  source arc's tangent at the shared vertex to classify its joins. An arc counts as collapsed
+  only when its offset radius is below the default epsilon (1e-8); between that and
+  `pos_equal_eps` (1e-5) it stayed an arc, and its tangent, as long as its radius, was taken for
+  a zero-length segment: every join next to it became an invalid gap and the whole closed offset
+  was dropped. It happened when growing a loop with a concave arc of radius R by R − 1e-6, as
+  `optimised_load::shrink` grows holes of a cleared region (`growth_where_a_concave_arc_collapses_to_a_point`;
+  plan `docs/plan/2026-11-04-region-empty-growth.md`). Arcs with a larger offset radius are
+  unchanged.
+- `src/polyline/internal/raw_pline_offset.rs`, `RawOffsetBuilder::line_line_join` (and the new
+  `short_line_crossing`): `line_line_intr` compares the perp product of the two segment
+  vectors, |v| |u| sin θ, with `pos_equal_eps`, so the offsets of short lines at a clear angle
+  (0.022 and 0.042 mm long, 2.9e-3 rad apart) count as parallel and then as overlapping. At an
+  inner join the overlap branch then asked for the parameter of a point 1.5e-5 mm off the next
+  line (a debug assertion in `parametric_from_point`), and in release builds the join came out
+  reversed and the whole offset was dropped. When `line_line_intr` reports an overlap or no
+  intersection but the current end lies more than `pos_equal_eps` off the next line, the join
+  now uses the crossing of the two lines if it lies on both segments
+  (`growth_of_short_nearly_collinear_lines`). `line_line_intr` itself is unchanged.
 
 The trigonometric changes:
 

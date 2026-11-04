@@ -137,12 +137,57 @@ pub(crate) mod fault {
         FAIL.with(|f| f.set(on));
     }
 
+    /// A wrong offset result, for the containment guard.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub(crate) enum Wrong {
+        /// No loops.
+        Empty,
+        /// The input moved by 20 mm in X, whatever the distance.
+        Moved,
+    }
+
+    thread_local! {
+        /// The wrong result, and whether it is given once only.
+        static WRONG: Cell<Option<(Wrong, bool)>> = const { Cell::new(None) };
+    }
+
+    /// Every offset on this thread gives `wrong` (none when `None`).
+    pub(crate) fn set_wrong(wrong: Option<Wrong>) {
+        WRONG.with(|w| w.set(wrong.map(|x| (x, false))));
+    }
+
+    /// The next offset on this thread gives `wrong`.
+    pub(crate) fn set_wrong_once(wrong: Wrong) {
+        WRONG.with(|w| w.set(Some((wrong, true))));
+    }
+
+    pub(super) fn wrong() -> Option<Wrong> {
+        WRONG.with(|w| {
+            let x = w.get();
+            if let Some((_, true)) = x {
+                w.set(None);
+            }
+            x.map(|(x, _)| x)
+        })
+    }
+
     pub(super) fn check() {
         if FAIL.with(Cell::get) {
             panic!("forced region failure");
         }
     }
 }
+
+/// How many offsets gave a first result that failed the containment check
+/// of [`Region2::try_offset`] (a growth that does not hold its input, a
+/// shrink that does not lie inside it) and were retried, in this process.
+/// For tests: no offset should need it.
+#[doc(hidden)]
+pub fn containment_retries() -> usize {
+    CONTAINMENT_RETRIES.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+static CONTAINMENT_RETRIES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 /// One vertex of a loop and the bulge of the segment that starts there.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -531,29 +576,110 @@ impl Region2 {
             return Ok(self.clone());
         }
         // `cavalier_contours` can fail an internal assertion on degenerate
-        // input (a collapsed slice). The offset is then retried a hair
-        // deeper or shallower.
-        let mut r = guard(RegionOp::Offset, || self.offset_raw(d));
+        // input (a collapsed slice), or give a wrong result: a growth that
+        // does not hold the region or a shrink that does not lie inside it
+        // (docs/plan/2026-11-04-region-empty-growth.md). The offset is then
+        // retried a hair deeper or shallower.
+        let attempt = |dd: f64| {
+            let o = guard(RegionOp::Offset, || self.offset_raw(dd))?;
+            if self.offset_holds(d, &o) {
+                Ok(o)
+            } else {
+                let what = if d > 0.0 {
+                    "the growth does not hold its input"
+                } else {
+                    "the shrink does not lie inside its input"
+                };
+                Err(RegionFailure {
+                    op: RegionOp::Offset,
+                    message: format!("{what} (offset by {dd})"),
+                })
+            }
+        };
+        let mut r = attempt(d);
+        if r.as_ref().is_err_and(|e| e.message.contains("its input")) {
+            CONTAINMENT_RETRIES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
         for k in [1e-7, -1e-7, 1e-6] {
             if r.is_ok() {
                 break;
             }
-            r = guard(RegionOp::Offset, || self.offset_raw(d + k * d.signum()));
+            r = attempt(d + k * d.signum());
         }
         r
+    }
+
+    /// Whether `o`, an offset of this region by `d`, is plausible: a growth
+    /// holds the region and a shrink lies inside it, within the clean-up
+    /// tolerance. Linear in the vertex count: the area does not shrink in a
+    /// growth or grow in a shrink (by more than [`TIDY`] times the
+    /// perimeter), and the first vertex of each loop of the inner region
+    /// (this one for a growth, `o` for a shrink) lies inside the outer one
+    /// or within `10 · TIDY` of its boundary. Loops narrower than `TIDY`,
+    /// which the clean-up drops, are not checked.
+    fn offset_holds(&self, d: f64, o: &Region2) -> bool {
+        let (inner, outer) = if d > 0.0 { (self, o) } else { (o, self) };
+        let slack = TIDY * self.perimeter().max(o.perimeter());
+        if inner.area() > outer.area() + slack {
+            return false;
+        }
+        inner.loops.iter().all(|l| {
+            let Some(v) = l.verts.first() else {
+                return true;
+            };
+            2.0 * l.area().abs() <= TIDY * l.length()
+                || outer.contains_near(v.p) != Inside::Out
+                || outer.boundary_distance(v.p) <= 10.0 * TIDY
+        })
+    }
+
+    /// [`Region2::contains`], leaving out segments that cannot matter
+    /// (above, below or left of `p` by more than their size).
+    fn contains_near(&self, p: Point2) -> Inside {
+        contains_in(
+            self.segs().filter(move |s| {
+                // An arc lies within its chord's box grown by the chord
+                // length times max(1, |bulge|).
+                let m = s.a.distance(s.b) * s.bulge.abs().max(1.0) + EPS;
+                p.y() >= s.a.y().min(s.b.y()) - m
+                    && p.y() <= s.a.y().max(s.b.y()) + m
+                    && p.x() <= s.a.x().max(s.b.x()) + m
+            }),
+            p,
+        )
     }
 
     fn offset_raw(&self, d: f64) -> Region2 {
         let shape = Shape::from_plines(self.loops.iter().map(Loop2::to_pline));
         // cavalier_contours offsets to the left of the loop direction, which
         // is inward for counter-clockwise loops.
+        #[cfg(test)]
+        match fault::wrong() {
+            Some(fault::Wrong::Empty) => return Region2::empty(),
+            Some(fault::Wrong::Moved) => return self.translated(Vec2::new(20.0, 0.0)),
+            None => {}
+        }
         let out = shape.parallel_offset(-d, &ShapeOffsetOptions::new());
-        let loops = out
-            .ccw_plines
+        let outer = Region2 {
+            loops: out
+                .ccw_plines
+                .iter()
+                .filter_map(|ip| Loop2::from_pline(&ip.polyline).tidied())
+                .collect(),
+        };
+        // A hole outside every outer loop is dropped. `cavalier_contours`
+        // keeps the offset of a hole that crosses no other offset without
+        // checking it against the other loops of the shape: shrinking a
+        // ring 0.01 mm wide around a hole by 0.02 left the grown hole alone,
+        // a region of negative area (docs/plan/2026-11-04-region-empty-growth.md).
+        let holes: Vec<Loop2> = out
+            .cw_plines
             .iter()
-            .chain(&out.cw_plines)
             .filter_map(|ip| Loop2::from_pline(&ip.polyline).tidied())
+            .filter(|l| outer.contains_near(l.verts[0].p) == Inside::In)
             .collect();
+        let mut loops = outer.loops;
+        loops.extend(holes);
         Region2 { loops }
     }
 

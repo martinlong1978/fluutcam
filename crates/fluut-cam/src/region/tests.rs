@@ -752,3 +752,231 @@ fn intersection_with_a_nearly_vertical_line() {
     let r = a.try_intersect(&c).unwrap();
     assert!(r.area() > 0.0 && r.area() < a.area(), "{}", r.area());
 }
+
+/// The loop of the collapsing-arc growth: a concave arc of radius 3 (from
+/// the last vertex to the first) in a 0.26 mm² loop.
+fn loop_with_a_concave_arc_of_radius_3() -> Region2 {
+    Region2 {
+        loops: vec![Loop2 {
+            verts: vec![
+                Vertex::new(20.412821428802026, 19.30420795048225, -6.621615729048858e-6),
+                Vertex::new(20.412899018905485, 19.30422508437571, 0.0),
+                Vertex::new(20.46410677843245, 19.69318663440609, 0.0),
+                Vertex::new(20.5415041911791, 20.38041847575817, 0.0),
+                Vertex::new(19.991516959012024, 20.379028816162474, -0.09711078463494548),
+            ],
+        }],
+    }
+}
+
+#[test]
+fn growth_where_a_concave_arc_collapses_to_a_point() {
+    // `optimised_load::shrink` grows the holes of a cleared region by
+    // R − 1e-6. With a concave arc of radius R the arc's offset radius is
+    // 1e-6 mm, and `cavalier_contours` gave no loop at all (2.9999 and 3.0
+    // give 36.9 mm²; docs/plan/2026-11-04-region-empty-growth.md).
+    let a = loop_with_a_concave_arc_of_radius_3();
+    let retries = containment_retries();
+    let mut last = 0.0;
+    // Around the collapse, the area grows smoothly with the distance.
+    for d in [
+        2.9999, 2.99999, 2.999999, 2.9999999, 3.0, 3.0000001, 3.000001, 3.00001,
+    ] {
+        let g = a.try_offset(d).unwrap();
+        assert_eq!(g.loops.len(), 1);
+        assert!(
+            g.area() > last && close(g.area(), 36.916, 3e-3),
+            "{d}: {}",
+            g.area()
+        );
+        last = g.area();
+    }
+    assert_eq!(containment_retries(), retries);
+}
+
+/// The loop of the short-collinear-lines growth: three lines 0.014 to
+/// 0.042 mm long, collinear within 4.3e-5 mm, next to a nearly tangent arc.
+fn loop_with_short_nearly_collinear_lines() -> Region2 {
+    Region2 {
+        loops: vec![Loop2 {
+            verts: vec![
+                Vertex::new(6.964288267857258, 7.479660399608717, -0.07626804134349185),
+                Vertex::new(7.312397383992374, 5.2892095561762975, 0.0),
+                Vertex::new(7.312455771167016, 5.267258283738914, 0.0),
+                Vertex::new(7.312444408467266, 5.224778705253155, 0.0),
+                Vertex::new(7.312397383992378, 5.2107924438222035, -0.07626804134344047),
+                Vertex::new(6.964288267857265, 3.020341600391289, 0.23291380525219202),
+                Vertex::new(8.062502000000002, 5.250001000000001, 0.23291380525219368),
+            ],
+        }],
+    }
+}
+
+#[test]
+fn growth_of_short_nearly_collinear_lines() {
+    // Grown by 3.5625, `cavalier_contours` took the offsets of the two
+    // concave corners between the lines for overlaps, failed the assertion
+    // in `parametric_from_point` (from `line_line_join`) and, in release
+    // builds, dropped the whole growth.
+    let a = loop_with_short_nearly_collinear_lines();
+    let g = a.try_offset(3.5625).unwrap();
+    assert_eq!(g.loops.len(), 1);
+    assert!(close(g.area(), 76.735, 1e-3), "{}", g.area());
+    // The lines keep their (trimmed) offsets, 3.5625 mm out.
+    let x = g.loops[0]
+        .verts
+        .iter()
+        .filter(|v| close(v.p.x(), 7.3124 - 3.5625, 1e-4));
+    assert_eq!(x.count(), 4, "{g:?}");
+}
+
+#[test]
+fn wrong_offsets_are_retried_then_raised() {
+    // A growth must hold its input and a shrink must lie inside it. A result
+    // that does not is retried like a panic and, if every retry is wrong
+    // too, is a `RegionFailure`, never a silently wrong region.
+    let square = Region2::rect(0.0, 0.0, 10.0, 10.0);
+    for (wrong, d) in [
+        (fault::Wrong::Empty, 1.0),
+        (fault::Wrong::Moved, 1.0),
+        (fault::Wrong::Moved, -1.0),
+    ] {
+        fault::set_wrong(Some(wrong));
+        let r = square.try_offset(d);
+        fault::set_wrong(None);
+        let e = r.unwrap_err();
+        assert_eq!(e.op, RegionOp::Offset);
+        assert!(e.message.contains("input"), "{}", e.message);
+        assert_eq!(e.code(), "cam.region.offset_failed");
+    }
+    // Only the first attempt wrong: the retry gives the right answer.
+    let retries = containment_retries();
+    fault::set_wrong_once(fault::Wrong::Empty);
+    let g = square.try_offset(1.0).unwrap();
+    assert!(close(g.area(), 140.0 + PI, 1e-5), "{}", g.area());
+    assert_eq!(containment_retries(), retries + 1);
+    // An empty shrink is right.
+    assert!(square.try_offset(-6.0).unwrap().is_empty());
+}
+
+#[test]
+fn offsets_hold_their_input() {
+    // The guard accepts ordinary growths and shrinks, with holes, arcs and
+    // offsets below the clean-up tolerance.
+    let retries = containment_retries();
+    let p = plate();
+    for d in [
+        -20.0, -5.0, -1e-6, 1e-7, 1e-4, 0.5, 3.0, 9.999999, 10.0, 25.0,
+    ] {
+        let o = p.try_offset(d).unwrap();
+        assert!((o.area() - p.area()) * d >= 0.0, "{d}");
+    }
+    let ring = ring_with_a_sliver_bump();
+    for d in [-1.34375, 1.34375, 3.5625] {
+        ring.try_offset(d).unwrap();
+    }
+    assert_eq!(containment_retries(), retries);
+}
+
+/// From `rest_after_roughing_cuts_little`: a frame round 10–70 × 10–50 and a
+/// ring round a 35–45 × 25–35 hole, both about 0.01 mm wide.
+fn thin_frame_and_ring() -> Region2 {
+    Region2 {
+        loops: vec![
+            Loop2 {
+                verts: vec![
+                    Vertex::new(10.01, 47.0, -0.41421356237309503),
+                    Vertex::new(13.0, 49.99, 0.0),
+                    Vertex::new(33.783450803936034, 49.99, 0.0),
+                    Vertex::new(67.0, 49.99, -0.41421356237309503),
+                    Vertex::new(69.99, 47.0, 0.0),
+                    Vertex::new(69.99, 13.0, -0.41421356237309503),
+                    Vertex::new(67.0, 10.01, 0.0),
+                    Vertex::new(13.0, 10.01, -0.41421356237309503),
+                    Vertex::new(10.01, 13.0, 0.0),
+                ],
+            },
+            Loop2 {
+                verts: vec![
+                    Vertex::new(35.07553891311464, 35.01, 0.0),
+                    Vertex::new(35.04602562873344, 35.00850780917998, 0.0),
+                    Vertex::new(34.99999878830466, 35.00000447656944, 0.0),
+                    Vertex::new(34.999997416109444, 35.00000385115426, 0.0),
+                    Vertex::new(34.999996317113286, 35.00000281855016, 0.0),
+                    Vertex::new(34.99999560751484, 35.00000148793603, 0.0),
+                    Vertex::new(34.99999542404506, 35.000000753999956, 0.0),
+                    Vertex::new(34.99, 34.877860196654964, 0.0),
+                    Vertex::new(34.99, 25.117477419952895, 0.0),
+                    Vertex::new(34.99925496047504, 24.999881997331833, 0.0),
+                    Vertex::new(34.99928259283219, 24.99976690028097, 0.0),
+                    Vertex::new(34.99932789013475, 24.999657542918783, 0.0),
+                    Vertex::new(34.99938973701279, 24.999556617986507, 0.0),
+                    Vertex::new(34.99946661059091, 24.999466610590925, 0.0),
+                    Vertex::new(34.99955661798651, 24.999389737012798, 0.0),
+                    Vertex::new(34.99965754291881, 24.999327890134737, 0.0),
+                    Vertex::new(34.99976690028096, 24.99928259283219, 0.0),
+                    Vertex::new(34.99988199733182, 24.999254960475046, 0.0),
+                    Vertex::new(35.11747741995293, 24.990000000000002, 0.0),
+                    Vertex::new(44.88252258004709, 24.990000000000002, 0.0),
+                    Vertex::new(45.000118002668174, 24.999254960475042, 0.0),
+                    Vertex::new(45.00023309971903, 24.999282592832188, 0.0),
+                    Vertex::new(45.00034245708118, 24.999327890134737, 0.0),
+                    Vertex::new(45.000443382013486, 24.999389737012795, 0.0),
+                    Vertex::new(45.000533389409114, 24.999466610590947, 0.0),
+                    Vertex::new(45.00061026298722, 24.999556617986524, 0.0),
+                    Vertex::new(45.00067210986524, 24.999657542918765, 0.0),
+                    Vertex::new(45.000717407167805, 24.99976690028095, 0.0),
+                    Vertex::new(45.00074503952496, 24.999881997331848, 0.0),
+                    Vertex::new(45.01, 25.1174774199529, 0.0),
+                    Vertex::new(45.01, 34.88252258004711, 0.0),
+                    Vertex::new(45.00074503952496, 35.000118002668174, 0.0),
+                    Vertex::new(45.00071740716781, 35.000233099719026, 0.0),
+                    Vertex::new(45.000672109865256, 35.0003424570812, 0.0),
+                    Vertex::new(45.000610262987195, 35.00044338201351, 0.0),
+                    Vertex::new(45.000533389409085, 35.000533389409085, 0.0),
+                    Vertex::new(45.00044338201351, 35.000610262987195, 0.0),
+                    Vertex::new(45.0003424570812, 35.000672109865256, 0.0),
+                    Vertex::new(45.000233099719026, 35.00071740716781, 0.0),
+                    Vertex::new(45.000118002668174, 35.00074503952496, 0.0),
+                    Vertex::new(44.88252258004711, 35.01, 0.0),
+                ],
+            },
+            Loop2 {
+                verts: vec![
+                    Vertex::new(10.0, 47.0, 0.0),
+                    Vertex::new(10.0, 13.0, 0.4142135623730951),
+                    Vertex::new(13.0, 10.0, 0.0),
+                    Vertex::new(67.0, 10.0, 0.4142135623730951),
+                    Vertex::new(70.0, 13.0, 0.0),
+                    Vertex::new(70.0, 47.0, 0.4142135623730951),
+                    Vertex::new(67.0, 50.0, 0.0),
+                    Vertex::new(13.0, 50.0, 0.4142135623730951),
+                ],
+            },
+            Loop2 {
+                verts: vec![
+                    Vertex::new(35.0, 25.0, 0.0),
+                    Vertex::new(35.0, 35.0, 0.0),
+                    Vertex::new(45.0, 35.0, 0.0),
+                    Vertex::new(45.0, 25.0, 0.0),
+                ],
+            },
+        ],
+    }
+}
+
+#[test]
+fn shrinking_a_thin_ring_around_a_hole_leaves_nothing() {
+    // Shrunk by 0.02, `cavalier_contours` returned the grown hole alone (a
+    // region of area −100.8), which the containment guard rejected on
+    // every retry.
+    let r = thin_frame_and_ring();
+    assert!(close(r.area(), 2.344, 1e-3), "{}", r.area());
+    let o = r.try_offset(-0.02).unwrap();
+    assert!(o.is_empty(), "{o:?}");
+    // A hole that does lie in the shrink stays.
+    let thick =
+        Region2::rect(30.0, 20.0, 50.0, 40.0).with_hole(&Region2::rect(35.0, 25.0, 45.0, 35.0));
+    let o = thick.try_offset(-0.5).unwrap();
+    assert_eq!(o.loops.len(), 2);
+}
