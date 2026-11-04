@@ -33,7 +33,7 @@ pub use cyl::CylDexel;
 pub use dexel::{DexelGrid, Span, TriDexel};
 pub use mesh::{MeshTiles, NoPaint, Paint, StockMesh, surface};
 pub use motion::Chorder;
-pub use player::{Player, SimPaint};
+pub use player::{Limits, Player, SimPaint};
 pub use run::{
     Assembly, Cancelled, Check, Clip, Finding, Monitor, Program, Quiet, Settings, Simulation, Step,
     resolution,
