@@ -1,6 +1,6 @@
 # App Project Operations Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** A working prototype loop in the app: start a new project, import a STEP file, add Setups and toolpaths, calculate, post, save. Until now the app opened an existing project from a typed path and could only calculate, post and simulate it. This plan adds the operations to `Jobs` (off the UI thread, one undo step each, a snapshot after each, diagnostics on failure), native file dialogs, and a temporary File menu to reach them. The ribbon rebuild (`ui-ribbon-icons`) wires the operations to ribbon commands later; this plan does not touch `ui/ribbon.rs` or `vm/ribbon.rs`.
 
@@ -50,27 +50,35 @@ All earlier Global Constraints apply. In addition:
 
 **Files:** this plan, `docs/plan/README.md`, `crates/fluut-model/{machines,tools}/fluut/*`, `crates/fluut-post/posts/fluut/linuxcnc-4x.post.toml`.
 
-- [ ] **Step 1:** Plan; starter tools, 4-axis machine and post registered as built-ins, with load and compile tests.
+- [x] **Step 1:** Plan; starter tools, 4-axis machine and post registered as built-ins, with load and compile tests.
 
 ### Task 2: Core operations
 
 **Files:** `crates/fluut-core/src/{ops.rs, session.rs, lib.rs}`, `crates/fluut-core/tests/ops.rs`, `crates/fluut-model/src/params/value.rs` (`PValue::to_toml`).
 
-- [ ] **Step 1:** Tests first (new project reopens; save_as round-trip byte-identical and keeps geometry; import STEP bodies and copy rule; bad files; add_setup defaults against the frame (stock bounds = model bounds + margin; zero); `based_on`; add_toolpath defaults and validation; undo of each).
-- [ ] **Step 2:** Fail, implement, pass.
+- [x] **Step 1:** Tests first (new project reopens; save_as round-trip byte-identical and keeps geometry; import STEP bodies and copy rule; bad files; add_setup defaults against the frame (stock bounds = model bounds + margin; zero); `based_on`; add_toolpath defaults and validation; undo of each).
+- [x] **Step 2:** Fail, implement, pass.
 
 ### Task 3: Jobs and worker
 
 **Files:** `crates/fluut-app/src/{jobs.rs, session.rs, session/tests.rs, vm/status.rs}`, `crates/fluut-i18n/locales/en/{app,ops}.ftl`.
 
-- [ ] **Step 1:** Tests first (end to end headless: new, import, add setup, add `parallel`, calculate, post; save and reopen byte-identical; undo; bad file).
-- [ ] **Step 2:** Fail, implement, pass.
+- [x] **Step 1:** Tests first (end to end headless: new, import, add setup, add `parallel`, calculate, post; save and reopen byte-identical; undo; bad file).
+- [x] **Step 2:** Fail, implement, pass.
 
 ### Task 4: Dialogs and the temporary File menu
 
 **Files:** `crates/fluut-app/src/{dialogs.rs, ui/mod.rs, ui/menu.rs}`, `Cargo.toml`, `deny.toml` if needed.
 
-- [ ] **Step 1:** `dialogs.rs` with filters; kittest smoke test of the menu; Ctrl+Z/Y, Ctrl+S, Ctrl+O, Ctrl+N, Ctrl+I shortcuts.
-- [ ] **Step 2:** Workspace checks, merge `main`, commit.
+- [x] **Step 1:** `dialogs.rs` with filters; kittest smoke test of the menu; Ctrl+Z/Y, Ctrl+S, Ctrl+O, Ctrl+N, Ctrl+I shortcuts.
+- [x] **Step 2:** Workspace checks, merge `main`, commit.
 
-(Results and open issues are recorded below when the plan is done.)
+**Done.** `cargo deny check` passes with `rfd` (MIT; Windows build checked, Linux uses the portal, not GTK). Core: 11 tests in `fluut-core/tests/ops.rs`; app: 6 job tests and one menu smoke test. Undo and redo also bring the model store in step with the project (`Session::sync_store`), so an undone import leaves no bodies behind.
+
+Open issues:
+- Two sources with the same body ids (two DXF files, `b-1`) are refused; needs per-source body ids.
+- STL files are read but give no bodies yet, so importing one fails with `model.import.empty`. The unit of STL/DXF is the project's; the dialog does not ask.
+- Rotary and indexed defaults assume the part lies on the +X axis through the model origin; others need the axis picked in the inspector.
+- Posting a rotary Setup needs a rotary post (`fluut/linuxcnc-4x`, the 4-axis machine's post); the ribbon's post list offers three posts without it.
+- The temporary File menu (`ui/menu.rs`) is deleted when the ribbon wiring task lands; the "discard unsaved changes?" window is kept in `menu::discard_prompt` and should move with it.
+- The typed-path Open in the ribbon does not ask about unsaved changes.

@@ -299,6 +299,7 @@ impl Session {
         self.sync_doc();
         let out = self.doc.undo()?;
         self.project = self.doc.project().clone();
+        self.sync_store();
         Some(out)
     }
 
@@ -306,7 +307,30 @@ impl Session {
         self.sync_doc();
         let out = self.doc.redo()?;
         self.project = self.doc.project().clone();
+        self.sync_store();
         Some(out)
+    }
+
+    /// Makes the model store hold the project's sources again after an undo
+    /// or redo of an import: sources the project no longer lists are
+    /// dropped, new ones are read from their files (problems go to
+    /// `warnings`).
+    fn sync_store(&mut self) {
+        let gone: Vec<String> = self
+            .store
+            .sources()
+            .map(|(id, _)| id.to_owned())
+            .filter(|id| self.project.source(id).is_none())
+            .collect();
+        for id in gone {
+            self.store.remove(&id);
+        }
+        for g in &self.project.geometry {
+            if self.store.source(&g.id).is_none() {
+                let d = self.store.load(g, &self.dir);
+                self.warnings.extend(d);
+            }
+        }
     }
 
     /// A project changed directly (not through `apply`) starts a new

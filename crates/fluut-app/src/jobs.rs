@@ -7,7 +7,9 @@
 //! Progress is two atomics the UI samples each frame; cancellation is a
 //! shared flag the worker checks between steps.
 
-use fluut_model::{Diagnostic, PValue};
+use crate::text::{tr, tr_args};
+use fluut_model::project::{DisplayUnit, SetupKind};
+use fluut_model::{Diagnostic, PValue, ToolpathTypeId};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -112,6 +114,25 @@ pub struct PostRequest {
 #[derive(Clone, Debug)]
 pub enum Request {
     Open(JobCx, PathBuf),
+    New(JobCx, PathBuf, DisplayUnit),
+    /// Saves to the project's file, or as the path.
+    Save(JobCx, Option<PathBuf>),
+    /// Imports a model file; the unit applies to STL and DXF files.
+    Import(JobCx, PathBuf, Option<String>),
+    AddSetup {
+        cx: JobCx,
+        kind: SetupKind,
+        based_on: Option<String>,
+        name: String,
+    },
+    AddToolpath {
+        cx: JobCx,
+        setup: String,
+        kind: ToolpathTypeId,
+        name: String,
+    },
+    Undo(JobCx),
+    Redo(JobCx),
     Calculate(JobCx, CalcTargets),
     Post(JobCx, PostRequest),
     /// Calculates what is stale in the Setup, then simulates it.
@@ -128,6 +149,13 @@ pub enum Request {
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum JobKind {
     Open,
+    New,
+    Save,
+    Import,
+    AddSetup,
+    AddToolpath,
+    Undo,
+    Redo,
     Calculate,
     Post,
     Simulate,
@@ -138,6 +166,30 @@ pub enum JobKind {
 pub enum Outcome {
     Opened {
         file: String,
+    },
+    Created {
+        file: String,
+    },
+    Saved {
+        file: String,
+    },
+    Imported {
+        file: String,
+        bodies: usize,
+    },
+    SetupAdded {
+        id: String,
+        name: String,
+    },
+    ToolpathAdded {
+        id: String,
+        name: String,
+    },
+    Undone {
+        label: String,
+    },
+    Redone {
+        label: String,
     },
     Calculated {
         count: usize,
@@ -195,6 +247,16 @@ pub struct Jobs {
     pub frame: Option<Arc<Frame>>,
     /// Scrub requests sent and not yet answered.
     pub scrubbing: usize,
+    /// What the last finished add operation made, until the UI takes it to
+    /// select it.
+    pub created: Option<Created>,
+}
+
+/// An entity an operation added.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Created {
+    Setup(String),
+    Toolpath(String),
 }
 
 impl Jobs {
@@ -211,6 +273,7 @@ impl Jobs {
             last: None,
             frame: None,
             scrubbing: 0,
+            created: None,
         }
     }
 
@@ -251,6 +314,121 @@ impl Jobs {
             |n| n.to_string_lossy().into_owned(),
         );
         self.start_job(JobKind::Open, name, |cx| Request::Open(cx, path));
+    }
+
+    /// Starts a new empty project at `path` (`.fluut` is added when there
+    /// is no extension), written at once. Ignored while a job runs. The UI
+    /// asks about unsaved changes before it calls this.
+    pub fn new_project(&mut self, path: PathBuf, units: DisplayUnit) {
+        if self.is_busy() {
+            return;
+        }
+        let name = file_label(&path);
+        self.start_job(JobKind::New, name, |cx| Request::New(cx, path, units));
+    }
+
+    /// Saves the project to its file. Ignored while a job runs or with no
+    /// project.
+    pub fn save(&mut self) {
+        if self.is_busy() || self.snapshot.is_none() {
+            return;
+        }
+        let name = self
+            .snapshot
+            .as_ref()
+            .map_or_else(String::new, |s| s.file_name());
+        self.start_job(JobKind::Save, name, |cx| Request::Save(cx, None));
+    }
+
+    /// Saves the project as `path`, which becomes its file. Ignored while
+    /// a job runs or with no project.
+    pub fn save_as(&mut self, path: PathBuf) {
+        if self.is_busy() || self.snapshot.is_none() {
+            return;
+        }
+        let name = file_label(&path);
+        self.start_job(JobKind::Save, name, |cx| Request::Save(cx, Some(path)));
+    }
+
+    /// Imports a model file (STEP, and STL, DXF or SVG by extension) as a
+    /// new geometry source. The unit of an STL or DXF file is the
+    /// project's. Ignored while a job runs or with no project.
+    pub fn import_model(&mut self, path: PathBuf) {
+        self.import_model_unit(path, None);
+    }
+
+    /// As [`Jobs::import_model`], with the unit of the file (`mm`, `in`).
+    pub fn import_model_unit(&mut self, path: PathBuf, unit: Option<String>) {
+        if self.is_busy() || self.snapshot.is_none() {
+            return;
+        }
+        let name = file_label(&path);
+        self.start_job(JobKind::Import, name, |cx| Request::Import(cx, path, unit));
+    }
+
+    /// Adds a Setup of `kind`, optionally based on Setup `based_on`, named
+    /// "Setup N". Ignored while a job runs or with no project.
+    pub fn add_setup(&mut self, kind: SetupKind, based_on: Option<&str>) {
+        if self.is_busy() {
+            return;
+        }
+        let Some(s) = self.snapshot.as_ref() else {
+            return;
+        };
+        let name = unused_name(
+            &tr("setup-name"),
+            s.project.setups.len() + 1,
+            s.project.setups.iter().map(|x| x.name.as_str()),
+        );
+        let based_on = based_on.map(str::to_owned);
+        self.start_job(JobKind::AddSetup, name.clone(), |cx| Request::AddSetup {
+            cx,
+            kind,
+            based_on,
+            name,
+        });
+    }
+
+    /// Adds a toolpath of type `kind` to Setup `setup`, named "Type N".
+    /// Ignored while a job runs or with no project.
+    pub fn add_toolpath(&mut self, setup: &str, kind: ToolpathTypeId) {
+        if self.is_busy() {
+            return;
+        }
+        let Some(s) = self.snapshot.as_ref() else {
+            return;
+        };
+        let label = tr(&format!("toolpath-type-{}", kind.as_str()));
+        let all = || s.project.setups.iter().flat_map(|x| x.toolpaths.iter());
+        let same = all().filter(|t| t.kind() == kind).count();
+        let name = unused_name(&label, same + 1, all().map(|t| t.name.as_str()));
+        let setup = setup.to_owned();
+        self.start_job(JobKind::AddToolpath, name.clone(), |cx| {
+            Request::AddToolpath {
+                cx,
+                setup,
+                kind,
+                name,
+            }
+        });
+    }
+
+    /// Undoes the last edit. Ignored while a job runs or when there is
+    /// nothing to undo.
+    pub fn undo(&mut self) {
+        if self.is_busy() || !self.snapshot.as_ref().is_some_and(|s| s.can_undo) {
+            return;
+        }
+        self.start_job(JobKind::Undo, String::new(), Request::Undo);
+    }
+
+    /// Redoes the last undone edit. Ignored while a job runs or when there
+    /// is nothing to redo.
+    pub fn redo(&mut self) {
+        if self.is_busy() || !self.snapshot.as_ref().is_some_and(|s| s.can_redo) {
+            return;
+        }
+        self.start_job(JobKind::Redo, String::new(), Request::Redo);
     }
 
     /// Starts a calculation. Ignored while a job runs or with no project.
@@ -340,6 +518,15 @@ impl Jobs {
                 self.frame = Some(f);
             }
             Event::Finished { job, outcome } => {
+                match &outcome {
+                    Outcome::SetupAdded { id, .. } => {
+                        self.created = Some(Created::Setup(id.clone()));
+                    }
+                    Outcome::ToolpathAdded { id, .. } => {
+                        self.created = Some(Created::Toolpath(id.clone()));
+                    }
+                    _ => {}
+                }
                 if let Some(r) = self.running.take_if(|r| r.cx.id == job) {
                     self.last = Some((r.kind, outcome));
                 }
@@ -383,4 +570,23 @@ impl Jobs {
         }
         self.snapshot.clone()
     }
+}
+
+fn file_label(path: &std::path::Path) -> String {
+    path.file_name().map_or_else(
+        || path.display().to_string(),
+        |n| n.to_string_lossy().into_owned(),
+    )
+}
+
+/// "`prefix` n", with n raised until no name in `taken` is the same.
+fn unused_name<'a>(
+    prefix: &str,
+    first: usize,
+    taken: impl Iterator<Item = &'a str> + Clone,
+) -> String {
+    (first..)
+        .map(|n| tr_args("name-numbered", &[("name", prefix), ("n", &n.to_string())]))
+        .find(|c| !taken.clone().any(|t| t == c))
+        .unwrap_or_default()
 }

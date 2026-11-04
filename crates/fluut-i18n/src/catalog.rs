@@ -18,8 +18,9 @@ use unic_langid::LanguageIdentifier;
 type Bundle = FluentBundle<FluentResource>;
 
 /// The shipped English resources, by file name.
-pub(crate) const EN_FILES: [(&str, &str); 3] = [
+pub(crate) const EN_FILES: [(&str, &str); 4] = [
     ("app.ftl", include_str!("../locales/en/app.ftl")),
+    ("ops.ftl", include_str!("../locales/en/ops.ftl")),
     ("params.ftl", include_str!("../locales/en/params.ftl")),
     (
         "diagnostics.ftl",

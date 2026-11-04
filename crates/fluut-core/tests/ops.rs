@@ -280,10 +280,13 @@ fn each_operation_is_one_undo_step() {
         assert_eq!(s.project, states[i], "undo to {i}");
     }
     assert!(!s.can_undo() && s.can_redo());
+    // The model store follows the project.
+    assert_eq!(s.store.bodies().count(), 0);
     for (i, st) in states.iter().enumerate().skip(1) {
         s.redo().unwrap();
         assert_eq!(s.project, *st, "redo to {i}");
     }
+    assert_eq!(s.store.bodies().count(), 1);
 }
 
 #[test]
