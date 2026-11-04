@@ -1007,3 +1007,34 @@ fn shrink_of_a_thin_triangle_to_near_its_inradius() {
         );
     }
 }
+
+#[test]
+fn growths_of_a_shape_with_spike_tips() {
+    // Found by the `region` fuzz target through the containment guard. A
+    // disc and a bar 3.5 mm high, shrunk by 1.75: the bar collapses to its
+    // middle line, and the shape ends in two tips where concave arcs of
+    // radius 1.75 meet back to back. Rounding leaves each tip turning back a
+    // micro-radian on the inner side, `cavalier_contours` took them as inner
+    // joins whose offsets do not cross, and every growth came back empty.
+    let s = Region2::circle(9.250001, 5.5, 5.0)
+        .union(&Region2::rect(
+            2.500002,
+            3.750003,
+            18.250004999999998,
+            7.250005,
+        ))
+        .try_offset(-1.75)
+        .unwrap();
+    assert_eq!(s.loops.len(), 1);
+    let mut last = s.area();
+    for d in [0.5, 1.0, 1.75, 3.0, 3.78125] {
+        let g = s.try_offset(d).unwrap();
+        assert_eq!(g.loops.len(), 1, "{d}");
+        assert!(g.area() > last, "{d}: {}", g.area());
+        last = g.area();
+    }
+    // The tips grow round: the growth reaches d left of the left tip.
+    let g = s.try_offset(1.0).unwrap();
+    let (lo, _) = g.bbox();
+    assert!(close(lo.x(), s.bbox().0.x() - 1.0, 1e-6), "{lo:?}");
+}

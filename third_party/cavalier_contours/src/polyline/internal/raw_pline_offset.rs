@@ -378,7 +378,17 @@ where
         let alignment = incoming.dot(outgoing);
         let angle_eps = T::fuzzy_epsilon();
 
-        if turn * turn <= angle_eps * angle_eps * incoming_len_sq * outgoing_len_sq {
+        // FluutCAM patch: a reversal (a spike tip, where two arcs or lines meet back to back) is
+        // also taken as one when the tangents turn back by less than `pos_equal_eps / |offset|`
+        // from opposite, not only by less than the angle epsilon. A tip that rounding left a
+        // micro-radian on the inner side was an inner join; the offsets on either side of a tip do
+        // not cross, so that join became an invalid gap and the whole closed offset was dropped,
+        // at every distance.
+        let reversal_eps = self.pos_equal_eps / self.offset.abs();
+        if (turn * turn <= angle_eps * angle_eps * incoming_len_sq * outgoing_len_sq)
+            || (alignment < T::zero()
+                && turn * turn <= reversal_eps * reversal_eps * incoming_len_sq * outgoing_len_sq)
+        {
             if alignment < T::zero() {
                 // Reversal round: bridge opposite collinear tangents with an arc.
                 Some(self.arc_connection_boundary(

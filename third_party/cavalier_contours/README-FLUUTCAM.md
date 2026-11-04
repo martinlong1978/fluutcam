@@ -17,7 +17,7 @@ differ in the last bit between platforms. See the S3 report, `docs/plan/spikes/s
 
 ## What changed
 
-The trigonometric calls, and seven fixes for nearly degenerate offsets and intersections. Everything else is as
+The trigonometric calls, and eight fixes for nearly degenerate offsets and intersections. Everything else is as
 published.
 
 - `src/core/math/line_line_intersect.rs`, `line_line_intr`: for collinear segments, the
@@ -78,6 +78,14 @@ published.
   `optimised_load::shrink` grows holes of a cleared region (`growth_where_a_concave_arc_collapses_to_a_point`;
   plan `docs/plan/2026-11-04-region-empty-growth.md`). Arcs with a larger offset radius are
   unchanged.
+- `src/polyline/internal/raw_pline_offset.rs`, `RawOffsetBuilder::join_without_intersection`: a
+  join whose tangents are nearly opposite, within `pos_equal_eps / |offset|` rad, is a reversal
+  (bridged by a round connector), not only within the default epsilon. At a spike tip where two
+  arcs meet back to back, rounding can leave the tangents turning back a micro-radian on the
+  inner side; the join was then an inner join, the offsets on either side of a tip do not cross,
+  the join became an invalid gap and every growth of the shape came back empty. Found by the
+  `region` fuzz target through FluutCAM's containment check
+  (`growths_of_a_shape_with_spike_tips`).
 - `src/core/math/line_line_intersect.rs`, `line_line_intr`: for segments with |v| |u| < 1 that
   are not points, the parallel test compares the perp product of the segment vectors with
   `eps · |v| |u|` (an angle of `eps`) and the collinear tests with `eps · |v|` and `eps · |u|` (a
