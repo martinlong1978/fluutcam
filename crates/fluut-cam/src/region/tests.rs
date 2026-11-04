@@ -776,7 +776,7 @@ fn growth_where_a_concave_arc_collapses_to_a_point() {
     // 1e-6 mm, and `cavalier_contours` gave no loop at all (2.9999 and 3.0
     // give 36.9 mm²; docs/plan/2026-11-04-region-empty-growth.md).
     let a = loop_with_a_concave_arc_of_radius_3();
-    let retries = containment_retries();
+    let retries = thread_containment_retries();
     let mut last = 0.0;
     // Around the collapse, the area grows smoothly with the distance.
     for d in [
@@ -791,7 +791,7 @@ fn growth_where_a_concave_arc_collapses_to_a_point() {
         );
         last = g.area();
     }
-    assert_eq!(containment_retries(), retries);
+    assert_eq!(thread_containment_retries(), retries);
 }
 
 /// The loop of the short-collinear-lines growth: three lines 0.014 to
@@ -850,11 +850,11 @@ fn wrong_offsets_are_retried_then_raised() {
         assert_eq!(e.code(), "cam.region.offset_failed");
     }
     // Only the first attempt wrong: the retry gives the right answer.
-    let retries = containment_retries();
+    let retries = thread_containment_retries();
     fault::set_wrong_once(fault::Wrong::Empty);
     let g = square.try_offset(1.0).unwrap();
     assert!(close(g.area(), 140.0 + PI, 1e-5), "{}", g.area());
-    assert_eq!(containment_retries(), retries + 1);
+    assert_eq!(thread_containment_retries(), retries + 1);
     // An empty shrink is right.
     assert!(square.try_offset(-6.0).unwrap().is_empty());
 }
@@ -863,7 +863,7 @@ fn wrong_offsets_are_retried_then_raised() {
 fn offsets_hold_their_input() {
     // The guard accepts ordinary growths and shrinks, with holes, arcs and
     // offsets below the clean-up tolerance.
-    let retries = containment_retries();
+    let retries = thread_containment_retries();
     let p = plate();
     for d in [
         -20.0, -5.0, -1e-6, 1e-7, 1e-4, 0.5, 3.0, 9.999999, 10.0, 25.0,
@@ -875,7 +875,7 @@ fn offsets_hold_their_input() {
     for d in [-1.34375, 1.34375, 3.5625] {
         ring.try_offset(d).unwrap();
     }
-    assert_eq!(containment_retries(), retries);
+    assert_eq!(thread_containment_retries(), retries);
 }
 
 /// From `rest_after_roughing_cuts_little`: a frame round 10–70 × 10–50 and a
@@ -1059,11 +1059,9 @@ fn growth_of_a_loop_pinched_at_a_tangent_hole_is_never_wrong() {
         .unwrap();
     let g = r.try_offset(2.9).unwrap();
     assert_eq!(g.loops.len(), 2);
+    // Now right (docs/plan/2026-11-04-region-touching-booleans.md).
     for d in [2.95, 3.0, 3.65625] {
-        match r.try_offset(d) {
-            Ok(g) => assert!(g.area() > r.area(), "{d}: {}", g.area()),
-            Err(e) => assert_eq!(e.code(), "cam.region.offset_failed"),
-        }
+        check_offset(&r, d);
     }
 }
 
@@ -1118,4 +1116,479 @@ fn union_at_a_near_tangent_crossing() {
         b.area(),
         i.area()
     );
+}
+
+// Fuzz findings of docs/plan/2026-11-04-region-touching-booleans.md: exact
+// inputs, checked against a point oracle as well as the guards.
+
+/// Whether `r` agrees with `inside` at the points of a 60 × 60 grid over
+/// `bbox` that lie farther than `margin` from where the answer changes
+/// (`near` gives that distance).
+fn agrees_on_grid(
+    r: &Region2,
+    bbox: (Point2, Point2),
+    margin: f64,
+    inside: impl Fn(Point2) -> bool,
+    near: impl Fn(Point2) -> f64,
+) -> Result<(), String> {
+    let (lo, hi) = bbox;
+    let n = 60;
+    for i in 0..=n {
+        for j in 0..=n {
+            let p = Point2::new(
+                lo.x() + (hi.x() - lo.x()) * f64::from(i) / f64::from(n),
+                lo.y() + (hi.y() - lo.y()) * f64::from(j) / f64::from(n),
+            );
+            if near(p) <= margin {
+                continue;
+            }
+            let want = inside(p);
+            let got = r.contains(p) == Inside::In;
+            if want != got {
+                return Err(format!("at {p:?}: want {want}, got {got}"));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn grown_box(a: &Region2, b: &Region2, d: f64) -> (Point2, Point2) {
+    let (a0, a1) = a.bbox();
+    let (b0, b1) = b.bbox();
+    (
+        Point2::new(a0.x().min(b0.x()) - d, a0.y().min(b0.y()) - d),
+        Point2::new(a1.x().max(b1.x()) + d, a1.y().max(b1.y()) + d),
+    )
+}
+
+/// The boolean `op` of `a` and `b` succeeds and agrees with the point
+/// oracle away from both boundaries.
+fn check_boolean(a: &Region2, b: &Region2, op: boolean::Op) -> Region2 {
+    let r = match op {
+        boolean::Op::Union => a.try_union(b),
+        boolean::Op::Intersect => a.try_intersect(b),
+        boolean::Op::Subtract => a.try_subtract(b),
+    }
+    .unwrap_or_else(|e| panic!("{op:?}: {e}"));
+    let ins = |r: &Region2, p| r.contains(p) == Inside::In;
+    agrees_on_grid(
+        &r,
+        grown_box(a, b, 1.0),
+        1e-4,
+        |p| match op {
+            boolean::Op::Union => ins(a, p) || ins(b, p),
+            boolean::Op::Intersect => ins(a, p) && ins(b, p),
+            boolean::Op::Subtract => ins(a, p) && !ins(b, p),
+        },
+        |p| a.boundary_distance(p).min(b.boundary_distance(p)),
+    )
+    .unwrap_or_else(|e| panic!("{op:?}: {e}"));
+    r
+}
+
+/// The offset of `a` by `d` succeeds and agrees with the point oracle:
+/// a point is in a growth when it is in `a` or within `d` of it, and in a
+/// shrink when it is in `a` farther than `-d` from its boundary.
+fn check_offset(a: &Region2, d: f64) -> Region2 {
+    let r = a
+        .try_offset(d)
+        .unwrap_or_else(|e| panic!("offset {d}: {e}"));
+    agrees_on_grid(
+        &r,
+        grown_box(a, a, d.abs() + 1.0),
+        1e-4,
+        |p| {
+            let inside = a.contains(p) == Inside::In;
+            if d > 0.0 {
+                inside || a.boundary_distance(p) < d
+            } else {
+                inside && a.boundary_distance(p) > -d
+            }
+        },
+        |p| {
+            let e = a.boundary_distance(p);
+            (e - d.abs()).abs().min(e)
+        },
+    )
+    .unwrap_or_else(|e| panic!("offset {d}: {e}"));
+    r
+}
+
+use boolean::Op::{Intersect as I, Subtract as S, Union as U};
+
+#[test]
+fn union_with_a_circle_moved_by_a_micrometre() {
+    // crash-18a2186f62c6d45d: the union came back empty.
+    let r = check_boolean(
+        &Region2::circle(2.250002, 7.500001, 3.7500005),
+        &Region2::circle(7.500001, 3.500002, 3.7500005),
+        U,
+    );
+    check_boolean(&r, &Region2::circle(7.500001, 3.500003, 3.7500005), U);
+}
+
+#[test]
+fn union_with_a_triangle_along_an_edge_to_its_corner() {
+    // crash-780b89c27004a023: a triangle whose base runs along the bottom
+    // edge of a strip, within a micrometre, to the strip's corner.
+    let r = check_boolean(
+        &Region2::rect(2.250002, 7.250001, 16.000004999999998, 7.500002),
+        &Region2::circle(5.250001, 5.250001, 2.6250005),
+        U,
+    );
+    check_boolean(
+        &r,
+        &Region2::polygon(&[(7.25, 15.75), (14.5, 7.25), (2.250002, 7.250001)]),
+        U,
+    );
+}
+
+#[test]
+fn union_of_a_lens_with_a_nearly_equal_circle() {
+    // crash-f41f9c680d99400b and crash-325601795d4772b5.
+    let r = check_boolean(
+        &Region2::circle(8.500002, 7.500001, 3.7500005),
+        &Region2::circle(7.500001, 7.500001, 3.7500005),
+        U,
+    );
+    let r = check_boolean(&r, &Region2::circle(7.500001, 7.500001, 4.250001), I);
+    check_boolean(&r, &Region2::circle(8.500001, 7.500001, 3.7500005), U);
+    let r = check_boolean(
+        &Region2::circle(8.500002, 7.500001, 3.7500005),
+        &Region2::circle(7.5, 7.500001, 3.7500005),
+        U,
+    );
+    let r = check_boolean(&r, &Region2::circle(7.500001, 6.250003, 3.7500005), I);
+    check_boolean(&r, &Region2::circle(7.500001, 7.500001, 3.7500005), U);
+}
+
+#[test]
+fn unions_with_a_grown_micrometre_slot() {
+    // crash-a5cb7ed7647ed0cd, crash-76d1b90458b2526a, crash-0dc66a892500a679
+    // and crash-d174e4a7ac77c07a: a circle cut by a slot 3 µm wide, grown
+    // (the slot closes to two touching round ends), then grown again or
+    // united with a rectangle or a circle.
+    for (y0, y1) in [(6.000001, 6.000004000000001), (6.000003, 6.000006000000001)] {
+        let r = check_boolean(
+            &Region2::circle(9.5, 3.25, 4.7500015),
+            &Region2::rect(5.0, y0, 14.000001, y1),
+            S,
+        );
+        let r = check_offset(&r, 1.59375);
+        check_offset(&r, 0.21875);
+        check_boolean(
+            &r,
+            &Region2::rect(6.000001, 3.500003, 15.500003, 8.500003),
+            U,
+        );
+        check_boolean(&r, &Region2::circle(15.25, 4.0, 2.5), U);
+        check_boolean(
+            &r,
+            &Region2::rect(0.750002, 5.750003, 6.000003, 11.000004),
+            U,
+        );
+    }
+}
+
+#[test]
+fn union_with_a_triangle_touching_a_grown_corner() {
+    // crash-96cfde04162293c4: a square with a micrometre slit along an
+    // edge, grown, and a triangle with a vertex at the slit's end.
+    let r = check_boolean(
+        &Region2::rect(15.750003, 15.750002, 31.500006, 31.500005),
+        &Region2::rect(2.250001, 15.750003, 18.000004, 15.750005),
+        S,
+    );
+    let r = check_offset(&r, 3.96875);
+    check_boolean(
+        &r,
+        &Region2::polygon(&[(15.750003, 15.750003), (0.0, 0.0), (0.0, 1.500001)]),
+        U,
+    );
+}
+
+#[test]
+fn growth_of_a_triangle_against_a_rectangle() {
+    // crash-43cc10cc710e7b9e and crash-2194050ce0d00b59: a triangle whose
+    // right edge runs along the left edge of a rectangle, 1 µm apart.
+    let r = check_boolean(
+        &Region2::polygon(&[
+            (14.5, 10.750001),
+            (15.750003, 15.500001),
+            (15.750002, 2.000001),
+        ]),
+        &Region2::rect(15.750003, 6.500001, 24.500006, 13.000002),
+        U,
+    );
+    check_offset(&r, 0.5);
+    let r = check_boolean(
+        &r,
+        &Region2::polygon(&[(13.500001, 9.750003), (3.750001, 12.25), (12.25, 9.0)]),
+        S,
+    );
+    check_offset(&r, 0.5);
+}
+
+#[test]
+fn growth_of_a_rectangle_cut_by_a_triangle_at_its_corner() {
+    // crash-3761b54d85fa7f0b.
+    let r = check_boolean(
+        &Region2::rect(5.500001, 0.0, 21.250004, 4.250001),
+        &Region2::polygon(&[
+            (5.500002, 2e-6),
+            (4.000001, 12.250001),
+            (12.750002, 3.750002),
+        ]),
+        S,
+    );
+    check_offset(&r, 3.84375);
+}
+
+#[test]
+fn growths_of_a_circle_cut_by_an_internally_tangent_circle() {
+    // crash-3a7a81a90f8c518d and crash-76ffaa7a0c4079c5: the hole touches
+    // the outer circle (within 1.5 µm), which pinches the loop to a
+    // channel micrometres wide: the class of
+    // `growth_of_a_loop_pinched_at_a_tangent_hole_is_never_wrong`.
+    let r = check_boolean(
+        &Region2::circle(15.750003, 5.000002, 7.8750015),
+        &Region2::circle(15.750003, 2.0, 4.8750005),
+        S,
+    );
+    check_offset(&r, 3.96875);
+    let r = check_boolean(
+        &Region2::circle(15.750003, 15.750003, 7.8750015),
+        &Region2::circle(11.75, 15.750003, 3.8750015),
+        S,
+    );
+    check_offset(&r, 3.75);
+}
+
+#[test]
+fn shrinks_next_to_micrometre_features() {
+    // crash-7257fe63b4f84b29: a triangle with a notch whose floor lies 1 µm
+    // above its base, and a circle over the notch.
+    let r = check_boolean(
+        &Region2::polygon(&[(0.500002, 0.0), (15.0, 0.0), (15.0, 15.500003)]),
+        &Region2::rect(4.25, 1e-6, 9.250002, 5.500003),
+        S,
+    );
+    let r = check_boolean(&r, &Region2::circle(5.250001, 5.250001, 2.625001), U);
+    check_offset(&r, -0.0625);
+    // crash-dbae1f8bcc9ae547: a ring 1 µm wide, cut by a circle, shrunk.
+    let r = check_boolean(
+        &Region2::circle(15.750003, 13.750003, 6.8750015),
+        &Region2::circle(15.750003, 13.750003, 6.8750005),
+        S,
+    );
+    let r = check_boolean(&r, &Region2::circle(1e-6, 7.500001, 4.0), S);
+    check_offset(&r, -0.9375);
+}
+
+#[test]
+fn union_of_two_thin_triangles_meeting_at_a_corner() {
+    // crash-f98475400e9e8ff1: two thin triangles whose top edges run
+    // together within 2 µm and meet at a corner; a vertex of one cuts the
+    // other's edge at its foot, 2 µm away, which stitching must bridge.
+    let r = check_boolean(
+        &Region2::polygon(&[(14.5, 15.75), (15.750002, 15.750002), (2.750001, 14.75)]),
+        &Region2::polygon(&[(15.5, 14.750003), (15.750003, 15.75), (2.250001, 15.750003)]),
+        U,
+    );
+    let r = check_offset(&r, 3.875);
+    check_boolean(&r, &Region2::rect(15.75, 2.250001, 31.500003, 18.000001), U);
+}
+
+#[test]
+fn growth_of_parts_separated_by_a_micrometre_slit() {
+    // crash-dc36715129325e0e: three quarters of a disc cut by a slit 1 µm
+    // wide into two parts that touch at a vertex. Grown, their offsets
+    // overlapped and were left as two overlapping loops.
+    let r = check_boolean(
+        &Region2::circle(15.750003, 15.750003, 7.8750015),
+        &Region2::rect(15.750003, 15.750003, 31.500006, 31.500006),
+        S,
+    );
+    let r = check_boolean(
+        &r,
+        &Region2::rect(15.750003, 7.500002, 15.750003999999999, 16.000002000000002),
+        S,
+    );
+    check_offset(&r, 0.25);
+}
+
+#[test]
+fn shrink_of_a_wall_thinner_than_the_tolerance() {
+    // crash-3b893fe9e5ce3fdf: a rounded square with a hole whose top lies
+    // 5 µm below the square's top after a first shrink. Shrunk again,
+    // `cavalier_contours` kept the slices along the wall (they lie within
+    // its tolerance of the right distance) and returned the outer loop alone.
+    let r = check_offset(
+        &Region2::rect(8.750003, 2.500002, 18.750005, 11.750005),
+        3.25,
+    );
+    let r = check_boolean(
+        &r,
+        &Region2::rect(10.750001, 7.0, 18.250000999999997, 14.5),
+        S,
+    );
+    let r = check_offset(&r, -0.25);
+    check_offset(&r, -0.25);
+}
+
+#[test]
+fn growth_after_a_growth_over_a_sliver_notch() {
+    // crash-35233d7b34fd0181: a growth that left two overlapping outer
+    // loops, then a union with them.
+    let r = check_offset(
+        &Region2::rect(0.250003, 4.500001, 16.000006, 5.000001),
+        3.96875,
+    );
+    let r = check_boolean(
+        &r,
+        &Region2::polygon(&[(1e-6, 0.250001), (0.0, 0.0), (0.0, 15.5)]),
+        S,
+    );
+    let r = check_offset(&r, 1.28125);
+    check_boolean(
+        &r,
+        &Region2::polygon(&[(0.0, 0.0), (0.0, 15.750003), (9.0, 15.5)]),
+        U,
+    );
+}
+
+#[test]
+fn shrink_where_a_bar_collapses_to_a_line() {
+    // crash-f356c4ed54396d53 and crash-d485bf30f55f716b: shrunk by half its
+    // width, the bottom bar collapses to a line. `cavalier_contours` gave
+    // the offset as three open pieces, and closing each on its own cut the
+    // region with a chord (which only the boundary-distance check caught).
+    for c in [
+        Region2::circle(2.25, 11.000003, 6.5),
+        Region2::circle(1.500002, 5.000003, 7.0000005),
+    ] {
+        let r = check_boolean(
+            &Region2::rect(3e-6, 9.000001, 15.750005999999999, 13.250001),
+            &c,
+            S,
+        );
+        let r = check_boolean(
+            &r,
+            &Region2::rect(3.000001, 6.000001, 18.250002, 7.750001),
+            U,
+        );
+        let r = check_offset(&r, 1.59375);
+        let r = check_offset(&r, -2.46875);
+        check_offset(&r, 2.59375);
+    }
+}
+
+#[test]
+fn chained_offsets_and_unions_of_slotted_shapes() {
+    // crash-4a254080354276fb and crash-a533d5d7739c9504.
+    let r = check_boolean(
+        &Region2::rect(8.750003, 2.500002, 18.000006, 13.000004),
+        &Region2::rect(9.250003, 8.5, 17.500006, 16.750003),
+        S,
+    );
+    let r = check_offset(&r, 1.90625);
+    let r = check_boolean(&r, &Region2::circle(5.000001, 7.5, 4.6250015), U);
+    let r = check_offset(&r, 0.71875);
+    let r = check_offset(&r, -2.875);
+    check_offset(&r, 3.25);
+    let r = check_boolean(
+        &Region2::circle(13.0, 8.500002, 2.7500005),
+        &Region2::rect(5.250003, 6.000001, 14.250004, 6.000004000000001),
+        S,
+    );
+    let r = check_offset(&r, 1.59375);
+    let r = check_boolean(&r, &Region2::circle(15.750002, 15.750003, 0.3750015), U);
+    let r = check_offset(&r, 0.15625);
+    check_boolean(&r, &Region2::circle(15.750001, 0.500001, 7.1250005), U);
+}
+
+#[test]
+fn unions_of_neighbouring_tool_sweeps() {
+    // Two cases a first version of the fixes broke (`plate2d` stock
+    // and `optimised_load_2d`): a piece that leaves the other boundary at
+    // a shallow crossing, or passes a corner of the other region within
+    // 1e-5, is in or out, not coincident.
+    let sweep = |v: &[(f64, f64, f64)]| Region2 {
+        loops: vec![Loop2 {
+            verts: v.iter().map(|&(x, y, b)| Vertex::new(x, y, b)).collect(),
+        }],
+    };
+    let a = sweep(&[
+        (23.040682371760212, 29.408472298426553, 0.0),
+        (23.44128140103625, 28.774421497825294, 1.0),
+        (28.513687805846317, 31.979213732033593, 0.0),
+        (28.11308877657028, 32.61326453263485, 1.0),
+    ]);
+    let b = sweep(&[
+        (23.436932835585324, 28.781324990426292, 0.0),
+        (23.835805991711112, 28.146187048462302, 1.0),
+        (28.91690952742303, 31.337172297468605, 0.0),
+        (28.518036371297242, 31.972310239432595, 1.0),
+    ]);
+    for op in [U, I, S] {
+        check_boolean(&a, &b, op);
+    }
+    let a = sweep(&[
+        (20.625646812321374, 41.12078325151428, 0.41421357043836043),
+        (24.236941986694912, 38.92106789358608, 0.0),
+        (24.375846739610573, 38.95480990047169, 0.0),
+        (24.516912132565633, 38.9317099367993, 0.9519406876498898),
+        (25.771019303926998, 44.77131670744463, 0.8679659302601681),
+        (20.271571611768643, 42.5783944840968, 0.0),
+    ]);
+    let b = sweep(&[
+        (26.011339660141225, 40.93404009551572, 0.2898861542158794),
+        (26.141492785513694, 44.12966536976743, 0.0),
+        (25.766492785513694, 44.77918442260576, 0.7855794096822968),
+        (20.190178050343654, 43.14803857856022, 0.09172220706685985),
+        (20.01076461945772, 42.075089907002365, 0.0),
+        (20.03663852505372, 40.57531307660085, 0.9999999999999999),
+        (26.01574882225442, 40.6784637135769, 0.0),
+    ]);
+    for op in [U, I, S] {
+        check_boolean(&a, &b, op);
+    }
+}
+
+#[test]
+#[ignore = "open: docs/plan/2026-11-04-region-touching-booleans.md"]
+fn growth_of_a_grown_strip_with_a_micrometre_slit() {
+    // crash-cc2e80593715d9c4 (fuzzing after the fixes, debug assertions):
+    // reported as `cam.region.offset_failed`.
+    let r = check_boolean(
+        &Region2::rect(0.500002, 3e-6, 1.0000019999999998, 3.000003),
+        &Region2::rect(0.500002, 0.500002, 0.5000049999999999, 2.000002),
+        S,
+    );
+    let r = check_offset(&r, 1.625);
+    check_offset(&r, 3.96875);
+}
+
+#[test]
+#[ignore = "open: docs/plan/2026-11-04-region-touching-booleans.md"]
+fn growth_after_a_shrink_of_unions_with_a_thin_triangle() {
+    // crash-f5007002f8629b1e (fuzzing after the fixes, release): reported
+    // as `cam.region.offset_failed`.
+    let r = check_boolean(
+        &Region2::rect(4.000001, 0.250001, 18.500002, 5.250003),
+        &Region2::circle(2.25, 11.000003, 2.250001),
+        S,
+    );
+    let r = check_boolean(
+        &r,
+        &Region2::rect(4.0, 6.750001, 10.750001000000001, 13.500002),
+        U,
+    );
+    let r = check_boolean(
+        &r,
+        &Region2::polygon(&[(15.500002, 6.000001), (1.750002, 11.000003), (0.0, 0.0)]),
+        U,
+    );
+    let r = check_offset(&r, -3.75);
+    check_offset(&r, 1.0);
 }

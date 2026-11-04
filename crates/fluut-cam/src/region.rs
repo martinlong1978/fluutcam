@@ -189,6 +189,18 @@ pub fn containment_retries() -> usize {
 
 static CONTAINMENT_RETRIES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
+#[cfg(test)]
+thread_local! {
+    static THREAD_RETRIES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// [`containment_retries`] on this thread only, for unit tests that run
+/// beside others that retry.
+#[cfg(test)]
+pub(crate) fn thread_containment_retries() -> usize {
+    THREAD_RETRIES.with(std::cell::Cell::get)
+}
+
 /// One vertex of a loop and the bulge of the segment that starts there.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Vertex {
@@ -580,9 +592,8 @@ impl Region2 {
         // does not hold the region or a shrink that does not lie inside it
         // (docs/plan/2026-11-04-region-empty-growth.md). The offset is then
         // retried a hair deeper or shallower.
-        let attempt = |dd: f64| {
-            let o = guard(RegionOp::Offset, || self.offset_raw(dd))?;
-            if self.offset_holds(d, &o) {
+        let holds = |src: &Region2, dd: f64, o: Region2| {
+            if src.offset_holds(dd, &o) {
                 Ok(o)
             } else {
                 let what = if d > 0.0 {
@@ -596,17 +607,113 @@ impl Region2 {
                 })
             }
         };
-        let mut r = attempt(d);
+        let attempt = |src: &Region2, dd: f64| {
+            let o = guard(RegionOp::Offset, || src.offset_raw(dd))?;
+            holds(src, dd, o)
+        };
+        let mut r = attempt(self, d);
         if r.as_ref().is_err_and(|e| e.message.contains("its input")) {
             CONTAINMENT_RETRIES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            #[cfg(test)]
+            THREAD_RETRIES.with(|c| c.set(c.get() + 1));
         }
         for k in [1e-7, -1e-7, 1e-6] {
             if r.is_ok() {
                 break;
             }
-            r = attempt(d + k * d.signum());
+            r = attempt(self, d + k * d.signum());
+        }
+        // Last, in two steps, which is exact: growing by d1 and then by d2
+        // is growing by d1 + d2, and likewise for shrinks. A loop pinched
+        // to two cusps a few micrometres apart grows wrong where the cusps'
+        // round joins nearly coincide; after a first step the cusps are
+        // round ends, which grow right
+        // (docs/plan/2026-11-04-region-touching-booleans.md).
+        for f in [0.5, 0.25] {
+            if r.is_ok() {
+                break;
+            }
+            r = attempt(self, d * f)
+                .and_then(|h| attempt(&h, d * (1.0 - f)))
+                .and_then(|o| holds(self, d, o));
+        }
+        // Last, loop by loop, which is exact too: per part (an outer loop
+        // O with its holes H), the growth is (O grown) minus (each H shrunk
+        // as a solid), the shrink (O shrunk) minus (each H grown), and the
+        // parts' results are united (a disc that fits in the region fits
+        // in one part). `cavalier_contours` offsets a single loop more
+        // reliably than several: where the offsets of two loops run
+        // together (parts a micrometre apart, or a wall between a hole and
+        // the outside thinner than its tolerance) it can keep slices it
+        // should drop. The booleans handle coincident boundaries
+        // (docs/plan/2026-11-04-region-touching-booleans.md).
+        if r.is_err()
+            && self.loops.len() > 1
+            && let Some(o) = self.offset_by_loops(d)
+            && let Ok(o) = holds(self, d, o)
+        {
+            r = Ok(o);
+        }
+        // Last, with features narrower than `TIDY` removed, which offsets
+        // drop from their results anyway: a boolean can leave a spike or
+        // sliver a micrometre wide where two boundaries touch, and
+        // `cavalier_contours` can fail to grow past it.
+        if r.is_err() {
+            let tidy = Region2 {
+                loops: self.loops.iter().filter_map(Loop2::tidied).collect(),
+            };
+            if tidy != *self
+                && let Ok(o) = tidy.try_offset(d)
+                && let Ok(o) = holds(self, d, o)
+            {
+                r = Ok(o);
+            }
         }
         r
+    }
+
+    /// [`Region2::try_offset`] loop by loop; `None` when any step fails.
+    fn offset_by_loops(&self, d: f64) -> Option<Region2> {
+        let mut acc = Region2::empty();
+        for part in self.parts()? {
+            let one = |l: Loop2| Region2 { loops: vec![l] };
+            let mut o = one(part.loops[0].clone()).try_offset(d).ok()?;
+            for h in &part.loops[1..] {
+                let solid = one(h.reversed()).try_offset(-d).ok()?;
+                o = o.try_subtract(&solid).ok()?;
+            }
+            acc = if acc.is_empty() {
+                o
+            } else {
+                acc.try_union(&o).ok()?
+            };
+        }
+        Some(acc)
+    }
+
+    /// The region's parts, each an outer loop with the holes inside it;
+    /// `None` when a hole lies in no outer loop.
+    fn parts(&self) -> Option<Vec<Region2>> {
+        let mut parts: Vec<Region2> = self
+            .loops
+            .iter()
+            .filter(|l| l.is_ccw())
+            .map(|l| Region2 {
+                loops: vec![l.clone()],
+            })
+            .collect();
+        for h in self.loops.iter().filter(|l| !l.is_ccw()) {
+            // The smallest outer loop around the hole's first vertex.
+            let p = h.verts[0].p;
+            let owner = parts
+                .iter()
+                .enumerate()
+                .filter(|(_, r)| contains_in(r.loops[0].segs(), p) != Inside::Out)
+                .min_by(|(_, a), (_, b)| a.loops[0].area().total_cmp(&b.loops[0].area()))
+                .map(|(i, _)| i)?;
+            parts[owner].loops.push(h.clone());
+        }
+        Some(parts)
     }
 
     /// Whether `o`, an offset of this region by `d`, is plausible: a growth
@@ -623,13 +730,73 @@ impl Region2 {
         if inner.area() > outer.area() + slack {
             return false;
         }
-        inner.loops.iter().all(|l| {
+        let thin = |l: &Loop2| 2.0 * l.area().abs() <= TIDY * l.length();
+        let contained = inner.loops.iter().all(|l| {
             let Some(v) = l.verts.first() else {
                 return true;
             };
-            2.0 * l.area().abs() <= TIDY * l.length()
+            thin(l)
                 || outer.contains_near(v.p) != Inside::Out
                 || outer.boundary_distance(v.p) <= 10.0 * TIDY
+        });
+        if !contained {
+            return false;
+        }
+        // Every point of an offset's boundary lies at `|d|` from the input's
+        // boundary. Where the offsets of two loops of the input meet,
+        // `cavalier_contours` has grown two parts a few micrometres apart
+        // with a dent between them, of plausible area
+        // (docs/plan/2026-11-04-region-touching-booleans.md). So when the
+        // boxes of two loops, grown by `|d|`, overlap, the midpoint of every
+        // segment of the result is checked. Single loops and loops far
+        // apart are not: checking every offset cost 5-15 % of
+        // `optimised_load`.
+        let (ad, tol) = (d.abs(), 10.0 * TIDY);
+        if !self.loops_meet_within(ad + tol) {
+            return true;
+        }
+        let ix = boolean::Indexed::new(self);
+        o.loops.iter().all(|l| {
+            thin(l)
+                || l.segs().all(|s| {
+                    ix.distance_within(s.point_at(0.5), ad + tol)
+                        .is_some_and(|e| e >= ad - tol)
+                })
+        })
+    }
+
+    /// Whether the bounding boxes of two of the loops, grown by `r`,
+    /// overlap.
+    fn loops_meet_within(&self, r: f64) -> bool {
+        if self.loops.len() < 2 {
+            return false;
+        }
+        let mut boxes: Vec<(f64, f64, f64, f64)> = self
+            .loops
+            .iter()
+            .map(|l| {
+                l.segs().fold(
+                    (
+                        f64::INFINITY,
+                        f64::INFINITY,
+                        f64::NEG_INFINITY,
+                        f64::NEG_INFINITY,
+                    ),
+                    |(x0, y0, x1, y1), s| {
+                        let (a, b) = s.support_x();
+                        let (c, d) = s.support_y();
+                        (x0.min(a - r), y0.min(c - r), x1.max(b + r), y1.max(d + r))
+                    },
+                )
+            })
+            .collect();
+        // Sweep in x.
+        boxes.sort_by(|p, q| p.0.total_cmp(&q.0));
+        (0..boxes.len()).any(|i| {
+            boxes[i + 1..]
+                .iter()
+                .take_while(|q| q.0 <= boxes[i].2)
+                .any(|q| q.1 <= boxes[i].3 && boxes[i].1 <= q.3)
         })
     }
 
@@ -660,22 +827,46 @@ impl Region2 {
             None => {}
         }
         let out = shape.parallel_offset(-d, &ShapeOffsetOptions::new());
+        // Where the offsets of two loops run together (two parts of a
+        // region a few micrometres apart grow along the same circle),
+        // `cavalier_contours` can stitch both into one loop that passes a
+        // point twice, or leave two outer loops that overlap, enclosing part
+        // of the growth twice. Such a loop is split there, and overlapping
+        // outer loops are united
+        // (docs/plan/2026-11-04-region-touching-booleans.md).
+        let mut outer = Vec::new();
+        let mut inner = Vec::new();
+        for ip in out.ccw_plines.iter().chain(&out.cw_plines) {
+            let Some(l) = Loop2::from_pline(&ip.polyline).tidied() else {
+                continue;
+            };
+            let parts = boolean::split_touching(l.verts.clone());
+            let parts: Vec<Loop2> = if parts.len() == 1 {
+                vec![l]
+            } else {
+                parts
+                    .into_iter()
+                    .filter_map(|verts| Loop2 { verts }.tidied())
+                    .collect()
+            };
+            for l in parts {
+                if l.is_ccw() {
+                    outer.push(l);
+                } else {
+                    inner.push(l);
+                }
+            }
+        }
         let outer = Region2 {
-            loops: out
-                .ccw_plines
-                .iter()
-                .filter_map(|ip| Loop2::from_pline(&ip.polyline).tidied())
-                .collect(),
+            loops: merge_overlapping(outer, &mut inner),
         };
         // A hole outside every outer loop is dropped. `cavalier_contours`
         // keeps the offset of a hole that crosses no other offset without
         // checking it against the other loops of the shape: shrinking a
         // ring 0.01 mm wide around a hole by 0.02 left the grown hole alone,
         // a region of negative area (docs/plan/2026-11-04-region-empty-growth.md).
-        let holes: Vec<Loop2> = out
-            .cw_plines
-            .iter()
-            .filter_map(|ip| Loop2::from_pline(&ip.polyline).tidied())
+        let holes: Vec<Loop2> = inner
+            .into_iter()
             .filter(|l| outer.contains_near(l.verts[0].p) == Inside::In)
             .collect();
         let mut loops = outer.loops;
@@ -722,8 +913,8 @@ impl Region2 {
         // (docs/plan/2026-11-04-region-empty-growth.md).
         let (sa, oa) = (self.area(), o.area());
         let slack = TIDY * (self.perimeter() + o.perimeter());
-        let run = |a: &Region2, b: &Region2| {
-            let r = guard(RegionOp::Boolean, || boolean::boolean(a, b, op))?;
+        let run_in = |a: &Region2, b: &Region2, mode: boolean::Mode| {
+            let r = guard(RegionOp::Boolean, || boolean::boolean(a, b, op, mode))?;
             let ra = r.area();
             let plausible = match op {
                 boolean::Op::Union => ra >= sa.max(oa) - slack,
@@ -739,22 +930,27 @@ impl Region2 {
                 })
             }
         };
-        let mut last = match run(self, o) {
-            Ok(r) => return Ok(r),
-            Err(e) => e,
-        };
+        let run = |a: &Region2, b: &Region2| run_in(a, b, boolean::Mode::Plain);
+        if let Ok(r) = run(self, o) {
+            return Ok(r);
+        }
+        // Then with nearly coincident points snapped together, and pieces
+        // classified the same way from both sides: the plain boolean loses
+        // loops where boundaries touch or run together a few micrometres
+        // apart (docs/plan/2026-11-04-region-touching-booleans.md).
+        if let Ok(r) = run_in(self, o, boolean::Mode::Snapped) {
+            return Ok(r);
+        }
         for (dx, dy) in [(1e-9, 0.7e-9), (-0.7e-9, 1e-9), (0.3e-9, -1e-9)] {
-            match run(self, &o.translated(Vec2::new(dx, dy))) {
-                Ok(r) => return Ok(r),
-                Err(e) => last = e,
+            if let Ok(r) = run(self, &o.translated(Vec2::new(dx, dy))) {
+                return Ok(r);
             }
         }
         // Then with almost-collinear vertices removed from both.
         let (a, b) = (self.cleaned(), o.cleaned());
         for (dx, dy) in [(0.0, 0.0), (1e-9, 0.7e-9)] {
-            match run(&a, &b.translated(Vec2::new(dx, dy))) {
-                Ok(r) => return Ok(r),
-                Err(e) => last = e,
+            if let Ok(r) = run(&a, &b.translated(Vec2::new(dx, dy))) {
+                return Ok(r);
             }
         }
         // Last, with features narrower than `TIDY` removed from both, as
@@ -765,23 +961,24 @@ impl Region2 {
         };
         let (a, b) = (tidy(&a), tidy(&b));
         for (dx, dy) in [(0.0, 0.0), (1e-9, 0.7e-9)] {
-            match run(&a, &b.translated(Vec2::new(dx, dy))) {
-                Ok(r) => return Ok(r),
-                Err(e) => last = e,
+            if let Ok(r) = run(&a, &b.translated(Vec2::new(dx, dy))) {
+                return Ok(r);
             }
         }
-        if let Ok(path) = std::env::var("FLUUT_DUMP") {
+        let last = run_in(&a, &b, boolean::Mode::Snapped);
+        if last.is_err()
+            && let Ok(path) = std::env::var("FLUUT_DUMP")
+        {
             let _ = std::fs::write(
                 path,
                 format!(
-                    "{:?}
-{:?}
-",
-                    self, o
+                    "{self:?}
+{o:?}
+"
                 ),
             );
         }
-        Err(last)
+        last
     }
 
     /// The region with arcs flatter than 1e-7 mm turned into lines and
@@ -884,6 +1081,80 @@ impl Region2 {
         let (y0, y1) = self.support(Vec2::new(0.0, 1.0));
         (Point2::new(x0, y0), Point2::new(x1, y1))
     }
+}
+
+/// The outer loops with those that overlap united: an outer loop with a
+/// vertex or segment midpoint inside another (counting `holes`, so an
+/// island in a hole is not inside) overlaps it. A region's outer loops
+/// never overlap, but an offset can leave such loops. Holes that the
+/// unions make are added to `holes`.
+fn merge_overlapping(mut outer: Vec<Loop2>, holes: &mut Vec<Loop2>) -> Vec<Loop2> {
+    type Box4 = (f64, f64, f64, f64);
+    let bbox = |l: &Loop2| -> Box4 {
+        l.segs().fold(
+            (
+                f64::INFINITY,
+                f64::INFINITY,
+                f64::NEG_INFINITY,
+                f64::NEG_INFINITY,
+            ),
+            |(x0, y0, x1, y1), s| {
+                let (a, b) = s.support_x();
+                let (c, d) = s.support_y();
+                (x0.min(a), y0.min(c), x1.max(b), y1.max(d))
+            },
+        )
+    };
+    let meets = |a: Box4, b: Box4| a.0 <= b.2 && b.0 <= a.2 && a.1 <= b.3 && b.1 <= a.3;
+    // A union normally leaves one loop for two; the budget ends the loop
+    // when one does not.
+    let mut budget = outer.len();
+    'merge: while outer.len() > 1 && budget > 0 {
+        budget -= 1;
+        let boxes: Vec<Box4> = outer.iter().map(bbox).collect();
+        for i in 0..outer.len() {
+            let near_holes: Vec<Seg2> = holes
+                .iter()
+                .filter(|h| meets(bbox(h), boxes[i]))
+                .flat_map(Loop2::segs)
+                .collect();
+            for j in 0..outer.len() {
+                if i == j || !meets(boxes[i], boxes[j]) {
+                    continue;
+                }
+                let inside = |p: Point2| {
+                    contains_in(outer[i].segs().chain(near_holes.iter().copied()), p) == Inside::In
+                };
+                let overlaps = outer[j]
+                    .segs()
+                    .any(|s| inside(s.a) || inside(s.point_at(0.5)));
+                if overlaps {
+                    let one = |l: &Loop2| Region2 {
+                        loops: vec![l.clone()],
+                    };
+                    let u = boolean::boolean(
+                        &one(&outer[i]),
+                        &one(&outer[j]),
+                        boolean::Op::Union,
+                        boolean::Mode::Snapped,
+                    );
+                    let (hi, lo) = (i.max(j), i.min(j));
+                    outer.remove(hi);
+                    outer.remove(lo);
+                    for l in u.loops {
+                        if l.is_ccw() {
+                            outer.push(l);
+                        } else {
+                            holes.push(l);
+                        }
+                    }
+                    continue 'merge;
+                }
+            }
+        }
+        break;
+    }
+    outer
 }
 
 /// [`Region2::contains`] over the given boundary segments. Segments that
