@@ -78,19 +78,21 @@ workspace version differ.
 
 | Platform | Artefact | Tooling |
 |---|---|---|
-| Windows | MSI + portable zip | `cargo-wix`; Authenticode signing through SignPath |
+| Windows | MSI + portable zip | WiX v5 (`wix` .NET tool, hand-written source); Authenticode signing through SignPath |
 | macOS | universal DMG | `lipo`; ad-hoc `codesign` |
-| Linux | AppImage, Flatpak | `appimagetool` (signed); Flathub manifest |
+| Linux | tarball, AppImage, Flatpak | `appimagetool` (pinned by version and SHA-256); Flathub manifest. AppImages are not GPG-signed; the minisign, checksum and attestation steps cover them |
 
 Built so far (`.github/workflows/release.yml`, `cargo xtask package`):
 
 | Platform | Artefact | Notes |
 |---|---|---|
-| Windows x86-64 | `fluutcam-<v>-windows-x86_64.zip` | `fluutcam.exe`, `fluut.exe`, icon, licences. Executables signed through SignPath when its settings exist. No MSI yet |
-| Linux x86-64 | `fluutcam-<v>-linux-x86_64.tar.gz` | `bin/`, `.desktop` file, hicolor icons, licences, built on Ubuntu 22.04 (glibc 2.35). No AppImage or Flatpak yet |
+| Windows x86-64 | `fluutcam-<v>-windows-x86_64.zip` | `fluutcam.exe`, `fluut.exe`, icon, licences. Executables signed through SignPath when its settings exist |
+| Windows x86-64 | `fluutcam-<v>-windows-x86_64.msi` | Per-user installer built by `packaging/wix/build-msi.ps1` from the signed executables; Start menu shortcut, licences, optional `PATH` entry (`ADDTOPATH=1`). Stable UpgradeCode, so a newer MSI replaces an older one. Signed itself by a second SignPath request. Uninstall leaves `%LOCALAPPDATA%\FluutCAM` alone |
+| Linux x86-64 | `fluutcam-<v>-linux-x86_64.tar.gz` | `bin/`, `.desktop` file, hicolor icons, licences, built on Ubuntu 22.04 (glibc 2.35) |
+| Linux x86-64 | `fluutcam-<v>-linux-x86_64.AppImage` | Made from the tarball by `packaging/appimage/build-appimage.sh` with appimagetool 1.9.1 and type2 runtime 20251108 (pinned; `fetch-tools.sh` checks their SHA-256). No zsync update information. No Flatpak yet |
 | macOS | `fluutcam-<v>-macos-universal.dmg`, `…-macos-universal-cli.tar.gz` | `lipo` of the arm64 and x86-64 builds in `FluutCAM.app`; ad-hoc signing (no Developer ID, by decision) |
 
-The archives are written by `cargo xtask package` (sorted entries, fixed time stamp, no
+The MSI and the AppImage are not byte-reproducible (MSI time stamps and identifiers; squashfs and the runtime are not compared). The archives are written by `cargo xtask package` (sorted entries, fixed time stamp, no
 owners), so they are reproducible and need no platform tools. Every signing and
 verification step is skipped when its secrets are missing, so unsigned builds still work. The
 workflow makes a draft release; a person publishes it.
@@ -114,20 +116,22 @@ release workflow checks them on the built files first.
 | What | How | Cost |
 |---|---|---|
 | Windows `.exe` | Authenticode through the SignPath Foundation open-source programme. `release.yml` uploads the unsigned executables as a GitHub artifact, submits it with `signpath/github-action-submit-signing-request@v3`, waits for an approver (up to 2 h) and takes the signed files back. The certificate's publisher is SignPath Foundation | free |
+| Windows `.msi` | Built from the signed executables, then submitted in a second request with its own artifact configuration ([`artifact-configuration-msi.xml`](../../packaging/signpath/artifact-configuration-msi.xml)). SignPath is not asked to sign files inside the MSI, which would repack it. CI checks the MSI and, by an administrative install, the two executables in it | free |
+| Linux AppImage | No platform signature (no GPG); checksum, minisign and attestation | free |
 | macOS app and DMG | Ad hoc only. Apple has no free programme for open-source projects, so there is no Developer ID or notarisation. Users open the app once with right-click → Open ([`docs/install.md`](../install.md)). Homebrew's main cask repository will not take it | free |
 | Every release file | GitHub build provenance attestation (`actions/attest-build-provenance@v2`, Sigstore keyless) in the `release` job | free |
 | `releases.json`, `SHA256SUMS` | minisign | free |
 
-The artifact configuration that SignPath applies is kept in
+The artifact configurations that SignPath applies are kept in
 [`packaging/signpath/artifact-configuration.xml`](../../packaging/signpath/artifact-configuration.xml)
-and pasted into the SignPath project, so changes to it are reviewed like code.
+and `artifact-configuration-msi.xml`, and pasted into the SignPath project, so changes to it are reviewed like code.
 
 Repository settings for the release workflow (each group is optional; without it that step is
 skipped):
 - SignPath: secret `SIGNPATH_API_TOKEN` (a CI user with submitter rights); variables
   `SIGNPATH_ORGANIZATION_ID`, `SIGNPATH_PROJECT_SLUG`, `SIGNPATH_SIGNING_POLICY_SLUG`
   (`test-signing` until the Foundation approves the project, then `release-signing`) and
-  `SIGNPATH_ARTIFACT_CONFIGURATION_SLUG`.
+  `SIGNPATH_ARTIFACT_CONFIGURATION_SLUG` (executables) and `SIGNPATH_MSI_ARTIFACT_CONFIGURATION_SLUG` (installer, a second artifact configuration in the same SignPath project; without the variable the MSI holds signed executables but is not signed itself).
 - minisign: secrets `MINISIGN_SECRET_KEY`, `MINISIGN_PASSWORD`, `MINISIGN_PUBLIC_KEY`.
 
 SignPath Foundation terms that shape the project (listed in full on signpath.org): an OSI
@@ -138,6 +142,8 @@ page linked from the home page; uninstall instructions; and no network transfer 
 user asks, which is why the update check is opt-in [S 06 §6.4].
 
 CI verifies every signature after signing; a failed check stops the release [S 06 §6.2].
+
+`.github/workflows/packaging.yml` is a dry run: on pull requests that touch `packaging/`, `xtask/` or the workflows (and on demand) it builds the MSI and the AppImage unsigned and uploads them as short-lived artefacts. It uses no secret and publishes nothing.
 
 ### 5.3 Update manifest
 

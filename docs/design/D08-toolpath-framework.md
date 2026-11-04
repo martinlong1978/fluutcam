@@ -239,7 +239,11 @@ the tool to the larger turn clearance of that Setup and the one before it (spec 
 zero lies on the axis, so Z alone is the height above it, and a tool pointing up from a tip at
 that height has all of its assembly outside the cylinder, wherever it is in X and Y. The
 retract is in the post, not in the results: the toolpaths and their cache keys do not depend on
-the next Setup. Above the machine's Z travel the post fails (`setup.clearance.index_travel`). In
+the next Setup. The machine's Z travel limits the spindle gauge line, not the tip (spec 02
+§2.3, 2026-11-03): when the turn height + the gauge length of the tool in the spindle
+(overall length + holder length) is above the travel the post fails
+(`setup.clearance.index_travel`). Fixtures that turn with A count in the turn radius through
+one hook, `frame::turning_fixture_radius`; no fixture model exists yet, so it adds nothing. In
 a rotary Setup A turns on rapids at the clearance cylinder, which the post cannot change, so a
 clearance cylinder not larger than the turn radius is refused (`setup.clearance.index_unsafe`).
 
@@ -323,9 +327,17 @@ sample looks a little further out than the radius, so the floor is never lower t
 This covers the rapid across and the lift and descent at its ends, which stay inside the swept
 stadium. The rapid down to an entry stops at the same floor as above (`stock_rapid_floor`, shared
 with `link.rs`). Neither is higher than without the stock, and where the tool meets no material
-the lift is the geometry bound + `safety_distance`. `horizontal` links with the 2-D linker, so only
-its rapids down to an entry use the stock; its lifts stay at the material top. `full` retracts do
-not change, and nothing changes without the in-process stock.
+the lift is the geometry bound + `safety_distance`. `full` retracts do not change, and nothing changes
+without the in-process stock.
+
+**2-D lifts over the stock (2026-11-03).** The 2-D linker (`link.rs`: every type that links with
+`link_over`, so `horizontal` and the roughers too) lifts the same way. With planar in-process
+stock, a `minimum` or `stay_down` lift for the link from the end of one pass to the next entry
+goes to `max(feed, top_along(end, entry, R) + safety_distance)` (the feed height when the tool
+meets no material), never above the lift without the stock (`min(retract, material top +
+safety_distance)`) and never below the pass Z. `full` retracts, stay-down links that stay in
+the region and the case without stock are unchanged. The formula is shared with the rapid floor
+(`stock_lift_height`, `stock_rapid_floor` in `link.rs`).
 
 **Optimised-load links (2026-11-01).** The straight entry move of an optimised-load pass, its sliver moves
 and the safe regions its stay-down links use are kept inside the tool-centre region; the shrunk

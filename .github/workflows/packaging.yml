@@ -1,0 +1,72 @@
+# Packaging dry run (design D14 §5.2): builds the Windows MSI and the Linux
+# AppImage from a normal release build, WITHOUT signing or publishing. It runs
+# on pull requests that touch the packaging files, and on demand, so a broken
+# WiX source, a changed pin or a bad AppDir shows up before a tag does.
+# Nothing here uses a secret.
+
+name: Packaging
+
+on:
+  pull_request:
+    paths:
+      - "packaging/**"
+      - "xtask/**"
+      - ".github/workflows/packaging.yml"
+      - ".github/workflows/release.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  msi:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show
+      - name: Build
+        run: cargo build --release --locked -p fluut-cli -p fluut-app
+      - run: cargo xtask icons icons
+      - name: Collect binaries
+        shell: bash
+        run: |
+          mkdir bin
+          cp target/release/fluut.exe target/release/fluutcam.exe bin/
+      - name: Build the MSI (unsigned)
+        shell: pwsh
+        run: ./packaging/wix/build-msi.ps1 -Version (cargo xtask version) -BinDir bin -IconFile icons/windows/fluutcam.ico -Out dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dry-run-msi
+          path: dist/
+          retention-days: 3
+          if-no-files-found: error
+
+  appimage:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show
+      - name: Build
+        run: cargo build --release --locked -p fluut-cli -p fluut-app
+      - name: Tarball and AppImage (unsigned)
+        run: |
+          version=$(cargo xtask version)
+          mkdir bin
+          cp target/release/fluut target/release/fluutcam bin/
+          cargo xtask icons icons
+          cargo xtask package --platform linux-x86_64 --bin-dir bin --icons icons --out tar
+          packaging/appimage/fetch-tools.sh "$RUNNER_TEMP/tools"
+          APPIMAGETOOL="$RUNNER_TEMP/tools/appimagetool" RUNTIME="$RUNNER_TEMP/tools/runtime-x86_64" \
+            packaging/appimage/build-appimage.sh "tar/fluutcam-$version-linux-x86_64.tar.gz" "$version" work
+          "work/fluutcam-$version-linux-x86_64.AppImage" --appimage-extract >/dev/null
+          squashfs-root/usr/bin/fluut --version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dry-run-appimage
+          path: work/*.AppImage
+          retention-days: 3
+          if-no-files-found: error

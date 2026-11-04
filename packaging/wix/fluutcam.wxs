@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  FluutCAM Windows installer (D14 section 5.2), WiX Toolset v5.
+
+  Build (release.yml does this; see docs/plan/2026-11-03-msi-appimage.md):
+    wix build -arch x64 -o fluutcam.msi `
+      -d Version=0.1.0 -d BinDir=bin -d IconFile=icons\windows\fluutcam.ico -d RootDir=. `
+      packaging\wix\fluutcam.wxs
+
+  Version is the numeric part of the release version (no pre-release suffix).
+  BinDir holds the (signed) fluutcam.exe and fluut.exe. RootDir holds LICENSE-*.
+
+  Per-user install, so no administrator prompt: files go to
+  %LOCALAPPDATA%\Programs\FluutCAM. User data lives in %LOCALAPPDATA%\FluutCAM, a different
+  folder that this package never creates, lists or removes, so an uninstall keeps it.
+
+  UpgradeCode identifies the product across versions. NEVER CHANGE IT: a new value would
+  install next to older versions instead of replacing them.
+
+  Component GUIDs of the file components are fixed (their key path is a registry value, as
+  per-user installs require); never change them.
+
+  Optional: msiexec /i fluutcam.msi ADDTOPATH=1 adds the install folder to the user's PATH
+  (and removes it again on uninstall).
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="FluutCAM" Manufacturer="FluutCAM contributors"
+           Version="$(Version)" UpgradeCode="ccdb87f9-a021-4205-bf0c-ced76729d1b8"
+           Scope="perUser" Compressed="yes" InstallerVersion="500">
+
+    <SummaryInformation Description="FluutCAM - open-source CAM for CNC milling" />
+
+    <!-- A newer or the same version replaces an older one (pre-releases share a number). -->
+    <MajorUpgrade AllowSameVersionUpgrades="yes"
+                  DowngradeErrorMessage="A newer version of FluutCAM is already installed." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Icon Id="fluutcam.ico" SourceFile="$(IconFile)" />
+    <Property Id="ARPPRODUCTICON" Value="fluutcam.ico" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/fluutcam/fluutcam" />
+
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="ProgramsDir" Name="Programs">
+        <Directory Id="INSTALLFOLDER" Name="FluutCAM" />
+      </Directory>
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="StartMenuDir" Name="FluutCAM" />
+    </StandardDirectory>
+
+    <!-- ICE64: per-user folders must be removed explicitly (only if empty). -->
+    <Component Id="RemoveFolders" Directory="INSTALLFOLDER" Bitness="always64">
+      <RemoveFolder Id="RemoveInstallFolder" Directory="INSTALLFOLDER" On="uninstall" />
+      <RemoveFolder Id="RemoveProgramsDir" Directory="ProgramsDir" On="uninstall" />
+      <RegistryValue Root="HKCU" Key="Software\FluutCAM\Installer" Name="Folders" Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+
+    <Feature Id="Main" Title="FluutCAM" Level="1" AllowAbsent="no">
+      <ComponentGroupRef Id="Programs" />
+      <ComponentGroupRef Id="Licences" />
+      <ComponentRef Id="StartMenuShortcut" />
+      <ComponentRef Id="RemoveFolders" />
+      <ComponentRef Id="PathEntry" />
+    </Feature>
+
+    <ComponentGroup Id="Programs" Directory="INSTALLFOLDER">
+      <Component Id="FluutcamExe" Guid="19d88ce9-99e5-4ec2-b2ae-60f29ea27b29" Bitness="always64">
+        <File Id="FluutcamExe" Source="$(BinDir)\fluutcam.exe" />
+        <RegistryValue Root="HKCU" Key="Software\FluutCAM\Installer" Name="FluutcamExe" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+      <Component Id="FluutExe" Guid="79a13817-cd6f-429b-ab56-d303a2e196a4" Bitness="always64">
+        <File Id="FluutExe" Source="$(BinDir)\fluut.exe" />
+        <RegistryValue Root="HKCU" Key="Software\FluutCAM\Installer" Name="FluutExe" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <ComponentGroup Id="Licences" Directory="INSTALLFOLDER">
+      <Component Id="LicenceApache" Guid="af5774e6-5b79-496b-84c7-d1a052bf0ea8" Bitness="always64">
+        <File Id="LicenceApache" Source="$(RootDir)\LICENSE-APACHE" />
+        <RegistryValue Root="HKCU" Key="Software\FluutCAM\Installer" Name="LicenceApache" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+      <Component Id="LicenceMit" Guid="7d9a412d-4978-44b3-99f0-70eb4a815326" Bitness="always64">
+        <File Id="LicenceMit" Source="$(RootDir)\LICENSE-MIT" />
+        <RegistryValue Root="HKCU" Key="Software\FluutCAM\Installer" Name="LicenceMit" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <Component Id="StartMenuShortcut" Directory="StartMenuDir" Bitness="always64">
+      <Shortcut Id="FluutcamShortcut" Name="FluutCAM" Description="Open-source CAM for CNC milling"
+                Target="[INSTALLFOLDER]fluutcam.exe" WorkingDirectory="INSTALLFOLDER"
+                Icon="fluutcam.ico" />
+      <RemoveFolder Id="RemoveStartMenuDir" On="uninstall" />
+      <RegistryValue Root="HKCU" Key="Software\FluutCAM\Installer" Name="StartMenu" Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+
+    <!-- Only installed when ADDTOPATH=1 is given on the command line. -->
+    <Component Id="PathEntry" Directory="INSTALLFOLDER" Bitness="always64" Condition="ADDTOPATH = 1">
+      <Environment Id="PathEntry" Name="PATH" Value="[INSTALLFOLDER]" Action="set" Part="last"
+                   Permanent="no" System="no" />
+      <RegistryValue Root="HKCU" Key="Software\FluutCAM\Installer" Name="OnPath" Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+  </Package>
+</Wix>

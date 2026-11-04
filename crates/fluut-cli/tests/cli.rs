@@ -328,6 +328,74 @@ fn two_sided_turn_above_the_z_travel_fails() {
     );
 }
 
+/// `flipside` with a tool of `overall_length` 60 and a holder 40 long on a
+/// machine whose Z travel ends at `top`: the post's result.
+fn flipside_with_travel(name: &str, top: f64) -> Result<(), Vec<fluut_model::Diagnostic>> {
+    let d = tmp(name);
+    for sub in ["tools", "posts", "machines"] {
+        std::fs::create_dir_all(d.join(sub)).unwrap();
+    }
+    for f in [
+        "flipside.fluut",
+        "flipside.step",
+        "posts/linuxcnc-4x.post.toml",
+    ] {
+        std::fs::copy(here(&format!("projects/flipside/{f}")), d.join(f)).unwrap();
+    }
+    let t = std::fs::read_to_string(here("projects/flipside/tools/shop.toml"))
+        .unwrap()
+        .replace(
+            "flute_length  = 25",
+            "flute_length  = 25
+overall_length = 60
+holder = { diameter = 20, length = 40 }",
+        );
+    std::fs::write(d.join("tools/shop.toml"), t).unwrap();
+    let m = std::fs::read_to_string(here("projects/flipside/machines/router-4x.machine.toml"))
+        .unwrap()
+        .replace(
+            "[spindle]",
+            &format!(
+                "[travel]
+z = [-200, {top}]
+
+[spindle]"
+            ),
+        );
+    std::fs::write(d.join("machines/router-4x.machine.toml"), m).unwrap();
+    let mut s = Session::open(&d.join("flipside.fluut"), &[]).unwrap();
+    assert!(s.warnings.is_empty(), "{:?}", s.warnings);
+    s.calculate(&Targets::All);
+    let store = s.library.mem_store(fluut_model::library::DefKind::Post);
+    let opts = PostOptions {
+        date: "2026-11-01".into(),
+        time: "12:00:00".into(),
+        notes: String::new(),
+    };
+    s.post("shop/linuxcnc-4x", &store, &opts).map(|_| ())
+}
+
+#[test]
+fn two_sided_turn_checks_the_spindle_gauge_line() {
+    // The turn height is 41.321 (the block's corners + 10); the tool and
+    // its holder reach 100 above the tip. A travel top of 80 clears the
+    // tip but not the spindle.
+    let e = flipside_with_travel("flip-gauge-short", 80.0).unwrap_err();
+    let d = e
+        .iter()
+        .find(|d| d.code == "setup.clearance.index_travel")
+        .unwrap_or_else(|| panic!("{e:?}"));
+    assert!(d.message.contains("tool tip at Z 41.321"), "{}", d.message);
+    assert!(
+        d.message.contains("gauge line at Z 141.321"),
+        "{}",
+        d.message
+    );
+    assert!(d.message.contains("ends at Z 80.000"), "{}", d.message);
+    // With room for the tool and holder above the turn height it posts.
+    flipside_with_travel("flip-gauge-long", 150.0).unwrap();
+}
+
 #[test]
 fn two_sided_invariance_along_x() {
     // Moving the part along the rotary axis, with the zero on the stock

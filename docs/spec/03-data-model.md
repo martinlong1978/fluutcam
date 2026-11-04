@@ -354,10 +354,14 @@ angle, then the clamp code if the machine defines one (05 §5.4.1). At the end, 
 **Turn clearance.** A turn swings the stock's corners above a clearance plane. Before A turns at
 a Setup start (an indexed Setup, or a rotary one after another Setup), once the tool has moved,
 the post raises it to the **turn clearance**: the largest distance from the rotary axis of the
-stock and the bodies, plus the clearance offset (the plane's `offset`, else 10 mm), the larger of
+stock, the bodies and the fixtures that turn with A (none are modelled yet; fixture bodies
+imported with the model are bodies), plus the clearance offset (the plane's `offset`, else 10 mm), the larger of
 the Setup's and the previous Setup's (05 §5.6, D08 §7). The user sets no radius. The machine's
-`travel.z` is read as the tool tip's range with length compensation; a turn clearance above
-`travel.z[1] − centre.z` of the rotary axis is an error, `setup.clearance.index_travel`. In a
+`travel.z` limits the spindle gauge line (02 §2.3), so with the tool in the spindle (the tool
+of the last toolpath before the Setup) the gauge line is at the turn clearance + the tool's
+gauge length; above `travel.z[1] − centre.z` of the rotary axis it is an error,
+`setup.clearance.index_travel`, which gives the tip's Z and the gauge line's. A tool with no
+`overall_length` has a gauge length of 0. In a
 `rotary` Setup A turns on rapids at the clearance cylinder, so a clearance cylinder not larger than
 the stock and the bodies' radius is an error, `setup.clearance.index_unsafe`.
 

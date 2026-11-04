@@ -6,13 +6,22 @@ can ([Code signing policy](CODE_SIGNING.md#checking-a-download)).
 
 ## Windows
 
-1. Unzip `fluutcam-<version>-windows-x86_64.zip` to a folder of your choice.
-2. Run `fluutcam.exe` (the application) or `fluut.exe` (the command line).
+**Installer (recommended).** Run `fluutcam-<version>-windows-x86_64.msi`. It installs for
+your user only (no administrator rights needed) to `%LOCALAPPDATA%\Programs\FluutCAM` and adds
+a FluutCAM entry to the Start menu. To use `fluut` from a terminal, install from a command
+prompt with `msiexec /i fluutcam-<version>-windows-x86_64.msi ADDTOPATH=1`, which adds the
+folder to your user `PATH`. Installing a newer version replaces the older one.
 
-The executables are signed; Windows shows SignPath Foundation as the publisher.
+**Portable zip.** Unzip `fluutcam-<version>-windows-x86_64.zip` to a folder of your choice and
+run `fluutcam.exe` (the application) or `fluut.exe` (the command line).
 
-**Uninstall:** delete the folder. To remove settings and crash reports too, delete
-`%LOCALAPPDATA%\FluutCAM`.
+The installer and the executables are signed; Windows shows SignPath Foundation as the
+publisher.
+
+**Uninstall:** for the installer, use **Settings, Apps, Installed apps, FluutCAM, Uninstall**
+(or `msiexec /x` with the same MSI). This removes the program, the Start menu entry and the
+`PATH` entry, and **keeps your settings and crash reports** in `%LOCALAPPDATA%\FluutCAM` (a
+different folder); delete that folder yourself to remove them. For the zip, delete the folder.
 
 ## macOS
 
@@ -31,11 +40,21 @@ reports too, delete `~/Library/Application Support/FluutCAM`.
 
 ## Linux
 
+**AppImage.** Download `fluutcam-<version>-linux-x86_64.AppImage`, make it executable
+(`chmod +x`) and run it. It needs glibc 2.35 or later (Ubuntu 22.04 or newer) and, as any
+AppImage, FUSE 2 (`libfuse2`); without it, run it with
+`--appimage-extract-and-run` as the first argument. For the command line program, start the
+AppImage through a link named `fluut` (`ln -s fluutcam-<version>-linux-x86_64.AppImage fluut`).
+The AppImage does not update itself; download a newer one.
+
+**Tarball.**
+
 1. Unpack `fluutcam-<version>-linux-x86_64.tar.gz` (needs glibc 2.35 or later).
 2. Run `bin/fluutcam` or `bin/fluut`. For a menu entry, copy `share/applications` and
    `share/icons` from the archive into `~/.local/share`.
 
-**Uninstall:** delete the unpacked folder and any copied `.desktop` file and icons. To remove
+**Uninstall:** delete the AppImage file (and the menu entry, if a tool such as AppImageLauncher
+added one); for the tarball, delete the unpacked folder and any copied `.desktop` file and icons. To remove
 settings and crash reports too, delete `~/.local/share/fluutcam` (or
 `$XDG_DATA_HOME/fluutcam`).
 

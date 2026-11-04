@@ -1108,12 +1108,13 @@ impl Session {
     /// does a rotary one after another Setup; the height is the larger turn
     /// clearance of the Setup and of the Setup before it, since the work on
     /// the table is one of the two. Also `(setup, error)` for each height
-    /// above the machine's Z travel (`setup.clearance.index_travel`).
+    /// whose spindle gauge line is above the machine's Z travel
+    /// (`setup.clearance.index_travel`).
     fn turn_heights(&self) -> (Vec<Option<f64>>, Vec<(String, Diagnostic)>) {
         let mut heights = Vec::new();
         let mut errors = Vec::new();
         let mut prev: Option<Option<f64>> = None;
-        for r in resolve_all(&self.project) {
+        for (si, r) in resolve_all(&self.project).into_iter().enumerate() {
             let Ok(r) = r else {
                 heights.push(None);
                 continue;
@@ -1141,24 +1142,27 @@ impl Session {
                 continue;
             };
             if let (Some([_, top]), Some(axis)) = (m.fields.travel.z, m.fields.axis.rotary.first())
-                && h > top - axis.centre[2]
+                && let Some(d) = travel_error(&r.id, h, self.spindle_tool(si), top - axis.centre[2])
             {
-                errors.push((
-                    r.id.clone(),
-                    Diagnostic::error(
-                        "setup.clearance.index_travel",
-                        format!(
-                            "Setup `{}`: A turns with the tool at Z {h:.3}, clear of the stock \
-                             and the part; the machine's Z travel ends at Z {:.3}",
-                            r.id,
-                            top - axis.centre[2]
-                        ),
-                    )
-                    .at("clearance"),
-                ));
+                errors.push((r.id.clone(), d));
             }
         }
         (heights, errors)
+    }
+
+    /// The tool in the spindle when A turns at the start of Setup `si`: the
+    /// tool of the last enabled toolpath of the nearest earlier Setup that
+    /// has one. The turn comes before the Setup's first tool change.
+    fn spindle_tool(&self, si: usize) -> Option<&fluut_model::tools::Tool> {
+        self.project.setups[..si].iter().rev().find_map(|s| {
+            s.toolpaths
+                .iter()
+                .rev()
+                .find(|t| {
+                    t.is_enabled() && t.kind() != fluut_model::params::ToolpathTypeId::ManualNc
+                })
+                .and_then(|t| self.tools.get(t.tool_ref()))
+        })
     }
 
     fn post_job(
@@ -1443,6 +1447,44 @@ const POST_RULES: &[&str] = &[
     "param.drill.cycle.expanded",
 ];
 
+/// The error `setup.clearance.index_travel` when A turns at Setup `setup`
+/// with the tool tip at Z `tip` in W and the machine's Z travel ends at Z
+/// `top` in W. Travel limits are machine coordinates of the spindle gauge
+/// line (spec 02 §2.3), so the gauge line, at the tip + the gauge length of
+/// `tool`, is compared; with no known length, the tip.
+fn travel_error(
+    setup: &str,
+    tip: f64,
+    tool: Option<&fluut_model::tools::Tool>,
+    top: f64,
+) -> Option<Diagnostic> {
+    let gauge = tool.and_then(|t| t.gauge_length().map(|l| (t, l)));
+    let line = tip + gauge.map_or(0.0, |(_, l)| l);
+    if line <= top {
+        return None;
+    }
+    let what = match (gauge, tool) {
+        (Some((t, l)), _) => format!(
+            "the spindle gauge line at Z {line:.3} (tool `{}`, gauge length {l:.3})",
+            t.id
+        ),
+        (None, Some(t)) => format!(
+            "the spindle gauge line at Z {line:.3} (tool `{}` has no overall length:              gauge length taken as 0)",
+            t.id
+        ),
+        (None, None) => format!("the spindle gauge line at Z {line:.3} (no tool known)"),
+    };
+    Some(
+        Diagnostic::error(
+            "setup.clearance.index_travel",
+            format!(
+                "Setup `{setup}`: A turns with the tool tip at Z {tip:.3}, clear of the stock                  and the part, and {what}; the machine's Z travel ends at Z {top:.3}"
+            ),
+        )
+        .at("clearance"),
+    )
+}
+
 /// The spec 05 §5.5 name of a post cycle.
 fn cycle_name(c: fluut_post::post::CycleName) -> &'static str {
     use fluut_post::post::CycleName as C;
@@ -1454,5 +1496,56 @@ fn cycle_name(c: fluut_post::post::CycleName) -> &'static str {
         C::Tap => "tap",
         C::Ream => "ream",
         C::Bore => "bore",
+    }
+}
+
+#[cfg(test)]
+mod travel_tests {
+    use super::travel_error;
+    use fluut_model::tools::ToolLibrary;
+
+    fn tool(extra: &str) -> fluut_model::tools::Tool {
+        let src = format!(
+            "format = \"fluut.tools/1\"
+id = \"t\"
+[[tool]]
+id = \"flat-6\"
+             shape = \"flat\"
+diameter = 6.0
+{extra}
+"
+        );
+        ToolLibrary::parse(&src).unwrap().0.tools.remove(0)
+    }
+
+    #[test]
+    fn the_gauge_line_is_checked_not_the_tip() {
+        let t = tool(
+            "overall_length = 60
+holder = { diameter = 20, length = 40 }",
+        );
+        // The tip at 41.321 clears a travel top of 80; the gauge line does not.
+        let d = travel_error("s2", 41.321, Some(&t), 80.0).unwrap();
+        assert_eq!(d.code, "setup.clearance.index_travel");
+        assert!(d.message.contains("tool tip at Z 41.321"), "{}", d.message);
+        assert!(
+            d.message.contains("gauge line at Z 141.321"),
+            "{}",
+            d.message
+        );
+        assert!(d.message.contains("gauge length 100.000"), "{}", d.message);
+        assert!(d.message.contains("ends at Z 80.000"), "{}", d.message);
+        assert!(travel_error("s2", 41.321, Some(&t), 141.321).is_none());
+        assert!(travel_error("s2", 41.321, Some(&t), 150.0).is_none());
+    }
+
+    #[test]
+    fn without_a_length_the_tip_is_checked() {
+        let t = tool("");
+        assert!(travel_error("s2", 41.0, Some(&t), 50.0).is_none());
+        let d = travel_error("s2", 41.0, Some(&t), 30.0).unwrap();
+        assert!(d.message.contains("no overall length"), "{}", d.message);
+        let d = travel_error("s2", 41.0, None, 30.0).unwrap();
+        assert!(d.message.contains("no tool known"), "{}", d.message);
     }
 }

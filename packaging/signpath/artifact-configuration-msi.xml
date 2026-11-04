@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SignPath artifact configuration for the Windows installer (docs/CODE_SIGNING.md).
+  A second configuration in the same SignPath project (its slug goes in the repository
+  variable SIGNPATH_MSI_ARTIFACT_CONFIGURATION_SLUG); this copy is the reviewed source.
+
+  The executables are signed first, by artifact-configuration.xml. release.yml then builds
+  the MSI from the signed files and submits it here, so the MSI carries the signed
+  executables and gets its own signature. SignPath is not asked to open the MSI and sign
+  files inside it: that would repack it, and the files inside are already signed.
+  The artifact is the zip that actions/upload-artifact makes of the single .msi file.
+-->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <parameters>
+    <parameter name="version" />
+  </parameters>
+  <zip-file>
+    <msi-file path="fluutcam-*-windows-x86_64.msi">
+      <authenticode-sign description="FluutCAM installer ${version}" />
+    </msi-file>
+  </zip-file>
+</artifact-configuration>
