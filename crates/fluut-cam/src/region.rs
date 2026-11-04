@@ -743,17 +743,60 @@ impl Region2 {
             return false;
         }
         // Every point of an offset's boundary lies at `|d|` from the input's
-        // boundary; checked at the midpoint of each segment. A shrink at
-        // exactly half a bar's width once closed a loop with a chord across
-        // the region (docs/plan/2026-11-04-region-touching-booleans.md).
-        let ix = boolean::Indexed::new(self);
+        // boundary. Where the offsets of two loops of the input meet,
+        // `cavalier_contours` has grown two parts a few micrometres apart
+        // with a dent between them, of plausible area
+        // (docs/plan/2026-11-04-region-touching-booleans.md). So when the
+        // boxes of two loops, grown by `|d|`, overlap, the midpoint of every
+        // segment of the result is checked. Single loops and loops far
+        // apart are not: checking every offset cost 5-15 % of
+        // `optimised_load`.
         let (ad, tol) = (d.abs(), 10.0 * TIDY);
+        if !self.loops_meet_within(ad + tol) {
+            return true;
+        }
+        let ix = boolean::Indexed::new(self);
         o.loops.iter().all(|l| {
             thin(l)
                 || l.segs().all(|s| {
                     ix.distance_within(s.point_at(0.5), ad + tol)
                         .is_some_and(|e| e >= ad - tol)
                 })
+        })
+    }
+
+    /// Whether the bounding boxes of two of the loops, grown by `r`,
+    /// overlap.
+    fn loops_meet_within(&self, r: f64) -> bool {
+        if self.loops.len() < 2 {
+            return false;
+        }
+        let mut boxes: Vec<(f64, f64, f64, f64)> = self
+            .loops
+            .iter()
+            .map(|l| {
+                l.segs().fold(
+                    (
+                        f64::INFINITY,
+                        f64::INFINITY,
+                        f64::NEG_INFINITY,
+                        f64::NEG_INFINITY,
+                    ),
+                    |(x0, y0, x1, y1), s| {
+                        let (a, b) = s.support_x();
+                        let (c, d) = s.support_y();
+                        (x0.min(a - r), y0.min(c - r), x1.max(b + r), y1.max(d + r))
+                    },
+                )
+            })
+            .collect();
+        // Sweep in x.
+        boxes.sort_by(|p, q| p.0.total_cmp(&q.0));
+        (0..boxes.len()).any(|i| {
+            boxes[i + 1..]
+                .iter()
+                .take_while(|q| q.0 <= boxes[i].2)
+                .any(|q| q.1 <= boxes[i].3 && boxes[i].1 <= q.3)
         })
     }
 
