@@ -36,4 +36,4 @@ On macOS, use **Cmd** where this page says **Ctrl**.
 | **Esc** | Closes an open menu |
 | **Enter** | In a number box in the inspector: applies the value |
 
-There are no other shortcuts yet, and you cannot change them. The new ribbon will bring its own; this page will list them.
+There are no other shortcuts yet, and you cannot change them. The ribbon shows the same Ctrl+N, Ctrl+O, Ctrl+S and Ctrl+Shift+S in its tooltips; it has no others yet.

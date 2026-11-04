@@ -4,7 +4,7 @@ This page names every part of the FluutCAM window, so the other pages can say "t
 
 ![The FluutCAM window with a project open](images/reference-project.png)
 
-> **The ribbon is being rebuilt.** The row of buttons under the title (Open, Calculate all, Simulate, Post) is the first version of a ribbon. A new ribbon will replace it, and it will also take over the temporary **File** menu described below. The commands stay; where they sit will change. These pages are updated when it lands.
+> **The ribbon is still being wired up.** Its stages (Model, Setup, Toolpaths, Simulate, Post, Library) are there, but many buttons are greyed out with the tooltip "Coming soon". The temporary **File** menu below does the work those buttons will do. These pages are updated as the ribbon is connected.
 
 ## From top to bottom
 
@@ -31,11 +31,15 @@ This page names every part of the FluutCAM window, so the other pages can say "t
 
 Items that do not apply are greyed out, for example Save when no project is open.
 
-**Ribbon** (first version). Three groups of commands:
+**Ribbon.** Tabs choose a stage; each stage shows groups of commands. Hover a button to see its name and shortcut.
 
-- **File**: **Open** and a text box with the project file's path. Type or paste a path and press Open. Unlike the File menu's Open, this does not ask about unsaved changes.
-- **Toolpaths**: **Calculate all**, **Simulate** and **Cancel**.
-- **Output**: **Post**, a list of posts, and a text box with the output file's name.
+- **Model**: New project, **Open** with a text box for a project file's path, Save, Save as, Import model and Re-import. Only Open works so far; use the File menu for the rest. Unlike the File menu's Open, the typed path does not ask about unsaved changes.
+- **Setup**: new Setup buttons, Stock and Work zero. Not connected yet; use **File, Add Setup**.
+- **Toolpaths**: galleries of toolpath types for the selected Setup (not connected yet; use **File, Add toolpath**), **Calculate selected** and **Calculate all**.
+- **Simulate**: **Simulate** and the playback buttons (play or pause, step back, step forward).
+- **Post**: **Post**.
+- **Library**: Tools, Machines and Posts, not connected yet.
+- **Cancel** is at the right of every stage.
 
 **Panels.** Below the ribbon the window has these panels. Drag the lines between them to resize.
 

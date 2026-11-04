@@ -833,6 +833,10 @@ fn diagnostics(cat: &BTreeMap<String, String>) -> BTreeMap<String, Diag> {
         source_files(&d.join("src"), &mut files);
     }
     for f in files {
+        // The ribbon's command ids look like codes but are not diagnostics.
+        if f.ends_with("vm/ribbon.rs") || f.ends_with("vm\ribbon.rs") {
+            continue;
+        }
         for x in scan_source(&read(&f)) {
             let e = found.entry(x.code.clone()).or_insert_with(|| x.clone());
             if e.message.is_none() {

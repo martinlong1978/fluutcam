@@ -4,7 +4,7 @@
 
 ## Calculate
 
-Click **Calculate all** in the ribbon (the **Toolpaths** group). FluutCAM calculates every toolpath that is not up to date, in machining order, on a background thread, so the window stays usable.
+Click **Calculate all** in the ribbon (the **Toolpaths** stage). **Calculate selected** calculates only the selected toolpath. FluutCAM calculates every toolpath that is not up to date, in machining order, on a background thread, so the window stays usable.
 
 While it runs:
 

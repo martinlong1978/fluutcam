@@ -6,7 +6,7 @@ If something you need is not here and does not work, [tell us](https://github.co
 
 ## The window
 
-The window has a temporary **File** menu and a first ribbon. A new ribbon is being built and will replace both. These are not yet in the window:
+The window has a temporary **File** menu and a ribbon that is only partly connected (a button greyed out with "Coming soon" is not wired yet). When the ribbon is complete it will replace the menu. These are not yet in the window:
 
 - **Picking curves and faces for a toolpath.** The Geometry tab shows the selection but cannot change it. So 2-D toolpaths (pocket, contour, chamfer, bore, drill and so on) need their curves or faces set in the project file; a 2-D toolpath added in the window reports "select drive curves or drive faces". Clicking a face in the viewport shows its id (for example `f-494.10`), which you can copy into the file. 3-D toolpaths need no picking.
 - **Editing heights, selections and points.** They show, read only. Numbers, choices and yes-or-no settings of a toolpath can be edited.

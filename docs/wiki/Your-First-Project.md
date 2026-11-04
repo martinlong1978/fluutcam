@@ -1,6 +1,6 @@
 # Your first project
 
-This walk takes a STEP file to G-code. It uses the window as it is today, with the temporary **File** menu. A new ribbon will replace that menu; the steps stay the same, only the buttons move. See the [Interface tour](Interface-Tour) if a word is new.
+This walk takes a STEP file to G-code. It uses the window as it is today, with the temporary **File** menu. The ribbon is being wired up and will take over from that menu; the steps stay the same, only the buttons move. See the [Interface tour](Interface-Tour) if a word is new.
 
 **You need:**
 
@@ -70,7 +70,7 @@ See [Calculate and simulate](Calculate-and-Simulate).
 
 ## 7. Choose a post and an output file
 
-In the ribbon, **Output** has a list of posts and a file name. The list starts at **fluut/linuxcnc**. Pick the one that matches your controller: `fluut/linuxcnc` for LinuxCNC, `fluut/grbl` for Grbl, or `fluut/gcode` for plain G-code. The file name starts as `my-part.ngc` in the project folder; change it if you like.
+In the ribbon's **Post** stage, find the list of posts and the file name. The list starts at **fluut/linuxcnc**. Pick the one that matches your controller: `fluut/linuxcnc` for LinuxCNC, `fluut/grbl` for Grbl, or `fluut/gcode` for plain G-code. The file name starts as `my-part.ngc` in the project folder; change it if you like.
 
 ## 8. Post the G-code
 

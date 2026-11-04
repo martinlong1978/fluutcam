@@ -33,6 +33,6 @@ renders the app headless, from the reference projects in `crates/fluut-cli/tests
 
 - Plain English for a hobbyist or small-shop machinist: short sentences, active voice. Explain a CAM term the first time it appears on a page.
 - Say only what the program does. Check it against the code or by running `fluut` or the app. Say "not yet" plainly for planned features, and add them to `Known-Limits.md`.
-- The ribbon is being rebuilt. Until it lands, the pages describe the temporary File menu and say the ribbon will replace it.
+- The ribbon is being wired up. Until it is complete, the pages describe the temporary File menu and say the ribbon will replace it.
 - Do not copy text, names, screenshots or workflows from other CAM products.
 - A test in the `UAT-*` pages changes together with the behaviour it tests.

@@ -5,7 +5,7 @@
 ## Post from the window
 
 1. Calculate first, or let **Post** do it: if a toolpath is out of date, FluutCAM calculates it before it posts.
-2. In the **Output** group of the ribbon, choose a post from the list. The list offers `fluut/linuxcnc`, `fluut/grbl` and `fluut/gcode`.
+2. In the **Post** stage of the ribbon, find the post list and output name (they may move as the ribbon is wired up). The list offers `fluut/linuxcnc`, `fluut/grbl` and `fluut/gcode`.
 3. Check the output file name in the text box next to it. It starts as the project name with `.ngc`, in the project folder (`my-part.ngc`). Change it if you want another name or place.
 4. Click **Post**.
 
