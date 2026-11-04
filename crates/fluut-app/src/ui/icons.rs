@@ -2,7 +2,8 @@
 
 //! Paints the ribbon icons (S 08 §8.9). Each icon's two masks are uploaded
 //! as white textures on first use, so one set serves both themes: the ink
-//! is tinted with the theme's text colour, the accent stays cutter orange,
+//! is tinted with the theme's text colour (full strength, also for the
+//! small icons), the accent stays cutter orange,
 //! and a disabled icon is grey throughout.
 
 use crate::brand::{self, Palette, c};
@@ -69,9 +70,15 @@ pub fn paint(
         let grey = c(p.weak_text).gamma_multiply(0.75);
         (grey, grey)
     };
+    // The 16 px raster is the 24 px drawing at two thirds: its 1.75 px
+    // stroke is about a pixel wide and half covered. Painting it twice
+    // makes a heavier mask, so small icons read as strongly as their labels.
+    let passes = if size <= 16 { 2 } else { 1 };
     for (is_accent, tint) in [(false, ink), (true, accent)] {
         if let Some(t) = cached(ctx, name, size, is_accent) {
-            ui.painter().image(t.id(), rect, uv, tint);
+            for _ in 0..passes {
+                ui.painter().image(t.id(), rect, uv, tint);
+            }
         }
     }
 }

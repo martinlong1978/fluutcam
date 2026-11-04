@@ -21,6 +21,8 @@ pub enum DialogKind {
     New(DisplayUnit),
     SaveAs,
     Import,
+    /// Where Post writes its first file.
+    PostOutput,
 }
 
 /// A path the user chose.
@@ -33,11 +35,30 @@ pub struct Picked {
 /// Model file extensions the import dialog offers.
 pub const MODEL_EXTENSIONS: [&str; 5] = ["step", "stp", "stl", "dxf", "svg"];
 
+/// A dialog that was asked for: what tests look at when dialogs are
+/// scripted.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Asked {
+    pub kind: DialogKind,
+    /// The folder it would start in.
+    pub dir: Option<PathBuf>,
+    /// The file name it would offer.
+    pub name: String,
+}
+
+/// Dialogs that answer at once from a list, so tests open no window.
+#[derive(Debug, Default)]
+struct Script {
+    answers: Vec<(DialogKind, PathBuf)>,
+    asked: Vec<Asked>,
+}
+
 pub struct Dialogs {
     tx: Sender<Option<Picked>>,
     rx: Receiver<Option<Picked>>,
     wake: std::sync::Arc<dyn Fn() + Send + Sync>,
     open: bool,
+    script: Option<Script>,
 }
 
 impl std::fmt::Debug for Dialogs {
@@ -57,7 +78,34 @@ impl Dialogs {
             rx,
             wake: std::sync::Arc::new(wake),
             open: false,
+            script: None,
         }
+    }
+
+    /// Dialogs for tests: none opens; a request is recorded
+    /// ([`Dialogs::asked`]) and answered with the path given to
+    /// [`Dialogs::answer`] for its kind, else cancelled.
+    pub fn scripted() -> Dialogs {
+        let mut d = Dialogs::new(|| {});
+        d.script = Some(Script::default());
+        d
+    }
+
+    /// Whether the dialogs are scripted.
+    pub fn is_scripted(&self) -> bool {
+        self.script.is_some()
+    }
+
+    /// Scripted dialogs: the next request of `kind` is answered with `path`.
+    pub fn answer(&mut self, kind: DialogKind, path: impl Into<PathBuf>) {
+        if let Some(s) = self.script.as_mut() {
+            s.answers.push((kind, path.into()));
+        }
+    }
+
+    /// Scripted dialogs: the requests so far, oldest first.
+    pub fn asked(&self) -> &[Asked] {
+        self.script.as_ref().map_or(&[], |s| &s.asked)
     }
 
     /// Whether a dialog is showing.
@@ -72,6 +120,20 @@ impl Dialogs {
             return;
         }
         self.open = true;
+        if let Some(script) = self.script.as_mut() {
+            script.asked.push(Asked {
+                kind,
+                dir,
+                name: name.to_owned(),
+            });
+            let at = script.answers.iter().position(|(k, _)| *k == kind);
+            let picked = at.map(|i| Picked {
+                kind,
+                path: script.answers.remove(i).1,
+            });
+            let _ = self.tx.send(picked);
+            return;
+        }
         let mut d = rfd::AsyncFileDialog::new().set_file_name(name);
         if let Some(dir) = dir.filter(|d| d.is_dir()) {
             d = d.set_directory(dir);
@@ -91,6 +153,7 @@ impl Dialogs {
             DialogKind::Import => d
                 .set_title(tr("dialog-import-title"))
                 .add_filter(tr("dialog-filter-model"), &MODEL_EXTENSIONS),
+            DialogKind::PostOutput => d.set_title(tr("dialog-post-title")),
         };
         let (tx, wake) = (self.tx.clone(), self.wake.clone());
         let spawned = std::thread::Builder::new()
@@ -99,7 +162,9 @@ impl Dialogs {
                 let handle = pollster::block_on(async {
                     match kind {
                         DialogKind::Open | DialogKind::Import => d.pick_file().await,
-                        DialogKind::New(_) | DialogKind::SaveAs => d.save_file().await,
+                        DialogKind::New(_) | DialogKind::SaveAs | DialogKind::PostOutput => {
+                            d.save_file().await
+                        }
                     }
                 });
                 let picked = handle.map(|h| Picked {
@@ -144,6 +209,22 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(d.poll().unwrap().path, PathBuf::from("a.fluut"));
+    }
+
+    #[test]
+    fn scripted_dialogs_answer_at_once_and_remember_what_was_asked() {
+        let mut d = Dialogs::scripted();
+        d.answer(DialogKind::Import, "a.step");
+        d.request(DialogKind::Import, Some("dir".into()), "x");
+        assert!(d.is_open());
+        let p = d.poll().unwrap();
+        assert_eq!((p.kind, p.path), (DialogKind::Import, "a.step".into()));
+        assert!(!d.is_open());
+        // No answer: the user cancelled.
+        d.request(DialogKind::PostOutput, None, "out.ngc");
+        assert!(d.poll().is_none() && !d.is_open());
+        assert_eq!(d.asked().len(), 2);
+        assert_eq!(d.asked()[1].name, "out.ngc");
     }
 
     #[test]

@@ -57,6 +57,8 @@ fn ids_are_pinned_and_unique() {
         (Command::SaveAs, "project.save_as"),
         (Command::ImportModel, "model.import"),
         (Command::Reimport, "model.reimport"),
+        (Command::Undo, "edit.undo"),
+        (Command::Redo, "edit.redo"),
         (Command::NewSetup(SetupKind::ThreeAxis), "setup.new_3axis"),
         (Command::NewSetup(SetupKind::Rotary), "setup.new_rotary"),
         (Command::NewSetup(SetupKind::Indexed), "setup.new_indexed"),
@@ -111,6 +113,8 @@ fn stages_hold_their_commands() {
             "project.save_as",
             "model.import",
             "model.reimport",
+            "edit.undo",
+            "edit.redo",
             "job.cancel"
         ]
     );
@@ -123,6 +127,8 @@ fn stages_hold_their_commands() {
             "setup.new_based_on",
             "setup.stock",
             "setup.work_zero",
+            "edit.undo",
+            "edit.redo",
             "job.cancel"
         ]
     );
@@ -133,16 +139,23 @@ fn stages_hold_their_commands() {
             "simulation.play_pause",
             "simulation.step_back",
             "simulation.step_forward",
+            "edit.undo",
+            "edit.redo",
             "job.cancel"
         ]
     );
-    assert_eq!(ids(&vm(&j, Stage::Post)), ["post.all", "job.cancel"]);
+    assert_eq!(
+        ids(&vm(&j, Stage::Post)),
+        ["post.all", "edit.undo", "edit.redo", "job.cancel"]
+    );
     assert_eq!(
         ids(&vm(&j, Stage::Library)),
         [
             "library.tools",
             "library.machines",
             "library.posts",
+            "edit.undo",
+            "edit.redo",
             "job.cancel"
         ]
     );
@@ -157,6 +170,7 @@ fn stages_hold_their_commands() {
             GroupId::Gallery(Category::Rotary),
             GroupId::Gallery(Category::Utility),
             GroupId::Calculate,
+            GroupId::Edit,
             GroupId::Job
         ]
     );
@@ -175,22 +189,130 @@ fn every_command_is_on_a_stage() {
 }
 
 #[test]
-fn commands_without_an_operation_stay_disabled_and_say_so() {
+fn only_the_library_is_still_to_come() {
     let j = opened("block");
     let coming = crate::text::tr("ribbon-coming");
-    let mut seen = 0;
+    let mut library = 0;
     for s in Stage::ALL {
         for c in vm_with(&j, s, &Selection::Setup("s1".into())).commands() {
             assert_eq!(c.tooltip.contains(&coming), !c.command.wired());
             if !c.command.wired() {
                 assert!(!c.enabled, "{}", c.command.id());
-                seen += 1;
+                assert_eq!(s, Stage::Library);
+                library += 1;
+            } else if matches!(c.command, Command::Undo | Command::Redo) {
+                // Nothing to undo in a freshly opened project.
+                assert!(!c.enabled);
             }
         }
     }
-    assert!(seen >= 12, "{seen}");
+    assert_eq!(library, 3);
+}
+
+#[test]
+fn project_commands_follow_the_project_and_the_job() {
+    let none = Jobs::start(|| {});
+    let r = vm(&none, Stage::Model);
+    assert!(r.enabled(Command::NewProject) && r.enabled(Command::Open));
+    for c in [Command::Save, Command::SaveAs, Command::ImportModel] {
+        assert!(!r.enabled(c), "{}", c.id());
+    }
+    let mut j = opened("block");
     let r = vm(&j, Stage::Model);
-    assert!(!r.enabled(Command::Save) && !r.enabled(Command::ImportModel));
+    for c in [
+        Command::NewProject,
+        Command::Save,
+        Command::SaveAs,
+        Command::ImportModel,
+        Command::Reimport,
+        Command::NewSetup(SetupKind::Rotary),
+        Command::NewSetupBasedOn,
+        Command::Stock,
+        Command::WorkZero,
+        Command::AddToolpath(ToolpathTypeId::Parallel),
+    ] {
+        assert!(r.enabled(c), "{}", c.id());
+    }
+    // A running job disables everything but Cancel.
+    j.calculate(CalcTargets::All);
+    let r = vm(&j, Stage::Model);
+    for c in [
+        Command::NewProject,
+        Command::Save,
+        Command::ImportModel,
+        Command::Undo,
+        Command::NewSetup(SetupKind::ThreeAxis),
+        Command::AddToolpath(ToolpathTypeId::Parallel),
+    ] {
+        assert!(!r.enabled(c), "{}", c.id());
+    }
+    j.wait();
+}
+
+#[test]
+fn undo_and_redo_follow_the_history() {
+    let mut j = opened("block");
+    j.add_setup(SetupKind::ThreeAxis, None);
+    j.wait();
+    let r = vm(&j, Stage::Model);
+    assert!(r.enabled(Command::Undo) && !r.enabled(Command::Redo));
+    j.undo();
+    j.wait();
+    let r = vm(&j, Stage::Model);
+    assert!(!r.enabled(Command::Undo) && r.enabled(Command::Redo));
+}
+
+#[test]
+fn reimport_needs_geometry_and_a_setup_needs_a_selection_to_be_based_on() {
+    let mut j = Jobs::start(|| {});
+    j.new_project(
+        std::env::temp_dir().join(format!("fluut-vm-ribbon-{}", std::process::id())),
+        fluut_model::project::DisplayUnit::Mm,
+    );
+    j.wait();
+    let r = vm(&j, Stage::Model);
+    assert!(!r.enabled(Command::Reimport) && !r.enabled(Command::NewSetupBasedOn));
+    assert!(r.enabled(Command::NewSetup(SetupKind::ThreeAxis)));
+    assert!(!r.enabled(Command::Stock));
+}
+
+#[test]
+fn shortcuts_are_pinned_and_say_cmd_on_macos() {
+    let key = |c: Command| c.shortcut().map(|s| s.text_for(false));
+    assert_eq!(key(Command::NewProject).as_deref(), Some("Ctrl+N"));
+    assert_eq!(key(Command::SaveAs).as_deref(), Some("Ctrl+Shift+S"));
+    assert_eq!(key(Command::ImportModel).as_deref(), Some("Ctrl+I"));
+    assert_eq!(key(Command::Undo).as_deref(), Some("Ctrl+Z"));
+    assert_eq!(key(Command::Redo).as_deref(), Some("Ctrl+Y"));
+    assert_eq!(
+        Command::Redo.alt_shortcut().map(|s| s.text_for(false)),
+        Some("Ctrl+Shift+Z".to_owned())
+    );
+    assert_eq!(
+        Command::SaveAs.shortcut().unwrap().text_for(true),
+        "Cmd+Shift+S"
+    );
+    let unique: BTreeSet<_> = Command::all()
+        .into_iter()
+        .flat_map(|c| [c.shortcut(), c.alt_shortcut()])
+        .flatten()
+        .map(|s| s.text_for(false))
+        .collect();
+    assert_eq!(unique.len(), 8);
+
+    let j = Jobs::start(|| {});
+    let r = vm(&j, Stage::Model);
+    let save = r.commands().find(|c| c.command == Command::Save).unwrap();
+    let keys = if cfg!(target_os = "macos") {
+        "Cmd+S"
+    } else {
+        "Ctrl+S"
+    };
+    assert!(
+        save.tooltip.starts_with(&format!("Save ({keys})")),
+        "{}",
+        save.tooltip
+    );
 }
 
 #[test]
@@ -228,6 +350,7 @@ fn galleries_show_the_types_of_the_setup_kind() {
             GroupId::Gallery(Category::Rotary),
             GroupId::Gallery(Category::Utility),
             GroupId::Calculate,
+            GroupId::Edit,
             GroupId::Job
         ]
     );
@@ -264,26 +387,4 @@ fn playback_commands_need_a_simulation() {
     let r = vm(&j, Stage::Simulate);
     assert!(!r.enabled(Command::PlayPause));
     assert!(!r.enabled(Command::StepBack) && !r.enabled(Command::StepForward));
-}
-
-#[test]
-fn shortcuts_are_the_file_commands() {
-    let text = |c: Command| c.shortcut().map(Shortcut::text);
-    assert_eq!(text(Command::NewProject).as_deref(), Some("Ctrl+N"));
-    assert_eq!(text(Command::Open).as_deref(), Some("Ctrl+O"));
-    assert_eq!(text(Command::Save).as_deref(), Some("Ctrl+S"));
-    assert_eq!(text(Command::SaveAs).as_deref(), Some("Ctrl+Shift+S"));
-    let keyed = Command::all()
-        .into_iter()
-        .filter(|c| c.shortcut().is_some());
-    assert_eq!(keyed.count(), 4);
-
-    let j = Jobs::start(|| {});
-    let r = vm(&j, Stage::Model);
-    let save = r.commands().find(|c| c.command == Command::Save).unwrap();
-    assert!(
-        save.tooltip.starts_with("Save (Ctrl+S)"),
-        "{}",
-        save.tooltip
-    );
 }

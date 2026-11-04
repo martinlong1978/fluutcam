@@ -4,9 +4,11 @@
 //! their accessible labels, as a screen reader would (D13 §10).
 
 use super::*;
+use crate::dialogs::DialogKind;
 use crate::session::tests::project;
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
+use fluut_model::project::DisplayUnit;
 use std::time::Duration;
 
 /// The app is built on the first frame, from the harness's context.
@@ -28,17 +30,34 @@ pub(crate) fn app<'a>(h: &'a mut Harness<'static, State>) -> &'a mut FluutApp {
     h.state_mut().as_mut().expect("built on the first frame")
 }
 
-/// Steps the UI until no job runs (the worker runs on its own thread).
+/// Steps the UI until no job runs (the worker runs on its own thread) and
+/// no dialog waits.
 pub(crate) fn settle(h: &mut Harness<'static, State>) {
     for _ in 0..2000 {
         h.step();
-        if !app(h).jobs.is_busy() {
+        if !app(h).jobs.is_busy() && !app(h).dialogs.is_open() {
             h.step();
             return;
         }
         std::thread::sleep(Duration::from_millis(5));
     }
     panic!("job did not finish");
+}
+
+/// Clicks Open with the dialog answering `path`.
+pub(crate) fn open(h: &mut Harness<'static, State>, path: PathBuf) {
+    scripted(h).answer(DialogKind::Open, path);
+    h.get_by_label("Open").click();
+    settle(h);
+}
+
+/// Replaces the native dialogs by scripted ones.
+pub(crate) fn scripted<'a>(h: &'a mut Harness<'static, State>) -> &'a mut Dialogs {
+    let a = app(h);
+    if !a.dialogs.is_scripted() {
+        a.dialogs = Dialogs::scripted();
+    }
+    &mut a.dialogs
 }
 
 fn enabled(h: &Harness<'static, State>, label: &str) -> bool {
@@ -70,9 +89,7 @@ fn ribbon_without_a_project() {
 fn open_select_and_edit_through_the_window() {
     let mut h = harness();
     h.step();
-    app(&mut h).ui.open_path = project("block").display().to_string();
-    h.get_by_label("Open").click();
-    settle(&mut h);
+    open(&mut h, project("block"));
     h.get_by_label("Opened block.fluut");
     stage(&mut h, "TOOLPATHS");
     assert!(enabled(&h, "Calculate all"));
@@ -128,9 +145,7 @@ fn theme_switch() {
 fn simulation_tab_steps_and_shows_the_rest_legend() {
     let mut h = harness();
     h.step();
-    app(&mut h).ui.open_path = project("block").display().to_string();
-    h.get_by_label("Open").click();
-    settle(&mut h);
+    open(&mut h, project("block"));
     app(&mut h).jobs.simulate("s1");
     settle(&mut h);
     let a = app(&mut h);
@@ -238,9 +253,7 @@ fn each_stage_renders_its_commands_in_both_themes() {
 fn switching_stage_leaves_the_viewport_alone() {
     let mut h = harness();
     h.step();
-    app(&mut h).ui.open_path = project("block").display().to_string();
-    h.get_by_label("Open").click();
-    settle(&mut h);
+    open(&mut h, project("block"));
     let a = app(&mut h);
     a.view.camera.target = glam::Vec3::new(1.0, 2.0, 3.0);
     let camera = format!("{:?}", a.view.camera);
@@ -253,17 +266,43 @@ fn switching_stage_leaves_the_viewport_alone() {
 }
 
 #[test]
-fn commands_to_come_are_disabled() {
+fn commands_that_need_a_project_are_disabled_without_one() {
     let mut h = harness();
     h.run_steps(2);
+    assert!(enabled(&h, "New project") && enabled(&h, "Open"));
     for l in [
-        "New project",
         "Save",
         "Save as",
         "Import model",
         "Re-import",
+        "Undo",
+        "Redo",
     ] {
         assert!(!enabled(&h, l), "{l}");
+    }
+    stage(&mut h, "SETUP");
+    for l in ["New 3-axis Setup", "New Rotary Setup", "Stock", "Work zero"] {
+        assert!(!enabled(&h, l), "{l}");
+    }
+    // Only the Library has no operations yet.
+    stage(&mut h, "LIBRARY");
+    for l in ["Tools", "Machines", "Posts"] {
+        assert!(!enabled(&h, l), "{l}");
+    }
+}
+
+#[test]
+fn the_ribbon_has_no_path_fields() {
+    let mut h = harness();
+    h.run_steps(2);
+    for st in ["MODEL", "POST"] {
+        stage(&mut h, st);
+        assert!(
+            h.query_all_by_role(egui::accesskit::Role::TextInput)
+                .next()
+                .is_none(),
+            "{st}"
+        );
     }
 }
 
@@ -271,9 +310,7 @@ fn commands_to_come_are_disabled() {
 fn calculate_selected_calculates_the_selection() {
     let mut h = harness();
     h.step();
-    app(&mut h).ui.open_path = project("block").display().to_string();
-    h.get_by_label("Open").click();
-    settle(&mut h);
+    open(&mut h, project("block"));
     h.get_by_label("Pocket floor raster").click();
     h.run_steps(2);
     stage(&mut h, "TOOLPATHS");
@@ -293,10 +330,8 @@ fn the_gallery_follows_the_setup_kind() {
     stage(&mut h, "TOOLPATHS");
     h.get_by_label("Rotary spiral");
     h.get_by_label("Drill");
-    app(&mut h).ui.open_path = project("shaft").display().to_string();
     stage(&mut h, "MODEL");
-    h.get_by_label("Open").click();
-    settle(&mut h);
+    open(&mut h, project("shaft"));
     stage(&mut h, "TOOLPATHS");
     h.get_by_label("Rotary spiral");
     assert!(h.query_by_label("Drill").is_none());
@@ -306,9 +341,7 @@ fn the_gallery_follows_the_setup_kind() {
 fn ribbon_playback_moves_the_playhead() {
     let mut h = harness();
     h.step();
-    app(&mut h).ui.open_path = project("block").display().to_string();
-    h.get_by_label("Open").click();
-    settle(&mut h);
+    open(&mut h, project("block"));
     app(&mut h).jobs.simulate("s1");
     settle(&mut h);
     stage(&mut h, "SIMULATE");
@@ -348,9 +381,7 @@ fn shots_at(dir: &std::path::Path, scale: f32) {
             None,
         );
     h.step();
-    app(&mut h).ui.open_path = project("block").display().to_string();
-    h.get_by_label("Open").click();
-    settle(&mut h);
+    open(&mut h, project("block"));
     for dark in [true, false] {
         let a = app(&mut h);
         a.ui.dark = dark;
@@ -519,55 +550,268 @@ mod update_check {
     }
 }
 
-#[test]
-fn file_menu_adds_setups_and_toolpaths_and_undoes() {
-    let d = std::env::temp_dir().join(format!("fluut-app-menu-{}", std::process::id()));
+/// The ribbon button of a label that the inspector also shows.
+fn button<'a>(h: &'a Harness<'static, State>, label: &'a str) -> egui_kittest::Node<'a> {
+    h.get_by_role_and_label(egui::accesskit::Role::Button, label)
+}
+
+fn temp(name: &str) -> PathBuf {
+    let d = std::env::temp_dir().join(format!("fluut-app-ribbon-{}-{name}", std::process::id()));
     let _ = std::fs::remove_dir_all(&d);
     std::fs::create_dir_all(&d).unwrap();
+    d
+}
+
+fn boss_step() -> PathBuf {
+    project("boss").with_file_name("boss.step")
+}
+
+/// A fixed header time, so posted files are the same on every run.
+fn fixed_clock() -> (String, String) {
+    ("2026-11-05".into(), "12:00:00".into())
+}
+
+fn snapshot(h: &mut Harness<'static, State>) -> std::sync::Arc<crate::session::Snapshot> {
+    app(h).jobs.snapshot.clone().unwrap()
+}
+
+#[test]
+fn ribbon_adds_setups_and_toolpaths_and_undoes() {
+    let d = temp("ops");
     let mut h = harness();
     h.step();
-    // Without a project the operations that need one are off.
-    h.get_all_by_label("File").next().unwrap().click();
-    h.run_steps(2);
-    assert!(enabled(&h, "New project (mm)..."));
-    assert!(!enabled(&h, "Import model..."));
-    h.key_press(egui::Key::Escape);
-    h.run_steps(2);
-    app(&mut h)
-        .jobs
-        .new_project(d.join("menu"), fluut_model::project::DisplayUnit::Mm);
+    scripted(&mut h).answer(DialogKind::New(DisplayUnit::Mm), d.join("ops"));
+    h.get_by_label("New project").click();
     settle(&mut h);
-    app(&mut h)
-        .jobs
-        .import_model(project("boss").with_file_name("boss.step"));
+    h.get_by_label("ops.fluut");
+    scripted(&mut h).answer(DialogKind::Import, boss_step());
+    h.get_by_label("Import model").click();
     settle(&mut h);
-    h.get_by_label("menu.fluut *");
-    // Add Setup > 3-axis.
-    h.get_all_by_label("File").next().unwrap().click();
-    h.run_steps(2);
-    h.get_by_label("Add Setup ⏵").click();
-    h.run_steps(2);
-    h.get_by_label("3-axis").click();
+    h.get_by_label("ops.fluut *");
+    // Setup > New 3-axis Setup.
+    stage(&mut h, "SETUP");
+    h.get_by_label("New 3-axis Setup").click();
     settle(&mut h);
     assert_eq!(app(&mut h).ui.selection, Selection::Setup("s1".into()));
     h.get_all_by_label("Setup 1").next().unwrap();
-    // Add toolpath > Parallel, on the selected Setup.
-    h.get_all_by_label("File").next().unwrap().click();
-    h.run_steps(2);
-    h.get_by_label("Add toolpath ⏵").click();
-    h.run_steps(2);
+    // New Setup based on the selected one.
+    h.get_by_label("New Setup based on selected").click();
+    settle(&mut h);
+    let s = snapshot(&mut h);
+    assert_eq!(s.project.setups.len(), 2);
+    assert_eq!(s.project.setups[1].based_on.as_deref(), Some("s1"));
+    // Toolpaths > Parallel, on the selected Setup.
+    stage(&mut h, "TOOLPATHS");
     h.get_by_label("Parallel").click();
     settle(&mut h);
     assert_eq!(app(&mut h).ui.selection, Selection::Toolpath("t1".into()));
     h.get_all_by_label("Parallel 1").next().unwrap();
-    // Ctrl+Z undoes the toolpath.
+    // The Undo button undoes the toolpath; Redo, by Ctrl+Y, brings it back.
+    h.get_by_label("Undo").click();
+    settle(&mut h);
+    let s = snapshot(&mut h);
+    assert!(s.project.toolpath("t1").is_none() && s.can_redo);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Y);
+    settle(&mut h);
+    let s = snapshot(&mut h);
+    assert!(s.project.toolpath("t1").is_some() && !s.can_redo);
+    // Ctrl+Z undoes it again, Ctrl+Shift+Z redoes.
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
     settle(&mut h);
-    let s = app(&mut h).jobs.snapshot.clone().unwrap();
-    assert!(s.project.setups[0].toolpaths.is_empty() && s.can_redo);
+    assert!(snapshot(&mut h).project.toolpath("t1").is_none());
+    h.key_press_modifiers(
+        egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
+        egui::Key::Z,
+    );
+    settle(&mut h);
+    assert!(snapshot(&mut h).project.toolpath("t1").is_some());
     // Ctrl+S saves: the star goes.
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::S);
     settle(&mut h);
-    h.get_by_label("menu.fluut");
-    assert!(!app(&mut h).jobs.snapshot.as_ref().unwrap().dirty);
+    h.get_by_label("ops.fluut");
+    assert!(!snapshot(&mut h).dirty);
+}
+
+#[test]
+fn reimport_runs_from_the_ribbon() {
+    let d = temp("reimport");
+    let mut h = harness();
+    h.step();
+    app(&mut h).jobs.new_project(d.join("re"), DisplayUnit::Mm);
+    settle(&mut h);
+    assert!(!enabled(&h, "Re-import"));
+    app(&mut h).jobs.import_model(boss_step());
+    settle(&mut h);
+    h.get_by_label("Re-import").click();
+    settle(&mut h);
+    assert_eq!(
+        app(&mut h).jobs.last,
+        Some((
+            JobKind::Reimport,
+            Outcome::Reimported {
+                sources: 1,
+                unmatched: 0
+            }
+        ))
+    );
+}
+
+#[test]
+fn stock_and_work_zero_select_the_setup_and_point_at_its_row() {
+    let mut h = harness();
+    h.step();
+    open(&mut h, project("block"));
+    stage(&mut h, "SETUP");
+    app(&mut h).ui.selection = Selection::None;
+    button(&h, "Stock").click();
+    h.run_steps(2);
+    assert_eq!(app(&mut h).ui.selection, Selection::Setup("s1".into()));
+    assert_eq!(app(&mut h).ui.inspector_focus, Some("setup-stock"));
+    button(&h, "Work zero").click();
+    h.run_steps(2);
+    assert_eq!(app(&mut h).ui.inspector_focus, Some("setup-zero"));
+}
+
+#[test]
+fn shortcuts_ask_the_dialogs() {
+    let mut h = harness();
+    h.step();
+    open(&mut h, project("block"));
+    let n0 = scripted(&mut h).asked().len();
+    for (mods, key) in [
+        (egui::Modifiers::COMMAND, egui::Key::N),
+        (egui::Modifiers::COMMAND, egui::Key::O),
+        (
+            egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
+            egui::Key::S,
+        ),
+        (egui::Modifiers::COMMAND, egui::Key::I),
+    ] {
+        h.key_press_modifiers(mods, key);
+        settle(&mut h);
+    }
+    let kinds: Vec<_> = scripted(&mut h).asked()[n0..]
+        .iter()
+        .map(|a| a.kind)
+        .collect();
+    assert_eq!(
+        kinds,
+        [
+            DialogKind::New(DisplayUnit::Mm),
+            DialogKind::Open,
+            DialogKind::SaveAs,
+            DialogKind::Import
+        ]
+    );
+}
+
+#[test]
+fn a_dirty_project_asks_before_it_is_replaced() {
+    let d = temp("discard");
+    let mut h = harness();
+    h.step();
+    app(&mut h).jobs.new_project(d.join("one"), DisplayUnit::Mm);
+    settle(&mut h);
+    app(&mut h).jobs.import_model(boss_step());
+    settle(&mut h);
+    assert!(snapshot(&mut h).dirty);
+    // Keep editing: nothing is opened.
+    scripted(&mut h).answer(DialogKind::Open, project("block"));
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::O);
+    settle(&mut h);
+    h.run_steps(2);
+    h.get_by_label("Unsaved changes");
+    h.get_by_label("Keep editing").click();
+    settle(&mut h);
+    assert!(h.query_by_label("Unsaved changes").is_none());
+    assert_eq!(snapshot(&mut h).project.name, "one");
+    // Discard: the project is opened.
+    scripted(&mut h).answer(DialogKind::Open, project("block"));
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::O);
+    settle(&mut h);
+    h.run_steps(2);
+    h.get_by_label("Discard").click();
+    settle(&mut h);
+    h.get_by_label("Opened block.fluut");
+}
+
+#[test]
+fn the_post_dropdown_lists_the_store_and_posting_asks_for_a_file() {
+    let d = temp("post");
+    let mut h = harness();
+    h.step();
+    open(&mut h, project("block"));
+    app(&mut h).ui.clock = fixed_clock;
+    stage(&mut h, "POST");
+    h.get_by_role(egui::accesskit::Role::ComboBox).click();
+    h.run_steps(2);
+    for id in ["fluut/gcode", "fluut/linuxcnc-4x"] {
+        h.get_by_label(id);
+    }
+    h.get_by_label("fluut/grbl").click();
+    h.run_steps(2);
+    assert_eq!(app(&mut h).ui.post_id, "fluut/grbl");
+    // The dialog offers the project name and the post's extension.
+    let out = d.join("chosen.gcode");
+    scripted(&mut h).answer(DialogKind::PostOutput, out.clone());
+    h.get_by_label("Post").click();
+    settle(&mut h);
+    let asked = scripted(&mut h).asked().last().cloned().unwrap();
+    assert_eq!(asked.kind, DialogKind::PostOutput);
+    assert_eq!(asked.name, "block.gcode");
+    assert!(out.exists());
+}
+
+/// The prototype loop, by clicks alone: a new project, a model, a Setup, a
+/// toolpath, Calculate all and Post, with the file dialogs answered by
+/// script.
+#[test]
+fn new_import_setup_toolpath_calculate_post_by_clicking() {
+    let d = temp("e2e");
+    let mut h = harness();
+    h.step();
+    app(&mut h).ui.clock = fixed_clock;
+    scripted(&mut h).answer(DialogKind::New(DisplayUnit::Mm), d.join("loop"));
+    h.get_by_label("New project").click();
+    settle(&mut h);
+    scripted(&mut h).answer(DialogKind::Import, boss_step());
+    h.get_by_label("Import model").click();
+    settle(&mut h);
+    stage(&mut h, "SETUP");
+    h.get_by_label("New 3-axis Setup").click();
+    settle(&mut h);
+    stage(&mut h, "TOOLPATHS");
+    h.get_by_label("Parallel").click();
+    settle(&mut h);
+    // The browser lists the Setup and its toolpath.
+    h.get_all_by_label("Setup 1").next().unwrap();
+    h.get_all_by_label("Parallel 1").next().unwrap();
+    h.get_by_label("Calculate all").click();
+    settle(&mut h);
+    let s = snapshot(&mut h);
+    assert!(s.paths.contains_key("t1"), "calculated");
+    stage(&mut h, "POST");
+    let out = d.join("loop.ngc");
+    scripted(&mut h).answer(DialogKind::PostOutput, out.clone());
+    h.get_by_label("Post").click();
+    settle(&mut h);
+    h.get_by_label(&format!("Wrote {}", out.display()));
+    let text = std::fs::read_to_string(&out).unwrap();
+    assert!(
+        text.contains("G1") && text.contains("(Project: loop)"),
+        "{text}"
+    );
+    // The dialogs offered the project's folder and names.
+    let asked = scripted(&mut h).asked().to_vec();
+    let kinds: Vec<_> = asked.iter().map(|a| a.kind).collect();
+    assert_eq!(
+        kinds,
+        [
+            DialogKind::New(DisplayUnit::Mm),
+            DialogKind::Import,
+            DialogKind::PostOutput
+        ]
+    );
+    assert_eq!(asked[2].name, "loop.ngc");
+    assert_eq!(asked[2].dir.as_deref(), Some(d.as_path()));
 }

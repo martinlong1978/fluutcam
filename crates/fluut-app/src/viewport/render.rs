@@ -927,8 +927,12 @@ fn box_lines(b: &Bounds, out: &mut Lines) {
 /// A headless device for tests and benchmarks, or `None` when the machine
 /// has no adapter (CI without a GPU or a software driver).
 pub fn headless() -> Option<(wgpu::Device, wgpu::Queue)> {
-    let instance =
-        wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
+    // Primary backends only: the GL backend (WGL on Windows) runs a thread
+    // that overflows its stack in debug test builds, and a test machine
+    // that has only GL is not one that can run these tests.
+    let mut desc = wgpu::InstanceDescriptor::new_without_display_handle_from_env();
+    desc.backends &= wgpu::Backends::PRIMARY;
+    let instance = wgpu::Instance::new(desc);
     let adapter =
         pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
             .ok()?;
