@@ -17,7 +17,7 @@ differ in the last bit between platforms. See the S3 report, `docs/plan/spikes/s
 
 ## What changed
 
-The trigonometric calls, and four fixes for nearly degenerate offsets. Everything else is as
+The trigonometric calls, and five fixes for nearly degenerate offsets and intersections. Everything else is as
 published.
 
 - `src/core/math/line_line_intersect.rs`, `line_line_intr`: for collinear segments, the
@@ -39,12 +39,29 @@ published.
   wrapped the indexes anyway and gave the same results as with the loop closed (within 1e-8
   mm²). Found by the `region` fuzz target (`offsets_at_near_tangent_contacts` in
   `crates/fluut-cam/src/region/tests.rs`). The stitching itself is not changed.
+  The open offset can also run on past its start and retrace its first segments (the end
+  vertices repeat the first ones); that tail is removed before closing, or the closed loop
+  overlaps itself. And an open piece no wider than `pos_equal_eps` once closed (a stray slice
+  along one segment, two vertices) is dropped: closed, it became a sliver loop that the shape
+  stitching joined to the main loop as a spike. Both made chained offsets multiply loops and
+  vertices, and led to a debug assertion in `parametric_from_point`
+  (`chained_offsets_of_a_ring_with_a_sliver_bump` and
+  `vertex_counts_stay_bounded_under_chained_offsets`; plan
+  `docs/plan/2026-11-03-region-micro-loops.md`).
 - `src/shape_algorithms/mod.rs`, `Shape::stitch_slices_together`: when a loop is closed,
   every last vertex on top of the first is removed, not only one. A last slice that ends with
   a collapsed segment left a second one, so the closed loop had a zero-length segment, and a
   later boolean failed a debug assertion in `seg_arc_radius_and_center`. Found by the
   `region` fuzz target (`offset_of_loops_touching_at_a_vertex`).
 
+- `src/core/math/line_circle_intersect.rs`, `line_circle_intr`: a line whose X extent is within
+  the default epsilon of zero but not zero is written as dy·x − dx·y + C = 0 instead of being
+  taken as vertical at its mean X. The vertical shortcut put intersection points far along a
+  short, nearly vertical line (2 700 line lengths for 6e-10 mm of X over 1.07e-3 mm of Y) off
+  it by more than the 1e-9 epsilon of the booleans, which failed the debug assertion in
+  `parametric_from_point`. Exactly vertical lines and all others are unchanged. Found by the
+  `region` fuzz target (`intersection_with_a_nearly_vertical_line`). Upstream (`master`,
+  November 2026) has the same code.
 - `src/polyline/pline_view.rs`, `PlineViewData::create_on_single_segment`: returns `None`
   when the end point lies within `VALIDATION_EPS` of the segment's start vertex. Such a slice
   is collapsed, but it was built anyway and failed `validate_for_source`, which panicked in

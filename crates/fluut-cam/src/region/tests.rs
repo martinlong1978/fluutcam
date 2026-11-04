@@ -613,3 +613,142 @@ fn offset_of_loops_touching_at_a_vertex() {
     let u = g.try_union(&b).unwrap();
     assert!(u.area() > g.area().max(b.area()), "{}", u.area());
 }
+
+/// The ring of fuzz class 3 (docs/plan/2026-11-03-region-micro-loops.md):
+/// a disc minus a disc that a third disc overlaps by 2e-6 mm, which leaves
+/// a sliver bump 2e-6 mm high on the hole.
+fn ring_with_a_sliver_bump() -> Region2 {
+    Region2::circle(5.250001, 5.250001, 7.500001)
+        .subtract(&Region2::circle(1e-6, 5.250001, 2.6250015))
+        .union(&Region2::circle(5.250001, 5.250001, 2.6250005))
+}
+
+fn vertex_count(r: &Region2) -> usize {
+    r.loops.iter().map(|l| l.verts.len()).sum()
+}
+
+#[test]
+fn chained_offsets_of_a_ring_with_a_sliver_bump() {
+    // Found by the `region` fuzz target (class 3). The fifth offset failed
+    // a debug assertion in `parametric_from_point` (from
+    // `line_circle_intr`); release builds gave a region larger than before
+    // the shrink.
+    let mut r = ring_with_a_sliver_bump();
+    for d in [-1.34375, -1.34375, 3.5625, -1.375] {
+        r = r.try_offset(d).unwrap();
+    }
+    let before = r.area();
+    let r = r.try_offset(-1.34375).unwrap();
+    assert!(r.area() < before, "{} after {before}", r.area());
+    assert!(r.area() > 0.0);
+}
+
+#[test]
+fn vertex_counts_stay_bounded_under_chained_offsets() {
+    // The same ring, offset in and out again and again. Without the clean-up
+    // the loops multiplied: 27 vertices became 110, 1 168 and then
+    // 20 million in three more offsets, with the area out of all bounds.
+    let mut r = ring_with_a_sliver_bump();
+    let start = r.area();
+    for _ in 0..6 {
+        for d in [-1.34375, -1.34375, 3.5625, -1.375] {
+            let before = r.area();
+            r = r.try_offset(d).unwrap();
+            // A growth holds the region, a shrink lies inside it.
+            assert!((r.area() - before) * d >= 0.0, "{before} to {}", r.area());
+            assert!(r.loops.len() <= 1, "{} loops", r.loops.len());
+            assert!(vertex_count(&r) <= 20, "{} vertices", vertex_count(&r));
+            assert!(r.area() >= 0.0 && r.area() < 2.0 * start, "{}", r.area());
+        }
+    }
+}
+
+#[test]
+fn tidied_removes_only_tiny_features() {
+    let l = |pts: &[(f64, f64)]| Loop2 {
+        verts: pts.iter().map(|&(x, y)| Vertex::new(x, y, 0.0)).collect(),
+    };
+    // A spike 5 mm long and 2e-6 mm wide, a vertex 3e-6 mm from the next
+    // and a notch 4e-6 mm deep in 2e-4 mm segments go. One vertex on the
+    // top edge stays, between two long lines.
+    let t = l(&[
+        (0.0, 0.0),
+        (10.0, 0.0),
+        (10.0, 10.0),
+        (5.0, 10.0),
+        (5.000001, 15.0),
+        (5.000002, 10.0),
+        (4.9999, 10.0),
+        (4.9998, 9.999996),
+        (4.9997, 10.0),
+        (0.0, 10.0),
+        (0.0, 3e-6),
+    ])
+    .tidied()
+    .unwrap();
+    assert_eq!(t.verts.len(), 5, "{t:?}");
+    assert!(close(t.area(), 100.0, 1e-4), "{}", t.area());
+    // A vertex where two long lines meet in the same direction stays (it
+    // is a point of the G-code), however straight.
+    let t = l(&[
+        (0.0, 0.0),
+        (5.0, 0.0),
+        (10.0, 0.0),
+        (10.0, 10.0),
+        (0.0, 10.0),
+    ])
+    .tidied()
+    .unwrap();
+    assert_eq!(t.verts.len(), 5);
+    // A loop 5e-6 mm wide goes altogether.
+    assert!(
+        l(&[(0.0, 0.0), (1.0, 0.0), (1.0, 5e-6), (0.0, 5e-6)])
+            .tidied()
+            .is_none()
+    );
+    // A short arc with a sagitta of 5e-7 mm becomes a line; a longer one
+    // stays an arc.
+    let arc = |chord: f64, sagitta: f64| Loop2 {
+        verts: vec![
+            Vertex::new(0.0, 0.0, 2.0 * sagitta / chord),
+            Vertex::new(chord, 0.0, 0.0),
+            Vertex::new(chord, 1.0, 0.0),
+            Vertex::new(0.0, 1.0, 0.0),
+        ],
+    };
+    assert_eq!(arc(5e-4, 5e-7).tidied().unwrap().verts[0].bulge, 0.0);
+    assert_ne!(arc(1e-2, 5e-7).tidied().unwrap().verts[0].bulge, 0.0);
+}
+
+#[test]
+fn polygons_without_area_are_empty() {
+    // Found by the `region` fuzz target: a triangle 2e-6 mm across
+    // intersected with a "triangle" with two equal points failed a debug
+    // assertion in `parametric_from_point` (from `line_line_intr`, a
+    // zero-length edge) on every retry.
+    let a = Region2::polygon(&[(0.750002, 0.750002), (0.75, 0.750002), (0.750002, 0.75)]);
+    let b = Region2::polygon(&[(0.750002, 0.750002), (0.750002, 0.750002), (7.75, 3.75)]);
+    assert!(a.is_empty() && b.is_empty());
+    let c = Region2::rect(0.0, 0.0, 1.0, 1.0);
+    assert!(c.try_intersect(&b).unwrap().is_empty());
+    // Repeated points are left out of a polygon with area.
+    let d = Region2::polygon(&[(0.0, 0.0), (1.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 0.0)]);
+    assert_eq!(d.loops[0].verts.len(), 3);
+    assert!(close(d.area(), 0.5, 1e-12));
+}
+
+#[test]
+fn intersection_with_a_nearly_vertical_line() {
+    // Found by the `region` fuzz target. The shrunk union holds a line
+    // 1.07e-3 mm long with an X extent of 6e-10 mm. `line_circle_intr`
+    // took it as vertical, and the intersection points with the circle,
+    // 2 700 line lengths away, came out 1.6e-6 mm off it: a debug assertion
+    // in `parametric_from_point` on every retry.
+    let c = Region2::circle(4.000001, 5.750002, 2.875001);
+    let a = c
+        .union(&Region2::circle(5.750002, 5.750001, 4.625))
+        .offset(0.125)
+        .offset(-2.71875);
+    let r = a.try_intersect(&c).unwrap();
+    assert!(r.area() > 0.0 && r.area() < a.area(), "{}", r.area());
+}

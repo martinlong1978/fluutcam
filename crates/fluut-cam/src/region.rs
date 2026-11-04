@@ -17,6 +17,22 @@ use std::f64::consts::{PI, TAU};
 /// vertices closer than this are merged.
 pub const EPS: f64 = 1e-9;
 
+/// Offsets drop features narrower than this (mm): spikes, notches and
+/// loops nanometres wide that `cavalier_contours` keeps from nearly
+/// tangent input, and that chained offsets multiply (see
+/// [`Loop2::tidied`] and `docs/plan/2026-11-03-region-micro-loops.md`).
+/// Far below any machining tolerance, far above rounding.
+pub const TIDY: f64 = 1e-5;
+
+/// Segments up to this long (mm) are short for [`Loop2::tidied`]: a
+/// vertex where such a line meets a line in the same direction is removed,
+/// and such an arc flatter than [`TIDY_FLAT`] becomes a line. Longer
+/// segments keep their vertices, so G-code points on straight edges stay.
+pub const TIDY_SHORT: f64 = 1e-3;
+
+/// The sagitta (mm) below which a short arc becomes a line.
+pub const TIDY_FLAT: f64 = 1e-6;
+
 /// The `cavalier_contours` operation that failed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RegionOp {
@@ -64,13 +80,36 @@ impl std::fmt::Display for RegionFailure {
 
 impl std::error::Error for RegionFailure {}
 
+thread_local! {
+    /// How many [`catch_quiet`] calls are running on this thread.
+    static QUIET: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+/// `catch_unwind` for a panic that is handled, not a crash: while `f` runs,
+/// [`in_catch_quiet`] is true on this thread, and the application's crash
+/// hook writes no report. The region operations run every
+/// `cavalier_contours` call through it: a panic there is retried, or
+/// becomes a [`RegionFailure`] diagnostic on the toolpath (spec 06 §6.3).
+pub fn catch_quiet<R>(f: impl FnOnce() -> R) -> std::thread::Result<R> {
+    QUIET.with(|q| q.set(q.get() + 1));
+    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
+    QUIET.with(|q| q.set(q.get() - 1));
+    r
+}
+
+/// Whether a [`catch_quiet`] call is running on this thread, so that a
+/// panic now will be caught and handled.
+pub fn in_catch_quiet() -> bool {
+    QUIET.with(|q| q.get() > 0)
+}
+
 /// Runs `f`, a call into `cavalier_contours`, catching its panic.
 pub(crate) fn guard<R>(op: RegionOp, f: impl FnOnce() -> R) -> Result<R, RegionFailure> {
-    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    catch_quiet(|| {
         #[cfg(test)]
         fault::check();
         f()
-    }))
+    })
     .map_err(|e| {
         let message = if let Some(s) = e.downcast_ref::<&str>() {
             (*s).to_owned()
@@ -289,6 +328,68 @@ impl Loop2 {
         self.segs().map(|s| s.length()).sum()
     }
 
+    /// The loop without features narrower than [`TIDY`], or `None` when
+    /// the whole loop is that narrow (twice its area under `TIDY` times its
+    /// length). A vertex within `TIDY` of the next one is merged into it; a
+    /// vertex between two lines where the loop turns back on itself (a
+    /// spike) is removed when it lies within `TIDY` of the line through its
+    /// neighbours; so is one between lines in the same direction (a shallow
+    /// notch or a kink) when one of them is at most [`TIDY_SHORT`] long; and
+    /// arcs at most `TIDY_SHORT` long whose sagitta is at most
+    /// [`TIDY_FLAT`] become lines. Each change moves the boundary by at most
+    /// `TIDY`.
+    pub fn tidied(&self) -> Option<Loop2> {
+        let n = self.verts.len();
+        let mut v: Vec<Vertex> = (0..n)
+            .map(|i| {
+                let x = self.verts[i];
+                let chord = x.p.distance(self.verts[(i + 1) % n].p);
+                // The sagitta of an arc is chord · |bulge| / 2.
+                if x.bulge != 0.0 && chord <= TIDY_SHORT && chord * x.bulge.abs() * 0.5 <= TIDY_FLAT
+                {
+                    Vertex { bulge: 0.0, ..x }
+                } else {
+                    x
+                }
+            })
+            .collect();
+        let mut changed = true;
+        while changed && v.len() > 2 {
+            changed = false;
+            let mut i = 0;
+            while i < v.len() && v.len() > 2 {
+                let m = v.len();
+                let (pr, cu, nx) = (v[(i + m - 1) % m], v[i], v[(i + 1) % m]);
+                let remove = if cu.p.distance(nx.p) <= TIDY {
+                    true
+                } else if pr.bulge == 0.0 && cu.bulge == 0.0 {
+                    let d = nx.p - pr.p;
+                    let len = d.length();
+                    let forward =
+                        len > TIDY && (cu.p - pr.p).dot(d) >= 0.0 && (nx.p - cu.p).dot(d) >= 0.0;
+                    let short = cu.p.distance(pr.p).min(cu.p.distance(nx.p)) <= TIDY_SHORT;
+                    // Neighbours on top of each other: `cu` is the tip of a
+                    // spike, whatever its length.
+                    (!forward || short)
+                        && (len <= TIDY || (cu.p - pr.p).perp_dot(d).abs() <= TIDY * len)
+                } else {
+                    false
+                };
+                if remove {
+                    v.remove(i);
+                    changed = true;
+                } else {
+                    i += 1;
+                }
+            }
+        }
+        let l = Loop2 { verts: v };
+        if l.verts.len() < 2 || 2.0 * l.area().abs() <= TIDY * l.length() {
+            return None;
+        }
+        Some(l)
+    }
+
     pub(crate) fn to_pline(&self) -> Polyline<f64> {
         let mut pl = Polyline::with_capacity(self.verts.len(), true);
         for v in &self.verts {
@@ -334,11 +435,25 @@ impl Region2 {
         Region2::polygon(&[(x0, y0), (x1, y0), (x1, y1), (x0, y1)])
     }
 
-    /// A polygon; the points may be in either order.
+    /// A polygon; the points may be in either order. Points within [`EPS`]
+    /// of the previous one are left out, and a polygon with no area (fewer
+    /// than three points left, or an area within `EPS`) is empty: zero-length
+    /// edges fail assertions in `cavalier_contours`.
     pub fn polygon(pts: &[(f64, f64)]) -> Self {
-        let l = Loop2 {
-            verts: pts.iter().map(|&(x, y)| Vertex::new(x, y, 0.0)).collect(),
-        };
+        let mut verts: Vec<Vertex> = Vec::with_capacity(pts.len());
+        for &(x, y) in pts {
+            let p = Point2::new(x, y);
+            if verts.last().is_none_or(|v| v.p.distance(p) > EPS) {
+                verts.push(Vertex::new(x, y, 0.0));
+            }
+        }
+        while verts.len() > 1 && verts[0].p.distance(verts[verts.len() - 1].p) <= EPS {
+            verts.pop();
+        }
+        let l = Loop2 { verts };
+        if l.verts.len() < 3 || l.area().abs() <= EPS {
+            return Region2::empty();
+        }
         Region2::from_outer(l)
     }
 
@@ -437,8 +552,7 @@ impl Region2 {
             .ccw_plines
             .iter()
             .chain(&out.cw_plines)
-            .map(|ip| Loop2::from_pline(&ip.polyline))
-            .filter(|l| l.verts.len() >= 2 && l.area().abs() > EPS)
+            .filter_map(|ip| Loop2::from_pline(&ip.polyline).tidied())
             .collect();
         Region2 { loops }
     }
