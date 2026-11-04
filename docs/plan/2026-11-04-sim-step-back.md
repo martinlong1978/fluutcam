@@ -37,7 +37,7 @@ All earlier Global Constraints apply. In addition:
 
 - `Limits { stride, budget }` (`stride` 0 = adaptive), `Player::with_limits`, `Player::new` uses the defaults; `Player::{last_cut, stride, snapshot_bytes}`.
 - `TriDexel::{bytes_since, unique_bytes}`, `Simulation::checkpoint_at`.
-- [x] **Step 1:** Tests first: for 60 random seek sequences (anywhere, a few chords either way, runs of back steps), on five limit settings (default, tiny stride, tight budgets, a budget too small for any snapshot), the stock after each seek has the hash of a fresh forward cut from the start, the blocks equal a new player's, and `snapshot_bytes() <= budget`; after the first step back, a step back cuts less than a stride; snapshots share tiles (far below one stock copy each) and a smaller budget evicts down to it.
+- [x] **Step 1:** Tests first: for 60 random seek sequences (anywhere, a few chords either way, runs of back steps), on five limit settings (default, tiny stride, tight budgets, a budget too small for any snapshot), the stock after each seek has the hash of a fresh forward cut from the start, the blocks equal a new player's, and `snapshot_bytes() <= budget`; inside the last 6 strides of a seek, a step back cuts less than a stride, and below them it cuts from the checkpoint; snapshots share tiles (far below one stock copy each) and a smaller budget evicts down to it.
 - [x] **Step 2:** Fail, implement, pass.
 
 ### Task 3: Measurements and documents

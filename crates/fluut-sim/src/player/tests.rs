@@ -275,16 +275,23 @@ fn a_step_back_cuts_at_most_a_stride() {
     );
     // Jump to the end (the final checkpoint: nothing is cut, no snapshots),
     // then step back one chord at a time. The first step back cuts from the
-    // checkpoint and leaves snapshots on the way; the rest cut a stride at
-    // most.
+    // checkpoint and leaves snapshots in the last FINE strides; the steps
+    // back inside them cut a stride at most.
     p.seek(&s, n);
     let toolpath = s.toolpaths[1].chords.start;
     p.seek(&s, toolpath - 1);
     assert_eq!(p.last_cut(), toolpath - 1);
-    for k in (0..toolpath - 1).rev() {
+    let zone = (toolpath - 1 - FINE * stride).div_ceil(stride) * stride;
+    assert!(zone > 0);
+    for k in (zone..toolpath - 1).rev() {
         p.seek(&s, k);
         assert!(p.last_cut() < stride, "at {k}: {}", p.last_cut());
     }
+    // Below them it cuts from the checkpoint (and leaves snapshots again).
+    p.seek(&s, zone - 1);
+    assert_eq!(p.last_cut(), zone - 1);
+    p.seek(&s, zone - 2);
+    assert!(p.last_cut() < stride);
     // A forward step of one cuts one.
     p.seek(&s, 1);
     assert_eq!(p.last_cut(), 1);
@@ -302,14 +309,16 @@ fn snapshots_share_tiles_and_are_bounded() {
             budget: usize::MAX,
         },
     );
-    p.seek(&s, n - 1);
+    for t in (0..n).step_by(12) {
+        p.seek(&s, t);
+    }
     let all = p.snapshot_bytes();
     assert!(all > 0);
     // The stock's own size, for scale: every snapshot would hold a whole
     // copy without sharing.
     let one = s.stock_initial().memory();
     let one = one.rays * std::mem::size_of::<crate::dexel::Spans>();
-    let count = (n - 1) / 4;
+    let count = n / 4;
     assert!(count > 20);
     assert!(
         all < count * one / 2,
@@ -324,7 +333,9 @@ fn snapshots_share_tiles_and_are_bounded() {
             budget: all / 4,
         },
     );
-    q.seek(&s, n - 1);
+    for t in (0..n).step_by(12) {
+        q.seek(&s, t);
+    }
     assert!(q.snapshot_bytes() <= all / 4);
     assert!(q.snapshot_bytes() > 0);
 }
