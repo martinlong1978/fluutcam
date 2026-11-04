@@ -70,11 +70,11 @@ All earlier Global Constraints apply. In addition:
 
 ### Task 6: Fuzz
 
-- [ ] **Step 1:** `region` target for at least 10 minutes with and without debug assertions; record below; fix what it finds. Commit.
+- [x] **Step 1:** `region` target for at least 10 minutes with and without debug assertions; record below; fix what it finds. Commit.
 
 ### Task 7: Finish
 
-- [ ] **Step 1:** Merge `main`, run all checks, mark done. Commit.
+- [x] **Step 1:** Merge `main`, run all checks, mark done. Commit.
 
 ## Root causes
 
@@ -102,4 +102,30 @@ Both changes follow from the corrected safe regions; neither cuts more or less m
 
 ## Fuzz results
 
-(Filled in by Task 6.)
+`fuzz/fuzz_targets/region.rs`, Windows, nightly, ASan, corpora `corpus/region-a` (debug assertions) and `corpus/region-r` (release). Every `RegionFailure` is a finding, so the containment guard turned silently wrong regions into findings; the first runs stopped at each.
+
+**Stopping runs (`-a`), each finding fixed or recorded:**
+
+1. 92 514 executions (114 s): a debug assertion in `PlineViewData::create` shrinking a thin triangle to near its inradius. Cause: `line_line_intr`'s unscaled tolerances (root cause 2). Fixed by scaling them, which replaced a narrower first fix in `line_line_join` (`shrink_of_a_thin_triangle_to_near_its_inradius`).
+2. 5 810 executions: the guard caught every growth of a shape with spike tips (two concave arcs back to back) coming back empty. Rounding left each tip turning back a micro-radian on the inner side, so the raw offset took it for an inner join, which failed. Fixed in the vendored crate: a join whose tangents are opposite within `pos_equal_eps / |offset|` is a reversal (`growths_of_a_shape_with_spike_tips`, README entry).
+3. 130 091 executions (355 s): the guard caught a wrong growth of a loop pinched to a 0.01 mm channel where a circular cut touches an edge. Up to an offset of 2.9 the result is right; from about 2.95 `cavalier_contours` (the plain polyline offset too) returns a part of it. **Open**; the guard reports `cam.region.offset_failed` instead (`growth_of_a_loop_pinched_at_a_tangent_hole_is_never_wrong`).
+
+**Stopping run (release, lenient):** 128 570 executions (145 s): a union with a strip 1e-6 mm high along an edge across a notch came back as the notch alone (a hole without an outer loop); the guard caught it at the next shrink. This is in FluutCAM's boolean (`region/boolean.rs`): its side probe for coincident pieces (1e-5 mm) reaches across the strip. It led to two more changes:
+
+- **A boolean guard** (`Region2::guarded`): a union smaller than either input, an intersection larger than either, or a difference larger than its first input is retried like a panic and then a `RegionFailure`. It found a real case in the test suite: in `optimised_load_3d_on_the_dome` a union came back empty, because at a near-tangent crossing the two regions were cut 2.5e-7 mm apart and stitching (tolerance 1e-7) dropped the loop. Stitching now takes the nearest free start within 1e-6 mm when none lies within 1e-7 (`union_at_a_near_tangent_crossing`, exact input in `region/test_data/dome_union.rs`).
+- **A last boolean retry without micrometre-wide loops** (those `Loop2::tidied` drops, as offsets do). It fixes the strip case (`union_with_a_micrometre_strip_across_a_notch`) and 46 of the 60 failing inputs that a 10-minute `-fork` run had saved.
+
+**Final runs, 10 minutes each, continuing past findings (`-fork=1 -ignore_crashes=1`), after all fixes:**
+
+- **With debug assertions (`-a`):** 112 241 executions in 621 s, 11 crashing jobs, all `RegionFailure`s from the guards: no `cavalier_contours` assertion, no timeout, no vertex blow-up. Saved inputs: 9 booleans with an impossible area, 3 growths that do not hold their input.
+- **Release (lenient):** 190 351 executions in 624 s, 5 crashing jobs, all guard failures: 10 booleans with an impossible area, 2 growths that do not hold their input. No panic, no timeout.
+
+Every one of these was a silently wrong region before this plan; now they are diagnostics. They are open (below).
+
+## Open issues
+
+- **Growths of pinched loops** (fuzz class 3 above): `cavalier_contours` returns part of the growth of a loop pinched to a narrow channel once the channel's round joins nearly coincide. Reported as `cam.region.offset_failed`.
+- **Booleans with touching or nearly coincident boundaries**: about one input in 10 000 of the fuzz target gives a union, intersection or difference with an impossible area even after the retries (for example a union with a triangle that touches a corner of the region, which lost half of it). Reported as `cam.region.boolean_failed`. Both need work in `region/boolean.rs` (classification of coincident pieces and stitching at touching points) or the vendored stitching; the saved inputs are in `fuzz/artifacts/region/` locally (not in git).
+- The guards check plausibility, not exact containment (area, and one vertex per loop for offsets): a wrong result that keeps a plausible area and the checked vertices still passes.
+
+**Done.** Both open issues of the micro-loops plan are fixed at the root in `cavalier_contours` (an arc whose offset radius collapses to within `pos_equal_eps` of zero; `line_line_intr`'s tolerances for short segments), with regression tests on the exact inputs; `optimised_load::shrink` no longer loses holes (153 retried growths in `shrunk_cleared_regions_keep_their_holes` before the fixes, 0 after). Region offsets and booleans can no longer return an implausible region silently: they retry and then report `cam.region.offset_failed` / `cam.region.boolean_failed`. Golden G-code: `plate2d-linuxcnc.ngc` and `rough3d-linuxcnc.ngc` re-blessed, explained above; CLI simulation clean, no new `ALLOWED_FINDINGS`; determinism test unchanged. After merging `main`: fmt, clippy, check-layers, deny and 1 166 tests pass (the `fluut-app` unit tests once overflowed the stack of wgpu's WGL thread in the full run and passed twice on their own; unrelated). Deviations from this plan: two more vendored fixes found by the fuzz target (reversal joins at spike tips; the `line_line_intr` scaling replaced a first fix in `line_line_join`), orphan holes dropped in `offset_raw`, a boolean guard with a looser stitching fallback and a retry without micrometre-wide loops, and the `calculation_codes` test of `optimised_load_2d`, which relied on the lost holes to report `incomplete` and now checks that the slivers really are cut. Open issues above.
