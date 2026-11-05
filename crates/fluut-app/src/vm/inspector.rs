@@ -15,10 +15,13 @@ use crate::jobs::Edit;
 use crate::session::Snapshot;
 use crate::text::{data, diagnostic, field_label, tr, tr_args};
 use fluut_i18n::{display_scale, unit_symbol};
+use fluut_model::edit::Edit as ModelEdit;
 use fluut_model::params::{ConstVal, DefaultRule};
 use fluut_model::project::{DisplayUnit, Toolpath};
-use fluut_model::tools::Tool;
-use fluut_model::{Diagnostic, FieldKind, FieldMeta, Group, Num, PValue, Params, Severity};
+use fluut_model::tools::{Tool, ToolShape, ToolStore};
+use fluut_model::{
+    Diagnostic, FieldKind, FieldMeta, Group, Num, PValue, Params, Severity, ToolpathTypeId,
+};
 
 /// How a field is edited.
 #[derive(Clone, PartialEq, Debug)]
@@ -77,12 +80,24 @@ pub struct TabVm {
     pub errors: usize,
 }
 
+/// The tool dropdown of a toolpath.
+#[derive(Clone, PartialEq, Debug)]
+pub struct ToolChoiceVm {
+    /// The reference the toolpath holds.
+    pub value: String,
+    /// `(reference, label)`.
+    pub options: Vec<(String, String)>,
+    /// Why the tool does not suit, under the dropdown.
+    pub diagnostics: Vec<DiagVm>,
+}
+
 #[derive(Clone, PartialEq, Debug)]
 pub struct ToolpathVm {
     pub id: String,
     pub title: String,
     /// Type, Setup and tool.
     pub subtitle: String,
+    pub tool: ToolChoiceVm,
     pub tabs: Vec<TabVm>,
     /// Diagnostics that name no field.
     pub general: Vec<DiagVm>,
@@ -284,7 +299,12 @@ impl InspectorVm {
                         material: setup.material.as_deref(),
                         unit,
                     };
-                    InspectorVm::Toolpath(toolpath_vm(&cx, &setup.name, s.diagnostics(id)))
+                    InspectorVm::Toolpath(toolpath_vm(
+                        &cx,
+                        &s.tools,
+                        &setup.name,
+                        s.diagnostics(id),
+                    ))
                 }
                 None => empty(),
             },
@@ -299,7 +319,7 @@ impl InspectorVm {
     }
 }
 
-fn toolpath_vm(cx: &Cx, setup: &str, diags: &[Diagnostic]) -> ToolpathVm {
+fn toolpath_vm(cx: &Cx, tools: &ToolStore, setup: &str, diags: &[Diagnostic]) -> ToolpathVm {
     let leaves = Params::leaf_fields(cx.tp.kind());
     let tabs = Group::ALL
         .into_iter()
@@ -326,6 +346,7 @@ fn toolpath_vm(cx: &Cx, setup: &str, diags: &[Diagnostic]) -> ToolpathVm {
     let paths: Vec<&str> = leaves.iter().map(|(p, _)| p.as_str()).collect();
     let general = diags
         .iter()
+        .filter(|d| d.field.as_deref() != Some("tool"))
         .filter(|d| d.field.as_deref().is_none_or(|f| !paths.contains(&f)))
         .map(DiagVm::of)
         .collect();
@@ -337,9 +358,76 @@ fn toolpath_vm(cx: &Cx, setup: &str, diags: &[Diagnostic]) -> ToolpathVm {
         id: cx.tp.id.clone(),
         title: data(&cx.tp.name),
         subtitle: format!("{} · {setup} · {tool}", cx.tp.kind().as_str()),
+        tool: tool_choice(cx, tools, diags),
         tabs,
         general,
     }
+}
+
+/// The name of a tool shape.
+fn shape_label(s: ToolShape) -> String {
+    tr(match s {
+        ToolShape::Flat => "tool-shape-flat",
+        ToolShape::Ball => "tool-shape-ball",
+        ToolShape::Bull => "tool-shape-bull",
+        ToolShape::V => "tool-shape-v",
+        ToolShape::Taper => "tool-shape-taper",
+        ToolShape::Drill => "tool-shape-drill",
+    })
+}
+
+/// "library: type diameter, name".
+fn tool_label(library: &str, t: &Tool, unit: DisplayUnit) -> String {
+    let d = num_with_unit(t.diameter, FieldKind::Length, unit);
+    let name = data(if t.name.is_empty() { &t.id } else { &t.name });
+    tr_args(
+        "inspector-tool-option",
+        &[
+            ("library", library),
+            ("shape", &shape_label(t.shape)),
+            ("diameter", &d),
+            ("name", &name),
+        ],
+    )
+}
+
+fn tool_choice(cx: &Cx, tools: &ToolStore, diags: &[Diagnostic]) -> ToolChoiceVm {
+    let mut options = Vec::new();
+    if cx.tp.kind() == ToolpathTypeId::ManualNc {
+        options.push((String::new(), tr("inspector-none")));
+    }
+    for lib in tools.libraries() {
+        let label = if lib.name.is_empty() {
+            &lib.id
+        } else {
+            &lib.name
+        };
+        for t in &lib.tools {
+            options.push((
+                format!("{}#{}", lib.id, t.id),
+                tool_label(label, t, cx.unit),
+            ));
+        }
+    }
+    let value = cx.tp.tool.clone();
+    if !options.iter().any(|(v, _)| *v == value) {
+        options.insert(0, (value.clone(), data(&value)));
+    }
+    ToolChoiceVm {
+        value,
+        options,
+        diagnostics: diags
+            .iter()
+            .filter(|d| d.field.as_deref() == Some("tool"))
+            .map(DiagVm::of)
+            .collect(),
+    }
+}
+
+/// The edit that gives a toolpath the tool `reference`; empty means none.
+pub fn tool_edit(toolpath: &str, reference: &str) -> ModelEdit {
+    let text = PValue::Enum(reference.to_owned()).to_toml();
+    ModelEdit::set_toolpath_field(toolpath, "tool", (!reference.is_empty()).then_some(&*text))
 }
 
 /// The edit for an entry in a number field, or why it is not a value.

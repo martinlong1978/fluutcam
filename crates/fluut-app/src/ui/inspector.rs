@@ -9,11 +9,12 @@ use crate::jobs::Edit;
 use crate::jobs::Jobs;
 use crate::text::tr;
 use crate::vm::inspector::{
-    DiagVm, FieldVm, InspectorVm, ToolpathVm, Widget, number_edit, value_edit,
+    DiagVm, FieldVm, InspectorVm, ToolChoiceVm, ToolpathVm, Widget, number_edit, tool_edit,
+    value_edit,
 };
 use crate::vm::setup::{RowVm, RowWidget, SetupVm, reset_edit, setup_edit};
 use eframe::egui;
-use fluut_model::PValue;
+use fluut_model::{Group, PValue};
 
 fn diag(ui: &mut egui::Ui, d: &DiagVm) {
     let (sev, col) = if d.error {
@@ -224,6 +225,10 @@ fn toolpath(ui: &mut egui::Ui, jobs: &mut Jobs, state: &mut UiState, t: &Toolpat
     let Some(tab) = t.tabs.get(state.inspector_tab) else {
         return;
     };
+    if tab.group == Group::ToolParams {
+        tool_row(ui, jobs, &t.id, &t.tool);
+        ui.separator();
+    }
     egui::ScrollArea::vertical().show(ui, |ui| {
         egui::Grid::new(("fields", &t.id, tab.group.key()))
             .num_columns(2)
@@ -235,6 +240,37 @@ fn toolpath(ui: &mut egui::Ui, jobs: &mut Jobs, state: &mut UiState, t: &Toolpat
                 }
             });
     });
+}
+
+/// The tool dropdown, with why the tool does not suit under it.
+fn tool_row(ui: &mut egui::Ui, jobs: &mut Jobs, tp: &str, v: &ToolChoiceVm) {
+    let shown = v
+        .options
+        .iter()
+        .find(|(r, _)| *r == v.value)
+        .map_or(v.value.as_str(), |(_, l)| l.as_str());
+    let mut chosen = None;
+    ui.horizontal(|ui| {
+        let label = ui.label(tr("inspector-tool"));
+        egui::ComboBox::from_id_salt(("tool", tp))
+            .selected_text(shown)
+            .width(260.0)
+            .show_ui(ui, |ui| {
+                for (r, l) in &v.options {
+                    if ui.selectable_label(*r == v.value, l).clicked() && *r != v.value {
+                        chosen = Some(r.clone());
+                    }
+                }
+            })
+            .response
+            .labelled_by(label.id);
+    });
+    if let Some(r) = chosen {
+        jobs.edit(Edit::Model(tool_edit(tp, &r)));
+    }
+    for d in &v.diagnostics {
+        diag(ui, d);
+    }
 }
 
 fn field(

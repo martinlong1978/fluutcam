@@ -184,3 +184,40 @@ fn pseudo_locale_reaches_every_label() {
         }
     }
 }
+
+#[test]
+fn the_tool_dropdown_lists_the_libraries_and_writes_the_reference() {
+    let mut j = opened("block");
+    let s = j.snapshot.clone().unwrap();
+    let vm = tp_vm(&s, "t1");
+    let starter = "fluut/starter#ball-6";
+    let (_, label) = vm
+        .tool
+        .options
+        .iter()
+        .find(|(r, _)| r == starter)
+        .unwrap_or_else(|| panic!("{:?}", vm.tool.options));
+    assert!(label.contains("Ball 6 mm"), "{label}");
+    assert!(vm.tool.options.iter().any(|(r, _)| *r == vm.tool.value));
+    assert!(vm.tool.diagnostics.is_empty());
+    let e = crate::jobs::Edit::Model(tool_edit("t1", starter));
+    let s = apply(&mut j, e);
+    assert_eq!(s.project.toolpath("t1").unwrap().1.tool, starter);
+    assert_eq!(tp_vm(&s, "t1").tool.value, starter);
+    j.undo();
+    j.wait();
+    let s = j.snapshot.clone().unwrap();
+    assert_ne!(s.project.toolpath("t1").unwrap().1.tool, starter);
+}
+
+#[test]
+fn a_missing_tool_is_shown_and_reported_at_the_dropdown() {
+    let mut j = opened("block");
+    let e = crate::jobs::Edit::Model(tool_edit("t1", "nope#gone"));
+    let s = apply(&mut j, e);
+    let vm = tp_vm(&s, "t1");
+    assert_eq!(vm.tool.value, "nope#gone");
+    assert_eq!(vm.tool.options[0].0, "nope#gone");
+    assert_eq!(vm.tool.diagnostics[0].code, "param.tool.missing");
+    assert!(vm.general.iter().all(|d| d.code != "param.tool.missing"));
+}

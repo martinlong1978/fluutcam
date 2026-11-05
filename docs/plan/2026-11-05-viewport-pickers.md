@@ -45,8 +45,8 @@ All earlier Global Constraints apply. In addition:
 - [x] `vm/setup.rs`, inspector group widgets, ribbon focus.
 
 ### Task 3: Tool choice
-- [ ] Tests first: options, writing the reference, messages under the dropdown.
-- [ ] `ToolStore::libraries`, tool row on the Tool tab.
+- [x] Tests first: options, writing the reference, messages under the dropdown.
+- [x] `ToolStore::libraries`, tool row on the Tool tab.
 
 ### Task 4: Height and remaining field editing
 - [ ] Tests first: reference and offset edits, inch display, `top` for feed only, text, duration, points.

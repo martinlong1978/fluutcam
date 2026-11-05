@@ -111,6 +111,13 @@ status-disabled = Disabled
 # Inspector
 inspector-empty = Select a Setup or a toolpath.
 inspector-tool = Tool
+inspector-tool-option = { $library }: { $shape } { $diameter }, { $name }
+tool-shape-flat = Flat
+tool-shape-ball = Ball
+tool-shape-bull = Bull nose
+tool-shape-v = V-bit
+tool-shape-taper = Taper
+tool-shape-drill = Drill
 inspector-type = Type
 inspector-default = Default: { $value }
 inspector-default-none = Default: not set
