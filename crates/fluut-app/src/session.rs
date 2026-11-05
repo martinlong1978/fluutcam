@@ -19,6 +19,7 @@ use crate::scene::{SetupScene, ToolpathLines};
 use fluut_cam::geometry::SetupBody;
 use fluut_cam::geometry::SetupGeometry;
 use fluut_core::fluut_sim::{Check, Monitor, Player, Step, StockMesh};
+use fluut_core::ops::MachineChoice;
 use fluut_core::{JobReport, JobState, NodeId, PostOptions, Session, SetupFrame, Targets};
 use fluut_core::{SimResult, SimSettings};
 use fluut_model::PValue;
@@ -58,6 +59,8 @@ pub struct Snapshot {
     pub path: PathBuf,
     pub project: Project,
     pub tools: ToolStore,
+    /// The machines a Setup can name.
+    pub machines: Vec<MachineChoice>,
     /// Load findings and Setup frame errors.
     pub warnings: Vec<Diagnostic>,
     pub status: BTreeMap<String, ToolpathStatus>,
@@ -318,6 +321,12 @@ impl Worker {
     }
 
     fn run(&mut self, r: Request) {
+        // A job after a refused edit: the refusal is old news.
+        if !matches!(r, Request::Edit(_) | Request::Scrub { .. })
+            && let Some(st) = self.state.as_mut()
+        {
+            st.edit_error = None;
+        }
         match r {
             Request::Open(cx, path) => self.open(&cx, path),
             Request::New(cx, path, units) => {
@@ -604,6 +613,7 @@ impl Worker {
                     fluut_model::edit::Edit::set_toolpath_field(&toolpath, &path, text.as_deref());
                 st.session.apply(edit).err().map(|e| e.0)
             }
+            Edit::Model(edit) => st.session.apply(edit).err().map(|e| e.0),
         };
         self.snapshot();
     }
@@ -917,6 +927,7 @@ impl State {
             path: self.path.clone(),
             project,
             tools: self.session.tools.clone(),
+            machines: self.session.machine_choices(),
             warnings,
             status,
             diagnostics,

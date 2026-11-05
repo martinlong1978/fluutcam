@@ -40,9 +40,9 @@ All earlier Global Constraints apply. In addition:
 - [x] Plan committed.
 
 ### Task 2: Setup inspector editing
-- [ ] Tests first: `vm::setup` edits, undo, scene update, inherited fields, Stock and Work zero focus.
-- [ ] `Snapshot::machines`, `jobs::Edit::Model`, status line for refused edits.
-- [ ] `vm/setup.rs`, inspector group widgets, ribbon focus.
+- [x] Tests first: `vm::setup` edits, undo, scene update, inherited fields, Stock and Work zero focus.
+- [x] `Snapshot::machines`, `jobs::Edit::Model`, status line for refused edits.
+- [x] `vm/setup.rs`, inspector group widgets, ribbon focus.
 
 ### Task 3: Tool choice
 - [ ] Tests first: options, writing the reference, messages under the dropdown.

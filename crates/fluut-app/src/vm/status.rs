@@ -65,6 +65,14 @@ impl StatusVm {
                 failed: false,
             };
         }
+        if let Some(e) = jobs.snapshot.as_ref().and_then(|s| s.edit_error.as_ref()) {
+            return StatusVm {
+                text: tr_args("job-edit-refused", &[("reason", e)]),
+                progress: None,
+                cancellable: false,
+                failed: true,
+            };
+        }
         let (text, failed) = match &jobs.last {
             None => (tr("job-idle"), false),
             Some((_, o)) => match o {

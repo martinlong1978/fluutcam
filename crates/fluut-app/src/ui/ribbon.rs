@@ -238,7 +238,7 @@ fn run(c: Command, vm: &RibbonVm, jobs: &mut Jobs, state: &mut UiState, dialogs:
                 jobs.add_setup(kind, Some(id));
             }
         }
-        // No Setup editor yet: show the Setup and point at the row.
+        // Parameters live in the inspector: show the Setup, at that group.
         Command::Stock | Command::WorkZero => {
             if let Some(id) = &vm.setup {
                 state.selection = Selection::Setup(id.clone());

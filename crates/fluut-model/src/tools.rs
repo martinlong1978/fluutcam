@@ -265,6 +265,24 @@ impl ToolStore {
         self.libs.insert((lib.id.clone(), lib.version()), lib);
     }
 
+    /// Every library, by id and then version.
+    pub fn libraries(&self) -> impl Iterator<Item = &ToolLibrary> {
+        self.libs.values()
+    }
+
+    /// The materials that some tool has cutting data for, sorted.
+    pub fn materials(&self) -> Vec<String> {
+        let mut m: Vec<String> = self
+            .libraries()
+            .flat_map(|l| &l.tools)
+            .flat_map(|t| &t.presets)
+            .map(|p| p.material.clone())
+            .collect();
+        m.sort();
+        m.dedup();
+        m
+    }
+
     /// The highest version of library `id` that `req` accepts.
     pub fn library(&self, id: &str, req: VersionReq) -> Option<&ToolLibrary> {
         self.libs

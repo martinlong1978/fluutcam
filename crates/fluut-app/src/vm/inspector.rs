@@ -5,10 +5,10 @@
 //! A toolpath shows the five groups of spec 03 §3.10.2 as tabs. Each field
 //! has its label, its value in the project unit, its default when unset,
 //! whether `visible_if` shows it, and the validation messages that name it.
-//! Number, enum and bool fields are edited here; heights, selections and
-//! points are shown read-only until their pickers exist.
+//! A Setup has its own editor, [`super::setup`].
 
 use super::entry::{EntryUnit, dimension, evaluate, length_unit};
+use super::setup::SetupVm;
 use super::visible::visible;
 use super::{Selection, fmt_num};
 use crate::jobs::Edit;
@@ -16,8 +16,7 @@ use crate::session::Snapshot;
 use crate::text::{data, diagnostic, field_label, tr, tr_args};
 use fluut_i18n::{display_scale, unit_symbol};
 use fluut_model::params::{ConstVal, DefaultRule};
-use fluut_model::project::{AxisX, DisplayUnit, StockSpec, Toolpath, ZeroSpec};
-use fluut_model::setup::ResolvedSetup;
+use fluut_model::project::{DisplayUnit, Toolpath};
 use fluut_model::tools::Tool;
 use fluut_model::{Diagnostic, FieldKind, FieldMeta, Group, Num, PValue, Params, Severity};
 
@@ -44,7 +43,7 @@ pub struct DiagVm {
 }
 
 impl DiagVm {
-    fn of(d: &Diagnostic) -> DiagVm {
+    pub(super) fn of(d: &Diagnostic) -> DiagVm {
         DiagVm {
             error: d.severity == Severity::Error,
             code: d.code.clone(),
@@ -90,13 +89,6 @@ pub struct ToolpathVm {
 }
 
 #[derive(Clone, PartialEq, Debug)]
-pub struct SetupVm {
-    pub title: String,
-    /// `(label, value)`, read-only in M5.
-    pub rows: Vec<(String, String)>,
-}
-
-#[derive(Clone, PartialEq, Debug)]
 pub enum InspectorVm {
     Empty(String),
     Setup(SetupVm),
@@ -104,13 +96,13 @@ pub enum InspectorVm {
 }
 
 /// Display unit symbol and scale of a field kind.
-fn display(kind: FieldKind, unit: DisplayUnit) -> (Option<&'static str>, f64) {
+pub(super) fn display(kind: FieldKind, unit: DisplayUnit) -> (Option<&'static str>, f64) {
     let (dim, unit) = (dimension(kind), length_unit(unit));
     let sym = unit_symbol(dim, unit);
     ((!sym.is_empty()).then_some(sym), display_scale(dim, unit))
 }
 
-fn num_text(v: f64, kind: FieldKind, unit: DisplayUnit) -> String {
+pub(super) fn num_text(v: f64, kind: FieldKind, unit: DisplayUnit) -> String {
     fmt_num(v / display(kind, unit).1)
 }
 
@@ -298,10 +290,7 @@ impl InspectorVm {
             },
             Selection::Setup(id) | Selection::Face { setup: id, .. } => {
                 match fluut_model::setup::resolve_setup(&s.project, id) {
-                    Ok(st) => {
-                        let n = s.project.setup(id).map_or(0, |x| x.toolpaths.len());
-                        InspectorVm::Setup(setup_vm(&st, n, unit))
-                    }
+                    Ok(st) => InspectorVm::Setup(SetupVm::new(s, &st)),
                     Err(_) => empty(),
                 }
             }
@@ -350,57 +339,6 @@ fn toolpath_vm(cx: &Cx, setup: &str, diags: &[Diagnostic]) -> ToolpathVm {
         subtitle: format!("{} · {setup} · {tool}", cx.tp.kind().as_str()),
         tabs,
         general,
-    }
-}
-
-fn setup_vm(s: &ResolvedSetup, toolpaths: usize, unit: DisplayUnit) -> SetupVm {
-    let len = |v: f64| num_with_unit(v, FieldKind::Length, unit);
-    let opt = |v: &Option<String>| v.clone().unwrap_or_else(|| tr("inspector-none"));
-    let triple = |v: &[Num; 3]| format!("{} × {} × {}", len(v[0].v), len(v[1].v), len(v[2].v));
-    let stock = match &s.stock {
-        None => tr("inspector-none"),
-        Some(StockSpec::Block { size: Some(v), .. }) => format!("block, size {}", triple(v)),
-        Some(StockSpec::Block { margin, .. }) => {
-            let zero = Num { v: 0.0, int: true };
-            format!("block, margin {}", triple(&margin.unwrap_or([zero; 3])))
-        }
-        Some(StockSpec::Cylinder { radius, length }) => {
-            format!(
-                "cylinder, radius {}, length {}",
-                len(radius.v),
-                len(length.v)
-            )
-        }
-        Some(StockSpec::Body { body }) => format!("body {body}"),
-        Some(StockSpec::FromPrevious) => "from_previous".into(),
-    };
-    let zero = match &s.zero {
-        ZeroSpec::StockTopCorner(c) => format!("stock_top_corner {}", c.as_str()),
-        ZeroSpec::StockTopCentre => "stock_top_centre".into(),
-        ZeroSpec::StockBottomCorner(c) => format!("stock_bottom_corner {}", c.as_str()),
-        ZeroSpec::Point(p) => point_text(p),
-        ZeroSpec::OnAxis { x } => match x {
-            AxisX::StockLeft => "on_axis, stock_left".into(),
-            AxisX::StockRight => "on_axis, stock_right".into(),
-            AxisX::At(v) => format!("on_axis, x {}", len(v.v)),
-        },
-    };
-    let bodies = match &s.geometry.bodies {
-        None => tr("setup-bodies-all"),
-        Some(b) => b.join(", "),
-    };
-    SetupVm {
-        title: data(&s.name),
-        rows: vec![
-            (tr("setup-kind"), data(s.kind.as_str())),
-            (tr("setup-material"), opt(&s.material)),
-            (tr("setup-machine"), opt(&s.machine)),
-            (tr("setup-work-offset"), data(&s.work_offset)),
-            (tr("setup-stock"), stock),
-            (tr("setup-zero"), zero),
-            (tr("setup-bodies"), bodies),
-            (tr("setup-toolpaths"), toolpaths.to_string()),
-        ],
     }
 }
 

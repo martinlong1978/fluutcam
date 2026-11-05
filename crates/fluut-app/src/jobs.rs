@@ -97,6 +97,8 @@ pub enum Edit {
         path: String,
         value: Option<PValue>,
     },
+    /// Any other change to the project, one undo step.
+    Model(fluut_model::edit::Edit),
 }
 
 /// What to post and where.

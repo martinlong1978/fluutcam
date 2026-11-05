@@ -5,11 +5,13 @@
 
 use super::UiState;
 use crate::brand::{self, Palette, c};
+use crate::jobs::Edit;
 use crate::jobs::Jobs;
 use crate::text::tr;
 use crate::vm::inspector::{
     DiagVm, FieldVm, InspectorVm, ToolpathVm, Widget, number_edit, value_edit,
 };
+use crate::vm::setup::{RowVm, RowWidget, SetupVm, reset_edit, setup_edit};
 use eframe::egui;
 use fluut_model::PValue;
 
@@ -37,40 +39,163 @@ pub fn show(ui: &mut egui::Ui, jobs: &mut Jobs, state: &mut UiState) {
         InspectorVm::Empty(text) => {
             ui.label(text);
         }
-        InspectorVm::Setup(s) => {
-            ui.heading(&s.title);
-            ui.separator();
-            egui::Grid::new("setup")
-                .num_columns(2)
-                .spacing([12.0, 6.0])
-                .show(ui, |ui| {
-                    let focus = state.inspector_focus.map(tr);
-                    for (k, v) in &s.rows {
-                        let on = focus.as_ref() == Some(k);
-                        let key = if on {
-                            egui::RichText::new(k).color(c(p.text)).strong()
-                        } else {
-                            egui::RichText::new(k).color(c(p.weak_text))
-                        };
-                        let r = ui.label(key);
-                        if on {
-                            // Stock or Work zero pointed here.
-                            let rect = r.rect.expand2(egui::vec2(6.0, 2.0));
-                            ui.painter().rect_stroke(
-                                rect,
-                                egui::CornerRadius::same(3),
-                                egui::Stroke::new(1.5, c(brand::CUTTER_ORANGE)),
-                                egui::StrokeKind::Outside,
-                            );
-                            r.scroll_to_me(None);
-                        }
-                        ui.label(v);
-                        ui.end_row();
-                    }
-                });
-        }
+        InspectorVm::Setup(s) => setup(ui, jobs, state, &s, &p),
         InspectorVm::Toolpath(t) => toolpath(ui, jobs, state, &t, &p),
     }
+}
+
+/// The Setup editor: one titled grid per group. The group Stock or Work
+/// zero pointed at is outlined and scrolled to.
+fn setup(ui: &mut egui::Ui, jobs: &mut Jobs, state: &mut UiState, s: &SetupVm, p: &Palette) {
+    ui.heading(&s.title);
+    for d in &s.diagnostics {
+        diag(ui, d);
+    }
+    ui.separator();
+    egui::ScrollArea::vertical().show(ui, |ui| {
+        for g in &s.groups {
+            let head = ui.label(egui::RichText::new(&g.label).color(c(p.text)).strong());
+            if state.inspector_focus == Some(g.id) {
+                let rect = head.rect.expand2(egui::vec2(6.0, 2.0));
+                ui.painter().rect_stroke(
+                    rect,
+                    egui::CornerRadius::same(3),
+                    egui::Stroke::new(1.5, c(brand::CUTTER_ORANGE)),
+                    egui::StrokeKind::Outside,
+                );
+                head.scroll_to_me(Some(egui::Align::TOP));
+            }
+            egui::Grid::new(("setup", &s.id, g.id))
+                .num_columns(2)
+                .spacing([12.0, 4.0])
+                .min_col_width(110.0)
+                .show(ui, |ui| {
+                    for r in &g.rows {
+                        setup_row(ui, jobs, state, &s.id, r, p);
+                    }
+                });
+            ui.add_space(8.0);
+        }
+        egui::Grid::new(("info", &s.id))
+            .num_columns(2)
+            .spacing([12.0, 4.0])
+            .min_col_width(110.0)
+            .show(ui, |ui| {
+                for (k, v) in &s.info {
+                    ui.label(egui::RichText::new(k).color(c(p.weak_text)));
+                    ui.label(v);
+                    ui.end_row();
+                }
+            });
+    });
+}
+
+fn setup_row(
+    ui: &mut egui::Ui,
+    jobs: &mut Jobs,
+    state: &mut UiState,
+    id: &str,
+    r: &RowVm,
+    p: &Palette,
+) {
+    let label = ui.label(&r.label);
+    let path = format!("setup/{id}/{}", r.key);
+    ui.vertical(|ui| {
+        let mut commit = None;
+        ui.horizontal(|ui| match &r.widget {
+            RowWidget::ReadOnly => {
+                ui.label(&r.value);
+            }
+            RowWidget::Text => commit = entry(ui, state, &path, &r.value, None, label.id, ""),
+            RowWidget::Number { unit } => {
+                let help = tr("inspector-entry-help");
+                commit = entry(ui, state, &path, &r.value, *unit, label.id, &help);
+            }
+            RowWidget::Choice(options) => {
+                let shown = options
+                    .iter()
+                    .find(|(v, _)| *v == r.value)
+                    .map_or(r.value.as_str(), |(_, l)| l.as_str());
+                egui::ComboBox::from_id_salt(&path)
+                    .selected_text(shown)
+                    .width(180.0)
+                    .show_ui(ui, |ui| {
+                        for (v, l) in options {
+                            if ui.selectable_label(*v == r.value, l).clicked() && *v != r.value {
+                                commit = Some(v.clone());
+                            }
+                        }
+                    })
+                    .response
+                    .labelled_by(label.id);
+            }
+        });
+        if let Some(text) = commit
+            && let Some(snap) = jobs.snapshot.clone()
+        {
+            match setup_edit(&snap, id, &r.key, &text) {
+                Ok(e) => {
+                    state.entry_error = None;
+                    jobs.edit(Edit::Model(e));
+                }
+                Err(msg) => state.entry_error = Some((path.clone(), msg)),
+            }
+        }
+        if let Some(text) = &r.origin.inherited {
+            ui.label(egui::RichText::new(text).small().color(c(p.weak_text)));
+        }
+        if let Some(field) = r.origin.reset {
+            let reset = egui::Button::new(egui::RichText::new(tr("setup-reset-inherited")).small())
+                .frame(false);
+            if ui.add(reset).clicked() {
+                jobs.edit(Edit::Model(reset_edit(id, field)));
+            }
+        }
+        entry_message(ui, state, &path);
+    });
+    ui.end_row();
+}
+
+fn entry_message(ui: &mut egui::Ui, state: &UiState, path: &str) {
+    if let Some((at, msg)) = &state.entry_error
+        && at == path
+    {
+        ui.label(egui::RichText::new(msg).small().color(c(brand::RED)));
+    }
+}
+
+/// A text entry that shows `value`, or the text being typed, and returns
+/// the text once, on Enter or when focus leaves, if it changed.
+fn entry(
+    ui: &mut egui::Ui,
+    state: &mut UiState,
+    key: &str,
+    value: &str,
+    unit: Option<&str>,
+    label: egui::Id,
+    help: &str,
+) -> Option<String> {
+    let mut text = state
+        .entries
+        .get(key)
+        .cloned()
+        .unwrap_or_else(|| value.to_owned());
+    let mut r = ui
+        .add(egui::TextEdit::singleline(&mut text).desired_width(110.0))
+        .labelled_by(label);
+    if !help.is_empty() {
+        r = r.on_hover_text(help);
+    }
+    if r.changed() {
+        state.entries.insert(key.to_owned(), text.clone());
+    }
+    if let Some(u) = unit {
+        ui.label(u);
+    }
+    if r.lost_focus() && state.entries.remove(key).is_some() && text.trim() != value {
+        return Some(text);
+    }
+    None
 }
 
 fn toolpath(ui: &mut egui::Ui, jobs: &mut Jobs, state: &mut UiState, t: &ToolpathVm, p: &Palette) {
@@ -171,11 +296,7 @@ fn field(
                     .color(c(p.weak_text)),
             );
         }
-        if let Some((path, msg)) = &state.entry_error
-            && *path == f.path
-        {
-            ui.label(egui::RichText::new(msg).small().color(c(brand::RED)));
-        }
+        entry_message(ui, state, &f.path);
         for d in &f.diagnostics {
             diag(ui, d);
         }
@@ -201,35 +322,18 @@ fn number(
     label: egui::Id,
 ) {
     let key = format!("{tp}/{}", f.path);
-    let mut text = state
-        .entries
-        .get(&key)
-        .cloned()
-        .unwrap_or_else(|| f.value.clone());
-    let r = ui
-        .add(egui::TextEdit::singleline(&mut text).desired_width(110.0))
-        .labelled_by(label)
-        .on_hover_text(tr("inspector-entry-help"));
-    if r.changed() {
-        state.entries.insert(key.clone(), text.clone());
-    }
-    if let Some(u) = unit_of(&f.widget) {
-        ui.label(u);
-    }
-    if r.lost_focus() && state.entries.contains_key(&key) {
-        state.entries.remove(&key);
-        if text.trim() == f.value {
-            return;
+    let help = tr("inspector-entry-help");
+    let Some(text) = entry(ui, state, &key, &f.value, unit_of(&f.widget), label, &help) else {
+        return;
+    };
+    let Some(snap) = jobs.snapshot.clone() else {
+        return;
+    };
+    match number_edit(&snap, tp, &f.path, &text) {
+        Ok(e) => {
+            state.entry_error = None;
+            jobs.edit(e);
         }
-        let Some(snap) = jobs.snapshot.clone() else {
-            return;
-        };
-        match number_edit(&snap, tp, &f.path, &text) {
-            Ok(e) => {
-                state.entry_error = None;
-                jobs.edit(e);
-            }
-            Err(msg) => state.entry_error = Some((f.path.clone(), msg)),
-        }
+        Err(msg) => state.entry_error = Some((f.path.clone(), msg)),
     }
 }

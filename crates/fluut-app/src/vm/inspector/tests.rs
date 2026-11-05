@@ -38,15 +38,7 @@ fn empty_and_setup() {
         panic!()
     };
     assert_eq!(vm.title, "Top");
-    assert!(vm.rows.contains(&("Material".into(), "MDF".into())));
-    assert!(
-        vm.rows
-            .contains(&("Stock".into(), "block, margin 5 mm × 5 mm × 0 mm".into()))
-    );
-    assert!(
-        vm.rows
-            .contains(&("Work zero".into(), "stock_top_corner front_left".into()))
-    );
+    assert_eq!(vm.row("material").unwrap().value, "MDF");
 }
 
 #[test]
