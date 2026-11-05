@@ -6,6 +6,7 @@
 
 pub mod entry;
 pub mod inspector;
+pub mod pick;
 pub mod playback;
 pub mod ribbon;
 pub mod setup;

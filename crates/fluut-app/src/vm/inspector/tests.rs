@@ -315,8 +315,7 @@ fn every_field_kind_of_every_type_has_an_editor() {
                 unit: DisplayUnit::Mm,
             };
             let w = cx.field(path.clone(), m, &[]).widget;
-            let selection = m.kind == FieldKind::Selection;
-            assert!(selection || w != Widget::ReadOnly, "{t:?} {path}");
+            assert!(w != Widget::ReadOnly, "{t:?} {path}");
         }
     }
 }

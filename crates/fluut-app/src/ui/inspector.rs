@@ -7,14 +7,15 @@ use super::UiState;
 use crate::brand::{self, Palette, c};
 use crate::jobs::Edit;
 use crate::jobs::Jobs;
-use crate::text::tr;
+use crate::text::{data, tr, tr_args};
 use crate::vm::inspector::{
     DiagVm, FieldVm, InspectorVm, ToolChoiceVm, ToolpathVm, Widget, height_edit, number_edit,
     points_edit, tool_edit, value_edit,
 };
+use crate::vm::pick::{PickMode, clear_edit, remove_edit};
 use crate::vm::setup::{RowVm, RowWidget, SetupVm, reset_edit, setup_edit};
 use eframe::egui;
-use fluut_model::{Group, PValue};
+use fluut_model::{Group, PValue, Sel};
 
 fn diag(ui: &mut egui::Ui, d: &DiagVm) {
     let (sev, col) = if d.error {
@@ -328,6 +329,7 @@ fn field(
                 label.id,
                 (refs, reference, offset, *unit),
             ),
+            Widget::Selection { items } => selection(ui, jobs, state, tp, f, items),
             Widget::Text => {
                 let key = format!("{tp}/{}", f.path);
                 if let Some(t) = entry(ui, state, &key, &f.value, None, label.id, "") {
@@ -347,7 +349,8 @@ fn field(
                 ui.label(&f.value).on_hover_text(tr("inspector-read-only"));
             }
         });
-        if f.set && f.widget != Widget::ReadOnly {
+        let picked = matches!(f.widget, Widget::Selection { .. });
+        if f.set && !picked && f.widget != Widget::ReadOnly {
             let reset =
                 egui::Button::new(egui::RichText::new(tr("inspector-reset")).small()).frame(false);
             if ui.add(reset).clicked() {
@@ -406,6 +409,67 @@ fn finish(jobs: &mut Jobs, state: &mut UiState, path: &str, r: Result<Edit, Stri
         }
         Err(msg) => state.entry_error = Some((path.to_owned(), msg)),
     }
+}
+
+/// How many picked items a field lists; the count says the rest.
+const MAX_ITEMS: usize = 12;
+
+/// A selection: its count, Pick or Done, Clear, and its items with Remove.
+/// While this field is being picked, the closed loop on offer.
+fn selection(
+    ui: &mut egui::Ui,
+    jobs: &mut Jobs,
+    state: &mut UiState,
+    tp: &str,
+    f: &FieldVm,
+    items: &[Sel],
+) {
+    let Some(snap) = jobs.snapshot.clone() else {
+        return;
+    };
+    let picking = state
+        .pick
+        .as_ref()
+        .is_some_and(|p| p.toolpath == tp && p.path == f.path);
+    ui.vertical(|ui| {
+        ui.horizontal(|ui| {
+            let count = items.len().to_string();
+            ui.label(tr_args("inspector-items", &[("count", &count)]));
+            if picking {
+                if ui.button(tr("pick-done")).clicked() {
+                    state.pick = None;
+                }
+            } else if ui.button(tr("pick-start")).clicked()
+                && let Some((_, t)) = snap.project.toolpath(tp)
+            {
+                state.pick = Some(PickMode::new(t.kind(), tp, &f.path));
+            }
+            if !items.is_empty() && ui.button(tr("pick-clear")).clicked() {
+                jobs.edit(clear_edit(tp, &f.path));
+            }
+        });
+        for s in items.iter().take(MAX_ITEMS) {
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new(data(s.id())).small());
+                let b = egui::Button::new(egui::RichText::new(tr("pick-remove")).small());
+                if ui.add(b.frame(false)).clicked() {
+                    jobs.edit(remove_edit(&snap, tp, &f.path, s));
+                }
+            });
+        }
+        if let Some(mode) = state.pick.as_mut().filter(|_| picking)
+            && !mode.offer.is_empty()
+        {
+            let n = (mode.offer.len() + 1).to_string();
+            if ui
+                .button(tr_args("pick-add-loop", &[("count", &n)]))
+                .clicked()
+                && let Some(e) = mode.accept_offer(&snap)
+            {
+                jobs.edit(e);
+            }
+        }
+    });
 }
 
 /// `refs`, reference, offset and unit of a height.

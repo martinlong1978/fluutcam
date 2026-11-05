@@ -11,11 +11,13 @@
 //! borders are therefore stepped at the finest grid level; the exact edges
 //! are drawn on top. A trimmed tessellation (D03 §7) replaces this later.
 
-use fluut_cam::geometry::{BodyGeom, SetupGeometry, face_id};
-use fluut_geom::{Aabb3, Point2, Point3};
+use fluut_cam::drive::is_horizontal_plane;
+use fluut_cam::geometry::{BodyGeom, SetupGeometry, edge_id, face_id};
+use fluut_geom::{Aabb3, Point2, Point3, Surface};
 use fluut_path::{Motion, Segment, ToolpathResult, linearize};
 use fluut_topo::BrepBody;
 use fluut_topo::trim::{loop_polyline, winding};
+use std::collections::BTreeMap;
 
 /// A face mesh: triangles with a pick index per vertex.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -25,6 +27,8 @@ pub struct Mesh {
     /// Index into [`SetupScene::faces`] for every vertex.
     pub face: Vec<u32>,
     pub indices: Vec<u32>,
+    /// Vertex range `[start, end)` of each face, by pick index.
+    pub ranges: Vec<[u32; 2]>,
 }
 
 /// A line list: each pair of points is one segment.
@@ -33,6 +37,10 @@ pub struct Lines {
     pub points: Vec<[f32; 3]>,
     /// One value per point (both ends of a segment carry the same value).
     pub tag: Vec<u32>,
+    /// Edge pick index + 1 per point, 0 for none; empty for toolpaths.
+    pub pick: Vec<u32>,
+    /// Point range `[start, end)` of each pickable edge, by pick index.
+    pub ranges: Vec<[u32; 2]>,
 }
 
 impl Lines {
@@ -45,6 +53,15 @@ impl Lines {
         for w in pts.windows(2) {
             self.push(w[0], w[1], tag);
         }
+    }
+
+    /// A pickable edge: the next pick index.
+    fn edge(&mut self, pts: &[[f32; 3]], tag: u32) {
+        let start = self.points.len() as u32;
+        self.polyline(pts, tag);
+        let index = self.ranges.len() as u32;
+        self.pick.resize(self.points.len(), index + 1);
+        self.ranges.push([start, self.points.len() as u32]);
     }
 
     pub fn segment_count(&self) -> usize {
@@ -100,6 +117,25 @@ impl Bounds {
     }
 }
 
+/// What a pick filter needs to know about a face.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
+pub enum FaceKind {
+    Plane,
+    Cylinder,
+    #[default]
+    Other,
+}
+
+impl FaceKind {
+    fn of(s: &Surface) -> FaceKind {
+        match s {
+            Surface::Plane { .. } => FaceKind::Plane,
+            Surface::Cylinder { .. } => FaceKind::Cylinder,
+            _ => FaceKind::Other,
+        }
+    }
+}
+
 /// Everything the viewport draws for one Setup, except toolpaths.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SetupScene {
@@ -108,6 +144,13 @@ pub struct SetupScene {
     pub edges: Lines,
     /// Face ids (`f-<stem>.<i>`) by pick index.
     pub faces: Vec<String>,
+    /// By pick index.
+    pub face_kinds: Vec<FaceKind>,
+    /// Edge and wire curve ids (`e-<stem>.<i>`) by pick index.
+    pub edge_ids: Vec<String>,
+    /// Closed loops of edges, by pick index: loops of horizontal planes
+    /// first, then other face loops and closed chains of wire curves.
+    pub edge_loops: Vec<Vec<u32>>,
     pub stock: Option<Bounds>,
     pub bounds: Option<Bounds>,
 }
@@ -184,6 +227,7 @@ impl SetupScene {
             stock: stock.map(Bounds::from_aabb),
             ..SetupScene::default()
         };
+        let (mut flat, mut other) = (Vec::new(), Vec::new());
         for body in &geometry.bodies {
             match &body.geom {
                 BodyGeom::Brep(b) => {
@@ -200,32 +244,110 @@ impl SetupScene {
                     for i in 0..b.faces.len() as u32 {
                         let pick = s.faces.len() as u32;
                         s.faces.push(face_id(&body.id, i));
+                        let surface = &b.surfaces[b.faces[i as usize].surface as usize];
+                        s.face_kinds.push(FaceKind::of(surface));
+                        let start = s.mesh.positions.len() as u32;
                         face_mesh(b, i, pick, &mut s.mesh);
+                        s.mesh.ranges.push([start, s.mesh.positions.len() as u32]);
                     }
+                    let base = s.edge_ids.len() as u32;
                     for e in 0..b.edges.len() as u32 {
                         let pts: Vec<[f32; 3]> =
                             b.edge_points(e, CHORD).into_iter().map(f).collect();
-                        s.edges.polyline(&pts, 0);
+                        s.edge_ids.push(edge_id(&body.id, e));
+                        s.edges.edge(&pts, 0);
                     }
+                    brep_loops(b, base, &mut flat, &mut other);
                 }
                 BodyGeom::Wire(w) => {
-                    for c in &w.curves {
+                    let base = s.edge_ids.len() as u32;
+                    let mut ends = Vec::with_capacity(w.curves.len());
+                    for (i, c) in w.curves.iter().enumerate() {
                         let pts: Vec<[f32; 3]> = c
                             .curve
                             .tessellate(c.range, CHORD)
                             .into_iter()
                             .map(|(_, p)| f(p))
                             .collect();
-                        s.edges.polyline(&pts, 1);
+                        s.edge_ids.push(edge_id(&body.id, i as u32));
+                        s.edges.edge(&pts, 1);
+                        ends.push(pts.first().copied().zip(pts.last().copied()));
                     }
+                    wire_loops(&ends, base, &mut other);
                 }
             }
         }
+        flat.extend(other);
+        s.edge_loops = flat;
         let b = Bounds::of(&s.mesh.positions)
             .union(&Bounds::of(&s.edges.points))
             .union(&s.stock.unwrap_or(Bounds::EMPTY));
         s.bounds = (!b.is_empty()).then_some(b);
         s
+    }
+}
+
+/// The face loops of a B-rep with more than one edge, as pick indices.
+fn brep_loops(b: &BrepBody, base: u32, flat: &mut Vec<Vec<u32>>, other: &mut Vec<Vec<u32>>) {
+    for face in &b.faces {
+        let horizontal = is_horizontal_plane(&b.surfaces[face.surface as usize]);
+        for &l in &face.loops {
+            let edges: Vec<u32> = b.loops[l as usize]
+                .coedges
+                .iter()
+                .map(|&c| base + b.coedges[c as usize].edge)
+                .collect();
+            if edges.len() > 1 {
+                if horizontal { &mut *flat } else { &mut *other }.push(edges);
+            }
+        }
+    }
+}
+
+/// A curve end, to the thousandth of a mm.
+fn end_key(p: [f32; 3]) -> [i64; 3] {
+    p.map(|v| (f64::from(v) * 1000.0).round() as i64)
+}
+
+/// Closed chains of wire curves whose ends meet, by walking from each
+/// unused curve. `ends` are `(first, last)` of each curve.
+fn wire_loops(ends: &[Option<([f32; 3], [f32; 3])>], base: u32, out: &mut Vec<Vec<u32>>) {
+    let mut at: BTreeMap<[i64; 3], Vec<usize>> = BTreeMap::new();
+    for (i, e) in ends.iter().enumerate() {
+        if let Some((a, b)) = e {
+            at.entry(end_key(*a)).or_default().push(i);
+            at.entry(end_key(*b)).or_default().push(i);
+        }
+    }
+    let mut used = vec![false; ends.len()];
+    for start in 0..ends.len() {
+        let Some((first, mut tip)) = ends[start] else {
+            continue;
+        };
+        if used[start] || end_key(first) == end_key(tip) {
+            continue;
+        }
+        let goal = end_key(first);
+        let mut chain = vec![start];
+        used[start] = true;
+        while end_key(tip) != goal {
+            let next = at[&end_key(tip)]
+                .iter()
+                .copied()
+                .find(|&i| !used[i] && ends[i].is_some());
+            let Some(n) = next else {
+                break;
+            };
+            let Some((a, b)) = ends[n] else {
+                break;
+            };
+            used[n] = true;
+            chain.push(n);
+            tip = if end_key(a) == end_key(tip) { b } else { a };
+        }
+        if end_key(tip) == goal && chain.len() > 1 {
+            out.push(chain.into_iter().map(|i| base + i as u32).collect());
+        }
     }
 }
 
@@ -376,5 +498,39 @@ fn touches_boundary(region: &Region, u0: f64, v0: f64, size: f64) -> bool {
             .iter()
             .flatten()
             .any(|p| p.x() >= u0 && p.x() <= u0 + size && p.y() >= v0 && p.y() <= v0 + size),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wire_loops_find_closed_chains_and_skip_open_ones() {
+        let p = |x: f32, y: f32| [x, y, 0.0];
+        // A square in shuffled order, one curve reversed, and an open line.
+        let ends = [
+            Some((p(0.0, 0.0), p(1.0, 0.0))),
+            Some((p(1.0, 1.0), p(0.0, 1.0))),
+            Some((p(1.0, 1.0), p(1.0, 0.0))),
+            Some((p(0.0, 1.0), p(0.0, 0.0))),
+            Some((p(5.0, 5.0), p(6.0, 5.0))),
+        ];
+        let mut out = Vec::new();
+        wire_loops(&ends, 10, &mut out);
+        assert_eq!(out.len(), 1);
+        let mut l = out[0].clone();
+        l.sort_unstable();
+        assert_eq!(l, [10, 11, 12, 13]);
+    }
+
+    #[test]
+    fn edge_ranges_cover_the_points_of_their_edge() {
+        let mut l = Lines::default();
+        l.edge(&[[0.0; 3], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]], 0);
+        l.edge(&[[0.0, 1.0, 0.0], [0.0, 2.0, 0.0]], 1);
+        assert_eq!(l.ranges, [[0, 4], [4, 6]]);
+        assert_eq!(l.pick, [1, 1, 1, 1, 2, 2]);
+        assert_eq!(l.pick.len(), l.points.len());
     }
 }

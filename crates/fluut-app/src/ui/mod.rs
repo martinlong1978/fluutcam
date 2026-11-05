@@ -24,6 +24,7 @@ use crate::jobs::{CalcTargets, Created, Edit, JobKind, Jobs, Outcome};
 use crate::text::{diagnostic, tr};
 use crate::updates::Updates;
 use crate::vm::Selection;
+use crate::vm::pick::PickMode;
 use crate::vm::playback::{Playback, StockColour};
 use crate::vm::ribbon::Stage;
 use crate::vm::status::StatusVm;
@@ -80,6 +81,8 @@ pub struct UiState {
     pub step: Step,
     /// The finding looked at, in the work frame.
     pub focus: Option<[f32; 3]>,
+    /// The selection field being picked on the model.
+    pub pick: Option<PickMode>,
     /// An Open or New waiting for the answer to "discard changes?".
     pub pending: Option<project::Pending>,
 }
@@ -103,6 +106,7 @@ impl Default for UiState {
             stock_colour: StockColour::Plain,
             step: Step::Move,
             focus: None,
+            pick: None,
             pending: None,
         }
     }
@@ -230,6 +234,7 @@ impl FluutApp {
             Some(Created::Toolpath(id)) => self.ui.selection = Selection::Toolpath(id),
             None => {}
         }
+        self.keep_pick(ui.ctx());
         if let Some(p) = self.dialogs.poll() {
             project::picked(&mut self.jobs, &mut self.ui, p);
         }
@@ -287,6 +292,19 @@ impl FluutApp {
         about::show(ui.ctx(), &mut self.ui);
         updates::settings(ui.ctx(), &mut self.ui, &mut self.updates);
         updates::prompt(ui.ctx(), &mut self.updates);
+    }
+
+    /// Pick mode ends with Esc, and when its toolpath is no longer the
+    /// selection.
+    fn keep_pick(&mut self, ctx: &egui::Context) {
+        let Some(p) = &self.ui.pick else {
+            return;
+        };
+        let esc = !ctx.egui_wants_keyboard_input()
+            && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
+        if esc || self.ui.selection != Selection::Toolpath(p.toolpath.clone()) {
+            self.ui.pick = None;
+        }
     }
 
     /// Moves the playhead while playing, and asks the worker for the stock

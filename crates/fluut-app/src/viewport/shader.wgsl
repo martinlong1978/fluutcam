@@ -19,16 +19,19 @@ struct Uniforms {
 
 // Per draw call (dynamic offset).
 struct Draw {
-    // x: brightness of lines
+    // x: brightness of lines; zw: shift of lines, in clip space
     style: vec4<f32>,
     // x: pick id of the draw (lines); faces encode their own
     id: vec4<u32>,
+    // rgb: tint of a highlight redraw; a: how much of it
+    tint: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
 @group(1) @binding(0) var<uniform> d: Draw;
 
 const FACE_LAYER: u32 = 0x10000000u;
+const EDGE_LAYER: u32 = 0x30000000u;
 // Stock vertices: this bit, then the tag (class in bits 16-17, toolpath + 1
 // in bits 0-15).
 const STOCK_BIT: u32 = 0x80000000u;
@@ -42,7 +45,8 @@ fn to_srgb(c: vec3<f32>) -> vec3<f32> {
 }
 
 struct MeshOut {
-    @builtin(position) clip: vec4<f32>,
+    // Invariant: a highlight redraws a face over itself at equal depth.
+    @invariant @builtin(position) clip: vec4<f32>,
     @location(0) world: vec3<f32>,
     @location(1) normal: vec3<f32>,
     @location(2) @interpolate(flat) face: u32,
@@ -85,6 +89,7 @@ fn fs_mesh(in: MeshOut) -> @location(0) vec4<f32> {
     } else if (in.face + 1u == u.selection.x) {
         base = mix(base, u.accent.rgb, 0.6);
     }
+    base = mix(base, d.tint.rgb, d.tint.a);
     let col = base * (diffuse + fill) + vec3<f32>(spec);
     return vec4<f32>(to_srgb(col), 1.0);
 }
@@ -95,17 +100,25 @@ fn fs_mesh_pick(in: MeshOut) -> @location(0) u32 {
 }
 
 struct LineOut {
-    @builtin(position) clip: vec4<f32>,
+    @invariant @builtin(position) clip: vec4<f32>,
     @location(0) colour: vec3<f32>,
+    @location(1) @interpolate(flat) pick: u32,
 };
 
 @vertex
-fn vs_line(@location(0) pos: vec3<f32>, @location(1) tag: u32) -> LineOut {
+fn vs_line(
+    @location(0) pos: vec3<f32>,
+    @location(1) tag: u32,
+    @location(2) pick: u32,
+) -> LineOut {
     var out: LineOut;
     out.clip = u.view_proj * vec4<f32>(pos, 1.0);
     // Pull lines a little toward the eye so edges on faces stay visible.
     out.clip.z = out.clip.z - 0.0004 * out.clip.w;
-    out.colour = u.palette[min(tag, 7u)].rgb * d.style.x;
+    let lit = u.palette[min(tag, 7u)].rgb * d.style.x;
+    out.colour = mix(lit, d.tint.rgb, d.tint.a);
+    out.clip = vec4<f32>(out.clip.xy + d.style.zw * out.clip.w, out.clip.zw);
+    out.pick = pick;
     return out;
 }
 
@@ -116,6 +129,13 @@ fn fs_line(in: LineOut) -> @location(0) vec4<f32> {
 
 @fragment
 fn fs_line_pick(in: LineOut) -> @location(0) u32 {
+    // Edges carry their own index; the stock box in their buffer has none.
+    if (in.pick != 0u) {
+        return EDGE_LAYER | (in.pick - 1u);
+    }
+    if (d.id.x == 0u) {
+        discard;
+    }
     return d.id.x;
 }
 

@@ -20,7 +20,7 @@ use fluut_model::params::{ConstVal, DefaultRule, HeightSpec};
 use fluut_model::project::{DisplayUnit, Toolpath};
 use fluut_model::tools::{Tool, ToolShape, ToolStore};
 use fluut_model::{
-    Diagnostic, FieldKind, FieldMeta, Group, Num, PValue, Params, Severity, ToolpathTypeId,
+    Diagnostic, FieldKind, FieldMeta, Group, Num, PValue, Params, Sel, Severity, ToolpathTypeId,
 };
 
 /// How a field is edited.
@@ -41,6 +41,10 @@ pub enum Widget {
         reference: String,
         offset: String,
         unit: Option<&'static str>,
+    },
+    /// A selection, picked on the model.
+    Selection {
+        items: Vec<Sel>,
     },
     /// Free text.
     Text,
@@ -282,6 +286,12 @@ impl Cx<'_> {
                     unit: display(FieldKind::Length, self.unit).0,
                 }
             }
+            FieldKind::Selection => Widget::Selection {
+                items: match local {
+                    Some(PValue::Selection(v)) => v.clone(),
+                    _ => Vec::new(),
+                },
+            },
             FieldKind::Text => Widget::Text,
             FieldKind::Point | FieldKind::Points => Widget::Points {
                 unit: display(FieldKind::Length, self.unit).0,

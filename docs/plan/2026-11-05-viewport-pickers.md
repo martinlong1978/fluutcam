@@ -28,7 +28,7 @@ All earlier Global Constraints apply. In addition:
 7. **Heights.** A reference dropdown and an offset entry, for `Height` and `XPos`. D15 §2.4 says `feed` defaults to `top`, the one height that may take it, but the reader refused `top` everywhere, so changing `feed`'s offset could not be stored. The reader now accepts `top` for `heights.feed` only; the dropdown offers it there and nowhere else.
 8. **Other kinds.** So every type can be finished: `Text` is a text entry, `Duration` a number, `Point` a text entry `x y z`, `Points` a text entry `x y z; x y z` (spaces, since a decimal separator may be a comma). `PValue` values use the display unit like every other length.
 9. **Pick filters** come from the field: `drive_faces` of `drill` and `bore` take cylinders; `drive_curves` and `boundary.curves` take edges, wire curves and planar faces; other selections take faces. The scene records each face's kind so the filter works without the kernel on the UI thread. Bodies are not picked: clicks choose faces or curves.
-10. **Chains.** `SetupScene::edge_loops` holds the closed loops: face loops of a B-rep (horizontal planar faces first) and closed chains of wire curves. Picking an edge in a curve field offers its first loop; the offer is a button, "Add closed loop (n edges)", in the inspector and the pick banner.
+10. **Chains.** `SetupScene::edge_loops` holds the closed loops: face loops of a B-rep (horizontal planar faces first) and closed chains of wire curves. Picking an edge in a curve field offers its first loop; the offer is a button, "Add closed loop (n edges)", in the inspector.
 11. **Pick mode** lives in `UiState::pick`. Entering it hides the simulated stock, so faces can be hit. Esc or Done leaves. Hover asks the id pass only when the pointer moves. Each toggle is one edit, so undo steps through picks.
 12. **Duplicate** is a job, as Add toolpath is, so the copy becomes the selection. `Session::duplicate_toolpath` names it "<name> copy".
 13. **Delete** removes the selected row with Del; undo brings it back. Reorder uses `MoveSetup` and `MoveToolpath`; the model refuses a move that breaks `based_on`, and the refusal shows in the status line.
@@ -53,10 +53,10 @@ All earlier Global Constraints apply. In addition:
 - [x] Reader change for `heights.feed`; widgets.
 
 ### Task 5: Selection picking
-- [ ] Tests first: filters, toggle, clear, remove, chain offers, id pass of edges, ranges, highlight draw.
-- [ ] Scene: face kinds and ranges, edge ids, ranges and loops.
-- [ ] Renderer: edge ids, pick mask, tinted redraw.
-- [ ] Pick mode in the viewport and inspector.
+- [x] Tests first: filters, toggle, clear, remove, chain offers, id pass of edges, ranges, highlight draw.
+- [x] Scene: face kinds and ranges, edge ids, ranges and loops.
+- [x] Renderer: edge ids, pick mask, tinted redraw.
+- [x] Pick mode in the viewport and inspector.
 
 ### Task 6: Browser actions
 - [ ] Tests first: rename, delete, move, enable, duplicate; undo of each.
