@@ -122,3 +122,31 @@ fn exit_codes() {
         Some(2)
     );
 }
+
+/// A project named without a folder (`fluut run job.rhai block.fluut`) is in
+/// the current folder: the script may save it, and a relative path it posts
+/// to is relative to that folder.
+#[test]
+fn run_with_a_project_in_the_current_folder() {
+    let d = block("run_bare");
+    std::fs::write(
+        d.join("job.rhai"),
+        r#"
+        let p = fluut.project;
+        let t2 = p.toolpath("t2");
+        t2.enabled = false;
+        p.save();
+        p.post("all", "bare.ngc", #{ post: "fluut/linuxcnc" });
+        "#,
+    )
+    .unwrap();
+    let o = Command::new(env!("CARGO_BIN_EXE_fluut"))
+        .current_dir(&d)
+        .args(["run", "job.rhai", "block.fluut"])
+        .output()
+        .unwrap();
+    assert!(o.status.success(), "{}", text(&o.stderr));
+    assert!(d.join("bare.ngc").exists());
+    let saved = std::fs::read_to_string(d.join("block.fluut")).unwrap();
+    assert!(saved.contains("enabled = false"), "{saved}");
+}

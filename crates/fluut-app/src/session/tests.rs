@@ -539,3 +539,20 @@ fn save_as_changes_the_file() {
     assert_eq!(s.file_name(), "copy.fluut");
     assert!(!s.dirty && to.join("boss.step").is_file());
 }
+
+/// Rotary toolpath types validate against the Setup's kind, not against a
+/// default of three_axis.
+#[test]
+fn rotary_toolpaths_in_a_rotary_setup_have_no_kind_error() {
+    let j = opened("shaft");
+    let s = j.snapshot.clone().unwrap();
+    for t in ["t1", "t2", "t3", "t4"] {
+        assert!(
+            s.diagnostics(t)
+                .iter()
+                .all(|d| d.code != "param.type.setup_kind"),
+            "{t}: {:?}",
+            s.diagnostics(t)
+        );
+    }
+}

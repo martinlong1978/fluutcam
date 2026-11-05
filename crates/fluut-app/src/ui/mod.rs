@@ -186,6 +186,13 @@ impl FluutApp {
         self
     }
 
+    /// Brings a dock tab to the front (the screenshot tool uses it).
+    pub fn show_tab(&mut self, tab: Tab) {
+        if let Some(found) = self.dock.find_tab(&tab) {
+            let _ = self.dock.set_active_tab(found);
+        }
+    }
+
     /// Requests from the widgets go through here.
     pub fn edit(&mut self, e: Edit) {
         self.jobs.edit(e);
