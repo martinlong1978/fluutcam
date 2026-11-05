@@ -10,6 +10,8 @@
 
 *Warm starts (tried, not kept).* A `Warm` memory of the last face contacts, refined by one Newton run each before the search, giving a real contact whose height is a floor for the branch and bound. It never changed the number of solves, even with an oracle floor (the exact answer's face and parameters as the hint): with the refined order the patch holding the contact is always solved first, and the others are bounded by their sub-boxes, not by order. The patch holding the contact cannot be skipped, because a bound cannot be tighter than the cell size at a maximum (the bound is first order in the cell, the contact second order), so the cold solve is what certifies it. The hint cost 1-3 Newton runs per drop for no gain, so it was removed. Seeding the 17 target projections from the previous drop was estimated at about 2 us per solve (a projection is 2-3 iterations of 0.2 us) and not built.
 
+*Suspect patches solved again (added after review).* Pruning removed the accidental cover that neighbouring patch solves gave a patch whose own Newton starts fail beside a face boundary (a contact within about 0.05 mm of the boundary, a flat tool: all starts fail or stop short). Two such drops were low by 1.3e-2 and 1.7e-2 mm (a gouge). Rule: after the search, a solved patch that touches the boundary of its face, gave nothing as high as the best contact, and has a boundary-strip sub-box (`face_edge_bound`) above the best contact is solved again with richer seeds (grid +2, rings +1, twice the starts). Tried first and dropped: solving the neighbouring patches (whose bound is often -inf, the rescue was by chance), a suspect rule on every patch (2-10 extra solves per drop), and one on the best seed's height (the seeds were 0.3 mm low in the miss).
+
 *Rim contacts (found on the way).* Newton accepts a residual below 1e-8, which leaves a flat tool's rim contact up to 1e-8 outside the footprint, and the footprint test (1e-9) then turned a true contact away depending on where Newton stopped. Redundant solves of neighbouring patches hid it; with pruning it showed (7 of 12 000 smooth-face drops low by 0.4 to 24 um). `newton_contact` now takes one more step with the Jacobian it has (no extra evaluation).
 
 **Tech Stack:** as M2. No new dependencies.
@@ -28,7 +30,7 @@ All earlier Global Constraints apply. In addition:
 ## Review Focus
 
 1. **Sub-boxes never exclude surface:** tests sample every patch and edge of two models and check each point lies in a sub-box. The second-derivative bound is sampled and doubled (as `sampled_box`), not proven; the cut by the pole box is proven.
-2. **Pruning exposes weak patch solves:** a patch whose own solve misses a contact next to a face boundary used to be rescued by Newton runs from neighbouring patches. See Open below.
+2. **Pruning exposes weak patch solves:** a patch whose own solve misses a contact next to a face boundary used to be rescued by Newton runs from neighbouring patches; now it is solved again (see Architecture).
 3. **Memory:** sub-boxes cost 20 bytes x 64 = 1.3 kB per B-spline patch and 640 bytes per B-spline edge, about ten times the primitive's own box. A model of 100 000 patches takes about 130 MB more.
 
 ---
@@ -51,26 +53,29 @@ All earlier Global Constraints apply. In addition:
 
 ## After
 
-Same raster, release, one thread, best of repetitions, old and new binaries alternated on the shared machine (quick run, 6 000 drops). Median / p99 in us; solves are numeric face solves per drop.
+Same raster, release, one thread, best of 3 repetitions of 6 000 drops, old and new binaries alternated on the shared machine. Median / p99 in us. "Solves" are numeric patch solves per drop, "rescues" the patches solved again.
 
-| Model | Tool | Before | After | Solves |
-|---|---|---|---|---|
-| rough S2 tiles, 5 000 faces | flat 6 | 248 / 859 | 65 / 250 | 5.22 to 1.25 |
-| | ball 6 | 170 / 467 | 57 / 160 | 5.34 to 1.44 |
-| | bull 6 r1 | 266 / 875 | 74 / 272 | 5.40 to 1.35 |
-| sculpted, 4 900 faces of 3 mm | flat 6 | 370 / 968 | 136 / 312 | 6.92 to 2.55 |
-| | ball 6 | 255 / 558 | 91 / 191 | 11.1 to 3.60 |
-| | bull 6 r1 | 488 / 1073 | 185 / 408 | 9.15 to 3.34 |
-| sculpted, 256 faces of 12 mm | flat 6 | 607 / 1577 | 128 / 326 | 12.5 to 2.29 |
-| | ball 6 | 345 / 593 | 97 / 236 | 15.7 to 2.98 |
-| | bull 6 r1 | 678 / 1587 | 153 / 394 | 14.3 to 2.84 |
-| two NIST bodies with most B-spline surfaces | all | 5.5 / 150 | 5.3 / 100-135 | unchanged (mostly analytic) |
+| Model | Tool | Before | After | Solves before to after | Rescues |
+|---|---|---|---|---|---|
+| rough S2 tiles, 5 000 faces | flat 6 | 248 / 859 | 137 / 576 | 5.22 to 1.25 | 1.1 |
+| | ball 6 | 170 / 467 | 120 / 371 | 5.34 to 1.44 | 1.3 |
+| | bull 6 r1 | 266 / 875 | 157 / 595 | 5.40 to 1.35 | 1.2 |
+| sculpted, 4 900 faces of 3 mm | flat 6 | 370 / 968 | 238 / 679 | 6.92 to 2.55 | 1.2 |
+| | ball 6 | 255 / 558 | 184 / 406 | 11.1 to 3.60 | 2.2 |
+| | bull 6 r1 | 488 / 1073 | 337 / 929 | 9.15 to 3.34 | 2.0 |
+| sculpted, 256 faces of 12 mm | flat 6 | 607 / 1577 | 130 / 631 | 12.5 to 2.29 | 0.5 |
+| | ball 6 | 345 / 593 | 103 / 427 | 15.7 to 2.98 | 0.9 |
+| | bull 6 r1 | 678 / 1587 | 180 / 807 | 14.3 to 2.84 | 0.8 |
+| two NIST bodies with most B-spline surfaces | all | 5.5 / 150 | 5.3 / 100-135 | unchanged (mostly analytic) | 0 |
 
-A 2.5 to 4.5 times faster drop on free-form models; the 20 us target is not reached (about 20 us per patch solve remains, and the contact's own patch must be solved). Edge solves went from 2.6-5.5 to 0.5-1.2 per drop. Build time is unchanged.
+The drop is 1.4 to 3.8 times faster on free-form models (the 20 us target is not reached). Without the re-solves it was 2.5 to 4.5 times faster; the re-solves cost 20-40 % and are not rare (0.5-2.2 per drop), because on small faces every patch touches a face boundary. A cheaper trigger that still catches both misses was not found. Edge solves went from 2.6-5.5 to 0.5-1.2 per drop.
 
-S2 reference runs, after: 600 synthetic points no misses; 7 560 corpus points 21 misses, the same counts and worst values as before (8 / 8 / 5, worst 9.7e-4, 7.2e-4, 3.3e-4 mm). Workspace tests pass (1 180 in the first full run); no golden file changed.
+Zero misses against the full scan (`drop_bench` with `VERIFY=<model>`, 3 000 random points per tool over each model grown by 3 mm, solving every primitive for the reference): sculpted 4 x 4 faces of 12 mm, 6 x 6 faces of 12 mm, 12 x 12 faces of 3 mm and the S2 tiles 4 x 4 (rough): 0 below on all 12 tool and model runs (9 000 drops per model); 3 drops were above the full scan (the re-solve finds contacts the full scan misses). Before the re-solves there were 2 below (the two regression points of the test `contacts_beside_a_face_boundary_are_not_missed`).
+
+S2 reference runs: 600 synthetic points no misses; 7 560 corpus points 21 misses, the same counts and worst values as before the plan (8 / 8 / 5, worst 9.7e-4, 7.2e-4, 3.3e-4 mm; measured before the re-solves, which only add solves for B-spline patches and the corpus has few). Workspace tests pass; no golden file changed.
 
 ## Open
 
-- A contact within about 0.05 mm of a face boundary on a large smooth face can be missed by a flat tool when the contact's own patch solve fails (all three Newton starts end elsewhere or fail) and no neighbour patch is solved any more: 1 in 300 flat drops on 12 mm faces, at (14.998, 47.477) of `sculpted(4, 12, 9)`; 0 of 300 before. Starts that end where an earlier one did, replaced by fresh ones, did not fix it and cost 20-80 % more Newton runs; not kept. Needs better starts near boundaries.
+- Memory: see Review Focus 3.
 - Warm starts: see Architecture. A floor cannot help; a restricted certification of the contact's patch would need a second-order argument.
+- The re-solve triggers often; better Newton starts beside face boundaries (all three starts of the failing patch fail there) would remove the need.
