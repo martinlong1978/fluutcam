@@ -9,10 +9,10 @@ Tests of starting, opening, saving and undoing. Part of the [user acceptance tes
 - **Preconditions:** FluutCAM is started with no project (not from a project file).
 - **Steps:**
   1. Look at the window.
-  2. Open the **File** menu.
-- **Expected:** The title bar says "No project". The Browser says "Open a project to see its Setups and toolpaths." The status bar says "Ready". In the File menu, New project (mm), New project (inch) and Open are available, and Save, Save as, Import model, Undo, Redo, Add Setup and Add toolpath are greyed out.
+  2. Click each stage tab of the ribbon in turn (Model, Setup, Toolpaths, Simulate, Post, Library).
+- **Expected:** The title bar says "No project". The Browser says "Open a project to see its Setups and toolpaths." The status bar says "Ready". In the Model stage, **New project** and **Open** are available, and Save, Save as, Import model, Re-import, Undo and Redo are greyed out. In the other stages every button is greyed out except the stage tabs. There is no File menu.
 
-![The start window](images/start.png)
+![The Model stage with no project open](images/ribbon-model.png)
 
 - [ ] Pass
 
@@ -20,53 +20,50 @@ Tests of starting, opening, saving and undoing. Part of the [user acceptance tes
 
 - **Preconditions:** UAT-PRJ-01. An empty work folder.
 - **Steps:**
-  1. Choose **File, New project (mm)...**.
+  1. In the Model stage click **New project** (or press Ctrl+N).
   2. In the dialog, go to the work folder, type `my-part`, and confirm.
-- **Expected:** The status bar says "Created my-part.fluut". The title bar shows `my-part.fluut` with no `*`. The unit badge says **mm**. The file `my-part.fluut` exists in the work folder. The Browser lists no Setups.
+- **Expected:** The status bar says "Created my-part.fluut". The title bar shows `my-part.fluut` with no `*`. The unit badge says **mm** (a new project is in millimetres when none was open). The file `my-part.fluut` exists in the work folder. The Browser lists no Setups.
 - [ ] Pass
 
-### UAT-PRJ-03 New project in inches
+### UAT-PRJ-03 A new project takes the unit of the open project
 
-- **Preconditions:** UAT-PRJ-02 done, so a project is open and saved.
+- **Preconditions:** A project in inches is open: copy `my-part.fluut` from UAT-PRJ-02 to `inch.fluut` and change its `units = "mm"` line to `units = "inch"`, then open `inch.fluut`. The unit badge says **inch**.
 - **Steps:**
-  1. Choose **File, New project (inch)...**.
-  2. Name it `my-part-inch` in the work folder and confirm.
-- **Expected:** The window does not ask about unsaved changes (there are none). The title bar shows `my-part-inch.fluut`. The unit badge says **inch**.
+  1. Click **New project**. Name it `my-part-inch` in the work folder and confirm. (There is no unit choice in the dialog.)
+- **Expected:** The window does not ask about unsaved changes (there are none). The title bar shows `my-part-inch.fluut`. The unit badge says **inch**, the unit of the project that was open.
 - [ ] Pass
 
 ### UAT-PRJ-04 Cancel the New dialog
 
 - **Preconditions:** A project is open.
 - **Steps:**
-  1. Choose **File, New project (mm)...**.
+  1. Click **New project**.
   2. Cancel the dialog.
 - **Expected:** Nothing changes. The same project stays open and no file is created.
 - [ ] Pass
 
-### UAT-PRJ-05 Open a reference project from the File menu
+### UAT-PRJ-05 Open a reference project
 
 - **Preconditions:** A copy of the `block` folder in the work folder.
 - **Steps:**
-  1. Choose **File, Open...**.
-  2. Pick `block/block.fluut`.
+  1. In the Model stage click **Open** (or press Ctrl+O).
+  2. Pick `block/block.fluut` in the dialog.
 - **Expected:** The status bar says "Opened block.fluut". The Browser shows the Setup "Top" (`three_axis`) with three toolpaths, "Pocket", "Pocket floor raster" and "Cut out", each with a hollow grey circle, and the Model "pocket_block". The viewport shows the block with a pocket and its stock outline. The inspector shows the Setup's values.
 - [ ] Pass
 
-### UAT-PRJ-06 Open by typing a path
+### UAT-PRJ-06 Cancel the Open dialog
 
-- **Preconditions:** FluutCAM is running. A copy of `block` in the work folder.
+- **Preconditions:** `block` is open.
 - **Steps:**
-  1. Click in the box next to the ribbon's **Open** button. Replace its text with the full path of `block/block.fluut`.
-  2. Click **Open**.
-- **Expected:** The project opens as in UAT-PRJ-05.
+  1. Click **Open** and cancel the dialog.
+- **Expected:** Nothing changes. The same project stays open.
 - [ ] Pass
 
-### UAT-PRJ-07 Open a project that does not exist
+### UAT-PRJ-07 Open a project that was deleted
 
-- **Preconditions:** A project is open.
+- **Preconditions:** `block.fluut` is open. Another project, `gone.fluut`, was in the work folder when you started and you deleted it while FluutCAM runs.
 - **Steps:**
-  1. In the ribbon's Open box, type a path to a file that does not exist, for example `nothing.fluut`.
-  2. Click **Open**.
+  1. Click **Open**. If the dialog still lets you pick `gone.fluut` (some systems cache the list), pick it. Otherwise record that the dialog does not offer it and skip the rest.
 - **Expected:** The status bar turns red and says "Failed:" followed by a reason that includes "cannot read" and the file name. The project that was open stays open and unchanged.
 - [ ] Pass
 
@@ -74,15 +71,15 @@ Tests of starting, opening, saving and undoing. Part of the [user acceptance tes
 
 - **Preconditions:** A text file `bad.fluut` in the work folder containing only the word `garbage`.
 - **Steps:**
-  1. Open `bad.fluut` with the Open box.
-- **Expected:** The status bar turns red with "Failed:" and a message saying the file is not valid TOML and where. No project opens (or the previous project stays).
+  1. Click **Open** and pick `bad.fluut`.
+- **Expected:** The status bar turns red with "Failed:" and a message saying the file is not valid TOML and where. The project that was open (if any) stays open.
 - [ ] Pass
 
 ### UAT-PRJ-09 Open a project whose model file is missing
 
 - **Preconditions:** A copy of `block` in the work folder with `block.step` deleted.
 - **Steps:**
-  1. Open `block.fluut`.
+  1. Open `block.fluut` with **Open**.
 - **Expected:** The window reports that the geometry cannot be read (`model.geometry.missing`, naming `block.step`), in the Messages tab or the status bar. The program does not crash. Putting `block.step` back and opening again works.
 - [ ] Pass
 
@@ -92,7 +89,7 @@ Tests of starting, opening, saving and undoing. Part of the [user acceptance tes
 - **Steps:**
   1. Select the toolpath "Pocket", and its **Passes** tab. Change **Step down** to `3` and press Enter.
   2. Look at the title bar.
-  3. Choose **File, Save** (or press Ctrl+S).
+  3. Click **Save** in the Model stage (or press Ctrl+S).
   4. Look at the title bar and the work folder.
 - **Expected:** After step 1 the title shows `block.fluut *`. After step 3 the status bar says "Saved block.fluut" and the `*` is gone. The work folder has `block.fluut` and `block.fluut.bak` (the version from before the save).
 - [ ] Pass
@@ -102,17 +99,17 @@ Tests of starting, opening, saving and undoing. Part of the [user acceptance tes
 - **Preconditions:** UAT-PRJ-10 done; the project is saved and clean.
 - **Steps:**
   1. Change **Step down** of "Pocket" to `2`. The title shows `*`.
-  2. Choose **File, Undo** (Ctrl+Z).
-- **Expected:** The value goes back to `3` and the `*` goes away. **File, Redo** (Ctrl+Y) brings back `2` and the `*`.
+  2. Click **Undo** in the **Edit** group (or press Ctrl+Z).
+- **Expected:** The value goes back to `3` and the `*` goes away. **Redo** (Ctrl+Y) brings back `2` and the `*`.
 - [ ] Pass
 
 ### UAT-PRJ-12 Save as to a new folder
 
 - **Preconditions:** `block` open (after calculating or not).
 - **Steps:**
-  1. Choose **File, Save as...**. Pick a new, empty folder `copy` and the name `block-copy`.
+  1. Click **Save as** in the Model stage. Pick a new, empty folder `copy` and the name `block-copy`.
   2. Look in the new folder.
-  3. Open `block-copy.fluut` in a new FluutCAM window, or after File, Open.
+  3. Open `block-copy.fluut` in a new FluutCAM window, or with **Open**.
 - **Expected:** The new folder holds `block-copy.fluut`, the model file `block.step`, and the `tools` folder that the project uses. The new project opens with the same Setup and toolpaths. The title bar shows `block-copy.fluut`.
 - [ ] Pass
 
@@ -120,7 +117,7 @@ Tests of starting, opening, saving and undoing. Part of the [user acceptance tes
 
 - **Preconditions:** `block` is open with an unsaved change (a `*` in the title).
 - **Steps:**
-  1. Choose **File, Open...** and pick another project, for example `boss/boss.fluut`.
+  1. Click **Open** and pick another project, for example `boss/boss.fluut`.
   2. In the window that asks, choose **Keep editing**.
   3. Repeat step 1, and this time choose **Discard**.
 - **Expected:** The window "Unsaved changes" says "The project has changes that are not saved. Discard them?". **Keep editing** closes it and leaves `block` open with its change. **Discard** opens `boss`.
@@ -134,7 +131,7 @@ Tests of starting, opening, saving and undoing. Part of the [user acceptance tes
   2. Add a 3-axis Setup. Add a Parallel toolpath.
   3. Press Ctrl+Z three times.
   4. Press Ctrl+Y three times.
-- **Expected:** Each Ctrl+Z removes the last step (first the toolpath, then the Setup, then the model; the File menu names each: "Undo Add toolpath" or similar). After three undos the project is as it was after creation and the title shows no `*`. Each Ctrl+Y puts a step back, in order. The viewport and the Browser follow each step.
+- **Expected:** Each Ctrl+Z removes the last step (first the toolpath, then the Setup, then the model; the status bar names each: "Undid Add toolpath" or similar). After three undos the project is as it was after creation and the title shows no `*`. Each Ctrl+Y puts a step back, in order. The viewport and the Browser follow each step.
 - [ ] Pass
 
 ### UAT-PRJ-15 Typing does not undo the project
@@ -143,7 +140,7 @@ Tests of starting, opening, saving and undoing. Part of the [user acceptance tes
 - **Steps:**
   1. Click in a number box and type a few characters, but do not press Enter.
   2. Press Ctrl+Z.
-- **Expected:** The typing is undone in the box. The project's undo history is not touched (the File menu's Undo label stays the same).
+- **Expected:** The typing is undone in the box. The project's undo history is not touched (the status bar does not say "Undid ..."; **Undo** stays as it was).
 - [ ] Pass
 
 ### UAT-PRJ-16 Open a rotary project

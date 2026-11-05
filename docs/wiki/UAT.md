@@ -28,7 +28,7 @@ These are manual test scripts for FluutCAM. Use them to check a build before you
 
 Copy the page into an issue or a document if you want to tick the boxes. In the wiki the boxes cannot be saved.
 
-The ribbon is being wired up. The tests use the File menu and name the ribbon buttons (**Calculate all** is in the Toolpaths stage, **Simulate** in the Simulate stage, **Post** in the Post stage, **Open** in the Model stage). A button that is greyed out with "Coming soon" is not connected yet, so use the File menu for it. When the ribbon is fully connected these pages change with it.
+The tests use the ribbon: click the stage tab (Model, Setup, Toolpaths, Simulate, Post), then the button by its label. **Open**, **Save as**, **Import model** and **Post** open your system's file dialog; pick or type the path it asks for. There is no File menu. The Library buttons are greyed out (not built yet).
 
 ## The areas
 

@@ -4,8 +4,6 @@ This page names every part of the FluutCAM window, so the other pages can say "t
 
 ![The FluutCAM window with a project open](images/reference-project.png)
 
-> **The ribbon is still being wired up.** Its stages (Model, Setup, Toolpaths, Simulate, Post, Library) are there, but many buttons are greyed out with the tooltip "Coming soon". The temporary **File** menu below does the work those buttons will do. These pages are updated as the ribbon is connected.
-
 ## From top to bottom
 
 **Title bar.** The FluutCAM name, then the name of the open project. A `*` after the name means the project has changes you have not saved. On the right:
@@ -15,31 +13,18 @@ This page names every part of the FluutCAM window, so the other pages can say "t
 - **Settings**: see [Settings and updates](Settings-and-Updates).
 - **About FluutCAM**: the version and licence.
 
-**File menu** (temporary). One menu, **File**. It holds everything about files and the project:
+**Ribbon.** The tabs under the title bar choose a stage of the work, from left to right: Model, Setup, Toolpaths, Simulate, Post and Library. Each stage shows groups of commands. Hover a button to see its name and its shortcut. A button that does not apply now is greyed out; for example Save is greyed out until a project is open.
 
-![The File menu](images/file-menu.png)
+![The Model stage of the ribbon with no project open](images/ribbon-model.png)
 
-| Item | What it does |
-|---|---|
-| New project (mm)..., New project (inch)... | Start an empty project. You choose a file name. |
-| Open... | Open a project file. |
-| Save, Save as... | Save the project. |
-| Import model... | Add a STEP, DXF, SVG or STL file to the project. |
-| Undo, Redo | Undo or redo the last change. The menu names the change. |
-| Add Setup, Add Setup based on selected | Add a Setup. |
-| Add toolpath | Add a toolpath to the selected Setup. |
-
-Items that do not apply are greyed out, for example Save when no project is open.
-
-**Ribbon.** Tabs choose a stage; each stage shows groups of commands. Hover a button to see its name and shortcut.
-
-- **Model**: New project, **Open** with a text box for a project file's path, Save, Save as, Import model and Re-import. Only Open works so far; use the File menu for the rest. Unlike the File menu's Open, the typed path does not ask about unsaved changes.
-- **Setup**: new Setup buttons, Stock and Work zero. Not connected yet; use **File, Add Setup**.
-- **Toolpaths**: galleries of toolpath types for the selected Setup (not connected yet; use **File, Add toolpath**), **Calculate selected** and **Calculate all**.
+- **Model**: **New project**, **Open**, **Save**, **Save as**, **Import model** and **Re-import**. Open, Save as and Import open your system's file dialog.
+- **Setup**: **New 3-axis Setup**, **New Rotary Setup**, **New Indexed Setup** and **New Setup based on selected**, then **Stock** and **Work zero**. These two do not edit anything yet: they select the Setup and mark the matching row of the inspector. See [Add a Setup](Add-a-Setup).
+- **Toolpaths**: galleries of toolpath types (2D, Holes, 3D, Rotary, Utility) that suit the selected Setup's kind, then **Calculate selected** and **Calculate all**.
 - **Simulate**: **Simulate** and the playback buttons (play or pause, step back, step forward).
-- **Post**: **Post**.
-- **Library**: Tools, Machines and Posts, not connected yet.
-- **Cancel** is at the right of every stage.
+- **Post**: **Post** and the list of posts.
+- **Library**: Tools, Machines and Posts. These are greyed out ("Coming soon"): browsing and editing the libraries is not built yet.
+- **Edit** (on every stage): **Undo** and **Redo**.
+- **Job**: **Cancel**, available while a job runs.
 
 **Panels.** Below the ribbon the window has these panels. Drag the lines between them to resize.
 

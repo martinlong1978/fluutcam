@@ -27,7 +27,7 @@ What the machine is used for today: FluutCAM warns when a spindle speed or feed 
 | `fluut/grbl` | Grbl 1.1 | No tool changer (a tool change is a stop with a message), no drilling cycles (they are written out as moves), no controller cutter compensation. |
 | `fluut/linuxcnc-4x` | LinuxCNC with a rotary A axis along X | For rotary and indexed Setups. |
 
-The window's post list offers `fluut/linuxcnc`, `fluut/grbl` and `fluut/gcode`. The command line takes any post id, including your own and `fluut/linuxcnc-4x`. See [Post G-code](Post-G-code). Other controllers (Fanuc, Mach3 and so on) have no built-in post yet: write one that extends `fluut/gcode`, or ask for one.
+The Post stage's list offers the four built-in posts above. The command line takes any post id, including your own. See [Post G-code](Post-G-code). Other controllers (Fanuc, Mach3 and so on) have no built-in post yet: write one that extends `fluut/gcode`, or ask for one.
 
 ## Make your own
 
@@ -93,7 +93,7 @@ The built-in posts never change under you: a project names a post by major versi
 ## Not yet
 
 - Importing posts, machines or tools from other CAM programs.
-- Choosing a post of your own from the window's list (use the command line).
+- Choosing a post of your own from the Post stage's list (use the command line).
 - A user folder of definitions shared between projects.
 - More built-in posts (Fanuc, Mach3, Marlin and so on).
 

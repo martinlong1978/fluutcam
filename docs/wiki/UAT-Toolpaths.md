@@ -10,34 +10,38 @@ Remember: the window cannot yet pick curves or faces for a 2-D toolpath, so a 2-
 
 - **Preconditions:** A new project with `ridge/ridge.step` imported (copy the file from the `ridge` project) and a 3-axis Setup added.
 - **Steps:**
-  1. Choose **File, Add toolpath**, then **Parallel**.
+  1. Open the **Toolpaths** stage and click **Parallel** in the 3D gallery.
 - **Expected:** "Parallel 1" appears in the Browser under the Setup, selected, with a hollow grey circle (not calculated). The status bar says it was added. The inspector shows the five tabs Tool, Geometry, Heights, Passes and Linking, and the tool is the 6 mm ball end mill.
 
 ![A new toolpath](images/toolpath-added.png)
 
 - [ ] Pass
 
-### UAT-TP-02 The menu lists all 22 types
+### UAT-TP-02 The galleries list all 22 types
 
-- **Preconditions:** A project with a Setup.
+- **Preconditions:** A project with a 3-axis Setup selected, and another with a rotary Setup (`shaft`).
 - **Steps:**
-  1. Open **File, Add toolpath**. Count the types in its groups.
-- **Expected:** The menu offers 22 types, in the groups of [Add a toolpath](Add-a-Toolpath). Compare the names with [Toolpath types](Toolpath-Types).
+  1. Open the **Toolpaths** stage with the 3-axis Setup selected. Count the buttons.
+  2. Select the rotary Setup and count again.
+- **Expected:** For the 3-axis Setup: the 2D gallery (8 types), Holes (Drill), 3D (8 types) and Utility (Manual NC): 18 buttons. For the rotary Setup: the Rotary gallery (4 types) and Utility (Manual NC), and no 2D, Holes or 3D gallery. Together they cover the 22 types of [Toolpath types](Toolpath-Types). An indexed Setup shows the same galleries as a 3-axis one.
+
+![The Toolpaths stage](images/ribbon-toolpaths.png)
+
 - [ ] Pass
 
 ### UAT-TP-03 Add toolpath needs a Setup
 
 - **Preconditions:** A project with a model and no Setup.
 - **Steps:**
-  1. Open the **File** menu.
-- **Expected:** **Add toolpath** is greyed out. After a Setup is added it is available.
+  1. Open the **Toolpaths** stage and look at the toolpath buttons.
+- **Expected:** They are greyed out. After a Setup is added they are available.
 - [ ] Pass
 
 ### UAT-TP-04 The new toolpath goes into the selected Setup
 
 - **Preconditions:** A project with two Setups; select "Setup 2".
 - **Steps:**
-  1. Add a Parallel toolpath.
+  1. Click **Parallel** in the 3D gallery.
 - **Expected:** The toolpath is listed under "Setup 2", at the end of its list. With nothing selected the toolpath goes into the first Setup.
 - [ ] Pass
 
@@ -100,7 +104,7 @@ Remember: the window cannot yet pick curves or faces for a 2-D toolpath, so a 2-
 
 - **Preconditions:** UAT-TP-06 done.
 - **Steps:**
-  1. Press Ctrl+Z.
+  1. Press Ctrl+Z (or click **Undo**).
 - **Expected:** The setting returns to its previous value, and the icon returns to its previous state.
 - [ ] Pass
 
@@ -108,7 +112,7 @@ Remember: the window cannot yet pick curves or faces for a 2-D toolpath, so a 2-
 
 - **Preconditions:** A project with a model and a 3-axis Setup.
 - **Steps:**
-  1. Add a **2D pocket** toolpath.
+  1. Click **2D pocket** in the 2D gallery.
   2. Click **Calculate all**.
 - **Expected:** The toolpath gets a red filled triangle. Its message, in the Messages tab, is that you must select drive curves or drive faces. Nothing else is changed. (When picking is built this test changes; see [Known limits](Known-Limits).)
 
@@ -116,13 +120,12 @@ Remember: the window cannot yet pick curves or faces for a 2-D toolpath, so a 2-
 
 - [ ] Pass
 
-### UAT-TP-13 A rotary type in a 3-axis Setup
+### UAT-TP-13 A rotary type cannot be added to a 3-axis Setup
 
-- **Preconditions:** A project with a model and a 3-axis Setup.
+- **Preconditions:** A project with a model and a 3-axis Setup selected.
 - **Steps:**
-  1. Add a **Rotary along X** toolpath.
-  2. Click **Calculate all**.
-- **Expected:** The toolpath gets a red triangle and a message that the toolpath runs in rotary Setups only (`param.type.setup_kind`).
+  1. Open the **Toolpaths** stage and look for the Rotary gallery.
+- **Expected:** There is no Rotary gallery. (A project file that puts a rotary type in a 3-axis Setup is calculated with the error `param.type.setup_kind`, a red triangle and a message that the toolpath runs in rotary Setups only.)
 - [ ] Pass
 
 ### UAT-TP-14 Heights in the wrong order
@@ -139,7 +142,7 @@ Remember: the window cannot yet pick curves or faces for a 2-D toolpath, so a 2-
 - **Preconditions:** A project from the `block` folder, calculated.
 - **Steps:**
   1. Select "Cut out". Look at its icon and its messages.
-- **Expected:** If the toolpath shows an amber triangle, the Messages tab lists its warnings and it still has a path. If it is green there is no warning: pick another reference toolpath (for example in `plate2d`) that gives one, or record that none did.
+- **Expected:** "Cut out" shows an amber triangle outline. The Messages tab lists two warnings for it, `param.heights.below_stock` (the bottom is below the stock bottom: the tool cuts the fixture) and `cam.linking.ramp_fallback` (a fallback ramp was used), and it still has a path.
 - [ ] Pass
 
 ### UAT-TP-16 Cancel a calculation
@@ -171,7 +174,7 @@ Remember: the window cannot yet pick curves or faces for a 2-D toolpath, so a 2-
 
 - **Preconditions:** `block` calculated and saved.
 - **Steps:**
-  1. Open `block.fluut` again (open it with the Open box, after you discard changes if asked).
+  1. Open `block.fluut` again (click **Open**; discard changes if asked).
 - **Expected:** The toolpaths show as not calculated (hollow grey circles). Calculating again gives the same result. (Saving results is planned: see [Known limits](Known-Limits).)
 - [ ] Pass
 

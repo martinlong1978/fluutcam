@@ -6,13 +6,11 @@ Find your problem in the list. [Diagnostics](Diagnostics) has the full list of m
 
 **The viewport is off and says "No GPU device: the viewport is off".** FluutCAM could not start the 3-D drawing, usually because the graphics driver is missing or too old. Everything else works, including calculating and posting. Update the graphics driver, or try another computer for the 3-D view.
 
-**No file dialog opens** (Linux). The dialogs use the desktop portal, `xdg-desktop-portal`, with a backend for your desktop. Install it and start FluutCAM again. Meanwhile you can type a project's path in the ribbon's Open box, or start the window with the project as the first argument: `fluutcam my-part.fluut`.
+**No file dialog opens** (Linux). The dialogs use the desktop portal, `xdg-desktop-portal`, with a backend for your desktop. Install it and start FluutCAM again. Meanwhile you can start the window with the project as the first argument: `fluutcam my-part.fluut`.
 
-**A menu item is greyed out.** It does not apply now. Save, Save as and Import need an open project. Add Setup based on selected needs a selected Setup. Add toolpath needs a Setup. While a job runs, most items wait; the status bar shows the job.
+**A ribbon button is greyed out.** It does not apply now. Save, Save as, Import model and Post need an open project. New Setup based on selected needs a selected Setup. The toolpath buttons need a Setup. Undo and Redo need something to undo or redo. Re-import needs a model. While a job runs, most buttons wait; the status bar shows the job. The Library buttons are always greyed out: they are not built yet.
 
 **The window says "Failed: ..." in red.** The last job failed and changed nothing. The text says why. Import problems are in [Import a model](Import-a-Model).
-
-**The ribbon's file and output boxes show another project's name.** A known glitch after you open a second project. Type the right path, or ignore the box: File, Open and File, Save use the project itself.
 
 ## Importing
 
@@ -53,7 +51,7 @@ Find your problem in the list. [Diagnostics](Diagnostics) has the full list of m
 
 **"Cannot post the project".** A toolpath has an error. Fix it and post again.
 
-**The G-code for my rotary part has no A moves.** You posted with a post that does not know the rotary axis. Use `fluut/linuxcnc-4x` from the command line ([Post G-code](Post-G-code)).
+**Posting my rotary part fails with "rotary moves need a post with rotary.enabled".** The post does not know the rotary axis. Choose `fluut/linuxcnc-4x` in the Post stage's list, or use it from the command line ([Post G-code](Post-G-code)).
 
 **The G-code has `M0 (Change to T1: ...)` lines.** That is the Grbl post: it has no tool changer, so it stops and asks you to fit the tool. This is by design.
 

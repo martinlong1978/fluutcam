@@ -9,7 +9,7 @@ Tests of simulating a calculated Setup, the playback controls, the colours and t
 - **Preconditions:** `block` open and calculated (UAT-TP-17 or click **Calculate all**).
 - **Steps:**
   1. Select the Setup "Top".
-  2. Click **Simulate**.
+  2. In the **Simulate** stage click **Simulate**.
   3. Open the **Simulation** tab beside **Messages**.
 - **Expected:** The status bar shows a progress bar while it runs, then "Simulated: N findings" (N may be 0). The Simulation tab shows the controls, a slider, and the text "Rays 0.2 mm" with the rest figures. The viewport shows the stock cut by the toolpaths.
 
@@ -100,7 +100,7 @@ Tests of simulating a calculated Setup, the playback controls, the colours and t
 - **Steps:**
   1. Change a path-changing setting of a toolpath, and calculate again.
   2. Look at the Simulation tab.
-- **Expected:** The status bar or inspector shows the toolpath needs recalculating ("Inputs changed: recalculate") until you calculate. After you click **Simulate** again the tab shows the new cut. Record whether the old picture stayed on screen meanwhile.
+- **Expected:** The simulation is dropped when the toolpaths of the Setup change: the Simulation tab says "Simulate the Setup to see its stock and findings." Before you calculate, the toolpath shows the out-of-date mark and **Simulate** is refused (calculate first). After calculating and clicking **Simulate** again the tab shows the new cut.
 - [ ] Pass
 
 ### UAT-SIM-12 Two Setups

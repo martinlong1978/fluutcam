@@ -15,15 +15,15 @@ A project holds one or more model files: the parts you want to machine. This pag
 
 ## Import a file
 
-1. Open a project, or start one with **File, New project (mm)...**. **Import model...** is greyed out until there is a project.
-2. Choose **File, Import model...** (or press **Ctrl+I**).
+1. Open a project, or start one with **New project** in the Model stage. **Import model** is greyed out until there is a project.
+2. Click **Import model** in the **Model** stage of the ribbon (or press **Ctrl+I**).
 3. Pick the file. The dialog offers STEP, STL, DXF and SVG files.
 
 The status bar says "Imported block.step (1 bodies)". The bodies are listed under **Model** in the Browser, and the model is drawn in the viewport even before the project has a Setup.
 
 ![A model imported](images/model-imported.png)
 
-The import is one undo step ("Undo Add geometry" in the **File** menu).
+The import is one undo step (the status bar says "Undid Add geometry" when you undo it).
 
 ## Where the file goes
 
@@ -32,7 +32,7 @@ A project folder is meant to be self-contained, so you can move or zip it as a w
 - A file that is already inside the project folder stays where it is. The project refers to it by a path relative to the project file.
 - A file from anywhere else is **copied** into the project folder, after FluutCAM has checked that it loads and has bodies. If the folder already has a different file with that name, the copy is named `name-2.step`, `name-3.step` and so on. If it has an identical file, FluutCAM uses that one.
 
-Change the original and the copy does not change. When you open the project again, FluutCAM tells you if a model file has changed on disk since it was imported (`model.geometry.changed`). Re-importing changed files is not in the window yet; the [scripting](Scripting) function `model.reimport` does it.
+Change the original and the copy does not change. When you open the project again, FluutCAM tells you if a model file has changed on disk since it was imported (`model.geometry.changed`). To read the files again, click **Re-import** in the Model stage. It re-imports every model file of the project (one undo step for each) and the status bar says how many it read and how many selections it could not find again. There is no choice of a single file yet. The [scripting](Scripting) function `model.reimport` does the same for one file.
 
 ## Units
 

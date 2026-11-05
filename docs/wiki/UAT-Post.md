@@ -6,10 +6,10 @@ Tests of writing G-code from the window. Part of the [user acceptance tests](UAT
 
 ### UAT-PST-01 Post with LinuxCNC
 
-- **Preconditions:** `block` open and calculated. The Output list shows `fluut/linuxcnc`.
+- **Preconditions:** `block` open and calculated. In the **Post** stage the list shows `fluut/linuxcnc`.
 - **Steps:**
-  1. Check the output file box: it holds `block.ngc` in the project folder.
-  2. Click **Post**.
+  1. Click **Post**.
+  2. In the save dialog check the name and folder offered: `block.ngc` in the project folder. Confirm.
 - **Expected:** The status bar says "Wrote block.ngc". The file exists and starts with `(FluutCAM` and `(Project:`. It has `G21`, the Setup name `(Top)`, `G54`, a `T1 M6` tool change and `G43 H1`, and ends with `M30`.
 
 ![G-code written](images/posted.png)
@@ -20,9 +20,9 @@ Tests of writing G-code from the window. Part of the [user acceptance tests](UAT
 
 - **Preconditions:** `holes` open and calculated.
 - **Steps:**
-  1. Choose `fluut/grbl` in the Output list. Set the output name to `holes.gcode`.
-  2. Click **Post**.
-- **Expected:** The file is written. Tool changes read `M0 (Change to T1: ...)` (no `M6`). Drilling is written as separate moves (no `G81` or `G83`). The Messages tab may warn that drilling was expanded; record whether it did.
+  1. Choose `fluut/grbl` in the Post stage's list.
+  2. Click **Post**. The dialog offers `holes.gcode`. Confirm.
+- **Expected:** The file is written. Tool changes read `M0 (Change to T1: ...)` (no `M6`). Drilling is written as separate moves (no `G81` or `G83`). The Messages tab warns that drilling was expanded (`param.drill.cycle.expanded`).
 - [ ] Pass
 
 ### UAT-PST-03 Post with generic G-code
@@ -37,8 +37,7 @@ Tests of writing G-code from the window. Part of the [user acceptance tests](UAT
 
 - **Preconditions:** `block` open.
 - **Steps:**
-  1. Replace the output file box text with `first-cut.ngc`.
-  2. Click **Post**.
+  1. Click **Post**. In the save dialog type `first-cut.ngc` and confirm.
 - **Expected:** The status bar says "Wrote first-cut.ngc" and the file is in the project folder under that name.
 - [ ] Pass
 
@@ -54,8 +53,8 @@ Tests of writing G-code from the window. Part of the [user acceptance tests](UAT
 
 - **Preconditions:** A project with a toolpath that fails: add a **2D pocket** in the window (see UAT-TP-12).
 - **Steps:**
-  1. Click **Post**.
-- **Expected:** The status bar turns red: "Cannot post the project" with the reason. No file is written (or the earlier file is not changed). The Messages tab lists the error.
+  1. Click **Post**. Confirm the dialog.
+- **Expected:** The status bar turns red: "Cannot post the project" with the reason. No file is written (an earlier file of the same name is not changed). The Messages tab lists the error.
 - [ ] Pass
 
 ### UAT-PST-07 Warnings do not block the post
@@ -70,8 +69,8 @@ Tests of writing G-code from the window. Part of the [user acceptance tests](UAT
 
 - **Preconditions:** A new project with a model and no Setup.
 - **Steps:**
-  1. Open the ribbon and look at **Post**. Click it if it is enabled.
-- **Expected:** Either **Post** is greyed out, or a program with only a header and `M30` is written, or a clear message appears. The program does not crash. Record which happened.
+  1. Open the **Post** stage and click **Post**. Confirm the dialog.
+- **Expected:** **Post** is available. The file is written with only the header lines, the setup lines (`G21`, `G17 G40 G49 G80 G90 G94`, `G64 P0.01`) and `M30`, and no moves. The status bar says "Wrote ...".
 - [ ] Pass
 
 ### UAT-PST-09 The output matches the reference program
@@ -98,10 +97,27 @@ Tests of writing G-code from the window. Part of the [user acceptance tests](UAT
 - **Steps:**
   1. Run `fluut post shaft.fluut --post fluut/linuxcnc-4x -o shaft.ngc`.
   2. Look for A moves in the file.
-- **Expected:** The file is written and has `A` words. Using `fluut/linuxcnc` for the same project gives a program without the rotary axis, or an error message, but never a crash. In the window the Output list has no 4-axis post (see [Known limits](Known-Limits)).
+- **Expected:** The file is written and has `A` words. Using `fluut/linuxcnc` for the same project fails with `error post.emit: setup 0, toolpath 0: rotary moves need a post with rotary.enabled` and writes no file. In the window, choose `fluut/linuxcnc-4x` in the Post stage's list (UAT-PST-13).
 - [ ] Pass
 
-### UAT-PST-12 Post the same project twice
+### UAT-PST-12 Cancel the save dialog
+
+- **Preconditions:** `block` open and calculated.
+- **Steps:**
+  1. Click **Post** and cancel the save dialog.
+- **Expected:** Nothing is written and the status bar does not say "Wrote". Nothing else changes.
+- [ ] Pass
+
+### UAT-PST-13 Rotary post from the list
+
+- **Preconditions:** A copy of `shaft` open and calculated.
+- **Steps:**
+  1. In the Post stage choose `fluut/linuxcnc-4x` in the list.
+  2. Click **Post** and confirm the dialog.
+- **Expected:** The file is written and has `A` words. The list does not choose this post for you when the Setup is rotary: it starts at `fluut/linuxcnc`.
+- [ ] Pass
+
+### UAT-PST-14 Post the same project twice
 
 - **Preconditions:** `block` open and calculated.
 - **Steps:**
@@ -110,7 +126,7 @@ Tests of writing G-code from the window. Part of the [user acceptance tests](UAT
 - **Expected:** The files are identical, apart from any date or time in the header. (The built-in posts write no date.)
 - [ ] Pass
 
-### UAT-PST-13 Read the program before you cut
+### UAT-PST-15 Read the program before you cut
 
 - **Preconditions:** A written program from UAT-PST-01.
 - **Steps:**

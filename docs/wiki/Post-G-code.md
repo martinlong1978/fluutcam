@@ -5,9 +5,8 @@
 ## Post from the window
 
 1. Calculate first, or let **Post** do it: if a toolpath is out of date, FluutCAM calculates it before it posts.
-2. In the **Post** stage of the ribbon, find the post list and output name (they may move as the ribbon is wired up). The list offers `fluut/linuxcnc`, `fluut/grbl` and `fluut/gcode`.
-3. Check the output file name in the text box next to it. It starts as the project name with `.ngc`, in the project folder (`my-part.ngc`). Change it if you want another name or place.
-4. Click **Post**.
+2. In the **Post** stage of the ribbon, choose a post from the list. It starts at `fluut/linuxcnc`. The list offers the built-in posts: `fluut/linuxcnc`, `fluut/linuxcnc-4x`, `fluut/grbl` and `fluut/gcode`.
+3. Click **Post**. A save dialog opens, in the project folder, with the name `<project>.<extension>` already typed (`my-part.ngc` for LinuxCNC; Grbl uses `.gcode`). Change the name or the folder if you want, and confirm. If you cancel the dialog, nothing is written.
 
 The status bar says "Wrote my-part.ngc".
 
@@ -69,7 +68,7 @@ FluutCAM is early software. Before you put a tool in material:
 
 ## Rotary and indexed Setups
 
-A program with a rotary axis needs a post that writes the A axis: **`fluut/linuxcnc-4x`**. The window's list does not offer it yet, so the window cannot write a good program for a rotary or indexed Setup. Use the command line:
+A program with a rotary axis needs a post that writes the A axis: **`fluut/linuxcnc-4x`**. Choose it in the Post stage's list. The window does not choose it for you when the Setup is rotary, so pick it yourself. From the command line:
 
 ```
 fluut post my-part.fluut --post fluut/linuxcnc-4x -o my-part.ngc
@@ -79,7 +78,7 @@ See [Command line](Command-Line).
 
 ## Other things you cannot do from the window yet
 
-- Choose a post that is not in the list (a post of your own, for example). The command line takes any post id.
+- Choose a post that is not built in (a post of your own, for example). The command line takes any post id.
 - Post one Setup, or one toolpath, on its own. The window posts everything. The [scripting](Scripting) function `post` can post one Setup.
 
 ## Next

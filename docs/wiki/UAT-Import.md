@@ -13,9 +13,9 @@ Tests of importing model files, the copy rules, units and bad files. Part of the
 
 - **Preconditions:** A new, empty project.
 - **Steps:**
-  1. Choose **File, Import model...**.
-  2. Pick `block.step`.
-- **Expected:** The status bar says "Imported block.step (1 bodies)". The Browser lists the body `pocket_block` under **Model**. The viewport shows the block with its pocket. The File menu now offers "Undo Add geometry". The title shows `*`.
+  1. In the Model stage click **Import model** (or press Ctrl+I).
+  2. Pick `block.step` in the dialog.
+- **Expected:** The status bar says "Imported block.step (1 bodies)". The Browser lists the body `pocket_block` under **Model**. The viewport shows the block with its pocket. **Undo** is now available. The title shows `*`.
 
 ![A model imported](images/model-imported.png)
 
@@ -53,7 +53,7 @@ Tests of importing model files, the copy rules, units and bad files. Part of the
 - **Preconditions:** UAT-IMP-01 done (the project holds `block.step`).
 - **Steps:**
   1. Import the same `block.step` again.
-- **Expected:** FluutCAM does not make a second copy of the identical file. Either the second import works and uses the same file, or it is refused with a message that the body ids clash (`model.import.body_ids`). Nothing breaks and no half-imported state is left. Record which happened.
+- **Expected:** The import is refused: the status bar turns red with "Failed:" and a message that a body of the file has the id of a body of the source already in the project (`model.import.body_ids`). Nothing changes: no second copy of the file, no new model, no new undo step.
 - [ ] Pass
 
 ### UAT-IMP-06 A file that is not STEP
@@ -61,19 +61,18 @@ Tests of importing model files, the copy rules, units and bad files. Part of the
 - **Preconditions:** A new project; `broken.step` made as above.
 - **Steps:**
   1. Import `broken.step`.
-- **Expected:** The status bar turns red: "Failed:" and a message that says the geometry is not a valid STEP file, with a position. The Browser still lists no model. No `broken.step` is left in the project folder. The File menu's Undo is unchanged (nothing was added).
+- **Expected:** The status bar turns red: "Failed:" and a message that says the geometry is not a valid STEP file, with a position. The Browser still lists no model. No `broken.step` is left in the project folder. **Undo** is unchanged (nothing was added).
 
 ![A failed import](images/import-failed.png)
 
 - [ ] Pass
 
-### UAT-IMP-07 A file with an unknown extension
+### UAT-IMP-07 The dialog offers model files
 
-- **Preconditions:** A new project; `notes.txt`.
+- **Preconditions:** A new project; `notes.txt` in the work folder.
 - **Steps:**
-  1. Choose **File, Import model...**. Check what the dialog offers.
-  2. If the dialog lets you choose "all files", pick `notes.txt`.
-- **Expected:** The dialog offers STEP, STL, DXF and SVG files. If `notes.txt` can be picked, the import fails with a message that it is not a STEP, STL, DXF or SVG file, and changes nothing.
+  1. Click **Import model**. Look at the file type list of the dialog. If your system lets you show all files and pick `notes.txt`, do that.
+- **Expected:** The dialog's filter is "Models (STEP, STL, DXF, SVG)". If `notes.txt` is picked anyway, the import fails with "Failed:" and a message that it is not a STEP, STL, DXF or SVG file, and nothing changes.
 - [ ] Pass
 
 ### UAT-IMP-08 An STL file
@@ -113,23 +112,23 @@ Tests of importing model files, the copy rules, units and bad files. Part of the
 
 - **Preconditions:** UAT-IMP-01 done.
 - **Steps:**
-  1. Choose **File, Undo** (Ctrl+Z).
-- **Expected:** The model disappears from the Browser and the viewport. The File menu offers Redo. Redo brings the model back.
+  1. Click **Undo** (Ctrl+Z).
+- **Expected:** The status bar says "Undid Add geometry". The model disappears from the Browser and the viewport. **Redo** is available and brings the model back.
 - [ ] Pass
 
 ### UAT-IMP-13 Import needs a project
 
 - **Preconditions:** FluutCAM started with no project.
 - **Steps:**
-  1. Open the **File** menu. Press Ctrl+I.
-- **Expected:** **Import model...** is greyed out, and Ctrl+I opens no dialog.
+  1. Look at **Import model** in the Model stage. Press Ctrl+I.
+- **Expected:** **Import model** is greyed out, and Ctrl+I opens no dialog.
 - [ ] Pass
 
 ### UAT-IMP-14 Cancel the import dialog
 
 - **Preconditions:** A project is open.
 - **Steps:**
-  1. Choose **File, Import model...** and cancel the dialog.
+  1. Click **Import model** and cancel the dialog.
 - **Expected:** Nothing changes: no new model, no new undo step, the title still shows no `*` if there were no changes.
 - [ ] Pass
 
@@ -139,4 +138,12 @@ Tests of importing model files, the copy rules, units and bad files. Part of the
 - **Steps:**
   1. Drag in the viewport to orbit. Scroll to zoom. Double-click to fit.
 - **Expected:** The model turns, zooms and fits. The Browser shows only the Model. The inspector says "Select a Setup or a toolpath."
+- [ ] Pass
+
+### UAT-IMP-16 Re-import
+
+- **Preconditions:** `block` open (a copy of the project, with `block.step` in its folder).
+- **Steps:**
+  1. Click **Re-import** in the Model stage.
+- **Expected:** The status bar says "Re-imported 1 models, 0 selections not found" (or the matching counts). The model looks the same. With no model in the project, **Re-import** is greyed out.
 - [ ] Pass

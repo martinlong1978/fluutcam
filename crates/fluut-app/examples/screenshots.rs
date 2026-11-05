@@ -12,8 +12,10 @@
 //! renderer, so the 3-D viewport is in the picture. The size, the theme (dark
 //! unless a shot switches it), the clock and the work folder are fixed, and
 //! every path on screen is relative, so the same build gives the same
-//! pictures. Dialogs cannot run headless: the shots call the job methods the
-//! File menu's dialogs call, and open menus by clicking them.
+//! pictures. Native file dialogs cannot run headless: the window gets scripted
+//! dialogs that answer the path a shot gives, and the shots click the
+//! ribbon's buttons as a user would. Where a button needs a face or curve
+//! picked (not in the window yet) the shot calls the job method.
 //!
 //! The table [`SHOTS`] is the list of pictures. A shot runs in order on one
 //! window, so a shot starts from what the one before left. Add a shot by
@@ -23,15 +25,16 @@
 //! further is `cargo xtask screenshots`'s job.
 
 use eframe::egui::{self, Key};
+use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 use egui_kittest::wgpu::{WgpuTestRenderer, create_render_state, default_wgpu_setup};
-use egui_kittest::{Harness, kittest::NodeT};
 use fluut_app::FluutApp;
-use fluut_app::jobs::{CalcTargets, PostRequest};
+use fluut_app::dialogs::{DialogKind, Dialogs};
+use fluut_app::jobs::CalcTargets;
 use fluut_app::ui::Tab;
 use fluut_app::vm::Selection;
 use fluut_model::ToolpathTypeId;
-use fluut_model::project::{DisplayUnit, SetupKind};
+use fluut_model::project::DisplayUnit;
 use image::codecs::png::{CompressionType, FilterType, PngEncoder};
 use image::{ExtendedColorType, ImageEncoder, RgbaImage};
 use std::path::{Path, PathBuf};
@@ -67,19 +70,18 @@ const SHOTS: &[Shot] = &[
         run: |_| {},
     },
     Shot {
-        name: "file-menu",
-        shows: "The File menu before a project exists",
-        crop: Some((0, 0, 420, 330)),
-        run: |r| r.open_menu(&["File"]),
+        name: "ribbon-model",
+        shows: "The Model stage of the ribbon before a project exists: only New project and Open are enabled",
+        crop: Some((0, 0, 1280, 215)),
+        run: |_| {},
     },
     Shot {
         name: "new-project",
         shows: "A new, empty project",
         crop: None,
         run: |r| {
-            r.app()
-                .jobs
-                .new_project("my-part.fluut".into(), DisplayUnit::Mm);
+            r.ask(DialogKind::New(DisplayUnit::Mm), "my-part");
+            r.click("New project");
             r.settle();
         },
     },
@@ -89,30 +91,31 @@ const SHOTS: &[Shot] = &[
         crop: None,
         run: |r| {
             let step = r.samples.join("block/block.step");
-            r.app().jobs.import_model(step);
+            r.ask(DialogKind::Import, step);
+            r.click("Import model");
             r.settle();
         },
     },
     Shot {
-        name: "add-setup-menu",
-        shows: "File, Add Setup: the three kinds of Setup",
-        crop: Some((0, 0, 560, 330)),
-        run: |r| r.open_menu(&["File", "Add Setup"]),
+        name: "ribbon-setup",
+        shows: "The Setup stage of the ribbon: the three kinds of Setup, based-on, stock and work zero",
+        crop: Some((0, 0, 1280, 215)),
+        run: |r| r.click("SETUP"),
     },
     Shot {
         name: "setup-added",
         shows: "A 3-axis Setup added: the inspector lists its stock and work zero",
         crop: None,
         run: |r| {
-            r.app().jobs.add_setup(SetupKind::ThreeAxis, None);
+            r.click("New 3-axis Setup");
             r.settle();
         },
     },
     Shot {
-        name: "add-toolpath-menu",
-        shows: "File, Add toolpath: the toolpath types",
-        crop: Some((0, 0, 560, 560)),
-        run: |r| r.open_menu(&["File", "Add toolpath"]),
+        name: "ribbon-toolpaths",
+        shows: "The Toolpaths stage of the ribbon: the galleries of toolpath types and the calculate buttons",
+        crop: Some((0, 0, 1280, 215)),
+        run: |r| r.click("TOOLPATHS"),
     },
     Shot {
         name: "toolpath-added",
@@ -145,16 +148,13 @@ const SHOTS: &[Shot] = &[
     },
     Shot {
         name: "posted",
-        shows: "G-code written: the status bar names the file",
+        shows: "The Post stage with the post list, and the status bar naming the G-code file written",
         crop: None,
         run: |r| {
             r.app().show_tab(Tab::Messages);
-            r.app().jobs.post(PostRequest {
-                post: "fluut/linuxcnc".into(),
-                output: "my-part.ngc".into(),
-                date: DATE.into(),
-                time: TIME.into(),
-            });
+            r.click("POST");
+            r.ask(DialogKind::PostOutput, "my-part.ngc");
+            r.click("Post");
             r.settle();
         },
     },
@@ -163,7 +163,8 @@ const SHOTS: &[Shot] = &[
         shows: "The project saved: no asterisk after the file name",
         crop: Some((0, 0, 640, 60)),
         run: |r| {
-            r.app().jobs.save();
+            r.click("MODEL");
+            r.click("Save");
             r.settle();
         },
     },
@@ -195,7 +196,8 @@ const SHOTS: &[Shot] = &[
         crop: None,
         run: |r| {
             std::fs::write("broken.step", "this is not a STEP file\n").expect("write broken.step");
-            r.app().jobs.import_model("broken.step".into());
+            r.ask(DialogKind::Import, "broken.step");
+            r.click("Import model");
             r.settle();
         },
     },
@@ -264,28 +266,13 @@ impl Rig {
         self.h.run_steps(3);
     }
 
-    /// Opens nested menus by clicking their buttons, the first being a menu
-    /// bar button (the ribbon has a label "File" too).
-    fn open_menu(&mut self, path: &[&str]) {
-        for (i, label) in path.iter().enumerate() {
-            let node = if i == 0 {
-                self.h
-                    .get_all_by_label(label)
-                    .find(|n| n.accesskit_node().role() == egui::accesskit::Role::Button)
-                    .expect("a menu button")
-            } else {
-                // A submenu button's label ends in the arrow glyph.
-                self.h
-                    .get_all_by_label_contains(label)
-                    .next()
-                    .expect("a menu item")
-            };
-            node.click();
-            self.h.run_steps(4);
+    /// The next dialog of `kind` answers `path`.
+    fn ask(&mut self, kind: DialogKind, path: impl Into<PathBuf>) {
+        let a = self.app();
+        if !a.dialogs.is_scripted() {
+            a.dialogs = Dialogs::scripted();
         }
-        // Take the pointer off the menu so no item is highlighted.
-        self.h.input_mut().events.push(egui::Event::PointerGone);
-        self.h.run_steps(2);
+        a.dialogs.answer(kind, path);
     }
 
     /// Opens a reference project from the work folder (a copy of it).
@@ -293,13 +280,10 @@ impl Rig {
         let from = self.samples.join(name);
         copy_dir(&from, Path::new(name));
         let path: PathBuf = [name, &format!("{name}.fluut")].iter().collect();
-        // The ribbon's text fields keep the first project's names otherwise.
-        let shown = path.display().to_string().replace('\\', "/");
-        self.app().jobs.open(path);
+        self.click("MODEL");
+        self.ask(DialogKind::Open, path);
+        self.click("Open");
         self.settle();
-        self.app().ui.open_path = shown.clone();
-        self.app().ui.post_output = shown.replace(".fluut", ".ngc");
-        self.h.run_steps(2);
     }
 }
 
@@ -398,15 +382,14 @@ fn main() {
     rig.h.step();
     for s in SHOTS {
         (s.run)(&mut rig);
-        // Escape closes an open menu; it does nothing else here.
+        // No pointer in the picture.
+        rig.h.input_mut().events.push(egui::Event::PointerGone);
         rig.h.run_steps(2);
         let img = rig.h.render().expect("render the window");
         let path = out.join(format!("{}.png", s.name));
         save_png(&img, s.crop, &path);
         println!("{}", path.display());
         rig.h.key_press(Key::Escape);
-        // No pointer in the next picture.
-        rig.h.input_mut().events.push(egui::Event::PointerGone);
         rig.h.run_steps(3);
     }
     let _ = std::env::set_current_dir(&out);

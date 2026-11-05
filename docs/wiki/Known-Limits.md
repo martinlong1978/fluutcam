@@ -6,21 +6,25 @@ If something you need is not here and does not work, [tell us](https://github.co
 
 ## The window
 
-The window has a temporary **File** menu and a ribbon that is only partly connected (a button greyed out with "Coming soon" is not wired yet). When the ribbon is complete it will replace the menu. These are not yet in the window:
+The window is a first version. The ribbon drives everything the window can do. These are not yet in the window:
 
 - **Picking curves and faces for a toolpath.** The Geometry tab shows the selection but cannot change it. So 2-D toolpaths (pocket, contour, chamfer, bore, drill and so on) need their curves or faces set in the project file; a 2-D toolpath added in the window reports "select drive curves or drive faces". Clicking a face in the viewport shows its id (for example `f-494.10`), which you can copy into the file. 3-D toolpaths need no picking.
 - **Editing heights, selections and points.** They show, read only. Numbers, choices and yes-or-no settings of a toolpath can be edited.
 - **Choosing a toolpath's tool.** A new toolpath gets a starter tool; to use another, edit the project file.
-- **Editing a Setup.** The inspector shows its kind, material, machine, work offset, stock, work zero and bodies, read only. Change them in the project file. The same goes for the index angle, the orientation and the clearance.
+- **Editing a Setup.** The inspector shows its kind, material, machine, work offset, stock, work zero and bodies, read only. The ribbon's **Stock** and **Work zero** buttons only select the Setup and mark the matching row; they edit nothing. Change these in the project file. The same goes for the index angle, the orientation and the clearance.
 - **Deleting, renaming, reordering, duplicating or disabling** Setups and toolpaths. (The calculation skips a toolpath with `enabled = false` in the file.)
-- **Choosing a machine, or a post that is not in the list.** The window's post list has `fluut/linuxcnc`, `fluut/grbl` and `fluut/gcode`.
+- **Choosing a machine, or a post that is not built in.** The Post stage's list has the built-in posts (`fluut/linuxcnc`, `fluut/grbl`, `fluut/gcode`, `fluut/linuxcnc-4x`) and not those of your project's `posts/` folder. A rotary Setup does not choose `fluut/linuxcnc-4x` by itself: pick it in the list.
+- **The Library commands** (Tools, Machines, Posts) are greyed out. Browsing and editing the libraries is not built.
+- **A unit choice for a new project.** New project takes the unit of the open project, else millimetres. To change it, edit `units` in the project file.
+- **Choosing one model file to re-import.** **Re-import** reads every model file of the project.
+- **A folder choice when posting.** The Post dialog names the first file; a post that writes more files numbers them beside it (`name.2.ngc`).
 - **Picking the unit when importing** a DXF, SVG or STL file. FluutCAM assumes the project's unit and warns.
 - **Running scripts.** Scripts run from the command line ([Scripting](Scripting)).
 - **Keeping the window's layout, theme and other choices.** The window starts with the default layout and the dark theme.
-- **Asking about unsaved changes** when you close the window, or when you open a project by typing its path in the ribbon. The File menu's Open and New do ask.
+- **Asking about unsaved changes** when you close the window. New project and Open do ask.
 - **Languages other than English.** All the text goes through a catalog ready for translation, but only English ships.
 
-Small things you may notice: the arrow of a submenu in the File menu shows as a question mark; the ribbon's file and output boxes can still show the first project's names after you open another; some error messages, such as a bad STEP file, show internal wording.
+Small thing you may notice: some error messages, such as a bad STEP file, show internal wording.
 
 ## Importing
 
@@ -54,7 +58,7 @@ Small things you may notice: the arrow of a submenu in the File menu shows as a 
 
 - The built-in posts write **millimetres** whatever unit the project shows.
 - The built-in posts are plain G-code, LinuxCNC, Grbl and LinuxCNC with a rotary axis. There is no Fanuc, Mach3 or similar post yet; you can write one that extends `fluut/gcode` ([Machines and posts](Machines-and-Posts)).
-- The window cannot post a rotary or indexed Setup well: its list has no 4-axis post. Use `fluut post --post fluut/linuxcnc-4x`.
+- A rotary or indexed Setup needs `fluut/linuxcnc-4x`. The list offers it, but the window does not choose it for you.
 - A folder of machines, posts and tools shared by all projects is not wired in yet. Put copies in each project's folders.
 
 ## Saving and recovery

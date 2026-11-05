@@ -4,10 +4,12 @@ A **toolpath** is one cutting job with one tool: a pocket, a contour, a finishin
 
 ## Add one
 
-1. Select a Setup, or a toolpath in it, in the Browser. The new toolpath goes into the Setup you selected. If nothing is selected it goes into the first Setup. **Add toolpath** is greyed out until the project has a Setup. See [Add a Setup](Add-a-Setup).
-2. Choose **File, Add toolpath**, then the type.
+1. Select a Setup, or a toolpath in it, in the Browser. The new toolpath goes into the Setup you selected. If nothing is selected it goes into the first Setup. The toolpath buttons are greyed out until the project has a Setup. See [Add a Setup](Add-a-Setup).
+2. Open the **Toolpaths** stage of the ribbon and click the type in its gallery.
 
-![The Add toolpath menu](images/add-toolpath-menu.png)
+![The Toolpaths stage of the ribbon](images/ribbon-toolpaths.png)
+
+The galleries show only the types that suit the selected Setup's kind: a rotary Setup shows the Rotary gallery and not the 2D, Holes and 3D ones; the other kinds show those and not Rotary. Manual NC is always there.
 
 The new toolpath appears at the end of the Setup's list, named after its type ("Parallel 1"), selected, and not calculated. Adding it is one undo step.
 
@@ -26,7 +28,7 @@ There are 22 types. [Toolpath types](Toolpath-Types) lists them with a page for 
 
 Two rules to know:
 
-- **Rotary types run in rotary Setups only**, and all the other types run in 3-axis and indexed Setups. The menu lets you add any type to any Setup. If the type does not suit the Setup, the calculation reports `param.type.setup_kind`.
+- **Rotary types run in rotary Setups only**, and all the other types run in 3-axis and indexed Setups. The ribbon shows only the types that suit the selected Setup. If a project file puts a type in the wrong kind of Setup, the calculation reports `param.type.setup_kind`.
 - **3-D types need no curves picked.** With nothing selected they machine every face of the Setup's bodies. **2-D types need curves or faces selected**, and the window cannot select them yet, so a 2-D toolpath added in the window reports "select drive curves or drive faces". Set its geometry in the project file for now. See [Known limits](Known-Limits).
 
 ## What a new toolpath starts with

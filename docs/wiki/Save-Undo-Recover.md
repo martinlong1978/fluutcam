@@ -12,30 +12,25 @@ Keep the folder together. To move or share a project, move or zip the whole fold
 
 ## Save
 
-**File, Save** (**Ctrl+S**) writes the project file. The title bar shows `*` after the name while there are changes you have not saved, and the star goes away when you save. If you undo back to the saved state, the star goes away too.
+**Save** in the Model stage of the ribbon (**Ctrl+S**) writes the project file. The title bar shows `*` after the name while there are changes you have not saved, and the star goes away when you save. If you undo back to the saved state, the star goes away too.
 
 FluutCAM saves safely: it writes a new file first, keeps the old file as `name.fluut.bak`, and only then puts the new file in place. A power cut during a save leaves the old file or the new one, not half of each. Saving a project that has not changed gives exactly the same file.
 
-**File, Save as...** (**Ctrl+Shift+S**) saves under a new name or in a new folder. When the folder is new, FluutCAM copies what the project needs next to it: the model files and the `tools/`, `machines/`, `posts/` and `templates/` folders. The new project opens just as the old one did.
+**Save as** (**Ctrl+Shift+S**), which opens a file dialog, saves under a new name or in a new folder. When the folder is new, FluutCAM copies what the project needs next to it: the model files and the `tools/`, `machines/`, `posts/` and `templates/` folders. The new project opens just as the old one did.
 
-A new project (**File, New project...**) is saved at once, empty, so the file exists from the start.
+A new project (**New project**, **Ctrl+N**) is saved at once, empty, so the file exists from the start.
 
 ![The saved project](images/saved.png)
 
 ## Unsaved changes
 
-If you choose **File, New project...** or **File, Open...** while the project has unsaved changes, a window asks "The project has changes that are not saved. Discard them?" Choose **Discard** to go on, or **Keep editing** to stay.
+If you click **New project** or **Open** (and pick a file) while the project has unsaved changes, a window asks "The project has changes that are not saved. Discard them?" Choose **Discard** to go on, or **Keep editing** to stay.
 
-Two places do not ask yet:
-
-- the **Open** button in the ribbon, which opens the path typed in its box;
-- closing the window.
-
-Save before you use them.
+Closing the window does not ask yet. Save before you close it.
 
 ## Undo and redo
 
-**File, Undo** (**Ctrl+Z**) and **File, Redo** (**Ctrl+Y**, or **Ctrl+Shift+Z**) step back and forward through your changes. On macOS use Cmd in place of Ctrl. The menu names the change: "Undo Add geometry".
+**Undo** (**Ctrl+Z**) and **Redo** (**Ctrl+Y**, or **Ctrl+Shift+Z**) are in the **Edit** group on every stage of the ribbon. They step back and forward through your changes. On macOS use Cmd in place of Ctrl. The status bar names the change: "Undid Add geometry".
 
 Each of these is one undo step:
 

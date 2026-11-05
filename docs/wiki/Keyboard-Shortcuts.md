@@ -4,20 +4,20 @@ On macOS, use **Cmd** where this page says **Ctrl**.
 
 ## Project
 
-| Keys | Same as |
+| Keys | Same as the ribbon button |
 |---|---|
-| **Ctrl+N** | File, New project (mm)... |
-| **Ctrl+O** | File, Open... |
-| **Ctrl+S** | File, Save |
-| **Ctrl+Shift+S** | File, Save as... |
-| **Ctrl+I** | File, Import model... |
-| **Ctrl+Z** | File, Undo |
-| **Ctrl+Y** or **Ctrl+Shift+Z** | File, Redo |
+| **Ctrl+N** | New project |
+| **Ctrl+O** | Open |
+| **Ctrl+S** | Save |
+| **Ctrl+Shift+S** | Save as |
+| **Ctrl+I** | Import model |
+| **Ctrl+Z** | Undo |
+| **Ctrl+Y** or **Ctrl+Shift+Z** | Redo |
 
 - The shortcuts that open a file dialog do nothing while a dialog is already open.
 - Save, Save as and Import need an open project.
 - While you type in a text box, **Ctrl+Z** and **Ctrl+Y** are left to the text box: they undo and redo the typing, not the project.
-- Starting a new project in inches has no shortcut; use the menu.
+- A shortcut does nothing when its button is greyed out.
 
 ## Viewport
 
@@ -33,7 +33,7 @@ On macOS, use **Cmd** where this page says **Ctrl**.
 
 | Key | Result |
 |---|---|
-| **Esc** | Closes an open menu |
+| **Esc** | Closes an open list |
 | **Enter** | In a number box in the inspector: applies the value |
 
-There are no other shortcuts yet, and you cannot change them. The ribbon shows the same Ctrl+N, Ctrl+O, Ctrl+S and Ctrl+Shift+S in its tooltips; it has no others yet.
+There are no other shortcuts yet, and you cannot change them. The ribbon buttons show their shortcut in their tooltips.
