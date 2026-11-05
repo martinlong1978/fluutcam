@@ -28,6 +28,7 @@ impl StatusVm {
                 JobKind::Reimport => tr("job-reimporting"),
                 JobKind::AddSetup => tr("job-adding-setup"),
                 JobKind::AddToolpath => tr("job-adding-toolpath"),
+                JobKind::Duplicate => tr("job-duplicating"),
                 JobKind::Undo => tr("job-undoing"),
                 JobKind::Redo => tr("job-redoing"),
                 JobKind::Simulate => {

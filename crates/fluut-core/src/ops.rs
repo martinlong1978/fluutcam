@@ -21,7 +21,7 @@ use fluut_model::project::{
     SourceKind, StockSpec, Toolpath, ZeroSpec,
 };
 use fluut_model::setup::resolve_setup;
-use fluut_model::{Diagnostic, Severity};
+use fluut_model::{Diagnostic, PValue, Severity};
 use std::collections::BTreeSet;
 use std::path::{Component, Path, PathBuf};
 
@@ -551,6 +551,35 @@ impl Session {
         self.apply(Edit::add_toolpath(setup, None, &t))
             .map_err(|e| Diagnostic::error("toolpath.add", e.to_string()))?;
         Ok(id)
+    }
+}
+
+impl Session {
+    /// Copies toolpath `id` to just after itself, named `name`, one undo
+    /// step. Returns the copy's id.
+    pub fn duplicate_toolpath(&mut self, id: &str, name: &str) -> Result<String, Diagnostic> {
+        let new_id = free_id(&self.project, "t");
+        let Some((_, t)) = self.project.toolpath(id) else {
+            return Err(Diagnostic::error(
+                "toolpath.missing",
+                format!("toolpath `{id}` is not in the project"),
+            ));
+        };
+        let quoted = PValue::Enum(name.to_owned()).to_toml();
+        let edit = Edit::Group {
+            label: format!("Duplicate {id}"),
+            edits: vec![
+                Edit::DuplicateAs {
+                    toolpath: id.to_owned(),
+                    new_id: new_id.clone(),
+                    new_type: t.kind().as_str().to_owned(),
+                },
+                Edit::set_toolpath_field(&new_id, "name", Some(&quoted)),
+            ],
+        };
+        self.apply(edit)
+            .map_err(|e| Diagnostic::error("toolpath.duplicate", e.to_string()))?;
+        Ok(new_id)
     }
 }
 

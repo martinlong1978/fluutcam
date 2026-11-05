@@ -4,6 +4,7 @@
 
 # Default names
 name-numbered = { $name } { $n }
+name-copy = { $name } copy
 setup-name = Setup
 setup-kind-three_axis = 3-axis
 setup-kind-rotary = Rotary
@@ -32,6 +33,7 @@ job-saving = Saving { $file }
 job-importing = Importing { $file }
 job-adding-setup = Adding a Setup
 job-adding-toolpath = Adding a toolpath
+job-duplicating = Duplicating a toolpath
 job-reimporting = Re-importing models
 job-undoing = Undoing
 job-redoing = Redoing

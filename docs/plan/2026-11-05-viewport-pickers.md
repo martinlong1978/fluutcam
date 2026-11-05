@@ -59,8 +59,8 @@ All earlier Global Constraints apply. In addition:
 - [x] Pick mode in the viewport and inspector.
 
 ### Task 6: Browser actions
-- [ ] Tests first: rename, delete, move, enable, duplicate; undo of each.
-- [ ] `Session::duplicate_toolpath`; context menu, F2, Del, drag.
+- [x] Tests first: rename, delete, move, enable, duplicate; undo of each.
+- [x] `Session::duplicate_toolpath`; context menu, F2, Del, drag.
 
 ### Task 7: New project unit choice
 - [ ] Tests first; prompt and clickable badge.

@@ -335,3 +335,31 @@ fn save_as_copies_what_the_project_needs_and_keeps_undo() {
         s.project
     );
 }
+
+#[test]
+fn duplicate_copies_a_toolpath_after_itself_in_one_undo_step() {
+    let (mut s, _d) = boss("duplicate");
+    let setup = s.add_setup(SetupKind::ThreeAxis, None, "Top").unwrap();
+    let t = s
+        .add_toolpath(&setup, ToolpathTypeId::Parallel, "Finish")
+        .unwrap();
+    let last = s
+        .add_toolpath(&setup, ToolpathTypeId::Contour, "Last")
+        .unwrap();
+    let copy = s.duplicate_toolpath(&t, "Finish copy").unwrap();
+    let order: Vec<&str> = s
+        .project
+        .setup(&setup)
+        .unwrap()
+        .toolpaths
+        .iter()
+        .map(|x| x.id.as_str())
+        .collect();
+    assert_eq!(order, [t.as_str(), copy.as_str(), last.as_str()]);
+    let (_, c) = s.project.toolpath(&copy).unwrap();
+    assert_eq!(c.name, "Finish copy");
+    assert_eq!(c.kind(), ToolpathTypeId::Parallel);
+    s.undo().unwrap();
+    assert!(s.project.toolpath(&copy).is_none());
+    assert!(s.duplicate_toolpath("nope", "x").is_err());
+}

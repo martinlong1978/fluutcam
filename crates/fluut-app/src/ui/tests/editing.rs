@@ -6,7 +6,7 @@
 use super::*;
 use crate::vm::pick::PickMode;
 use egui::accesskit::Role;
-use fluut_model::project::{StockSpec, ZeroSpec};
+use fluut_model::project::{SetupKind, StockSpec, ZeroSpec};
 use fluut_model::{Num, Sel, ToolpathTypeId};
 
 /// Types into the text field labelled `label` and commits with Enter.
@@ -193,4 +193,287 @@ fn the_loop_on_offer_is_a_button() {
     let items = crate::vm::pick::selected(&snapshot(&mut h), &id, "geometry.drive_curves");
     assert_eq!(items.len(), n);
     assert!(drive_faces(&mut h, &id).is_empty());
+}
+
+/// A window with a real viewport, or `None` without a `wgpu` adapter.
+fn gpu_harness() -> Option<Harness<'static, State>> {
+    crate::viewport::render::headless()?;
+    // Primary backends only, as `render::headless` explains.
+    let mut setup = eframe::egui_wgpu::WgpuSetupCreateNew::without_display_handle();
+    setup.instance_descriptor.backends = wgpu::Backends::PRIMARY;
+    let render = egui_kittest::wgpu::create_render_state(
+        eframe::egui_wgpu::WgpuSetup::CreateNew(setup),
+        eframe::egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut render = Some(render);
+    Some(
+        Harness::builder()
+            .with_size(egui::vec2(1440.0, 900.0))
+            .build_ui_state(
+                move |ui, app: &mut State| {
+                    app.get_or_insert_with(|| {
+                        FluutApp::new(ui.ctx(), render.take(), None, Instant::now())
+                    })
+                    .frame(ui);
+                },
+                None,
+            ),
+    )
+}
+
+fn press_at(h: &mut Harness<'static, State>, pos: egui::Pos2) {
+    h.hover_at(pos);
+    h.run_steps(2);
+    h.drag_at(pos);
+    h.run_steps(1);
+    h.drop_at(pos);
+    h.run_steps(2);
+}
+
+#[test]
+fn hovering_and_clicking_in_the_viewport_picks_faces() {
+    let Some(mut h) = gpu_harness() else {
+        eprintln!("no wgpu adapter: hovering_and_clicking skipped");
+        return;
+    };
+    h.step();
+    let id = pocket_on_plate(&mut h);
+    h.get_all_by_label("Pick").next().unwrap().click();
+    h.run_steps(2);
+    let centre = h.get_by_label("3-D viewport").rect().center();
+    h.hover_at(centre);
+    h.run_steps(3);
+    let hover = app(&mut h).ui.pick.as_ref().unwrap().hover.clone();
+    let Some(Sel::Face(face)) = hover else {
+        panic!("the middle of the view is a face: {hover:?}");
+    };
+    let r = snapshot(&mut h).revision;
+    press_at(&mut h, centre);
+    newer(&mut h, r);
+    assert_eq!(drive_faces(&mut h, &id), [Sel::Face(face)]);
+    assert!(app(&mut h).ui.pick.is_some(), "a click stays in pick mode");
+    // A second click takes it out again.
+    let r = snapshot(&mut h).revision;
+    press_at(&mut h, centre);
+    newer(&mut h, r);
+    assert!(drive_faces(&mut h, &id).is_empty());
+}
+
+#[test]
+fn a_curve_field_hovers_edges_in_the_viewport() {
+    let Some(mut h) = gpu_harness() else {
+        eprintln!("no wgpu adapter: a_curve_field skipped");
+        return;
+    };
+    h.step();
+    open(&mut h, project("plate2d"));
+    app(&mut h)
+        .jobs
+        .add_toolpath("s1", ToolpathTypeId::Contour2d);
+    settle(&mut h);
+    let Selection::Toolpath(id) = app(&mut h).ui.selection.clone() else {
+        panic!();
+    };
+    app(&mut h).ui.pick = Some(PickMode::new(
+        ToolpathTypeId::Contour2d,
+        &id,
+        "geometry.drive_curves",
+    ));
+    h.run_steps(2);
+    let rect = h.get_by_label("3-D viewport").rect();
+    // Sweep across the view until the pointer meets an edge.
+    let mut x = rect.left() + 10.0;
+    let mut found = None;
+    while x < rect.right() - 10.0 && found.is_none() {
+        h.hover_at(egui::pos2(x, rect.center().y));
+        h.run_steps(2);
+        found = app(&mut h)
+            .ui
+            .pick
+            .as_ref()
+            .unwrap()
+            .hover
+            .clone()
+            .filter(|s| matches!(s, Sel::Edge(_)));
+        x += 4.0;
+    }
+    let edge = found.expect("an edge crosses the middle of the view");
+    assert!(edge.id().starts_with("e-588."), "{edge:?}");
+}
+
+fn toolpath_ids(h: &mut Harness<'static, State>) -> Vec<String> {
+    snapshot(h).project.setups[0]
+        .toolpaths
+        .iter()
+        .map(|t| t.id.clone())
+        .collect()
+}
+
+/// Opens the context menu of the browser row `label`.
+fn row_menu(h: &mut Harness<'static, State>, label: &str) {
+    h.get_all_by_label(label).next().unwrap().click_secondary();
+    h.run_steps(3);
+}
+
+#[test]
+fn f2_renames_and_esc_cancels() {
+    let mut h = harness();
+    h.step();
+    open(&mut h, project("block"));
+    h.get_by_label("Pocket floor raster").click();
+    h.run_steps(2);
+    h.key_press(egui::Key::F2);
+    h.run_steps(3);
+    assert!(app(&mut h).ui.renaming.is_some());
+    let field = "Pocket floor raster";
+    h.query_all_by_role(Role::TextInput)
+        .find(|n| n.value().as_deref() == Some(field))
+        .unwrap()
+        .focus();
+    h.run_steps(2);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.run_steps(1);
+    h.query_all_by_role(Role::TextInput)
+        .find(|n| n.value().as_deref() == Some(field))
+        .unwrap()
+        .type_text("Floor");
+    h.run_steps(2);
+    let r = snapshot(&mut h).revision;
+    h.key_press(egui::Key::Enter);
+    h.run_steps(2);
+    newer(&mut h, r);
+    assert!(app(&mut h).ui.renaming.is_none());
+    assert_eq!(
+        snapshot(&mut h).project.toolpath("t2").unwrap().1.name,
+        "Floor"
+    );
+    // Esc leaves the name alone.
+    h.key_press(egui::Key::F2);
+    h.run_steps(3);
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    assert!(app(&mut h).ui.renaming.is_none());
+    assert_eq!(
+        snapshot(&mut h).project.toolpath("t2").unwrap().1.name,
+        "Floor"
+    );
+}
+
+#[test]
+fn del_removes_the_selection_and_undo_restores_it() {
+    let mut h = harness();
+    h.step();
+    open(&mut h, project("block"));
+    h.get_by_label("Cut out").click();
+    h.run_steps(2);
+    let r = snapshot(&mut h).revision;
+    h.key_press(egui::Key::Delete);
+    h.run_steps(2);
+    newer(&mut h, r);
+    assert_eq!(toolpath_ids(&mut h), ["t1", "t2"]);
+    // The selection moved to something that exists.
+    assert_eq!(app(&mut h).ui.selection, Selection::Setup("s1".into()));
+    h.get_by_label("Undo").click();
+    settle(&mut h);
+    assert_eq!(toolpath_ids(&mut h), ["t1", "t2", "t3"]);
+}
+
+#[test]
+fn del_in_a_text_field_stays_in_the_field() {
+    let mut h = harness();
+    h.step();
+    open(&mut h, project("block"));
+    app(&mut h).ui.selection = Selection::Setup("s1".into());
+    h.run_steps(2);
+    h.get_by_role_and_label(Role::TextInput, "Name").focus();
+    h.run_steps(2);
+    h.key_press(egui::Key::Delete);
+    h.run_steps(3);
+    assert_eq!(snapshot(&mut h).project.setups.len(), 1);
+}
+
+#[test]
+fn the_context_menu_moves_duplicates_disables_and_deletes() {
+    let mut h = harness();
+    h.step();
+    open(&mut h, project("block"));
+    row_menu(&mut h, "Cut out");
+    let r = snapshot(&mut h).revision;
+    h.get_by_label("Move up").click();
+    h.run_steps(2);
+    newer(&mut h, r);
+    assert_eq!(toolpath_ids(&mut h), ["t1", "t3", "t2"]);
+    // Duplicate selects the copy, after the original.
+    row_menu(&mut h, "Cut out");
+    h.get_by_label("Duplicate").click();
+    h.run_steps(2);
+    settle(&mut h);
+    let ids = toolpath_ids(&mut h);
+    assert_eq!(ids.len(), 4);
+    assert_eq!(
+        app(&mut h).ui.selection,
+        Selection::Toolpath(ids[2].clone())
+    );
+    h.get_all_by_label("Cut out copy").next().unwrap();
+    // Disable, then enable again from the same place.
+    row_menu(&mut h, "Cut out copy");
+    let r = snapshot(&mut h).revision;
+    h.get_by_label("Disable").click();
+    h.run_steps(2);
+    newer(&mut h, r);
+    assert!(
+        !snapshot(&mut h)
+            .project
+            .toolpath(&ids[2])
+            .unwrap()
+            .1
+            .is_enabled()
+    );
+    row_menu(&mut h, "Cut out copy");
+    h.get_by_label("Enable");
+    let r = snapshot(&mut h).revision;
+    h.get_by_label("Delete").click();
+    h.run_steps(2);
+    newer(&mut h, r);
+    assert_eq!(toolpath_ids(&mut h), ["t1", "t3", "t2"]);
+}
+
+#[test]
+fn deleting_a_parent_setup_is_refused_in_the_status_line() {
+    let mut h = harness();
+    h.step();
+    open(&mut h, project("block"));
+    app(&mut h).jobs.add_setup(SetupKind::ThreeAxis, Some("s1"));
+    settle(&mut h);
+    app(&mut h).ui.selection = Selection::Setup("s1".into());
+    h.run_steps(2);
+    let r = snapshot(&mut h).revision;
+    h.key_press(egui::Key::Delete);
+    h.run_steps(2);
+    newer(&mut h, r);
+    assert_eq!(snapshot(&mut h).project.setups.len(), 2);
+    assert!(snapshot(&mut h).edit_error.is_some());
+}
+
+#[test]
+fn dragging_a_row_moves_it() {
+    let mut h = harness();
+    h.step();
+    open(&mut h, project("block"));
+    h.run_steps(2);
+    let from = h.get_by_label("Cut out").rect().center();
+    let to = h.get_by_label("Pocket").rect().center();
+    let r = snapshot(&mut h).revision;
+    h.hover_at(from);
+    h.run_steps(2);
+    h.drag_at(from);
+    h.run_steps(2);
+    h.hover_at(from + egui::vec2(0.0, -8.0));
+    h.run_steps(2);
+    h.hover_at(to);
+    h.run_steps(2);
+    h.drop_at(to);
+    h.run_steps(2);
+    newer(&mut h, r);
+    assert_eq!(toolpath_ids(&mut h), ["t3", "t1", "t2"]);
 }

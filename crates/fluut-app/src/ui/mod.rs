@@ -81,6 +81,8 @@ pub struct UiState {
     pub step: Step,
     /// The finding looked at, in the work frame.
     pub focus: Option<[f32; 3]>,
+    /// The browser row being renamed.
+    pub renaming: Option<browser::Renaming>,
     /// The selection field being picked on the model.
     pub pick: Option<PickMode>,
     /// An Open or New waiting for the answer to "discard changes?".
@@ -106,6 +108,7 @@ impl Default for UiState {
             stock_colour: StockColour::Plain,
             step: Step::Move,
             focus: None,
+            renaming: None,
             pick: None,
             pending: None,
         }

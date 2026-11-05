@@ -369,6 +369,13 @@ impl Worker {
                 });
                 self.finish(&cx, outcome);
             }
+            Request::Duplicate { cx, toolpath, name } => {
+                let outcome = self.change(|s| {
+                    s.duplicate_toolpath(&toolpath, &name)
+                        .map(|id| Outcome::ToolpathAdded { id, name })
+                });
+                self.finish(&cx, outcome);
+            }
             Request::Undo(cx) => {
                 let outcome = self.change(|s| {
                     Ok(s.undo()
