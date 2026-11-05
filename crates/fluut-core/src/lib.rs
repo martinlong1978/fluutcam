@@ -12,6 +12,7 @@ pub mod crash;
 pub mod entities;
 pub mod frame;
 pub mod graph;
+pub mod ops;
 pub mod reimport;
 pub mod session;
 pub mod settings;

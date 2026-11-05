@@ -17,7 +17,7 @@ differ in the last bit between platforms. See the S3 report, `docs/plan/spikes/s
 
 ## What changed
 
-The trigonometric calls, and eight fixes for nearly degenerate offsets and intersections. Everything else is as
+The trigonometric calls, and nine fixes for nearly degenerate offsets and intersections. Everything else is as
 published.
 
 - `src/core/math/line_line_intersect.rs`, `line_line_intr`: for collinear segments, the
@@ -48,6 +48,13 @@ published.
   (`chained_offsets_of_a_ring_with_a_sliver_bump` and
   `vertex_counts_stay_bounded_under_chained_offsets`; plan
   `docs/plan/2026-11-03-region-micro-loops.md`).
+  Before any piece is closed, open pieces that end where another starts (within
+  `pos_equal_eps`) are joined into one, which may then close. The offset of one loop can come
+  back as several open pieces that together form the loop: shrinking a shape by half the width
+  of a bar, so that the bar collapses to a line, gave three. Closed one by one, the first was
+  closed by a chord across the region and the others were dropped, a wrong region of
+  plausible area (`shrink_where_a_bar_collapses_to_a_line`; plan
+  `docs/plan/2026-11-04-region-touching-booleans.md`).
 - `src/shape_algorithms/mod.rs`, `Shape::stitch_slices_together`: when a loop is closed,
   every last vertex on top of the first is removed, not only one. A last slice that ends with
   a collapsed segment left a second one, so the closed loop had a zero-length segment, and a

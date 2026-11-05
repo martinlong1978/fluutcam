@@ -59,6 +59,7 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cargo xtask check-layers
+cargo xtask wiki-reference --check
 cargo deny check
 ```
 
@@ -77,3 +78,22 @@ Design D01 §6 has the details.
 
 Write tests first, match the style of the surrounding code, and write docs in plain, concise
 English.
+
+## Keep the wiki current
+
+The user documentation is a GitHub wiki, written in [`docs/wiki/`](docs/wiki/README.md) and
+copied to the wiki by a workflow when a change reaches `main`. Edit the pages there, never in the
+wiki's web editor. A change that alters what a user sees or does updates the matching pages in the
+same pull request:
+
+- a changed or new window, menu or command: edit the how-to and reference pages that describe
+  it, and the test steps in the `UAT-*` pages;
+- run `cargo xtask screenshots` and commit the new pictures in `docs/wiki/images/` when the
+  window looks different (each shot is one row in
+  `crates/fluut-app/examples/screenshots.rs`; add a row for a new window);
+- run `cargo xtask wiki-reference` when a toolpath setting or a diagnostic changes, and commit
+  the result (`cargo xtask wiki-reference --check` fails in CI when a generated page is out of
+  date). A new setting needs a line in `docs/wiki/reference/help.toml`; a new diagnostic can get
+  advice in `docs/wiki/reference/advice.toml`;
+- a feature that is planned but not built is "not yet" in the pages, and goes on the
+  [Known limits](docs/wiki/Known-Limits.md) page.

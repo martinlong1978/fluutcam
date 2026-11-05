@@ -153,7 +153,12 @@ pub fn show(
         }
         return;
     };
-    let Some(setup) = shown_setup(&snap, &state.selection) else {
+    // With no Setup yet, the model alone is shown.
+    let Some(setup) = shown_setup(&snap, &state.selection).or_else(|| {
+        snap.scenes
+            .contains_key(crate::session::MODEL_SCENE)
+            .then(|| crate::session::MODEL_SCENE.to_owned())
+    }) else {
         return;
     };
     // The simulated stock of this Setup, while the simulation is current.

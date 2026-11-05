@@ -37,6 +37,11 @@ impl ModelStore {
         self.sources.get(id)
     }
 
+    /// Forgets source `id`.
+    pub fn remove(&mut self, id: &str) {
+        self.sources.remove(id);
+    }
+
     /// Every source, by id.
     pub fn sources(&self) -> impl Iterator<Item = (&str, &LoadedSource)> {
         self.sources.iter().map(|(k, v)| (k.as_str(), v))

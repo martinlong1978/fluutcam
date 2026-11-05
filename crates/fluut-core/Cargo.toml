@@ -19,6 +19,7 @@ fluut-post.workspace = true
 fluut-sim.workspace = true
 fluut-topo.workspace = true
 glam.workspace = true
+libm.workspace = true
 minisign-verify = "0.3.0"
 postcard.workspace = true
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }

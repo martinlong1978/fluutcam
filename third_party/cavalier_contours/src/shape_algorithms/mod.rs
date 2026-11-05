@@ -95,6 +95,45 @@ where
         // is no wider than `pos_equal_eps` once closed (a stray slice along a single segment)
         // is dropped: closing it would make a sliver loop that the stitching joins to its
         // neighbours as a spike.
+        // FluutCAM patch: the open pieces can also be parts of one loop, each ending where the
+        // next starts (a shrink in which a bar collapses to a line). They are joined end to
+        // start first; closed one by one, the first was closed by a chord across the region.
+        let eps = options.pos_equal_eps;
+        let mut i = 0;
+        while i < result.len() {
+            let joined = if result[i].is_closed() {
+                None
+            } else {
+                let end = result[i].last().map(|v| v.pos());
+                (0..result.len()).find(|&j| {
+                    j != i
+                        && !result[j].is_closed()
+                        && result[j].vertex_count() > 0
+                        && end.is_some_and(|e| result[j].at(0).pos().fuzzy_eq_eps(e, eps))
+                })
+            };
+            let Some(j) = joined else {
+                i += 1;
+                continue;
+            };
+            // Join piece `j` to the end of piece `i` and look at the result again.
+            let next = result.remove(j);
+            if j < i {
+                i -= 1;
+            }
+            let pline = &mut result[i];
+            let mut last = pline.remove_last();
+            last.bulge = next.at(0).bulge;
+            pline.add_vertex(last);
+            for k in 1..next.vertex_count() {
+                pline.add_vertex(next.at(k));
+            }
+            let n = pline.vertex_count();
+            if n > 2 && pline.at(0).pos().fuzzy_eq_eps(pline.at(n - 1).pos(), eps) {
+                pline.remove_last();
+                pline.set_is_closed(true);
+            }
+        }
         let mut keep = vec![true; result.len()];
         for (pline, keep) in result.iter_mut().zip(&mut keep) {
             if !pline.is_closed() {

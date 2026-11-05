@@ -46,6 +46,8 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo xtask check-layers
+      # The generated wiki pages (toolpath types, diagnostics) match the code.
+      - run: cargo xtask wiki-reference --check
       - uses: EmbarkStudios/cargo-deny-action@v2
 
   test:

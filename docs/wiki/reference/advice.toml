@@ -1,0 +1,212 @@
+# What to do about a diagnostic, in plain English. Read by
+# `cargo xtask wiki-reference` for the generated Diagnostics page. `match` is
+# a code, or a prefix ending in `*`; the longest match wins. The page shows
+# the message and, where the design gives one, the rule beside this text.
+
+[[advice]]
+match = "param.*"
+text = "A setting of the toolpath is wrong or risky. Select the toolpath and look in the inspector: the message sits next to the setting it is about."
+
+[[advice]]
+match = "param.tool.missing"
+text = "Choose a tool for the toolpath."
+
+[[advice]]
+match = "param.tool.diameter"
+text = "Pick a tool with a diameter above zero, or fix the diameter in the tool library."
+
+[[advice]]
+match = "param.required"
+text = "Type a value for the setting, or choose a material and a tool that has cutting data for it."
+
+[[advice]]
+match = "param.type.setup_kind"
+text = "Rotary types only run in rotary Setups. All other types run in 3-axis and indexed Setups. Add the toolpath to a Setup of the right kind."
+
+[[advice]]
+match = "param.geometry.drive.empty"
+text = "A 2-D toolpath needs curves or faces to work on. Select them, or add a 3-D toolpath, which uses every face when nothing is selected. The app cannot pick curves yet (see Known limits)."
+
+[[advice]]
+match = "param.geometry.selection.missing"
+text = "A face or curve the toolpath refers to is not in the model any more, usually after a re-import. Select it again."
+
+[[advice]]
+match = "param.heights.*"
+text = "Check the heights tab. They must descend in this order: clearance, retract, feed, top, then bottom. A bottom below the stock cuts into whatever holds it."
+
+[[advice]]
+match = "param.passes.stepover.max"
+text = "Make the stepover smaller than the tool diameter."
+
+[[advice]]
+match = "param.passes.stock_to_leave.*"
+text = "Check the stock to leave. A negative value cuts past the model on purpose, for inlays and press fits; make sure that is what you want."
+
+[[advice]]
+match = "param.passes.machining_tolerance.*"
+text = "Use a tolerance between 0.0001 mm and 0.1 mm. 0.01 mm is the default."
+
+[[advice]]
+match = "param.*.tool_shape"
+text = "The tool shape does not suit this toolpath type. Choose another tool, for example a flat or bull-nose tool for floors, or a V bit for engraving and chamfers."
+
+[[advice]]
+match = "param.*.scallop*"
+text = "Scallop height needs a tool with a rounded tip, and a value smaller than the tool's corner radius. Set a stepover or a scallop height, not both."
+
+[[advice]]
+match = "param.*.stepover_and_scallop"
+text = "Set a stepover or a scallop height, not both. Reset one of them."
+
+[[advice]]
+match = "param.*.depths.both"
+text = "Set a step-down or a depth count, not both. Reset one of them."
+
+[[advice]]
+match = "param.contour_2d.compensation.*"
+text = "Controller compensation needs a post that supports it, and a side other than `on`. Choose `computer` compensation to put the tool radius into the path instead."
+
+[[advice]]
+match = "param.drill.*"
+text = "Check the drilling settings against the tool and the post. A cycle the post cannot do is written out as separate moves, but tapping cannot be."
+
+[[advice]]
+match = "param.tool_params.coolant.unsupported"
+text = "The post cannot switch coolant on. Choose a post with coolant, or set coolant to `off`."
+
+[[advice]]
+match = "param.tool_params.*"
+text = "A feed or speed is outside what the machine can do. Check the machine's limits, or ignore the warning if the limits are out of date."
+
+[[advice]]
+match = "param.rotary.*"
+text = "A rotary toolpath needs a machine with a rotary axis, and enough travel on that axis. Choose a machine such as the generic router with a rotary axis."
+
+[[advice]]
+match = "param.manual_nc.*"
+text = "Check the Manual NC settings: a comment or pass-through item needs text, a dwell needs a time above zero, and the post needs a block for the kind."
+
+[[advice]]
+match = "cam.*"
+text = "The calculation found something while working out the path. The message says what; the path was still made unless the kind is error."
+
+[[advice]]
+match = "cam.internal.*"
+text = "This is a fault in FluutCAM, not in your project. Please report it with the project if you can (see Troubleshooting)."
+
+[[advice]]
+match = "cam.type.unavailable"
+text = "This is a fault in FluutCAM, not in your project. Please report it (see Troubleshooting)."
+
+[[advice]]
+match = "cam.geometry.drive.empty"
+text = "The selected faces gave no area to machine. Select other faces, or clear the selection to use every face."
+
+[[advice]]
+match = "cam.*.region.unreachable"
+text = "Part of the area is narrower than the tool, so it stays uncut. Use a smaller tool for those parts, with a second toolpath that uses rest machining."
+
+[[advice]]
+match = "cam.*.empty"
+text = "Nothing was cut. Check the slope limits, the heights and the boundary: they may leave no area."
+
+[[advice]]
+match = "cam.linking.ramp_fallback"
+text = "The ramp you chose did not fit at some starts, so a plain plunge or smaller ramp was used there. Use a smaller ramp angle or radius, or accept the fallback."
+
+[[advice]]
+match = "cam.region.*"
+text = "A 2-D shape calculation failed on a very thin or touching feature. Try a slightly different stepover, tolerance or stock to leave. If it still fails, report it."
+
+[[advice]]
+match = "cam.stock.missing"
+text = "A 3-D roughing toolpath needs stock. Check the Setup's stock."
+
+[[advice]]
+match = "setup.*"
+text = "A Setup is incomplete or inconsistent. Select the Setup and check its kind, stock, work zero and bodies."
+
+[[advice]]
+match = "setup.geometry.empty"
+text = "The Setup has no bodies to machine. Import a model first, then add the Setup."
+
+[[advice]]
+match = "setup.add.no_model"
+text = "Import a model before adding a rotary or indexed Setup: its stock is sized from the model."
+
+[[advice]]
+match = "setup.clearance.index_travel"
+text = "The machine's Z travel is too short to clear the stock when it turns. Use a smaller stock, a shorter tool, or a machine definition with the right travel."
+
+[[advice]]
+match = "setup.clearance.index_unsafe"
+text = "The clearance cylinder of a rotary Setup must be larger than the stock. Increase its radius."
+
+[[advice]]
+match = "setup.stock.unsupported"
+text = "That stock kind cannot be calculated yet. Use a block (3-axis) or a cylinder (rotary and indexed)."
+
+[[advice]]
+match = "setup.machine.missing"
+text = "The machine the Setup names cannot be found. Choose another machine, or add the machine file to the project's `machines` folder."
+
+[[advice]]
+match = "model.*"
+text = "A file could not be read, or the project and its model disagree. The message names the file."
+
+[[advice]]
+match = "model.import.*"
+text = "The import did not change your project. Check the file and try again."
+
+[[advice]]
+match = "model.import.no_project"
+text = "Save or open a project first. Imported files are stored beside the project, so it needs a folder."
+
+[[advice]]
+match = "model.import.empty"
+text = "The file was read but gave nothing a toolpath can use. A STL file reads but gives no bodies yet (see Known limits)."
+
+[[advice]]
+match = "model.import.unit_assumed"
+text = "DXF, SVG and STL files do not say their unit. FluutCAM assumed the project's unit. If the part looks the wrong size, undo the import and set the project unit first."
+
+[[advice]]
+match = "model.import.body_ids"
+text = "Two imported files use the same body id, which FluutCAM cannot tell apart yet (see Known limits). Import one of them in a separate project."
+
+[[advice]]
+match = "model.geometry.changed"
+text = "The model file changed on disk after you imported it. Re-import it to bring the changes in."
+
+[[advice]]
+match = "model.geometry.unit.*"
+text = "DXF and STL files need a unit. Set `unit` on the geometry in the project file."
+
+[[advice]]
+match = "model.journal.recovered"
+text = "FluutCAM found changes from a session that did not end cleanly and recovered them. Check the project, then save it."
+
+[[advice]]
+match = "sim.*"
+text = "The simulation could not run or found a problem in the program. The message says what."
+
+[[advice]]
+match = "sim.result.missing"
+text = "Calculate the toolpaths first, then simulate."
+
+[[advice]]
+match = "sim.setup.rotary"
+text = "Rotary Setups cannot be simulated yet (see Known limits). Calculate and post them without it."
+
+[[advice]]
+match = "sim.index_turn"
+text = "When the stock turns for this Setup, material reaches the tool where the previous toolpath left it. Check the stock and the order of the Setups."
+
+[[advice]]
+match = "post.*"
+text = "The post processor could not be loaded or could not write the program. The message says why."
+
+[[advice]]
+match = "post.load"
+text = "The post id is wrong or its file is missing. Choose one from the list (see Machines and posts)."

@@ -15,6 +15,13 @@ use std::fmt;
 /// Format id of a tool library file.
 pub const TOOLS_FORMAT: &str = "fluut.tools/1";
 
+/// `(id, file text)` of every built-in tool library: the starter tools a
+/// new project can use at once.
+pub const BUILTIN_TOOLS: [(&str, &str); 1] = [(
+    "fluut/starter",
+    include_str!("../tools/fluut/starter.tools.toml"),
+)];
+
 #[derive(Clone, PartialEq, Debug, Deserialize)]
 pub struct ToolLibrary {
     pub format: String,
