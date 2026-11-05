@@ -693,3 +693,29 @@ fn edge_sub_boxes_contain_the_curve() {
     }
     assert!(curves > 10);
 }
+
+/// Contacts a flat tool's patch solves miss beside a face boundary: the
+/// contact is within 0.05 mm of the boundary, the patch holding it finds
+/// nothing, and neighbouring patches, which the sub-box bounds rule out, used
+/// to find it by chance. The patch is solved again with richer seeds.
+#[test]
+fn contacts_beside_a_face_boundary_are_not_missed() {
+    let c = Cutter::flat(6.0).unwrap();
+    let cases = [
+        (sculpted(4, 12.0, 9), 14.998465258227126, 47.47672328041821),
+        (tiled(4, true), 16.310242393116383, 42.75744430749068),
+    ];
+    for (body, x, y) in cases {
+        let g = QueryGeometry::new(&body, &BuildOptions::default());
+        let mut st = SolveStats::default();
+        let all = drop_all(&g, &c, x, y, &Seeding::default(), &mut st).unwrap();
+        let got = drop(&g, &c, x, y, &DropOptions::default(), &mut st).unwrap();
+        assert_real(&g, &c, Axis { x, y }, &got);
+        assert!(
+            got.tau >= all.tau - 1e-7,
+            "({x}, {y}): {} < {}",
+            got.tau,
+            all.tau
+        );
+    }
+}

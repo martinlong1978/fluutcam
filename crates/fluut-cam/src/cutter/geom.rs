@@ -230,6 +230,9 @@ pub struct QueryGeometry<'a> {
     pub prims: Vec<Prim>,
     /// Per primitive: the sub-boxes of a B-spline patch, else empty.
     subs: Vec<Box<[SubBox]>>,
+    /// Per face: its first primitive and how many (a face's patches are
+    /// contiguous).
+    face_prims: Vec<(u32, u32)>,
     pub bvh: Bvh,
     /// The trim chord ([`BuildOptions::trim_chord`]).
     pub trim_chord: f64,
@@ -388,6 +391,7 @@ impl<'a> QueryGeometry<'a> {
     ) -> QueryGeometry<'a> {
         let mut prims = Vec::new();
         let mut subs: Vec<Box<[SubBox]>> = Vec::new();
+        let mut face_prims: Vec<(u32, u32)> = vec![(0, 0); body.faces.len()];
         let mut boxes = Vec::new();
         let mut faces = Vec::with_capacity(body.faces.len());
         let mut issues = Vec::new();
@@ -411,6 +415,7 @@ impl<'a> QueryGeometry<'a> {
         }
         for (fi, f) in body.faces.iter().enumerate() {
             let fi = fi as u32;
+            let first_prim = prims.len() as u32;
             if !keep(fi) {
                 faces.push(None);
                 continue;
@@ -466,6 +471,7 @@ impl<'a> QueryGeometry<'a> {
                     boxes.push(surface_box(s, uv, opts.box_slack).expand(opts.trim_chord));
                 }
             }
+            face_prims[fi as usize] = (first_prim, prims.len() as u32 - first_prim);
             let rim = trim.loops_uv().iter().map(|l| Rim::new(s, l)).collect();
             faces.push(Some(QueryFace { trim, uv, rim }));
         }
@@ -500,6 +506,7 @@ impl<'a> QueryGeometry<'a> {
             trim_chord: opts.trim_chord,
             prims,
             subs,
+            face_prims,
             issues,
         }
     }
@@ -512,6 +519,7 @@ impl<'a> QueryGeometry<'a> {
             faces: self.faces,
             prims: self.prims,
             subs: self.subs,
+            face_prims: self.face_prims,
             bvh: self.bvh,
             trim_chord: self.trim_chord,
             issues: self.issues,
@@ -521,6 +529,12 @@ impl<'a> QueryGeometry<'a> {
     /// Sub-boxes of B-spline patch primitive `i` (empty for other kinds).
     pub fn sub_boxes(&self, i: u32) -> &[SubBox] {
         &self.subs[i as usize]
+    }
+
+    /// The primitives of face `face` (its patches), as a range of indices.
+    pub fn face_prims(&self, face: u32) -> std::ops::Range<u32> {
+        let (a, n) = self.face_prims[face as usize];
+        a..a + n
     }
 
     /// Box of primitive `i`.

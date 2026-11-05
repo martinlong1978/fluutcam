@@ -90,12 +90,13 @@ fn report(label: &str, runs: &[Run]) {
     let s = &run.stats;
     let [median, p99, mean] = best_of(runs);
     println!(
-        "  {label}: {} drops, median {median:.1} µs, p99 {p99:.1} µs, mean {mean:.1} µs; per drop: {:.2} numeric faces, {:.2} closed form, {:.2} edges, Newton {:.1} runs",
+        "  {label}: {} drops, median {median:.1} µs, p99 {p99:.1} µs, mean {mean:.1} µs; per drop: {:.2} numeric faces, {:.2} closed form, {:.2} edges, Newton {:.1} runs, {:.3} rescue solves",
         run.times_us.len(),
         s.faces_numeric as f64 / n,
         s.faces_closed_form as f64 / n,
         s.edges as f64 / n,
         s.newton_runs as f64 / n,
+        s.rescues as f64 / n,
     );
 }
 
@@ -122,6 +123,13 @@ fn measure(name: &str, body: &BrepBody, cols: usize, rows: usize) {
 /// Misses of the drop against the drop that solves every primitive (no
 /// pruning), at `n` points of a random walk.
 fn verify(name: &str, body: &BrepBody, n: usize) {
+    // `VERIFY=<text>` runs only the models whose name has the text.
+    if let Ok(only) = std::env::var("VERIFY")
+        && only != "1"
+        && !name.contains(&only)
+    {
+        return;
+    }
     let g = QueryGeometry::new(body, &BuildOptions::default());
     let b = body_box(body);
     println!("{name}: misses against the full scan, {n} points per tool");
@@ -133,22 +141,26 @@ fn verify(name: &str, body: &BrepBody, n: usize) {
         let mut rng = Lcg(4242);
         let o = DropOptions::default();
         let mut st = SolveStats::default();
-        let (mut x, mut y) = (b.min.x() + 5.0, b.min.y() + 5.0);
+        let b = b.expand(3.0);
         let (mut below, mut above, mut worst) = (0, 0, 0.0f64);
         for _ in 0..n {
-            x = (x + 2.4 * (rng.uniform() - 0.5)).clamp(b.min.x(), b.max.x());
-            y = (y + 2.4 * (rng.uniform() - 0.5)).clamp(b.min.y(), b.max.y());
+            let x = b.min.x() + (b.max.x() - b.min.x()) * rng.uniform();
+            let y = b.min.y() + (b.max.y() - b.min.y()) * rng.uniform();
             let tau =
                 |r: Option<fluut_cam::cutter::Contact>| r.map_or(f64::NEG_INFINITY, |r| r.tau);
             let all = tau(drop_all(&g, &c, x, y, &Seeding::default(), &mut st));
             let got = tau(drop(&g, &c, x, y, &o, &mut st));
             if got < all - 1e-7 {
                 below += 1;
+                println!("    miss at ({x:?}, {y:?}): {got} against {all}");
                 worst = worst.max(all - got);
             }
             above += (got > all + 1e-7) as usize;
         }
-        println!("  {label}: {below} below (worst {worst:.2e} mm), {above} above");
+        println!(
+            "  {label}: {below} below (worst {worst:.2e} mm), {above} above; {} rescue solves",
+            st.rescues
+        );
     }
 }
 
@@ -173,10 +185,14 @@ fn step_files(dir: &Path, out: &mut Vec<PathBuf>) {
 fn main() {
     let q = quick();
     if std::env::var("VERIFY").is_ok() {
-        let n = if q { 100 } else { 600 };
-        verify("sculpted 12 x 12 faces of 3 mm", &sculpted(12, 3.0, 5), n);
+        let n = std::env::var("VERIFY_N")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(if q { 100 } else { 3000 });
+        verify("sculpted 4 x 4 faces of 12 mm", &sculpted(4, 12.0, 9), n);
         verify("sculpted 6 x 6 faces of 12 mm", &sculpted(6, 12.0, 9), n);
-        verify("rough tiles 6 x 6", &tiled(6, true), n);
+        verify("sculpted 12 x 12 faces of 3 mm", &sculpted(12, 3.0, 5), n);
+        verify("rough tiles 4 x 4", &tiled(4, true), n);
         return;
     }
     let (cols, rows) = if q { (150, 40) } else { (500, 120) };

@@ -65,6 +65,9 @@ pub struct SolveStats {
     pub newton_converged: u64,
     /// Face boundaries searched ([`rim`]).
     pub rims: u64,
+    /// Patches solved only because another patch of their face may have
+    /// missed a contact (see `drop`).
+    pub rescues: u64,
 }
 
 /// The tool axis: a vertical line through `(x, y)`.
