@@ -187,3 +187,16 @@ fn metadata_lookup() {
         DefaultRule::Const(ConstVal::Height("model_top", 0.0))
     );
 }
+
+#[test]
+fn only_the_feed_height_may_refer_to_top() {
+    let mut p = Params::new(ToolpathTypeId::Pocket2d);
+    let top = || Some(PValue::Height(HeightSpec::new("top", 3.0)));
+    assert!(p.set("heights.feed", top()).is_ok());
+    assert!(p.set("heights.retract", top()).is_err());
+    let v: toml::Value = toml::from_str("v = { ref = \"top\", offset = 3.0 }")
+        .map(|t: toml::Table| t["v"].clone())
+        .unwrap();
+    assert!(p.set_toml("heights.feed", Some(&v)).is_ok());
+    assert!(p.set_toml("heights.clearance", Some(&v)).is_err());
+}

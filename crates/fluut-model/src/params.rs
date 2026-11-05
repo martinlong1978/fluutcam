@@ -15,7 +15,7 @@ pub(crate) mod value;
 mod tests;
 
 pub use meta::{Class, ConstVal, DefaultRule, FieldKind, FieldMeta, Group, ToolpathTypeId};
-pub use tables::{HEIGHT_REFS, X_REFS};
+pub use tables::{FEED_REFS, HEIGHT_REFS, X_REFS};
 pub use value::{HeightSpec, Num, PValue, ParamMap, Sel};
 
 use std::fmt::Write;
@@ -112,7 +112,7 @@ impl Params {
         let meta = Params::meta(self.kind, path)
             .ok_or_else(|| format!("`{path}` is not a field of {}", self.kind))?;
         if let Some(v) = &value
-            && !fits(meta.kind, v)
+            && !fits(meta, v)
         {
             return Err(format!("`{path}`: wrong kind of value"));
         }
@@ -244,8 +244,8 @@ impl Params {
     }
 }
 
-fn fits(kind: FieldKind, v: &PValue) -> bool {
-    match (kind, v) {
+fn fits(meta: &FieldMeta, v: &PValue) -> bool {
+    match (meta.kind, v) {
         (
             FieldKind::Length
             | FieldKind::Feed
@@ -258,8 +258,9 @@ fn fits(kind: FieldKind, v: &PValue) -> bool {
         (FieldKind::Bool, PValue::Bool(_)) => true,
         (FieldKind::Text, PValue::Enum(_)) => true,
         (FieldKind::Enum(allowed), PValue::Enum(s)) => allowed.contains(&s.as_str()),
-        (FieldKind::Height, PValue::Height(h)) => HEIGHT_REFS.contains(&h.reference.as_str()),
-        (FieldKind::XPos, PValue::Height(h)) => X_REFS.contains(&h.reference.as_str()),
+        (FieldKind::Height | FieldKind::XPos, PValue::Height(h)) => {
+            meta.height_refs().contains(&h.reference.as_str())
+        }
         (FieldKind::Selection, PValue::Selection(_)) => true,
         (FieldKind::Point, PValue::Point(_)) => true,
         (FieldKind::Points, PValue::Points(_)) => true,

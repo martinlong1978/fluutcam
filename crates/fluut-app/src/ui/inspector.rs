@@ -9,8 +9,8 @@ use crate::jobs::Edit;
 use crate::jobs::Jobs;
 use crate::text::tr;
 use crate::vm::inspector::{
-    DiagVm, FieldVm, InspectorVm, ToolChoiceVm, ToolpathVm, Widget, number_edit, tool_edit,
-    value_edit,
+    DiagVm, FieldVm, InspectorVm, ToolChoiceVm, ToolpathVm, Widget, height_edit, number_edit,
+    points_edit, tool_edit, value_edit,
 };
 use crate::vm::setup::{RowVm, RowWidget, SetupVm, reset_edit, setup_edit};
 use eframe::egui;
@@ -314,6 +314,35 @@ fn field(
                     jobs.edit(value_edit(tp, &f.path, Some(PValue::Bool(on))));
                 }
             }
+            Widget::Height {
+                refs,
+                reference,
+                offset,
+                unit,
+            } => height(
+                ui,
+                jobs,
+                state,
+                tp,
+                f,
+                label.id,
+                (refs, reference, offset, *unit),
+            ),
+            Widget::Text => {
+                let key = format!("{tp}/{}", f.path);
+                if let Some(t) = entry(ui, state, &key, &f.value, None, label.id, "") {
+                    let v = (!t.is_empty()).then_some(PValue::Enum(t));
+                    jobs.edit(value_edit(tp, &f.path, v));
+                }
+            }
+            Widget::Points { unit } => {
+                let key = format!("{tp}/{}", f.path);
+                let help = tr("inspector-points-help");
+                let shown = entry(ui, state, &key, &f.value, *unit, label.id, &help);
+                if let (Some(t), Some(snap)) = (shown, jobs.snapshot.clone()) {
+                    finish(jobs, state, &f.path, points_edit(&snap, tp, &f.path, &t));
+                }
+            }
             Widget::ReadOnly => {
                 ui.label(&f.value).on_hover_text(tr("inspector-read-only"));
             }
@@ -365,11 +394,67 @@ fn number(
     let Some(snap) = jobs.snapshot.clone() else {
         return;
     };
-    match number_edit(&snap, tp, &f.path, &text) {
+    finish(jobs, state, &f.path, number_edit(&snap, tp, &f.path, &text));
+}
+
+/// Sends the edit of an entry, or shows why there is none.
+fn finish(jobs: &mut Jobs, state: &mut UiState, path: &str, r: Result<Edit, String>) {
+    match r {
         Ok(e) => {
             state.entry_error = None;
             jobs.edit(e);
         }
-        Err(msg) => state.entry_error = Some((f.path.clone(), msg)),
+        Err(msg) => state.entry_error = Some((path.to_owned(), msg)),
+    }
+}
+
+/// `refs`, reference, offset and unit of a height.
+type HeightView<'a> = (
+    &'a [(String, String)],
+    &'a str,
+    &'a str,
+    Option<&'static str>,
+);
+
+/// A height: its reference, and its offset beside it.
+fn height(
+    ui: &mut egui::Ui,
+    jobs: &mut Jobs,
+    state: &mut UiState,
+    tp: &str,
+    f: &FieldVm,
+    label: egui::Id,
+    (refs, reference, offset, unit): HeightView<'_>,
+) {
+    let Some(snap) = jobs.snapshot.clone() else {
+        return;
+    };
+    let shown = refs
+        .iter()
+        .find(|(v, _)| v == reference)
+        .map_or(reference, |(_, l)| l.as_str());
+    let mut chosen = None;
+    egui::ComboBox::from_id_salt(("height", tp, &f.path))
+        .selected_text(shown)
+        .width(130.0)
+        .show_ui(ui, |ui| {
+            for (v, l) in refs {
+                if ui.selectable_label(v == reference, l).clicked() && v != reference {
+                    chosen = Some(v.clone());
+                }
+            }
+        })
+        .response
+        .labelled_by(label);
+    if let Some(r) = chosen {
+        let e = height_edit(&snap, tp, &f.path, Some(&r), None);
+        finish(jobs, state, &f.path, e);
+    }
+    let key = format!("{tp}/{}/offset", f.path);
+    let help = tr("inspector-height-offset");
+    let off = ui.label("+");
+    if let Some(t) = entry(ui, state, &key, offset, unit, off.id, &help) {
+        let e = height_edit(&snap, tp, &f.path, None, Some(&t));
+        finish(jobs, state, &f.path, e);
     }
 }

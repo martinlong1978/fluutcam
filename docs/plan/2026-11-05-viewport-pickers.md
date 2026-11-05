@@ -26,7 +26,7 @@ All earlier Global Constraints apply. In addition:
 5. **Machine** is written as `id@major`, as `add_setup` writes it. Work offset is a dropdown G54 to G59, plus the current value if it is something else.
 6. **Tool choice** lists every tool of `Snapshot::tools` (project and built-in libraries) as "<library>: <type> <diameter>, <name>" and writes `library#tool`. A reference that is not in the list stays shown. Unsuitable tools are not hidden: the messages of `validate` with `field = "tool"` show under the dropdown.
 7. **Heights.** A reference dropdown and an offset entry, for `Height` and `XPos`. D15 §2.4 says `feed` defaults to `top`, the one height that may take it, but the reader refused `top` everywhere, so changing `feed`'s offset could not be stored. The reader now accepts `top` for `heights.feed` only; the dropdown offers it there and nowhere else.
-8. **Other kinds.** So every type can be finished: `Text` is a text box, `Duration` a number, `Point` three entries, `Points` a text entry `x, y, z; x, y, z`. `PValue` values use the display unit like every other length.
+8. **Other kinds.** So every type can be finished: `Text` is a text entry, `Duration` a number, `Point` a text entry `x y z`, `Points` a text entry `x y z; x y z` (spaces, since a decimal separator may be a comma). `PValue` values use the display unit like every other length.
 9. **Pick filters** come from the field: `drive_faces` of `drill` and `bore` take cylinders; `drive_curves` and `boundary.curves` take edges, wire curves and planar faces; other selections take faces. The scene records each face's kind so the filter works without the kernel on the UI thread. Bodies are not picked: clicks choose faces or curves.
 10. **Chains.** `SetupScene::edge_loops` holds the closed loops: face loops of a B-rep (horizontal planar faces first) and closed chains of wire curves. Picking an edge in a curve field offers its first loop; the offer is a button, "Add closed loop (n edges)", in the inspector and the pick banner.
 11. **Pick mode** lives in `UiState::pick`. Entering it hides the simulated stock, so faces can be hit. Esc or Done leaves. Hover asks the id pass only when the pointer moves. Each toggle is one edit, so undo steps through picks.
@@ -49,8 +49,8 @@ All earlier Global Constraints apply. In addition:
 - [x] `ToolStore::libraries`, tool row on the Tool tab.
 
 ### Task 4: Height and remaining field editing
-- [ ] Tests first: reference and offset edits, inch display, `top` for feed only, text, duration, points.
-- [ ] Reader change for `heights.feed`; widgets.
+- [x] Tests first: reference and offset edits, inch display, `top` for feed only, text, duration, points.
+- [x] Reader change for `heights.feed`; widgets.
 
 ### Task 5: Selection picking
 - [ ] Tests first: filters, toggle, clear, remove, chain offers, id pass of edges, ranges, highlight draw.

@@ -96,10 +96,12 @@ fn values_defaults_and_units() {
     assert!(matches!(&dir.widget, Widget::Enum { options } if options.len() == 2));
     let t2 = tp_vm(&s, "t2");
     let top = field(&t2, "heights.top");
-    assert_eq!(
-        (top.value.as_str(), &top.widget),
-        ("selection + 0.1 mm", &Widget::ReadOnly)
-    );
+    assert_eq!(top.value, "selection + 0.1 mm");
+    assert!(matches!(
+        &top.widget,
+        Widget::Height { reference, offset, unit: Some("mm"), .. }
+            if reference == "selection" && offset == "0.1"
+    ));
     assert_eq!(field(&vm, "geometry.drive_faces").value, "1 selected");
 
     // In inches the same values show converted; entries are in inches.
@@ -220,4 +222,130 @@ fn a_missing_tool_is_shown_and_reported_at_the_dropdown() {
     assert_eq!(vm.tool.options[0].0, "nope#gone");
     assert_eq!(vm.tool.diagnostics[0].code, "param.tool.missing");
     assert!(vm.general.iter().all(|d| d.code != "param.tool.missing"));
+}
+
+fn height_of(vm: &ToolpathVm, path: &str) -> (String, String) {
+    match &field(vm, path).widget {
+        Widget::Height {
+            reference, offset, ..
+        } => (reference.clone(), offset.clone()),
+        w => panic!("{w:?}"),
+    }
+}
+
+#[test]
+fn a_height_edits_its_reference_and_offset_apart() {
+    let mut j = opened("block");
+    let s = j.snapshot.clone().unwrap();
+    // An unset height starts from its default.
+    let vm = tp_vm(&s, "t1");
+    assert_eq!(
+        height_of(&vm, "heights.retract"),
+        ("stock_top".to_owned(), "5".to_owned())
+    );
+    let e = height_edit(&s, "t1", "heights.retract", None, Some("7")).unwrap();
+    let s = apply(&mut j, e);
+    assert_eq!(
+        height_of(&tp_vm(&s, "t1"), "heights.retract"),
+        ("stock_top".to_owned(), "7".to_owned())
+    );
+    let e = height_edit(&s, "t1", "heights.retract", Some("model_top"), None).unwrap();
+    let s = apply(&mut j, e);
+    assert_eq!(
+        height_of(&tp_vm(&s, "t1"), "heights.retract"),
+        ("model_top".to_owned(), "7".to_owned())
+    );
+    assert!(field(&tp_vm(&s, "t1"), "heights.retract").set);
+    assert!(height_edit(&s, "t1", "heights.retract", None, Some("high")).is_err());
+    // Undo steps back through both.
+    j.undo();
+    j.wait();
+    j.undo();
+    j.wait();
+    let s = j.snapshot.clone().unwrap();
+    assert!(!field(&tp_vm(&s, "t1"), "heights.retract").set);
+}
+
+#[test]
+fn only_feed_offers_top_and_changing_its_offset_is_stored() {
+    let mut j = opened("block");
+    let s = j.snapshot.clone().unwrap();
+    let vm = tp_vm(&s, "t1");
+    let refs = |path: &str| match &field(&vm, path).widget {
+        Widget::Height { refs, .. } => refs.iter().map(|r| r.0.clone()).collect::<Vec<_>>(),
+        w => panic!("{w:?}"),
+    };
+    assert!(refs("heights.feed").contains(&"top".to_owned()));
+    assert!(!refs("heights.retract").contains(&"top".to_owned()));
+    let e = height_edit(&s, "t1", "heights.feed", None, Some("3")).unwrap();
+    let s = apply(&mut j, e);
+    assert!(s.edit_error.is_none(), "{:?}", s.edit_error);
+    assert_eq!(
+        height_of(&tp_vm(&s, "t1"), "heights.feed"),
+        ("top".to_owned(), "3".to_owned())
+    );
+}
+
+#[test]
+fn heights_show_and_take_the_project_unit() {
+    let j = opened("block");
+    let mut inch = Snapshot::clone(j.snapshot.as_ref().unwrap());
+    inch.project.units = DisplayUnit::Inch;
+    let e = height_edit(&inch, "t1", "heights.retract", None, Some("1")).unwrap();
+    assert_eq!(
+        e,
+        value_edit(
+            "t1",
+            "heights.retract",
+            Some(PValue::Height(HeightSpec::new("stock_top", 25.4)))
+        )
+    );
+}
+
+#[test]
+fn every_field_kind_of_every_type_has_an_editor() {
+    use fluut_model::ToolpathTypeId;
+    for t in ToolpathTypeId::ALL {
+        for (path, m) in Params::leaf_fields(t) {
+            let tp = Toolpath::new("x", "x", t, "");
+            let cx = Cx {
+                tp: &tp,
+                tool: None,
+                material: None,
+                unit: DisplayUnit::Mm,
+            };
+            let w = cx.field(path.clone(), m, &[]).widget;
+            let selection = m.kind == FieldKind::Selection;
+            assert!(selection || w != Widget::ReadOnly, "{t:?} {path}");
+        }
+    }
+}
+
+#[test]
+fn points_and_text_are_entered_as_text() {
+    let start = "passes.start_point";
+    let mut j = opened("plate2d");
+    j.add_toolpath("s1", fluut_model::ToolpathTypeId::Contour2d);
+    j.wait();
+    let s2 = j.snapshot.clone().unwrap();
+    let id = s2.project.setups[0].toolpaths.last().unwrap().id.clone();
+    assert!(points_edit(&s2, &id, "passes.tabs.points", "1 2").is_err());
+    assert!(points_edit(&s2, &id, "passes.tabs.points", "a b c").is_err());
+    let e = points_edit(&s2, &id, "passes.tabs.points", "1 2 3; 4 5 6").unwrap();
+    assert_eq!(
+        e,
+        value_edit(
+            &id,
+            "passes.tabs.points",
+            Some(PValue::Points(vec![
+                [Num::float(1.0), Num::float(2.0), Num::float(3.0)],
+                [Num::float(4.0), Num::float(5.0), Num::float(6.0)]
+            ]))
+        )
+    );
+    assert_eq!(
+        points_edit(&s2, &id, start, "").unwrap(),
+        value_edit(&id, start, None)
+    );
+    assert!(points_edit(&s2, &id, start, "1 2 3; 4 5 6").is_err());
 }

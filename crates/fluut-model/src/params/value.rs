@@ -3,7 +3,6 @@
 //! Parameter values as stored in the document (D15 §1.3–§1.4).
 
 use super::meta::{FieldKind, FieldMeta};
-use super::tables::{HEIGHT_REFS, X_REFS};
 use std::fmt::Write;
 
 /// A number as written in the file. `int` remembers the TOML integer form,
@@ -266,8 +265,8 @@ pub(crate) fn convert(
             V::String(s) => PValue::Enum(s.clone()),
             _ => return Err(format!("expected a string, {}", found())),
         },
-        FieldKind::Height => PValue::Height(height(v, HEIGHT_REFS, "a height reference")?),
-        FieldKind::XPos => PValue::Height(height(v, X_REFS, "an X reference")?),
+        FieldKind::Height => PValue::Height(height(v, m.height_refs(), "a height reference")?),
+        FieldKind::XPos => PValue::Height(height(v, m.height_refs(), "an X reference")?),
         FieldKind::Selection => PValue::Selection(selection(v)?),
         FieldKind::Point => PValue::Point(point(v)?),
         FieldKind::Points => match v {

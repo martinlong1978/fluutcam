@@ -16,7 +16,7 @@ use crate::session::Snapshot;
 use crate::text::{data, diagnostic, field_label, tr, tr_args};
 use fluut_i18n::{display_scale, unit_symbol};
 use fluut_model::edit::Edit as ModelEdit;
-use fluut_model::params::{ConstVal, DefaultRule};
+use fluut_model::params::{ConstVal, DefaultRule, HeightSpec};
 use fluut_model::project::{DisplayUnit, Toolpath};
 use fluut_model::tools::{Tool, ToolShape, ToolStore};
 use fluut_model::{
@@ -35,6 +35,19 @@ pub enum Widget {
         options: Vec<(String, String)>,
     },
     Bool,
+    /// A reference and an offset. `refs` are `(value, label)`.
+    Height {
+        refs: Vec<(String, String)>,
+        reference: String,
+        offset: String,
+        unit: Option<&'static str>,
+    },
+    /// Free text.
+    Text,
+    /// `x y z` in the display unit, points separated by `;`.
+    Points {
+        unit: Option<&'static str>,
+    },
     ReadOnly,
 }
 
@@ -237,16 +250,42 @@ impl Cx<'_> {
         tr_args("inspector-default", &[("value", &value)])
     }
 
-    fn widget(&self, m: &FieldMeta) -> Widget {
+    fn widget(&self, m: &FieldMeta, local: Option<&PValue>) -> Widget {
         match m.kind {
             FieldKind::Length
             | FieldKind::Feed
             | FieldKind::Speed
             | FieldKind::Angle
+            | FieldKind::Duration
             | FieldKind::Count => Widget::Number {
                 unit: display(m.kind, self.unit).0,
             },
             FieldKind::Bool => Widget::Bool,
+            FieldKind::Height | FieldKind::XPos => {
+                let h = match local {
+                    Some(PValue::Height(h)) => Some(h.clone()),
+                    _ => match const_value(m) {
+                        Some(PValue::Height(h)) => Some(h),
+                        _ => None,
+                    },
+                };
+                let (reference, off) =
+                    h.map_or((String::new(), 0.0), |h| (h.reference.clone(), h.offset()));
+                Widget::Height {
+                    refs: m
+                        .height_refs()
+                        .iter()
+                        .map(|r| ((*r).to_owned(), tr(&format!("height-ref-{r}"))))
+                        .collect(),
+                    reference,
+                    offset: num_text(off, FieldKind::Length, self.unit),
+                    unit: display(FieldKind::Length, self.unit).0,
+                }
+            }
+            FieldKind::Text => Widget::Text,
+            FieldKind::Point | FieldKind::Points => Widget::Points {
+                unit: display(FieldKind::Length, self.unit).0,
+            },
             FieldKind::Enum(opts) => Widget::Enum {
                 options: opts.iter().map(|o| ((*o).to_owned(), data(*o))).collect(),
             },
@@ -257,7 +296,11 @@ impl Cx<'_> {
     fn field(&self, path: String, m: &FieldMeta, diags: &[Diagnostic]) -> FieldVm {
         let local = self.tp.params.get(&path);
         let value = match local.cloned().or_else(|| const_value(m)) {
-            Some(v) => value_text(&v, m.kind, self.unit),
+            Some(v) => match &v {
+                PValue::Point(p) => points_text(std::slice::from_ref(p), self.unit),
+                PValue::Points(ps) => points_text(ps, self.unit),
+                v => value_text(v, m.kind, self.unit),
+            },
             None => match m.default {
                 DefaultRule::FromTool(k) => self
                     .preset(k)
@@ -268,7 +311,7 @@ impl Cx<'_> {
         let kind = self.tp.kind();
         FieldVm {
             label: field_label(m),
-            widget: self.widget(m),
+            widget: self.widget(m, local),
             value,
             set: local.is_some(),
             default_text: self.default_text(m),
@@ -466,6 +509,104 @@ pub fn number_edit(
         path: path.to_owned(),
         value,
     })
+}
+
+fn points_text(ps: &[[Num; 3]], unit: DisplayUnit) -> String {
+    let one = |p: &[Num; 3]| {
+        p.iter()
+            .map(|c| num_text(c.v, FieldKind::Length, unit))
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    ps.iter().map(one).collect::<Vec<_>>().join("; ")
+}
+
+/// The edit for an entry in a height: a new reference, a new offset, or
+/// both. Starts from the value in force, so changing one keeps the other.
+///
+/// # Errors
+///
+/// A message for display under the field.
+pub fn height_edit(
+    snap: &Snapshot,
+    toolpath: &str,
+    path: &str,
+    reference: Option<&str>,
+    offset: Option<&str>,
+) -> Result<Edit, String> {
+    let (_, tp) = snap.project.toolpath(toolpath).ok_or("no toolpath")?;
+    let m = Params::meta(tp.kind(), path).ok_or("no field")?;
+    let now = match tp.params.get(path).cloned().or_else(|| const_value(m)) {
+        Some(PValue::Height(h)) => Some(h),
+        _ => None,
+    };
+    let r = reference
+        .map(str::to_owned)
+        .or_else(|| now.as_ref().map(|h| h.reference.clone()))
+        .ok_or("no reference")?;
+    let off = match offset.map(str::trim) {
+        None => now.map_or(0.0, |h| h.offset()),
+        Some("") => 0.0,
+        Some(text) => {
+            let unit = EntryUnit::of(FieldKind::Length, snap.project.units);
+            evaluate(text, unit, snap.tools.get(&tp.tool)).map_err(|e| {
+                tr_args(
+                    "inspector-invalid-entry",
+                    &[("text", &format!("{text} ({e})"))],
+                )
+            })?
+        }
+    };
+    Ok(value_edit(
+        toolpath,
+        path,
+        Some(PValue::Height(HeightSpec::new(&r, off))),
+    ))
+}
+
+/// The edit for an entry in a `Point` or `Points` field: `x y z`, points
+/// separated by `;`, in the display unit. Empty clears the field.
+///
+/// # Errors
+///
+/// A message for display under the field.
+pub fn points_edit(
+    snap: &Snapshot,
+    toolpath: &str,
+    path: &str,
+    text: &str,
+) -> Result<Edit, String> {
+    let (_, tp) = snap.project.toolpath(toolpath).ok_or("no toolpath")?;
+    let m = Params::meta(tp.kind(), path).ok_or("no field")?;
+    let text = text.trim();
+    if text.is_empty() {
+        return Ok(value_edit(toolpath, path, None));
+    }
+    let bad = |e: &str| {
+        tr_args(
+            "inspector-invalid-entry",
+            &[("text", &format!("{text} ({e})"))],
+        )
+    };
+    let unit = EntryUnit::of(FieldKind::Length, snap.project.units);
+    let mut points = Vec::new();
+    for part in text.split(';').filter(|p| !p.trim().is_empty()) {
+        let c: Vec<&str> = part.split_whitespace().collect();
+        let [x, y, z] = c[..] else {
+            return Err(bad("x y z"));
+        };
+        let mut p = [Num::float(0.0); 3];
+        for (slot, t) in p.iter_mut().zip([x, y, z]) {
+            *slot = Num::float(evaluate(t, unit, None).map_err(|e| bad(&e))?);
+        }
+        points.push(p);
+    }
+    let value = match (m.kind, &points[..]) {
+        (FieldKind::Point, [p]) => PValue::Point(*p),
+        (FieldKind::Point, _) => return Err(bad("x y z")),
+        _ => PValue::Points(points),
+    };
+    Ok(value_edit(toolpath, path, Some(value)))
 }
 
 /// The edit that sets an enum or bool field, or clears it (`None`).
