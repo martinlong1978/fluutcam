@@ -72,7 +72,7 @@ The drop is 1.4 to 3.8 times faster on free-form models (the 20 us target is not
 
 Zero misses against the full scan (`drop_bench` with `VERIFY=<model>`, 3 000 random points per tool over each model grown by 3 mm, solving every primitive for the reference): sculpted 4 x 4 faces of 12 mm, 6 x 6 faces of 12 mm, 12 x 12 faces of 3 mm and the S2 tiles 4 x 4 (rough): 0 below on all 12 tool and model runs (9 000 drops per model); 3 drops were above the full scan (the re-solve finds contacts the full scan misses). Before the re-solves there were 2 below (the two regression points of the test `contacts_beside_a_face_boundary_are_not_missed`).
 
-S2 reference runs: 600 synthetic points no misses; 7 560 corpus points 21 misses, the same counts and worst values as before the plan (8 / 8 / 5, worst 9.7e-4, 7.2e-4, 3.3e-4 mm; measured before the re-solves, which only add solves for B-spline patches and the corpus has few). Workspace tests pass; no golden file changed.
+S2 reference runs: 600 synthetic points no misses; 7 560 corpus points 21 misses, the same counts and worst values as before the plan (8 / 8 / 5, worst 9.7e-4, 7.2e-4, 3.3e-4 mm; rerun after the re-solves). Workspace tests pass; no golden file changed.
 
 ## Open
 
