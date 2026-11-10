@@ -66,5 +66,17 @@ All earlier Global Constraints apply. In addition:
 - [x] Tests first; prompt and clickable badge.
 
 ### Task 8: End to end
-- [ ] kittest: New, import `plate2d.step`, Setup, stock margin, zero, `pocket_2d`, pick the floor by id, tool, heights, Calculate, Post; G-code equal to a hand-written reference project; undo at each step; re-import keeps the selection.
-- [ ] Merge `main`, all five checks, report.
+- [x] kittest: New, import `plate2d.step`, Setup, stock margin, zero, `pocket_2d`, pick the floor by id, tool, heights, Calculate, Post; G-code equal to a hand-written reference project; undo at each step; re-import keeps the selection.
+- [x] Merge `main`, all five checks, report.
+
+## Done
+
+All eight tasks are done. The end-to-end test builds a pocket from a new
+project through the window and matches the G-code of a hand-written project.
+
+## Open issues
+
+- Body stock, setup orientation and geometry bodies are not yet editable.
+- Picking whole bodies is not supported; the Setup kind is read-only.
+- No live stock or zero handles on the model.
+- The project reader now accepts `top` as a reference for `heights.feed` only.

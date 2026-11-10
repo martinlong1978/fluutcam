@@ -4,6 +4,7 @@
 //! browser's actions.
 
 use super::*;
+use crate::jobs::{CalcTargets, Jobs};
 use crate::vm::pick::PickMode;
 use egui::accesskit::Role;
 use fluut_model::project::{SetupKind, StockSpec, ZeroSpec};
@@ -519,4 +520,252 @@ fn the_unit_badge_changes_the_project_unit_and_undoes() {
     h.get_by_label("Undo").click();
     settle(&mut h);
     assert_eq!(snapshot(&mut h).project.units, DisplayUnit::Mm);
+}
+
+/// The project written by hand: what the end-to-end test below builds by
+/// clicking.
+const REFERENCE: &str = r#"format = "fluut.project/1"
+name   = "e2e"
+units  = "mm"
+
+[[geometry]]
+id   = "g1"
+path = "plate2d.step"
+kind = "step"
+
+  [[geometry.body]]
+  id   = "b-588"
+  name = "plate"
+
+[[setup]]
+id       = "s1"
+name     = "Setup 1"
+kind     = "three_axis"
+machine  = "fluut/generic-3axis-router@1"
+material = "MDF"
+stock    = { kind = "block", margin = [7.0, 2, 1] }
+zero     = { method = "stock_top_centre" }
+
+  [[setup.toolpath]]
+  id   = "t1"
+  name = "2D pocket 1"
+  type = "pocket_2d"
+  tool = "fluut/starter#flat-12"
+
+    [setup.toolpath.geometry]
+    drive_faces = [{ face = "f-588.14" }]
+
+    [setup.toolpath.heights]
+    retract = { ref = "stock_top", offset = 7.5 }
+    top     = { ref = "model_top" }
+"#;
+
+/// The offset entry of the `n`th height shown.
+fn offset_entry(h: &mut Harness<'static, State>, n: usize, text: &str) {
+    let focus = |h: &Harness<'static, State>| {
+        h.query_all_by_role_and_label(Role::TextInput, "+")
+            .nth(n)
+            .unwrap()
+            .focus();
+    };
+    focus(h);
+    h.run_steps(2);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.run_steps(1);
+    h.query_all_by_role_and_label(Role::TextInput, "+")
+        .nth(n)
+        .unwrap()
+        .type_text(text);
+    h.run_steps(2);
+    h.key_press(egui::Key::Enter);
+    h.run_steps(2);
+}
+
+/// The prototype's whole promise: everything by clicking and picking, no
+/// project file edited, and the G-code of a hand-written project. Undo then
+/// walks back through every state.
+#[test]
+fn a_pocket_from_new_project_to_gcode_matches_a_hand_written_project() {
+    let d = temp("pick-e2e");
+    let mut h = harness();
+    h.step();
+    app(&mut h).ui.clock = fixed_clock;
+    let mut states = Vec::new();
+    scripted(&mut h).answer(DialogKind::New(DisplayUnit::Mm), d.join("e2e"));
+    h.get_by_label("New project").click();
+    settle(&mut h);
+    h.get_by_label("Millimetres").click();
+    settle(&mut h);
+    states.push(snapshot(&mut h).project.clone());
+    let step = project("plate2d").with_file_name("plate2d.step");
+    scripted(&mut h).answer(DialogKind::Import, step.clone());
+    h.get_by_label("Import model").click();
+    settle(&mut h);
+    states.push(snapshot(&mut h).project.clone());
+    stage(&mut h, "SETUP");
+    h.get_by_label("New 3-axis Setup").click();
+    settle(&mut h);
+    states.push(snapshot(&mut h).project.clone());
+    // Stock and zero in the Setup editor.
+    let r = snapshot(&mut h).revision;
+    enter(&mut h, "Margin X, each side", "7");
+    newer(&mut h, r);
+    states.push(snapshot(&mut h).project.clone());
+    let r = snapshot(&mut h).revision;
+    choose(&mut h, "Location", "Stock top, centre");
+    newer(&mut h, r);
+    states.push(snapshot(&mut h).project.clone());
+    // A pocket, its floor picked on the model.
+    stage(&mut h, "TOOLPATHS");
+    h.get_by_label("2D pocket").click();
+    settle(&mut h);
+    states.push(snapshot(&mut h).project.clone());
+    app(&mut h).ui.inspector_tab = 1;
+    h.run_steps(3);
+    h.get_all_by_label("Pick").next().unwrap().click();
+    h.run_steps(2);
+    click_entity(&mut h, &Sel::Face("f-588.14".into()));
+    states.push(snapshot(&mut h).project.clone());
+    h.get_by_label("Done").click();
+    h.run_steps(2);
+    // The tool.
+    app(&mut h).ui.inspector_tab = 0;
+    h.run_steps(3);
+    let r = snapshot(&mut h).revision;
+    choose(
+        &mut h,
+        "Tool",
+        "Starter tools: Flat 12 mm, 12 mm flat end mill",
+    );
+    newer(&mut h, r);
+    states.push(snapshot(&mut h).project.clone());
+    // Heights: order is clearance, retract, feed, top, bottom.
+    app(&mut h).ui.inspector_tab = 2;
+    h.run_steps(3);
+    let r = snapshot(&mut h).revision;
+    offset_entry(&mut h, 1, "7.5");
+    newer(&mut h, r);
+    states.push(snapshot(&mut h).project.clone());
+    let r = snapshot(&mut h).revision;
+    choose(&mut h, "Top", "Model top");
+    newer(&mut h, r);
+    states.push(snapshot(&mut h).project.clone());
+    // Calculate and Post.
+    h.get_by_label("Calculate all").click();
+    settle(&mut h);
+    let s = snapshot(&mut h);
+    assert!(s.paths.contains_key("t1"), "{:?}", s.diagnostics("t1"));
+    stage(&mut h, "POST");
+    let out = d.join("e2e.ngc");
+    scripted(&mut h).answer(DialogKind::PostOutput, out.clone());
+    button(&h, "Post").click();
+    settle(&mut h);
+    let got = std::fs::read_to_string(&out).unwrap();
+    // The same project by hand.
+    let by_hand = d.join("reference");
+    std::fs::create_dir_all(&by_hand).unwrap();
+    std::fs::copy(&step, by_hand.join("plate2d.step")).unwrap();
+    let file = by_hand.join("e2e.fluut");
+    std::fs::write(&file, REFERENCE).unwrap();
+    let mut j = Jobs::start(|| {});
+    j.open(file);
+    j.wait();
+    let ref_out = by_hand.join("e2e.ngc");
+    let (date, time) = fixed_clock();
+    j.post(crate::jobs::PostRequest {
+        post: "fluut/linuxcnc".into(),
+        output: ref_out.clone(),
+        date,
+        time,
+    });
+    assert!(
+        matches!(j.wait(), Some(Outcome::Posted { .. })),
+        "{:?}",
+        j.last
+    );
+    let want = std::fs::read_to_string(&ref_out).unwrap();
+    assert!(got.lines().count() > 20, "{got}");
+    assert_eq!(got, want);
+    // Undo returns to each state before it.
+    for want in states.iter().rev().skip(1) {
+        h.get_by_label("Undo").click();
+        settle(&mut h);
+        assert_eq!(snapshot(&mut h).project, *want);
+    }
+}
+
+/// A selection holds persistent ids: re-import finds them again.
+#[test]
+fn reimport_keeps_a_picked_selection() {
+    let d = temp("pick-reimport");
+    let mut h = harness();
+    h.step();
+    app(&mut h).jobs.new_project(d.join("re"), DisplayUnit::Mm);
+    settle(&mut h);
+    let step = project("plate2d").with_file_name("plate2d.step");
+    app(&mut h).jobs.import_model(step);
+    settle(&mut h);
+    app(&mut h).jobs.add_setup(SetupKind::ThreeAxis, None);
+    settle(&mut h);
+    app(&mut h)
+        .jobs
+        .add_toolpath("s1", ToolpathTypeId::Pocket2d);
+    settle(&mut h);
+    let Selection::Toolpath(id) = app(&mut h).ui.selection.clone() else {
+        panic!();
+    };
+    let path = "geometry.drive_faces";
+    app(&mut h).ui.pick = Some(PickMode::new(ToolpathTypeId::Pocket2d, &id, path));
+    click_entity(&mut h, &Sel::Face("f-588.14".into()));
+    app(&mut h).jobs.reimport();
+    settle(&mut h);
+    assert_eq!(
+        app(&mut h).jobs.last,
+        Some((
+            JobKind::Reimport,
+            Outcome::Reimported {
+                sources: 1,
+                unmatched: 0
+            }
+        ))
+    );
+    assert_eq!(drive_faces(&mut h, &id), [Sel::Face("f-588.14".into())]);
+}
+
+/// Curves of a drawing: an edge, its closed loop offered and taken, and a
+/// contour from it.
+#[test]
+fn a_contour_of_wire_curves_from_a_picked_loop() {
+    let mut h = harness();
+    h.step();
+    open(&mut h, project("plate"));
+    let setup = snapshot(&mut h).project.setups[0].id.clone();
+    app(&mut h)
+        .jobs
+        .add_toolpath(&setup, ToolpathTypeId::Contour2d);
+    settle(&mut h);
+    let Selection::Toolpath(id) = app(&mut h).ui.selection.clone() else {
+        panic!();
+    };
+    let path = "geometry.drive_curves";
+    let s = snapshot(&mut h);
+    let scene = s.scenes[&setup].clone();
+    let first = scene.edge_loops[0][0] as usize;
+    app(&mut h).ui.pick = Some(PickMode::new(ToolpathTypeId::Contour2d, &id, path));
+    click_entity(&mut h, &Sel::Edge(scene.edge_ids[first].clone()));
+    let s = snapshot(&mut h);
+    let r = s.revision;
+    let a = app(&mut h);
+    let e = a.ui.pick.as_mut().unwrap().accept_offer(&s).unwrap();
+    a.jobs.edit(e);
+    newer(&mut h, r);
+    let n = crate::vm::pick::selected(&snapshot(&mut h), &id, path).len();
+    assert_eq!(n, scene.edge_loops[0].len());
+    app(&mut h).ui.pick = None;
+    app(&mut h)
+        .jobs
+        .calculate(CalcTargets::Toolpaths(vec![id.clone()]));
+    settle(&mut h);
+    let s = snapshot(&mut h);
+    assert!(s.paths.contains_key(&id), "{:?}", s.diagnostics(&id));
 }
