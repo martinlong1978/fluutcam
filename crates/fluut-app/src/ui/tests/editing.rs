@@ -197,7 +197,7 @@ fn the_loop_on_offer_is_a_button() {
 }
 
 /// A window with a real viewport, or `None` without a `wgpu` adapter.
-fn gpu_harness() -> Option<Harness<'static, State>> {
+pub(crate) fn gpu_harness() -> Option<Harness<'static, State>> {
     crate::viewport::render::headless()?;
     // Primary backends only, as `render::headless` explains.
     let mut setup = eframe::egui_wgpu::WgpuSetupCreateNew::without_display_handle();

@@ -318,7 +318,11 @@ impl FluutApp {
         };
         let esc = !ctx.egui_wants_keyboard_input()
             && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
-        if esc || self.ui.selection != Selection::Toolpath(p.toolpath.clone()) {
+        let elsewhere = match &p.setup {
+            Some((setup, _)) => self.ui.selection != Selection::Setup(setup.clone()),
+            None => self.ui.selection != Selection::Toolpath(p.toolpath.clone()),
+        };
+        if esc || p.done || elsewhere {
             self.ui.pick = None;
         }
     }

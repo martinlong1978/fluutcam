@@ -15,7 +15,7 @@ use crate::session::Snapshot;
 use crate::text::{field_label, tr, tr_args};
 use crate::viewport::{Camera, FrameState, Pick, PickMask, Renderer, Tints};
 use crate::vm::Selection;
-use crate::vm::pick::{PickMode, highlight};
+use crate::vm::pick::{PickMode, SetupPick, highlight};
 use crate::vm::playback::StockColour;
 use eframe::egui::{self, Pos2, Rect, Sense, Stroke, Vec2};
 use eframe::egui_wgpu;
@@ -96,6 +96,15 @@ fn entity(scene: Option<&SetupScene>, p: Pick) -> Option<Sel> {
     }
 }
 
+/// The scene shown under `id`: a Setup's, or the whole model's.
+fn scene_of<'a>(s: &'a Snapshot, id: &str) -> Option<&'a Arc<SetupScene>> {
+    s.scenes.get(id).or_else(|| {
+        s.all_bodies
+            .as_ref()
+            .filter(|_| id == crate::session::MODEL_SCENE)
+    })
+}
+
 /// The Setup the viewport shows for a selection.
 pub fn shown_setup(s: &Snapshot, sel: &Selection) -> Option<String> {
     let id = match sel {
@@ -113,7 +122,7 @@ fn upload(
     setup: &str,
     stock: Option<&[Arc<StockMesh>]>,
 ) {
-    let Some(scene) = s.scenes.get(setup) else {
+    let Some(scene) = scene_of(s, setup) else {
         return;
     };
     let st = s.project.setup(setup);
@@ -192,6 +201,13 @@ pub fn show(
     }) else {
         return;
     };
+    // Picking whole bodies shows every body of the model.
+    let setup =
+        if state.pick.as_ref().is_some_and(PickMode::picks_bodies) && snap.all_bodies.is_some() {
+            crate::session::MODEL_SCENE.to_owned()
+        } else {
+            setup
+        };
     // The simulated stock of this Setup, while the simulation is current.
     let sim_frame = jobs
         .frame
@@ -221,13 +237,13 @@ pub fn show(
         }
     }
     if resp.double_clicked() {
-        vs.camera = Camera::fit(snap.scenes.get(&setup).and_then(|s| s.bounds.as_ref()));
+        vs.camera = Camera::fit(scene_of(&snap, &setup).and_then(|s| s.bounds.as_ref()));
     }
     let selected_tp = match &state.selection {
         Selection::Toolpath(t) => vs.toolpaths.iter().position(|x| x == t).map(|i| i as u32),
         _ => None,
     };
-    let scene = snap.scenes.get(&setup);
+    let scene = scene_of(&snap, &setup);
     let face = match &state.selection {
         Selection::Face { face, .. } => scene
             .and_then(|s| s.faces.iter().position(|f| f == face))
@@ -390,15 +406,27 @@ pub fn show(
     }
     // In pick mode: what is being picked, and how to leave.
     if let Some(mode) = &state.pick {
-        let field = snap
-            .project
-            .toolpath(&mode.toolpath)
-            .and_then(|(_, t)| Params::meta(t.kind(), &mode.path))
-            .map_or_else(String::new, field_label);
+        let (field, banner) = match &mode.setup {
+            Some((_, role)) => (
+                tr(role.label_id()),
+                if matches!(role, SetupPick::Bodies) {
+                    "pick-banner"
+                } else {
+                    "pick-banner-one"
+                },
+            ),
+            None => (
+                snap.project
+                    .toolpath(&mode.toolpath)
+                    .and_then(|(_, t)| Params::meta(t.kind(), &mode.path))
+                    .map_or_else(String::new, field_label),
+                "pick-banner",
+            ),
+        };
         painter.text(
             rect.center_top() + Vec2::new(0.0, 10.0),
             egui::Align2::CENTER_TOP,
-            tr_args("pick-banner", &[("field", &field)]),
+            tr_args(banner, &[("field", &field)]),
             egui::FontId::proportional(14.0),
             c(brand::CUTTER_ORANGE),
         );

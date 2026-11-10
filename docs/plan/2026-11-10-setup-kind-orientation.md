@@ -31,17 +31,17 @@ All earlier Global Constraints apply. In addition:
 - [x] Plan committed.
 
 ### Task 2: Setup kind
-- [ ] Tests first: same-class change, class change as one undoable edit, machine refusal, existing validation for disallowed toolpaths.
-- [ ] Kind dropdown and `kind_edit`.
+- [x] Tests first: same-class change, class change as one undoable edit, machine refusal, existing validation for disallowed toolpaths.
+- [x] Kind dropdown and `kind_edit`.
 
 ### Task 3: Bodies and body stock
-- [ ] Tests first: body list edits, undo, body stock scene, body pick by id, re-import keeps the picks.
-- [ ] Frame and app session: stock body; `Snapshot::all_bodies`.
-- [ ] Inspector rows, body pick mode in the viewport.
+- [x] Tests first: body list edits, undo, body stock scene, body pick by id, re-import keeps the picks.
+- [x] Frame and app session: stock body; `Snapshot::all_bodies`.
+- [x] Inspector rows, body pick mode in the viewport.
 
 ### Task 4: Orientation
-- [ ] Tests first: axis choice, face pick, rotary axis, scene follows, undo.
-- [ ] Orientation group and pick roles.
+- [x] Tests first: axis choice, face pick, rotary axis, scene follows, undo.
+- [x] Orientation group and pick roles.
 
 ### Task 5: Handles
 - [ ] Tests first: handle list, snapping, margin from a drag, one undo step.

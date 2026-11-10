@@ -10,6 +10,9 @@ use crate::scene::{FaceKind, SetupScene};
 use crate::session::Snapshot;
 use crate::vm::Selection;
 use crate::vm::inspector::value_edit;
+use crate::vm::setup::setup_pick_edit;
+use fluut_model::project::{AxisPick, Orientation, StockSpec};
+use fluut_model::setup::resolve_setup;
 use fluut_model::{PValue, Params, Sel, ToolpathTypeId};
 
 /// What a selection field accepts.
@@ -20,6 +23,54 @@ pub enum PickFilter {
     Cylinders,
     /// Edges, wire curves and planar faces (their loops).
     Curves,
+    /// Whole bodies: any face or curve stands for its body.
+    Bodies,
+    /// A direction: planar and cylindrical faces, and edges.
+    Directions,
+}
+
+/// What a Setup pick is for (spec 03 §3.9): its bodies, the stock body or
+/// one of the orientation directions.
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum SetupPick {
+    Bodies,
+    StockBody,
+    ToolAxis,
+    XAxis,
+    RotaryAxis,
+    AZero,
+}
+
+impl SetupPick {
+    /// The message id of the field the pick fills in.
+    pub fn label_id(self) -> &'static str {
+        match self {
+            SetupPick::Bodies => "setup-bodies",
+            SetupPick::StockBody => "stock-body",
+            SetupPick::ToolAxis => "orientation-tool-axis",
+            SetupPick::XAxis => "orientation-x-axis",
+            SetupPick::RotaryAxis => "orientation-rotary-axis",
+            SetupPick::AZero => "orientation-a-zero",
+        }
+    }
+
+    /// Whole bodies are picked on the model scene, which shows them all.
+    pub fn shows_model(self) -> bool {
+        matches!(self, SetupPick::Bodies | SetupPick::StockBody)
+    }
+
+    /// A pick that fills one value ends after the first hit.
+    fn single(self) -> bool {
+        self != SetupPick::Bodies
+    }
+
+    fn filter(self) -> PickFilter {
+        if self.shows_model() {
+            PickFilter::Bodies
+        } else {
+            PickFilter::Directions
+        }
+    }
 }
 
 impl PickFilter {
@@ -37,14 +88,18 @@ impl PickFilter {
     }
 
     pub fn wants_edges(self) -> bool {
-        self == PickFilter::Curves
+        matches!(
+            self,
+            PickFilter::Curves | PickFilter::Bodies | PickFilter::Directions
+        )
     }
 
     fn takes_face(self, kind: FaceKind) -> bool {
         match self {
-            PickFilter::Faces => true,
+            PickFilter::Faces | PickFilter::Bodies => true,
             PickFilter::Cylinders => kind == FaceKind::Cylinder,
             PickFilter::Curves => kind == FaceKind::Plane,
+            PickFilter::Directions => matches!(kind, FaceKind::Plane | FaceKind::Cylinder),
         }
     }
 }
@@ -59,6 +114,10 @@ pub struct PickMode {
     pub hover: Option<Sel>,
     /// The closed loop of the last edge picked, when it is not all selected.
     pub offer: Vec<Sel>,
+    /// For a Setup pick: the Setup and what is picked. `toolpath` is empty.
+    pub setup: Option<(String, SetupPick)>,
+    /// A single-value pick has taken its value: leave the mode.
+    pub done: bool,
 }
 
 impl PickMode {
@@ -69,11 +128,76 @@ impl PickMode {
             filter: PickFilter::of(kind, path),
             hover: None,
             offer: Vec::new(),
+            setup: None,
+            done: false,
+        }
+    }
+
+    /// A pick for a field of Setup `setup`.
+    pub fn for_setup(setup: &str, role: SetupPick) -> PickMode {
+        PickMode {
+            toolpath: String::new(),
+            path: role.label_id().to_owned(),
+            filter: role.filter(),
+            hover: None,
+            offer: Vec::new(),
+            setup: Some((setup.to_owned(), role)),
+            done: false,
+        }
+    }
+
+    /// What is picked now: a toolpath field's items, or the Setup's bodies,
+    /// stock body or direction.
+    pub fn current(&self, s: &Snapshot) -> Vec<Sel> {
+        let Some((setup, role)) = &self.setup else {
+            return selected(s, &self.toolpath, &self.path);
+        };
+        let Ok(r) = resolve_setup(&s.project, setup) else {
+            return Vec::new();
+        };
+        let of = |p: &AxisPick| match p {
+            AxisPick::Face(id) => vec![Sel::Face(id.clone())],
+            AxisPick::Edge(id) => vec![Sel::Edge(id.clone())],
+            AxisPick::Axis(_) => Vec::new(),
+        };
+        match (role, &r.orientation, &r.stock) {
+            (SetupPick::Bodies, ..) => r.geometry.bodies.map_or_else(
+                || {
+                    s.project
+                        .geometry
+                        .iter()
+                        .flat_map(|g| g.bodies.iter().map(|b| Sel::Body(b.id.clone())))
+                        .collect()
+                },
+                |b| b.into_iter().map(Sel::Body).collect(),
+            ),
+            (SetupPick::StockBody, _, Some(StockSpec::Body { body })) => {
+                vec![Sel::Body(body.clone())]
+            }
+            (SetupPick::ToolAxis, Orientation::ThreeAxis { tool_axis: p, .. }, _)
+            | (SetupPick::XAxis, Orientation::ThreeAxis { x_axis: p, .. }, _)
+            | (SetupPick::RotaryAxis, Orientation::Rotary { rotary_axis: p, .. }, _) => of(p),
+            (
+                SetupPick::AZero,
+                Orientation::Rotary {
+                    a_zero_toward: Some(p),
+                    ..
+                },
+                _,
+            ) => of(p),
+            _ => Vec::new(),
         }
     }
 
     /// The scene the pick happens in: the Setup of the toolpath.
     fn scene<'a>(&self, s: &'a Snapshot) -> Option<&'a SetupScene> {
+        if let Some((setup, role)) = &self.setup {
+            return if role.shows_model() {
+                s.all_bodies.as_deref()
+            } else {
+                s.scenes.get(setup).map(|a| &**a)
+            };
+        }
         let (setup, _) = s.project.toolpath(&self.toolpath)?;
         s.scenes.get(&setup.id).map(|a| &**a)
     }
@@ -94,11 +218,21 @@ impl PickMode {
         }
     }
 
+    /// Whether a click on the model chooses whole bodies.
+    pub fn picks_bodies(&self) -> bool {
+        self.filter == PickFilter::Bodies
+    }
+
     /// A click on `sel`: the edit that toggles it, if the field takes it.
     /// An edge just added offers its closed loop.
     pub fn hit(&mut self, s: &Snapshot, sel: &Sel) -> Option<Edit> {
         if !self.accepts(s, sel) {
             return None;
+        }
+        if let Some((setup, role)) = &self.setup {
+            let e = setup_pick_edit(s, setup, *role, sel).ok()?;
+            self.done = role.single();
+            return Some(Edit::Model(e));
         }
         let mut items = selected(s, &self.toolpath, &self.path);
         let added = !items.contains(sel);
@@ -119,7 +253,7 @@ impl PickMode {
 
     /// Takes up the offer: the edit that adds the rest of the loop.
     pub fn accept_offer(&mut self, s: &Snapshot) -> Option<Edit> {
-        if self.offer.is_empty() {
+        if self.offer.is_empty() || self.setup.is_some() {
             return None;
         }
         let mut items = selected(s, &self.toolpath, &self.path);
@@ -226,7 +360,7 @@ pub fn highlight(
 ) -> Highlight {
     let mut h = Highlight::default();
     if let Some(p) = pick {
-        for x in selected(s, &p.toolpath, &p.path) {
+        for x in p.current(s) {
             indices(scene, &x, &mut h);
         }
         let mut hover = Highlight::default();

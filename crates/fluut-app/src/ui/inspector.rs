@@ -12,7 +12,7 @@ use crate::vm::inspector::{
     DiagVm, FieldVm, InspectorVm, ToolChoiceVm, ToolpathVm, Widget, height_edit, number_edit,
     points_edit, tool_edit, value_edit,
 };
-use crate::vm::pick::{PickMode, clear_edit, remove_edit};
+use crate::vm::pick::{PickMode, SetupPick, clear_edit, remove_edit};
 use crate::vm::setup::{RowVm, RowWidget, SetupVm, reset_edit, setup_edit};
 use eframe::egui;
 use fluut_model::{Group, PValue, Sel};
@@ -100,7 +100,9 @@ fn setup_row(
     r: &RowVm,
     p: &Palette,
 ) {
-    let label = ui.label(&r.label);
+    // A check box carries its own label.
+    let check = matches!(r.widget, RowWidget::Check);
+    let label = ui.label(if check { "" } else { &r.label });
     let path = format!("setup/{id}/{}", r.key);
     ui.vertical(|ui| {
         let mut commit = None;
@@ -112,6 +114,12 @@ fn setup_row(
             RowWidget::Number { unit } => {
                 let help = tr("inspector-entry-help");
                 commit = entry(ui, state, &path, &r.value, *unit, label.id, &help);
+            }
+            RowWidget::Check => {
+                let mut on = r.value == "true";
+                if ui.checkbox(&mut on, &r.label).changed() {
+                    commit = Some(on.to_string());
+                }
             }
             RowWidget::Choice(options) => {
                 let shown = options
@@ -132,6 +140,9 @@ fn setup_row(
                     .labelled_by(label.id);
             }
         });
+        if let Some(role) = r.pick {
+            setup_pick_button(ui, state, id, role);
+        }
         if let Some(text) = commit
             && let Some(snap) = jobs.snapshot.clone()
         {
@@ -156,6 +167,26 @@ fn setup_row(
         entry_message(ui, state, &path);
     });
     ui.end_row();
+}
+
+/// Pick or Done beside a Setup row: starts or ends the pick on the model.
+fn setup_pick_button(ui: &mut egui::Ui, state: &mut UiState, setup: &str, role: SetupPick) {
+    let picking = state
+        .pick
+        .as_ref()
+        .is_some_and(|p| p.setup.as_ref() == Some(&(setup.to_owned(), role)));
+    let name = tr(role.label_id());
+    if picking {
+        if ui.button(tr("pick-done")).clicked() {
+            state.pick = None;
+        }
+    } else if ui
+        .button(tr("pick-start"))
+        .on_hover_text(tr_args("pick-start-for", &[("field", &name)]))
+        .clicked()
+    {
+        state.pick = Some(PickMode::for_setup(setup, role));
+    }
 }
 
 fn entry_message(ui: &mut egui::Ui, state: &UiState, path: &str) {

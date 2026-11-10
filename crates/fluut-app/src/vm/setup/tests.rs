@@ -5,6 +5,7 @@ use crate::jobs::{Edit as JobEdit, Jobs};
 use crate::session::tests::opened;
 use crate::vm::Selection;
 use crate::vm::inspector::InspectorVm;
+use fluut_model::Sel;
 use std::sync::Arc;
 
 fn vm(s: &Snapshot, id: &str) -> SetupVm {
@@ -48,6 +49,8 @@ fn rows_show_the_setup_in_the_project_unit() {
         ids,
         [
             "setup-general",
+            "setup-bodies",
+            "setup-orientation",
             "setup-stock",
             "setup-zero",
             "setup-clearance"
@@ -285,4 +288,210 @@ fn a_rotary_kind_is_refused_for_a_machine_without_a_rotary_axis() {
         "{e}"
     );
     assert!(setup_edit(&s, "s1", "kind", "nonsense").is_err());
+}
+
+fn bounds_of(s: &Snapshot, id: &str) -> crate::scene::Bounds {
+    s.scenes[id].stock.unwrap()
+}
+
+#[test]
+fn bodies_are_checked_one_by_one_and_undone() {
+    let mut j = opened("plate");
+    let s = j.snapshot.clone().unwrap();
+    let v = vm(&s, "s1");
+    assert_eq!(v.row("bodies.all").unwrap().value, "true");
+    assert_eq!(v.row("bodies.all").unwrap().pick, Some(SetupPick::Bodies));
+    assert_eq!(v.row("bodies.b-2").unwrap().label, "POCKET (b-2)");
+    let all_edges = s.scenes["s1"].edge_ids.len();
+    let s = apply(&mut j, "bodies.b-2", "false");
+    let g = s.project.setup("s1").unwrap().geometry.clone().unwrap();
+    assert_eq!(g.bodies, Some(vec!["b-1".to_owned()]));
+    assert!(s.scenes["s1"].edge_ids.len() < all_edges);
+    let v = vm(&s, "s1");
+    assert_eq!(v.row("bodies.all").unwrap().value, "false");
+    assert_eq!(v.row("bodies.b-2").unwrap().value, "false");
+    // The last body stays.
+    let e = setup_edit(&s, "s1", "bodies.b-1", "false").unwrap_err();
+    assert!(e.contains("one body"), "{e}");
+    // Checking it again is "all bodies" again, with no geometry key.
+    let s = apply(&mut j, "bodies.b-2", "true");
+    assert!(s.project.setup("s1").unwrap().geometry.is_none());
+    assert_eq!(s.scenes["s1"].edge_ids.len(), all_edges);
+    undo(&mut j);
+    let s = undo(&mut j);
+    assert!(s.project.setup("s1").unwrap().geometry.is_none());
+    // All bodies written out, and back to all.
+    let s = apply(&mut j, "bodies.all", "false");
+    assert_eq!(
+        s.project
+            .setup("s1")
+            .unwrap()
+            .geometry
+            .as_ref()
+            .unwrap()
+            .bodies,
+        Some(vec!["b-1".to_owned(), "b-2".to_owned()])
+    );
+    let s = apply(&mut j, "bodies.all", "true");
+    assert!(s.project.setup("s1").unwrap().geometry.is_none());
+}
+
+#[test]
+fn stock_from_a_body_is_the_bounds_of_a_body_the_setup_does_not_machine() {
+    let mut j = opened("plate");
+    apply(&mut j, "bodies.b-2", "false");
+    let s = apply(&mut j, "stock.kind", "body");
+    assert_eq!(
+        s.project.setup("s1").unwrap().stock,
+        Some(StockSpec::Body { body: "b-2".into() })
+    );
+    let v = vm(&s, "s1");
+    assert_eq!(v.row("stock.kind").unwrap().value, "body");
+    assert_eq!(v.row("stock.body").unwrap().value, "b-2");
+    assert_eq!(
+        v.row("stock.body").unwrap().pick,
+        Some(SetupPick::StockBody)
+    );
+    // The scene still holds the machined body, and the stock is the other's box.
+    assert!(!s.scenes["s1"].edge_ids.is_empty());
+    assert!(
+        s.scenes["s1"]
+            .edge_ids
+            .iter()
+            .all(|e| e.starts_with("e-1."))
+    );
+    let pocket = s.all_bodies.as_ref().unwrap();
+    let b = bounds_of(&s, "s1");
+    assert!(b.max[0] - b.min[0] > 0.0 && pocket.bounds.is_some());
+    // The stock body is never machined, even when the Setup takes all
+    // bodies; choosing the other body in the dropdown moves the stock.
+    let s = apply(&mut j, "bodies.all", "true");
+    assert!(
+        s.scenes["s1"]
+            .edge_ids
+            .iter()
+            .all(|e| e.starts_with("e-1."))
+    );
+    let e = setup_edit(&s, "s1", "stock.body", "b-1").unwrap();
+    j.edit(JobEdit::Model(e));
+    let s2 = j.wait_snapshot().unwrap();
+    assert_eq!(
+        s2.project.setup("s1").unwrap().stock,
+        Some(StockSpec::Body { body: "b-1".into() })
+    );
+    assert_ne!(bounds_of(&s2, "s1"), b);
+    assert!(
+        s2.scenes["s1"]
+            .edge_ids
+            .iter()
+            .all(|e| e.starts_with("e-2."))
+    );
+    undo(&mut j);
+    undo(&mut j);
+    undo(&mut j);
+    let s = undo(&mut j);
+    assert!(matches!(
+        s.project.setup("s1").unwrap().stock,
+        Some(StockSpec::Block { .. })
+    ));
+}
+
+#[test]
+fn the_orientation_follows_the_axes_and_the_scene_turns_with_it() {
+    let mut j = opened("block");
+    let s = j.snapshot.clone().unwrap();
+    let v = vm(&s, "s1");
+    assert_eq!(v.row("orientation.tool_axis").unwrap().value, "+Z");
+    assert_eq!(v.row("orientation.x_axis").unwrap().value, "+X");
+    let b0 = bounds_of(&s, "s1");
+    // X of the work frame along the model's Y: width and depth swap.
+    let s = apply(&mut j, "orientation.x_axis", "+Y");
+    assert_eq!(vm(&s, "s1").row("orientation.x_axis").unwrap().value, "+Y");
+    let b1 = bounds_of(&s, "s1");
+    assert!(((b1.max[0] - b1.min[0]) - (b0.max[1] - b0.min[1])).abs() < 1e-2);
+    assert!(((b1.max[1] - b1.min[1]) - (b0.max[0] - b0.min[0])).abs() < 1e-2);
+    // Turning the part over: the tool axis is the model's -Z.
+    let s = apply(&mut j, "orientation.tool_axis", "-Z");
+    assert_eq!(
+        vm(&s, "s1").row("orientation.tool_axis").unwrap().value,
+        "-Z"
+    );
+    assert!(
+        s.diagnostics["t1"]
+            .iter()
+            .all(|d| !d.is_error() || d.code != "setup.orientation.pick")
+    );
+    // Two parallel directions are refused by the frame and say so.
+    let s = apply(&mut j, "orientation.x_axis", "-Z");
+    assert!(
+        vm(&s, "s1")
+            .diagnostics
+            .iter()
+            .any(|d| d.text.contains("orientation"))
+            || s.scenes["s1"].faces.is_empty(),
+        "{:?}",
+        vm(&s, "s1").diagnostics
+    );
+    for _ in 0..3 {
+        undo(&mut j);
+    }
+    assert_eq!(bounds_of(&j.snapshot.clone().unwrap(), "s1"), b0);
+    assert!(setup_edit(&s, "s1", "orientation.tool_axis", "up").is_err());
+    assert!(setup_edit(&s, "s1", "orientation.rotary_axis", "+X").is_err());
+}
+
+#[test]
+fn a_picked_face_is_an_orientation_direction() {
+    let mut j = opened("block");
+    let s = j.snapshot.clone().unwrap();
+    let floor = Sel::Face("f-494.10".into());
+    let e = setup_pick_edit(&s, "s1", SetupPick::ToolAxis, &floor).unwrap();
+    j.edit(JobEdit::Model(e));
+    let s = j.wait_snapshot().unwrap();
+    let v = vm(&s, "s1");
+    let r = v.row("orientation.tool_axis").unwrap();
+    assert_eq!(r.value, "face:f-494.10");
+    let RowWidget::Choice(o) = &r.widget else {
+        panic!()
+    };
+    assert!(
+        o.iter()
+            .any(|(v, l)| v == "face:f-494.10" && l == "Face f-494.10")
+    );
+    assert!(!s.scenes["s1"].faces.is_empty());
+    // A body is no direction.
+    assert!(setup_pick_edit(&s, "s1", SetupPick::XAxis, &Sel::Body("b-494".into())).is_err());
+    let s = undo(&mut j);
+    assert_eq!(
+        vm(&s, "s1").row("orientation.tool_axis").unwrap().value,
+        "+Z"
+    );
+}
+
+#[test]
+fn a_rotary_setup_orients_by_its_rotary_axis_and_the_a_zero_direction() {
+    let mut j = opened("shaft");
+    let id = j.snapshot.as_ref().unwrap().project.setups[0].id.clone();
+    let s = j.snapshot.clone().unwrap();
+    let v = vm(&s, &id);
+    assert_eq!(
+        v.row("orientation.rotary_axis").unwrap().value,
+        "face:f-354.0"
+    );
+    assert_eq!(v.row("orientation.a_zero_toward").unwrap().value, "+X");
+    assert!(v.row("orientation.tool_axis").is_none());
+    let e = setup_edit(&s, &id, "orientation.a_zero_toward", "").unwrap();
+    j.edit(JobEdit::Model(e));
+    let s = j.wait_snapshot().unwrap();
+    assert_eq!(
+        vm(&s, &id).row("orientation.a_zero_toward").unwrap().value,
+        ""
+    );
+    let e = setup_edit(&s, &id, "orientation.a_zero_toward", "-Y").unwrap();
+    j.edit(JobEdit::Model(e));
+    let s = j.wait_snapshot().unwrap();
+    assert_eq!(
+        vm(&s, &id).row("orientation.a_zero_toward").unwrap().value,
+        "-Y"
+    );
 }
