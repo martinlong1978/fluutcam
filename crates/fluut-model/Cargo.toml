@@ -19,5 +19,11 @@ toml.workspace = true
 [dev-dependencies]
 proptest.workspace = true
 
+# The generator of the wiki's reference pages (plan 2026-11-04-docs-wiki);
+# `test = true` runs its unit tests.
+[[example]]
+name = "wiki_reference"
+test = true
+
 [lints]
 workspace = true

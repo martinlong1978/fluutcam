@@ -38,6 +38,8 @@ struct Pending<'a> {
 enum Waiting<'a> {
     Node(&'a Node),
     Item(u32),
+    /// An item whose bound has been tightened by `refine`.
+    Refined(u32),
 }
 
 impl PartialEq for Pending<'_> {
@@ -135,8 +137,24 @@ impl Bvh {
     /// starting from `best`.
     pub fn best_first(
         &self,
+        best: f64,
+        bound: impl FnMut(&Aabb3) -> f64,
+        visit: impl FnMut(u32, f64) -> Option<f64>,
+    ) -> f64 {
+        self.best_first_refined(best, bound, |_, b| b, visit)
+    }
+
+    /// As [`Bvh::best_first`], with a second, tighter bound for items.
+    /// When an item reaches the front of the queue, `refine(i, bound)`
+    /// gives a bound of its objective that is at most `bound`; if that is
+    /// lower, the item goes back into the queue with it (and is dropped if
+    /// it no longer exceeds the best value), so that items are visited in the
+    /// order of the tighter bound.
+    pub fn best_first_refined(
+        &self,
         mut best: f64,
         mut bound: impl FnMut(&Aabb3) -> f64,
+        mut refine: impl FnMut(u32, f64) -> f64,
         mut visit: impl FnMut(u32, f64) -> Option<f64>,
     ) -> f64 {
         let mut heap = BinaryHeap::new();
@@ -154,6 +172,21 @@ impl Bvh {
             }
             match p.what {
                 Waiting::Item(i) => {
+                    let r = refine(i, p.bound);
+                    if r < p.bound {
+                        if r > best {
+                            seq += 1;
+                            heap.push(Pending {
+                                bound: r,
+                                seq,
+                                what: Waiting::Refined(i),
+                            });
+                        }
+                    } else if let Some(v) = visit(i, p.bound) {
+                        best = best.max(v);
+                    }
+                }
+                Waiting::Refined(i) => {
                     if let Some(v) = visit(i, p.bound) {
                         best = best.max(v);
                     }
@@ -257,6 +290,29 @@ mod tests {
         });
         assert_eq!(got, want);
         assert!(visited < 30, "{visited} items visited");
+    }
+
+    #[test]
+    fn best_first_refined_visits_in_the_order_of_the_tighter_bound() {
+        // Item i has box top i and true value 10 − i (the box bound is
+        // loose for all of them but the last).
+        let boxes: Vec<Aabb3> = (0..6).map(|i| unit_box(i as f64, 0.0, i as f64)).collect();
+        let value = |i: u32| 10.0 - f64::from(i);
+        let bvh = Bvh::new(&boxes);
+        let mut order = Vec::new();
+        let best = bvh.best_first_refined(
+            f64::NEG_INFINITY,
+            |b| b.max.z() + 100.0,
+            |i, bound| bound.min(value(i) + 0.5),
+            |i, _| {
+                order.push(i);
+                Some(value(i))
+            },
+        );
+        // Item 0 has the highest value; once it is solved nothing else can
+        // beat it (the others' refined bounds are 9.5 or less).
+        assert_eq!(order, vec![0]);
+        assert_eq!(best, 10.0);
     }
 
     #[test]

@@ -1,0 +1,55 @@
+# Mirrors docs/wiki/ to the GitHub wiki of this repository.
+#
+# The pages are written, reviewed and versioned in the main repository; the
+# wiki repository (<repo>.wiki.git) is only a copy. Edits made in the wiki's
+# web editor are overwritten by the next run. Needs the wiki enabled in the
+# repository settings and one page created by hand first, so that the wiki
+# repository exists (GitHub creates it with the first page).
+#
+# Uses the built-in GITHUB_TOKEN only; no secret, no third-party action.
+
+name: Wiki
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/wiki/**"
+      - ".github/workflows/wiki.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: wiki
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Copy the pages into the wiki repository
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          ACTOR: ${{ github.actor }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          git clone --depth 1 "https://x-access-token:${TOKEN}@github.com/${REPO}.wiki.git" "$RUNNER_TEMP/wiki"
+          # Mirror the folder, including deletions. The reference notes
+          # (reference/*.toml) feed the generator and are not wiki pages.
+          rsync -a --delete --exclude '.git' --exclude 'reference' \
+            --exclude 'README.md' docs/wiki/ "$RUNNER_TEMP/wiki/"
+          cd "$RUNNER_TEMP/wiki"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "The wiki is already up to date."
+            exit 0
+          fi
+          git commit -m "Update the wiki from ${SHA::7}" -m "Mirrored from docs/wiki/ in ${REPO} by the wiki workflow (push by ${ACTOR})."
+          git push origin HEAD:master

@@ -45,6 +45,9 @@ impl Permissions {
             p.to_path_buf()
         } else {
             match base.or(self.project_dir.as_deref()) {
+                // The folder of a project opened by a bare file name is empty:
+                // it is the current folder.
+                Some(b) if b.as_os_str().is_empty() => absolute(Path::new(".")).join(p),
                 Some(b) => absolute(b).join(p),
                 None => {
                     return Err(format!(
