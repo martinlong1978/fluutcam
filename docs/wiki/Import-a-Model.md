@@ -9,7 +9,7 @@ A project holds one or more model files: the parts you want to machine. This pag
 | STEP | `.step`, `.stp` | Solid bodies with exact faces. This is the format to use. 3-D toolpaths work on it. |
 | DXF | `.dxf` | Flat curves (wire bodies), for 2-D work. |
 | SVG | `.svg` | Flat curves, for 2-D work. |
-| STL | `.stl` | The file is read, but it gives no bodies yet, so the import fails. See [Known limits](Known-Limits). |
+| STL | `.stl` | A triangle mesh. Each separate piece (shell) of the mesh becomes one body, and each triangle is a flat face. 3-D toolpaths can machine it. See [Import an STL file](#import-an-stl-file). |
 
 2-D toolpaths need curves or faces picked. In the toolpath's Geometry tab, click **Pick** and click the entities on the model. The curves of a DXF or SVG import can be picked this way. See [Add a toolpath](Add-a-Toolpath).
 
@@ -24,6 +24,27 @@ The status bar says "Imported block.step (1 bodies)". The bodies are listed unde
 ![A model imported](images/model-imported.png)
 
 The import is one undo step (the status bar says "Undid Add geometry" when you undo it).
+
+## Import an STL file
+
+An STL file is a mesh of triangles. FluutCAM turns every connected piece (shell) of the mesh into one body, listed in the Browser as `b-1`, `b-2` and so on. Each triangle is one flat face. In the viewport only the real creases (where neighbouring triangles bend by more than 30 degrees) and the border edges are drawn, so a smooth mesh does not look like a net.
+
+To import an STL file and machine it:
+
+1. Open a project and click **Import model**. Pick the `.stl` file. The status bar says how many bodies were imported. FluutCAM also warns that STL files have no unit (see below).
+2. Click the model in the viewport or the Browser to select a body. A click on the model picks the whole body. Picking a single face picks one triangle.
+3. In the **Setup** stage click **New 3-axis Setup**. The stock is sized from the mesh. You can also use a body as the stock, as with a STEP file ([Setups, stock and zero](Setups-Stock-and-Zero)).
+4. In the **Toolpaths** stage add a 3-D toolpath, for example **Parallel** or **Optimised load 3D**. With nothing picked it machines every body.
+5. Click **Calculate all**, then **Simulate** in the Simulate stage, then **Post** ([Calculate and simulate](Calculate-and-Simulate), [Post G-code](Post-G-code)).
+
+Things to know about meshes:
+
+- **Open or damaged meshes** (holes, or edges shared by more than two triangles) are still imported, with the warning `model.geometry.mesh.open`. Toolpaths follow the triangles, but results near the gaps may be wrong. Close the mesh in your modelling program if you can.
+- **A file with no usable triangles** fails with `model.import.empty`. A file that is not a real STL file gives an error. It never crashes the program.
+- **The unit.** An STL file has no unit, so FluutCAM uses the project's unit (mm or inch) and warns (`model.import.unit_assumed`). The window has no control to change this yet. If the part is the wrong size, undo the import, start a project in the other unit, and import again.
+- **Faces are triangles.** Faces are not grouped, so picking a face picks one triangle only.
+- **Re-import** keeps your picks only while the triangles of the file are in the same order as before.
+- A mesh is slower to machine than a STEP model (see [Known limits](Known-Limits)). Where you have a choice, STEP gives the best result.
 
 ## Where the file goes
 
@@ -47,7 +68,8 @@ A failed import changes nothing: the project and its folder stay as they were. T
 | You see | Why | What to do |
 |---|---|---|
 | "not a valid STEP file" and a position in the file | The file is not STEP, or is damaged | Re-export it from your CAD program |
-| "... gave no geometry" | The file loaded and had nothing a toolpath can use. An STL file does this today | Use a STEP file |
+| "... gave no geometry" (`model.import.empty`) | The file loaded and had nothing a toolpath can use, for example an STL file with no usable triangles | Check the file in another program, or export it again |
+| "not a readable STL file" | The file is not an STL file, or is damaged | Export it again from your program |
 | "...: not a STEP, STL, DXF or SVG file" | The file extension is not one FluutCAM reads | Check the file |
 | "cannot read ..." | The file is missing, locked or unreadable | Check the path and permissions |
 | "body `...` of ... has the id of a body of `...`" | Two imported files give a body the same id. Two DXF files do this, because each calls its first body `b-1` | Not supported yet; use one project per file |

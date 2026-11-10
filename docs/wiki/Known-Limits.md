@@ -26,7 +26,13 @@ Small thing you may notice: some error messages, such as a bad STEP file, show i
 
 ## Importing
 
-- **STL files give no bodies yet.** The file is read, but no toolpath type can machine a mesh, so the import fails with "gave no geometry".
+- **STL files (meshes).** They import as bodies and can be machined, with these limits:
+  - Faces are not grouped. Each triangle is its own face, so picking a face picks one triangle.
+  - Drops on a mesh are about 100 times slower than on exact STEP faces, so 3-D toolpaths on a detailed mesh take much longer.
+  - Very large meshes (about a million triangles) use a lot of memory.
+  - Re-import keeps your picks only while the triangles of the file keep their order.
+  - An open or non-manifold mesh imports with the warning `model.geometry.mesh.open`; results near the gaps may be wrong.
+  - STL has no unit. FluutCAM uses the project's unit and warns, and the window has no control to change it yet.
 - **Two files with the same body ids** (two DXF files, each with a `b-1`) cannot be in one project. The second import is refused.
 - DXF and SVG import gives curves. You pick them for a 2-D toolpath in pick mode.
 - Re-importing a changed model file is a script function (`model.reimport`), not a window command.
