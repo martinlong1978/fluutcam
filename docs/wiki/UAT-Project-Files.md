@@ -6,7 +6,7 @@ Tests of starting, opening, saving and undoing. Part of the [user acceptance tes
 
 ### UAT-PRJ-01 Nothing is open at the start
 
-- **Preconditions:** FluutCAM is started with no project (not from a project file).
+- **Preconditions:** FluutCAM is started with no project (not from a project file). If the Getting started card is showing, close it with its **x** (see [UAT-GDE-04](UAT-Guide)).
 - **Steps:**
   1. Look at the window.
   2. Click each stage tab of the ribbon in turn (Model, Setup, Toolpaths, Simulate, Post, Library).

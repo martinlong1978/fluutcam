@@ -106,10 +106,22 @@ const SHOTS: &[Shot] = &[
         },
     },
     Shot {
+        name: "getting-started",
+        shows: "The Getting started card: two steps ticked, the third to do next",
+        crop: Some((0, 170, 380, 675)),
+        run: |r| {
+            r.app().ui.guide.open = true;
+            r.h.run_steps(3);
+        },
+    },
+    Shot {
         name: "ribbon-setup",
         shows: "The Setup stage of the ribbon: the three kinds of Setup, based-on, stock and work zero",
         crop: Some((0, 0, 1280, 215)),
-        run: |r| r.click("SETUP"),
+        run: |r| {
+            r.app().ui.guide.open = false;
+            r.click("SETUP");
+        },
     },
     Shot {
         name: "setup-added",
