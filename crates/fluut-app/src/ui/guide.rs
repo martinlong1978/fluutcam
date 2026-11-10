@@ -30,14 +30,22 @@ fn tick(ui: &mut egui::Ui, step: &StepVm, p: &Palette) {
         "guide-step-todo"
     };
     let label = tr_args(id, &[("title", &step.title)]);
-    r.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, step.done, &label));
+    r.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, step.done, &label)
+    });
     let centre = rect.center();
     let painter = ui.painter();
     if step.done {
         painter.circle_filled(centre, 8.0, c(brand::GREEN));
         let ink = Stroke::new(2.0, c(brand::INK));
-        painter.line_segment([centre + Vec2::new(-4.0, 0.5), centre + Vec2::new(-1.0, 3.5)], ink);
-        painter.line_segment([centre + Vec2::new(-1.0, 3.5), centre + Vec2::new(4.5, -3.0)], ink);
+        painter.line_segment(
+            [centre + Vec2::new(-4.0, 0.5), centre + Vec2::new(-1.0, 3.5)],
+            ink,
+        );
+        painter.line_segment(
+            [centre + Vec2::new(-1.0, 3.5), centre + Vec2::new(4.5, -3.0)],
+            ink,
+        );
     } else {
         let colour = if step.current {
             c(brand::CUTTER_ORANGE)
@@ -100,7 +108,11 @@ fn step_row(
         ui.vertical(|ui| {
             ui.set_width(WIDTH - 34.0);
             ui.label(egui::RichText::new(&step.title).strong());
-            ui.label(egui::RichText::new(&step.hint).small().color(c(p.weak_text)));
+            ui.label(
+                egui::RichText::new(&step.hint)
+                    .small()
+                    .color(c(p.weak_text)),
+            );
             if step.step == GuideStep::Toolpath {
                 choices(ui, vm, state);
             }

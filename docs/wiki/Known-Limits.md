@@ -8,6 +8,7 @@ If something you need is not here and does not work, [tell us](https://github.co
 
 The window is a first version. The ribbon drives everything the window can do. These are not yet in the window:
 
+- **More than a first job in the Getting started card.** The card adds a 3-axis Setup and one toolpath of a type you choose; rotary and indexed Setups, more toolpaths and picking faces for a 2-D type are done with the ribbon and the inspector. Its last step is ticked when G-code is written in this session; it does not look at files on disk.
 - **Some Setup controls.** A Setup has no controls for scale and mirror, and the window leaves them as they are. A rotary or indexed Setup cannot use a body as the stock. A block given by size has only the work zero handle, and so does cylinder stock.
 - **Handles and snapping.** There are no handles for a cylinder's radius and length, and no dial for the index angle. The work zero snaps to the corners and top centre of the stock (or its ends on the axis), not to vertices or arc centres.
 - **Picking whole bodies.** A click on the model toggles a whole body, but the pointer lights up only the face or curve under it, not the whole body.

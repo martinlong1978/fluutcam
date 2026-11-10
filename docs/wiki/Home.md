@@ -12,7 +12,7 @@ This wiki is the user guide. It is written for a hobbyist or small-shop machinis
 
 1. [Install](Install) FluutCAM.
 2. Take the [Interface tour](Interface-Tour) to learn the window.
-3. Follow [Your first project](Your-First-Project): from a STEP file to G-code in ten steps.
+3. Follow the [Getting started card](Getting-Started) that FluutCAM shows on first start, or [Your first project](Your-First-Project): from a STEP file to G-code in ten steps.
 
 ## How to
 

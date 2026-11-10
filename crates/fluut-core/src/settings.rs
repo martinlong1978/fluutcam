@@ -168,9 +168,13 @@ mod tests {
         s.save_to(&path).unwrap();
         assert!(Settings::load_from(&path).guide.dismissed);
         // A file from before the guide existed still loads.
-        std::fs::write(&path, "[update]
+        std::fs::write(
+            &path,
+            "[update]
 asked = true
-").unwrap();
+",
+        )
+        .unwrap();
         let old = Settings::load_from(&path);
         assert!(old.update.asked && !old.guide.dismissed);
         let _ = std::fs::remove_dir_all(path.parent().unwrap());

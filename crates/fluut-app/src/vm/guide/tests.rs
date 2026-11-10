@@ -226,3 +226,17 @@ fn a_failed_toolpath_leaves_no_tool_waiting() {
     state.observe(Some(&(JobKind::AddToolpath, Outcome::Failed(Vec::new()))));
     assert!(state.pending_tool.is_none());
 }
+
+#[test]
+fn undo_takes_the_toolpath_and_the_ticks_after_it_back() {
+    let mut j = opened("boss");
+    let state = GuideState::default();
+    j.calculate(CalcTargets::All);
+    j.wait();
+    assert_eq!(marks(&vm(&j, &state)), "xxxxx..");
+    j.undo();
+    j.wait();
+    let v = vm(&j, &state);
+    assert_eq!(marks(&v), "xxx....");
+    assert!(v.step(GuideStep::Toolpath).current);
+}

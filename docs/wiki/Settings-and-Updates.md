@@ -4,6 +4,8 @@
 
 Click **Settings** in the title bar. Today the Settings window holds one thing, the update check. Other options, such as default units, language and the layout of the panels, are **not yet** settings.
 
+The **Getting started** button in the title bar opens or closes the [Getting started card](Getting-Started). Whether the card shows at the next start is a setting, kept for you.
+
 The title bar also has a **Light theme** / **Dark theme** button. The window starts dark each time; the choice is not saved.
 
 ![The Settings window](images/settings.png)
@@ -42,7 +44,7 @@ In a file `settings.toml` in FluutCAM's data folder:
 | macOS | `~/Library/Application Support/FluutCAM` |
 | Linux | `~/.local/share/fluutcam` (or `$XDG_DATA_HOME/fluutcam`) |
 
-Setting the environment variable `FLUUT_DATA_DIR` uses that folder instead. The same folder holds the crash reports (in `crashes`). Delete the folder to remove all of it. A missing or damaged settings file gives the defaults.
+Setting the environment variable `FLUUT_DATA_DIR` uses that folder instead. The same folder holds the crash reports (in `crashes`). Delete the folder to remove all of it. The file holds the update choice and whether you closed the Getting started card. A missing or damaged settings file gives the defaults.
 
 ## Next
 
