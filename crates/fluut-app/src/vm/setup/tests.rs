@@ -33,7 +33,11 @@ fn rows_show_the_setup_in_the_project_unit() {
     let v = vm(&s, "s1");
     assert_eq!(v.title, "Top");
     assert_eq!(v.row("name").unwrap().value, "Top");
-    assert_eq!(v.row("kind").unwrap().widget, RowWidget::ReadOnly);
+    let RowWidget::Choice(kinds) = &v.row("kind").unwrap().widget else {
+        panic!()
+    };
+    assert_eq!(kinds.len(), 3);
+    assert_eq!(v.row("kind").unwrap().value, "three_axis");
     assert_eq!(v.row("stock.kind").unwrap().value, "margin");
     assert_eq!(v.row("stock.margin.0").unwrap().value, "5");
     assert_eq!(v.row("zero.choice").unwrap().value, "top.front_left");
@@ -215,4 +219,70 @@ fn a_refused_edit_shows_in_the_status_line() {
     assert!(s.edit_error.is_some());
     let st = crate::vm::status::StatusVm::new(&j);
     assert!(st.failed && st.text.starts_with("Not changed:"), "{st:?}");
+}
+
+#[test]
+fn a_kind_change_within_the_rotary_class_writes_only_the_kind() {
+    let mut j = opened("shaft");
+    let id = j.snapshot.as_ref().unwrap().project.setups[0].id.clone();
+    let before = j.snapshot.clone().unwrap();
+    let e = setup_edit(&before, &id, "kind", "indexed").unwrap();
+    assert!(matches!(e, Edit::SetSetupField { .. }), "{e:?}");
+    j.edit(JobEdit::Model(e));
+    let s = j.wait_snapshot().unwrap();
+    let st = s.project.setup(&id).unwrap();
+    assert_eq!(st.kind, Some(SetupKind::Indexed));
+    assert_eq!(st.stock, before.project.setup(&id).unwrap().stock);
+    assert!(vm(&s, &id).row("index_angle").is_some());
+    assert_eq!(undo(&mut j).project, before.project);
+}
+
+#[test]
+fn a_kind_change_across_classes_is_one_undo_step_and_keeps_the_scene() {
+    let mut j = opened("block");
+    let before = j.snapshot.clone().unwrap();
+    let s = apply(&mut j, "kind", "rotary");
+    let st = s.project.setup("s1").unwrap();
+    assert_eq!(st.kind, Some(SetupKind::Rotary));
+    assert!(
+        matches!(st.stock, Some(StockSpec::Cylinder { .. })),
+        "{:?}",
+        st.stock
+    );
+    assert!(matches!(st.zero, Some(ZeroSpec::OnAxis { .. })));
+    let v = vm(&s, "s1");
+    assert_eq!(v.row("stock.kind").unwrap().value, "cylinder");
+    assert!(v.row("zero.choice").is_some() && v.row("clearance.radius").is_some());
+    // The pocket is not a rotary type: it keeps its place and says why.
+    assert!(
+        s.diagnostics["t1"].iter().any(|d| d.is_error()),
+        "{:?}",
+        s.diagnostics["t1"]
+    );
+    // And back: a block with the default margin, then undo twice.
+    let s = apply(&mut j, "kind", "three_axis");
+    assert!(matches!(
+        s.project.setup("s1").unwrap().stock,
+        Some(StockSpec::Block {
+            margin: Some(_),
+            ..
+        })
+    ));
+    assert!(!s.diagnostics["t1"].iter().any(|d| d.is_error()));
+    undo(&mut j);
+    let s = undo(&mut j);
+    assert_eq!(s.project, before.project);
+}
+
+#[test]
+fn a_rotary_kind_is_refused_for_a_machine_without_a_rotary_axis() {
+    let mut j = opened("block");
+    apply(&mut j, "machine", "fluut/generic-3axis-router@1");
+    let s = j.snapshot.clone().unwrap();
+    let e = setup_edit(&s, "s1", "kind", "rotary").unwrap_err();
+    assert!(
+        e.contains("Generic 3-axis router") && e.contains("rotary"),
+        "{e}"
+    );
+    assert!(setup_edit(&s, "s1", "kind", "nonsense").is_err());
 }

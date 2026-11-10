@@ -17,7 +17,9 @@ use fluut_model::project::{
     AngleMode, AxisX, ClearanceSpec, Corner, DisplayUnit, IndexAngle, Setup, SetupKind, StockSpec,
     ZeroSpec,
 };
-use fluut_model::setup::{FieldOrigin, ResolvedSetup, resolve_setup};
+use fluut_model::setup::{
+    FieldOrigin, ResolvedSetup, default_orientation, default_zero, resolve_setup,
+};
 
 /// Work offsets of the dropdown.
 const WORK_OFFSETS: [&str; 6] = ["G54", "G55", "G56", "G57", "G58", "G59"];
@@ -366,8 +368,18 @@ fn general_group(s: &Snapshot, r: &ResolvedSetup) -> GroupVm {
         plain(
             "kind",
             "setup-kind",
-            RowWidget::ReadOnly,
-            data(r.kind.as_str()),
+            RowWidget::Choice(
+                SetupKind::ALL
+                    .into_iter()
+                    .map(|k| {
+                        (
+                            k.as_str().to_owned(),
+                            tr(&format!("setup-kind-{}", k.as_str())),
+                        )
+                    })
+                    .collect(),
+            ),
+            r.kind.as_str().to_owned(),
             None,
         ),
         plain(
@@ -584,6 +596,7 @@ pub fn setup_edit(snap: &Snapshot, setup: &str, key: &str, text: &str) -> Result
     let length = || eval(FieldKind::Length);
     let mut t = Setup::new(setup, "");
     let field = match key.split_once('.').map_or(key, |(a, _)| a) {
+        "kind" => return kind_edit(snap, &r, text),
         "name" => {
             if text.is_empty() {
                 return Err(tr("setup-name-empty"));
@@ -666,6 +679,62 @@ pub fn setup_edit(snap: &Snapshot, setup: &str, key: &str, text: &str) -> Result
         field,
         setup_field_text(&t, field).as_deref(),
     ))
+}
+
+/// The edit that changes the kind of a Setup. Rotary and indexed share what
+/// a Setup holds, so only `kind` is written. Crossing to or from three_axis
+/// also writes what the other class needs (orientation, zero, stock and
+/// clearance), as one undo step. Toolpaths the new kind does not allow keep
+/// their place and show their validation.
+fn kind_edit(snap: &Snapshot, r: &ResolvedSetup, text: &str) -> Result<Edit, String> {
+    let kind = SetupKind::ALL
+        .into_iter()
+        .find(|k| k.as_str() == text)
+        .ok_or(NO_FIELD)?;
+    if kind.is_rotary()
+        && let Some(m) = r
+            .machine
+            .as_deref()
+            .and_then(|m| snap.machines.iter().find(|c| c.reference == m))
+        && !m.rotary
+    {
+        return Err(tr_args("setup-kind-needs-rotary", &[("machine", &m.name)]));
+    }
+    let id = r.id.as_str();
+    let mut edits = vec![Edit::set_setup_field(
+        id,
+        "kind",
+        Some(&format!("\"{}\"", kind.as_str())),
+    )];
+    if kind.is_rotary() != r.kind.is_rotary() {
+        let mut t = Setup::new(id, "");
+        t.orientation = Some(default_orientation(kind));
+        t.zero = Some(default_zero(kind));
+        let stock = if r.stock == Some(StockSpec::FromPrevious) {
+            None
+        } else {
+            let want = if kind.is_rotary() {
+                "cylinder"
+            } else {
+                "margin"
+            };
+            stock_from(want, snap, r)
+        };
+        t.stock = stock;
+        for field in ["orientation", "zero", "stock"] {
+            if let Some(v) = setup_field_text(&t, field) {
+                edits.push(Edit::set_setup_field(id, field, Some(&v)));
+            }
+        }
+        edits.push(Edit::set_setup_field(id, "clearance", None));
+    }
+    if edits.len() == 1 {
+        return Ok(edits.remove(0));
+    }
+    Ok(Edit::Group {
+        label: format!("Change kind of {id}"),
+        edits,
+    })
 }
 
 /// The edit that resets `field` to inherited.

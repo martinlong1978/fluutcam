@@ -163,6 +163,7 @@ setup-stock = Stock
 setup-zero = Work zero
 setup-bodies = Bodies
 setup-bodies-all = All bodies
+setup-kind-needs-rotary = The machine { $machine } has no rotary axis; choose a machine with one first
 setup-toolpaths = Toolpaths
 setup-default = Default
 browser-name = Name

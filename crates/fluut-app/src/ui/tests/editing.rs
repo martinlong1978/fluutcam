@@ -78,7 +78,7 @@ fn the_setup_editor_edits_stock_and_zero_in_the_window() {
 
 /// Opens `plate2d` with a new pocket selected, on the inspector's Geometry
 /// tab. The id of the pocket.
-fn pocket_on_plate(h: &mut Harness<'static, State>) -> String {
+pub(crate) fn pocket_on_plate(h: &mut Harness<'static, State>) -> String {
     open(h, project("plate2d"));
     app(h).jobs.add_toolpath("s1", ToolpathTypeId::Pocket2d);
     settle(h);
@@ -91,7 +91,7 @@ fn pocket_on_plate(h: &mut Harness<'static, State>) -> String {
 }
 
 /// Picks `sel` as a click in the viewport would.
-fn click_entity(h: &mut Harness<'static, State>, sel: &Sel) {
+pub(crate) fn click_entity(h: &mut Harness<'static, State>, sel: &Sel) {
     let r = snapshot(h).revision;
     let s = snapshot(h);
     let a = app(h);
