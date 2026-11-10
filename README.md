@@ -40,6 +40,11 @@ Free code signing provided by [SignPath.io](https://about.signpath.io/), certifi
 provenance attestation. Who approves signatures, what is signed and how to check a download:
 [Code signing policy](docs/CODE_SIGNING.md).
 
+### Privacy
+
+FluutCAM sends nothing over the network unless you ask it to. The only network use is the
+update check, which is off until you turn it on. See the [Privacy policy](PRIVACY.md).
+
 ## Licence
 
 Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or
