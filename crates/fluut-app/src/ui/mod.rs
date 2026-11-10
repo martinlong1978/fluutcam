@@ -9,6 +9,7 @@
 
 mod about;
 mod browser;
+mod guide;
 mod handles;
 mod icons;
 mod inspector;
@@ -25,6 +26,8 @@ use crate::jobs::{CalcTargets, Created, Edit, JobKind, Jobs, Outcome};
 use crate::text::{diagnostic, tr};
 use crate::updates::Updates;
 use crate::vm::Selection;
+use crate::vm::guide::GuideState;
+use crate::vm::inspector::tool_edit;
 use crate::vm::pick::PickMode;
 use crate::vm::playback::{Playback, StockColour};
 use crate::vm::ribbon::Stage;
@@ -92,6 +95,8 @@ pub struct UiState {
     pub new_project: Option<(PathBuf, DisplayUnit)>,
     /// An Open or New waiting for the answer to "discard changes?".
     pub pending: Option<project::Pending>,
+    /// The "Getting started" card.
+    pub guide: GuideState,
 }
 
 impl Default for UiState {
@@ -117,6 +122,7 @@ impl Default for UiState {
             pick: None,
             new_project: None,
             pending: None,
+            guide: GuideState::default(),
         }
     }
 }
@@ -195,6 +201,8 @@ impl FluutApp {
     /// once the user has opted in, and Settings. A window built without this
     /// (tests) never asks and never uses the network.
     pub fn with_updates(mut self, updates: Updates) -> FluutApp {
+        // The "Getting started" card shows until the user has closed it.
+        self.ui.guide.open = !updates.guide_dismissed();
         self.updates = updates;
         self
     }
@@ -247,9 +255,16 @@ impl FluutApp {
         // What an add operation made becomes the selection.
         match self.jobs.created.take() {
             Some(Created::Setup(id)) => self.ui.selection = Selection::Setup(id),
-            Some(Created::Toolpath(id)) => self.ui.selection = Selection::Toolpath(id),
+            Some(Created::Toolpath(id)) => {
+                // The guide chose a tool for the toolpath it asked for.
+                if let Some(tool) = self.ui.guide.pending_tool.take() {
+                    self.jobs.edit(Edit::Model(tool_edit(&id, &tool)));
+                }
+                self.ui.selection = Selection::Toolpath(id);
+            }
             None => {}
         }
+        self.ui.guide.observe(self.jobs.last.as_ref());
         self.keep_pick(ui.ctx());
         if let Some(p) = self.dialogs.poll() {
             project::picked(&mut self.jobs, &mut self.ui, p);
@@ -306,6 +321,13 @@ impl FluutApp {
             });
         project::units_prompt(ui.ctx(), &mut self.jobs, &mut self.ui);
         project::discard_prompt(ui.ctx(), &mut self.jobs, &mut self.ui);
+        guide::show(
+            ui.ctx(),
+            &mut self.jobs,
+            &mut self.ui,
+            &mut self.dialogs,
+            &mut self.updates,
+        );
         about::show(ui.ctx(), &mut self.ui);
         updates::settings(ui.ctx(), &mut self.ui, &mut self.updates);
         updates::prompt(ui.ctx(), &mut self.updates);
@@ -377,6 +399,11 @@ impl FluutApp {
                 }
                 if ui.button(tr("title-settings")).clicked() {
                     self.ui.show_settings = true;
+                }
+                if ui.button(tr("title-guide")).clicked() {
+                    // What the user did last is what the next start shows.
+                    self.ui.guide.open = !self.ui.guide.open;
+                    self.updates.set_guide_dismissed(!self.ui.guide.open);
                 }
                 let theme = if self.ui.dark {
                     "title-theme-light"

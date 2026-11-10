@@ -12,6 +12,7 @@ use fluut_model::project::DisplayUnit;
 use std::time::Duration;
 
 mod editing;
+mod guide;
 mod setup_edit;
 
 /// The app is built on the first frame, from the harness's context.
