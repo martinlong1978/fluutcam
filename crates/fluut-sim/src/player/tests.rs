@@ -610,3 +610,26 @@ fn a_jump_back_covers_the_steps_after_it() {
         );
     }
 }
+
+/// Steps by move, forward and back in runs, show the same blocks as a new
+/// player at each place, whatever snapshots the steps left.
+#[test]
+fn steps_by_move_show_the_blocks_of_a_new_player() {
+    let s = long_sim();
+    let tp = &s.toolpaths[0];
+    let mut t = 0.5 * (tp.start + tp.end);
+    let mut p = Player::with_limits(&s, s.chords_at(t), fixed(8));
+    let mut state = 5;
+    for i in 0..40 {
+        let forward = (i / 5) % 2 == 1 || lcg(&mut state) % 7 == 0;
+        t = s.step(t, Step::Move, forward);
+        let n = s.chords_at(t);
+        p.seek(&s, n);
+        let fresh = Player::new(&s, n);
+        assert_eq!(p.stock().hash(), fresh.stock().hash(), "step {i}");
+        assert_eq!(p.mesh().blocks().len(), fresh.mesh().blocks().len());
+        for (a, b) in p.mesh().blocks().iter().zip(fresh.mesh().blocks()) {
+            assert!(**a == **b, "step {i}: blocks at {n}");
+        }
+    }
+}

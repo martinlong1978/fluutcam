@@ -492,8 +492,6 @@ impl Player {
         }
         moves.retain(|&m| m > at);
         self.keep.last_cut = n - at;
-        if std::env::var("DBG").is_ok() { eprintln!("seek n={n} from {} base={at} jump={jump} stride={} moves={:?} snaps={:?} bytes={}", self.n, self.keep.stride(), moves.len(), self.keep.snaps.map.keys().collect::<Vec<_>>(), self.keep.snaps.bytes); }
-
         self.keep.advance(sim, &mut d, at, n, &moves);
         let changed = self.mesh.update(&d, &SimPaint::new(sim, &d, n));
         self.n = n;
