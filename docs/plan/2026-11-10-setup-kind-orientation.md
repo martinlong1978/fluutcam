@@ -48,8 +48,16 @@ All earlier Global Constraints apply. In addition:
 - [x] `vm::handles`, viewport overlay and drag.
 
 ### Task 6: End to end
-- [ ] Merge `main`, all checks, report.
+- [x] Merge `main`, all checks, report.
+
+## Done
+
+Tasks 2 to 5 are done. The Setup kind, part bodies, body stock and orientation are edited in the inspector, whole bodies are picked on the model, and the work zero and block margins have drag handles. The one frame change: a stock body is taken out of the machined bodies and gives the stock box.
 
 ## Open issues
 
-(none yet)
+- Body stock works in three_axis Setups only; a rotary Setup does not offer it.
+- The body pick hovers the face or curve under the pointer, not the whole body.
+- Handles: no cylinder radius and length handles, no snapping to vertices or arc centres, no ring dial for the index angle; a block given by size has only the zero handle.
+- Orientation takes the six model axes, a planar or cylindrical face, or an edge; a straight-edge check is the frame's, shown as the Setup's finding.
+- The edit of a Setup's `geometry` leaves `scale` and `mirror` as they are; they have no controls yet.
