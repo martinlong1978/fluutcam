@@ -72,6 +72,8 @@ for how to open it. Check the download with its attestation or checksum first.
 
 ## Privacy
 
+The full policy is [PRIVACY.md](../PRIVACY.md). In short:
+
 This program will not transfer any information to other networked systems unless
 specifically requested by the user or the person installing or operating it.
 
