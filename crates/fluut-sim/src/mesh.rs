@@ -169,6 +169,9 @@ fn ranges(spans: &Spans, res: f64) -> SmallVec<[(i64, i64); 2]> {
 /// The `k` where exactly one of two range lists holds, as ranges.
 fn differ(a: &[(i64, i64)], b: &[(i64, i64)], out: &mut Vec<(i64, i64)>) {
     out.clear();
+    if a == b {
+        return;
+    }
     let mut ev: SmallVec<[(i64, u8); 8]> = SmallVec::new();
     for &(x, y) in a {
         ev.extend([(x, 0), (y + 1, 0)]);
@@ -347,17 +350,11 @@ impl MeshTiles {
     }
 
     /// The blocks that read a ray of `d` that differs from the stock shown.
+    /// The tiles that were copied are compared in parallel, each giving the
+    /// ranges of blocks its changed rays are read by.
     fn dirty(&self, d: &TriDexel) -> Vec<usize> {
-        let mut mark = vec![false; self.blocks.len()];
         let res = d.res;
         let (nbx, nby) = (self.nbx, self.nby);
-        let mut rect = |x0: i64, x1: i64, y0: i64, y1: i64| {
-            for by in reading(y0, y1, nby) {
-                for bx in reading(x0, x1, nbx) {
-                    mark[by * nbx + bx] = true;
-                }
-            }
-        };
         // The lattice points `a` whose edge `[a, a + 1]` along a ray meets
         // the changed range `[lo, hi]`.
         let along = |lo: f32, hi: f32| {
@@ -365,12 +362,28 @@ impl MeshTiles {
             let a1 = (f64::from(hi) / res - 0.5).ceil() as i64;
             (a0, a1)
         };
+        let mut tasks: Vec<(usize, usize)> = Vec::new();
         for (k, (old, new)) in self.stock.grids.iter().zip(&d.grids).enumerate() {
-            let nu = new.nu;
             for (t, (ta, tb)) in old.tiles().iter().zip(new.tiles()).enumerate() {
-                if Arc::ptr_eq(ta, tb) {
-                    continue;
+                if !Arc::ptr_eq(ta, tb) {
+                    tasks.push((k, t));
                 }
+            }
+        }
+        type Reads = [std::ops::Range<usize>; 2];
+        let found: Vec<Vec<Reads>> = tasks
+            .par_iter()
+            .map(|&(k, t)| {
+                let (old, new) = (&self.stock.grids[k], &d.grids[k]);
+                let nu = new.nu;
+                let (ta, tb) = (&old.tiles()[t], &new.tiles()[t]);
+                let mut out: Vec<Reads> = Vec::new();
+                let mut add = |x0: i64, x1: i64, y0: i64, y1: i64| {
+                    let r = [reading(x0, x1, nbx), reading(y0, y1, nby)];
+                    if out.last() != Some(&r) {
+                        out.push(r);
+                    }
+                };
                 for (idx, (ra, rb)) in ta.iter().zip(tb.iter()).enumerate() {
                     let Some((lo, hi)) = changed(ra, rb) else {
                         continue;
@@ -380,17 +393,26 @@ impl MeshTiles {
                         // Ray (y, z): X edges at (a, y).
                         0 => {
                             let (a0, a1) = along(lo, hi);
-                            rect(a0, a1, i, i);
+                            add(a0, a1, i, i);
                         }
                         // Ray (z, x): Y edges at (x, a).
                         1 => {
                             let (a0, a1) = along(lo, hi);
-                            rect(j, j, a0, a1);
+                            add(j, j, a0, a1);
                         }
                         // Column (x, y): its Z edges and the X and Y edges
                         // on both sides.
-                        _ => rect(i - 1, i, j - 1, j),
+                        _ => add(i - 1, i, j - 1, j),
                     }
+                }
+                out
+            })
+            .collect();
+        let mut mark = vec![false; self.blocks.len()];
+        for [bxs, bys] in found.into_iter().flatten() {
+            for by in bys {
+                for bx in bxs.clone() {
+                    mark[by * nbx + bx] = true;
                 }
             }
         }
@@ -484,43 +506,73 @@ fn build(d: &TriDexel, paint: &dyn Paint, bx: usize, by: usize) -> StockMesh {
         }
     }
     // One vertex per cell: the mean of its crossings, summed in edge order.
-    let key = |c: [i64; 3]| -> u64 {
-        ((c[1] - ey0 + 2) as u64) << 42 | ((c[0] - ex0 + 2) as u64) << 21 | (c[2] + 1) as u64
-    };
-    let mut contrib: Vec<(u64, DVec3)> = Vec::with_capacity(edges.len() * 4);
+    // The cells are bucketed by column (a counting sort) and ordered by
+    // height within it, which is the order of (column, height) keys, with
+    // the crossings of a cell in edge order (the sorts are stable).
+    let cw = (ex1 - ex0 + 4) as usize;
+    let column = |c: [i64; 3]| (c[1] - ey0 + 2) as usize * cw + (c[0] - ex0 + 2) as usize;
+    let mut start = vec![0u32; cw * cw + 1];
     for e in &edges {
         for c in cells(e) {
-            contrib.push((key(c), e.p));
+            start[column(c) + 1] += 1;
         }
     }
-    contrib.sort_by_key(|x| x.0);
-    let mut keys: Vec<u64> = Vec::new();
+    for i in 0..cw * cw {
+        start[i + 1] += start[i];
+    }
+    // Per crossing: the cell's height, and the edge and corner it came from.
+    let mut slots = vec![(0i32, 0u32); edges.len() * 4];
+    let mut fill = start.clone();
+    for (ei, e) in edges.iter().enumerate() {
+        for (corner, c) in cells(e).into_iter().enumerate() {
+            let col = column(c);
+            slots[fill[col] as usize] = (c[2] as i32, (ei * 4 + corner) as u32);
+            fill[col] += 1;
+        }
+    }
+    // The cell of each vertex (column, height), its position, and for each
+    // edge the vertices of its quad.
+    let mut vcol: Vec<u32> = Vec::new();
     let mut verts: Vec<DVec3> = Vec::new();
-    let mut n = 0.0;
-    for (k, p) in contrib {
-        if keys.last() == Some(&k) {
-            *verts.last_mut().expect("a vertex") += p;
-            n += 1.0;
-        } else {
-            if let Some(v) = verts.last_mut() {
-                *v /= n;
+    let mut qv: Vec<[u32; 4]> = vec![[0; 4]; edges.len()];
+    for col in 0..cw * cw {
+        let run = &mut slots[start[col] as usize..start[col + 1] as usize];
+        if run.len() > 1 {
+            run.sort_by_key(|x| x.0);
+        }
+        let mut last = i32::MIN;
+        let mut n = 0.0;
+        for &(k, r) in run.iter() {
+            let p = edges[(r / 4) as usize].p;
+            if k == last {
+                *verts.last_mut().expect("a vertex") += p;
+                n += 1.0;
+            } else {
+                if last != i32::MIN
+                    && let Some(v) = verts.last_mut()
+                {
+                    *v /= n;
+                }
+                last = k;
+                vcol.push(col as u32);
+                verts.push(p);
+                n = 1.0;
             }
-            keys.push(k);
-            verts.push(p);
-            n = 1.0;
+            qv[(r / 4) as usize][(r % 4) as usize] = (verts.len() - 1) as u32;
+        }
+        if last != i32::MIN
+            && let Some(v) = verts.last_mut()
+        {
+            *v /= n;
         }
     }
-    if let Some(v) = verts.last_mut() {
-        *v /= n;
-    }
-    let vertex = |c: [i64; 3]| keys.binary_search(&key(c)).expect("cell has a vertex");
     // Edges `m` or more lattice points inside the read range.
     let inner = |e: &Edge, m: i64| {
         e.at[0] >= ex0 + m && e.at[0] <= ex1 - m && e.at[1] >= ey0 + m && e.at[1] <= ey1 - m
     };
     // The quad of an edge, counter-clockwise seen from outside.
-    let quad = |e: &Edge| {
-        let mut q = cells(e).map(vertex);
+    let quad = |ei: usize, e: &Edge| {
+        let mut q = qv[ei].map(|v| v as usize);
         if !e.inside_low {
             q.reverse();
         }
@@ -529,8 +581,8 @@ fn build(d: &TriDexel, paint: &dyn Paint, bx: usize, by: usize) -> StockMesh {
     // Vertex normals, area-weighted over the quads one point in: their
     // cells have all their crossings.
     let mut normals = vec![DVec3::ZERO; verts.len()];
-    for e in edges.iter().filter(|e| inner(e, 1)) {
-        let q = quad(e);
+    for (ei, e) in edges.iter().enumerate().filter(|(_, e)| inner(e, 1)) {
+        let q = quad(ei, e);
         let nrm = (verts[q[2]] - verts[q[0]]).cross(verts[q[3]] - verts[q[1]]);
         for v in q {
             normals[v] += nrm;
@@ -552,16 +604,16 @@ fn build(d: &TriDexel, paint: &dyn Paint, bx: usize, by: usize) -> StockMesh {
     let mut refine: Vec<(DVec3, u8)> = Vec::new();
     let mut local = vec![u32::MAX; verts.len()];
     let f = |p: DVec3| [p.x as f32, p.y as f32, p.z as f32];
-    for e in edges.iter().filter(|e| inner(e, MARGIN)) {
-        let q = quad(e);
+    for (ei, e) in edges.iter().enumerate().filter(|(_, e)| inner(e, MARGIN)) {
+        let q = quad(ei, e);
         for &v in &q {
             if local[v] == u32::MAX {
                 local[v] = m.positions.len() as u32;
                 m.positions.push(f(verts[v]));
                 m.normals.push(f(normals[v].normalize_or_zero()));
-                let c = keys[v];
-                let cx = (c >> 21 & 0x1F_FFFF) as i64 + ex0 - 2;
-                let cy = (c >> 42) as i64 + ey0 - 2;
+                let c = vcol[v] as usize;
+                let cx = (c % cw) as i64 + ex0 - 2;
+                let cy = (c / cw) as i64 + ey0 - 2;
                 let (class, tp) = combine(&[
                     col(cx, cy),
                     col(cx + 1, cy),
