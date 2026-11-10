@@ -30,7 +30,7 @@ pub(crate) const IDENT_KEYS: [&str; 9] = [
 ];
 
 /// The Setup keys a script may set, in file order.
-const SETUP_KEYS: [&str; 13] = [
+const SETUP_KEYS: [&str; 14] = [
     "name",
     "based_on",
     "kind",
@@ -44,6 +44,7 @@ const SETUP_KEYS: [&str; 13] = [
     "zero",
     "region",
     "clearance",
+    "fixtures",
 ];
 
 #[derive(Clone, Debug)]

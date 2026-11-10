@@ -93,6 +93,24 @@ Rotary and indexed zeros always lie on the rotary axis in Y and Z. Putting the z
 
 `clearance` is the safe height for the longest moves. For 3-axis Setups it is a plane above the stock: `clearance = { kind = "plane", offset = 10 }` (the default, 10 mm above the stock top). For rotary and indexed Setups it is a cylinder around the axis: `clearance = { kind = "cylinder", radius = 35 }`. The cylinder must be larger than the stock, or FluutCAM stops with "the clearance cylinder must lie outside the stock".
 
+## Fixtures
+
+A rotary or indexed Setup can list the **fixtures that turn with the part**, so that the tool rises high enough before the part turns. There is no field for them in the window yet: write them in the project file (or set `fixtures` from a script). Sizes are in millimetres. The X positions are in the Setup's work frame, where X runs along the rotary axis from the work zero.
+
+```toml
+fixtures = [
+  { kind = "chuck", diameter = 120, length = 40 },
+  { kind = "tailstock", diameter = 30, length = 25, tip_diameter = 8 },
+  { kind = "clamp", min = [40, -35, -6], max = [55, 35, 6] },
+]
+```
+
+- A **chuck** is a cylinder about the axis against the start face of the stock (the lowest X), reaching `length` outward.
+- A **tailstock** is a cylinder, or a cone with `tip_diameter`, against the end face of the stock (the highest X). `diameter` is its width at the far end.
+- A **clamp** is a box between two corners, given at A = 0. In an indexed Setup it turns with the index angle.
+
+The tool rises to the largest distance from the axis of the stock, the part and any fixture it can reach, plus the clearance offset. The tool can reach a fixture when the fixture lies within the stock's length, widened at both ends by the tool's radius. A fixture further away, or smaller than the part, changes nothing. FluutCAM writes the list on one line when it saves the project. A Setup based on another takes the parent's list unless it has its own (an empty list, `fixtures = []`, means none). Fixtures are ignored, with a warning, in a 3-axis Setup. For an indexed Setup, **Simulate** reports a toolpath that meets a fixture (`sim.fixture`).
+
 ## Index angle
 
 An indexed Setup turns the part to an angle and locks it: `index_angle = { mode = "absolute", value = 180 }`. A `relative` angle adds to the parent Setup's angle: `{ mode = "relative", value = 90 }`. At the start of the Setup the program turns the A axis, after lifting the tool clear of the stock.

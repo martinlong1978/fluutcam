@@ -16,7 +16,7 @@ FluutCAM ships a few of each, and you can add your own as text files.
 
 A new 3-axis Setup uses the first, and a new rotary or indexed Setup the second. To use another machine, choose it from the **Machine** list in the Setup's inspector ([Add a Setup](Add-a-Setup)).
 
-What the machine is used for today: FluutCAM warns when a spindle speed or feed is outside the machine's range (`param.tool_params.spindle_rpm.machine_range`, `param.tool_params.feed.machine_max`), checks that a rotary toolpath has a rotary axis and enough travel, and checks the Z travel before the part is turned (`setup.clearance.index_travel`). The machine does not choose the post for the window or the command line; you do (see below).
+What the machine is used for today: FluutCAM warns when a spindle speed or feed is outside the machine's range (`param.tool_params.spindle_rpm.machine_range`, `param.tool_params.feed.machine_max`), checks that a rotary toolpath has a rotary axis and enough travel, and checks the Z travel before the part is turned (`setup.clearance.index_travel`; with the warning `cam.tool.length_missing` if the tool has no overall length, because the check then only knows the tool tip). The machine does not choose the post for the window or the command line; you do (see below).
 
 ## Built-in posts
 

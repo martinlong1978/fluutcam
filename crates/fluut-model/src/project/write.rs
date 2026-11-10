@@ -202,6 +202,34 @@ pub(crate) fn setup_value(s: &Setup, k: &str) -> Option<String> {
                 ("radius", Some(radius.to_toml())),
             ]),
         }),
+        "fixtures" => s.fixtures.as_ref().map(|list| {
+            let items: Vec<String> = list
+                .iter()
+                .map(|f| match f {
+                    Fixture::Chuck { diameter, length } => inline(&[
+                        ("kind", Some(quote("chuck"))),
+                        ("diameter", Some(diameter.to_toml())),
+                        ("length", Some(length.to_toml())),
+                    ]),
+                    Fixture::Tailstock {
+                        diameter,
+                        length,
+                        tip_diameter,
+                    } => inline(&[
+                        ("kind", Some(quote("tailstock"))),
+                        ("diameter", Some(diameter.to_toml())),
+                        ("length", Some(length.to_toml())),
+                        ("tip_diameter", tip_diameter.map(Num::to_toml)),
+                    ]),
+                    Fixture::Clamp { min, max } => inline(&[
+                        ("kind", Some(quote("clamp"))),
+                        ("min", Some(num3(min))),
+                        ("max", Some(num3(max))),
+                    ]),
+                })
+                .collect();
+            format!("[{}]", items.join(", "))
+        }),
         _ => None,
     }
 }

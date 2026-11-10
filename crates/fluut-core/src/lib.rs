@@ -10,6 +10,7 @@ pub mod build_info;
 pub mod cache;
 pub mod crash;
 pub mod entities;
+pub mod fixture;
 pub mod frame;
 pub mod graph;
 pub mod ops;

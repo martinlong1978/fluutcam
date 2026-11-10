@@ -43,8 +43,8 @@ Small thing you may notice: some error messages, such as a bad STEP file, show i
 - A new rotary or indexed Setup assumes the part lies along the X axis through the model origin. For any other axis, set the rotary axis in the Orientation group.
 - **Stock.** A 3-axis Setup calculates with a block of stock, a rotary one with a cylinder, an indexed one with either. Stock taken from a body of the model works in 3-axis Setups only.
 - **5-axis.** Not yet. FluutCAM supports one rotary axis (A): rotary Setups (simultaneous) and indexed Setups (the part turned to an angle, then 3-axis). Two-angle indexing (3+2) and simultaneous 5-axis are planned.
-- **Fixtures** (a chuck, a tailstock, clamps) are not part of the project yet. The simulation, and the check that the stock clears the tool when it turns, do not know about them.
-- A tool with no `overall_length` is checked at its tip only when the Z travel is checked before a turn.
+- **Fixtures** (a chuck, a tailstock, clamps on the rotary) are part of a rotary or indexed Setup, but only in the project file and in scripts: the window has no fields for them yet. They raise the height the tool rises to before a turn, and the simulation of an indexed Setup reports a toolpath that meets one (`sim.fixture`). That check is conservative: a clamp counts as its bounding box, the tool as a plain cylinder, and arcs are checked at their ends only. Rotary Setups are not simulated, so a fixture hit there is not found. A vice or fixture that does not turn with A is not modelled; import it as a body of the model.
+- A tool with no `overall_length` is checked at its tip only when the Z travel is checked before a turn, and its holder cannot be placed, so the simulation does not check it. You get the warning `cam.tool.length_missing` once per tool; enter the overall length in the tool to remove it.
 
 ## Calculating
 

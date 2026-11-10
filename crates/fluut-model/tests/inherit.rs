@@ -319,3 +319,22 @@ fn kind_rules() {
     q.setup_mut("s1").unwrap().zero = Some(ZeroSpec::StockTopCentre);
     assert_eq!(codes(&q, "s1"), ["setup.zero.kind"]);
 }
+
+#[test]
+fn fixtures_in_a_three_axis_setup_are_ignored_with_a_warning() {
+    let src = "format = \"fluut.project/1\"
+[[setup]]
+id = \"s1\"
+kind = \"three_axis\"
+fixtures = [{ kind = \"chuck\", diameter = 50, length = 20 }]
+";
+    let p = read(src).unwrap().project;
+    let r = resolve_setup(&p, "s1").unwrap();
+    let d: Vec<_> = r
+        .diagnostics
+        .iter()
+        .filter(|d| d.code == "setup.fixtures.ignored")
+        .collect();
+    assert_eq!(d.len(), 1, "{:?}", r.diagnostics);
+    assert_eq!(d[0].severity, fluut_model::Severity::Warning);
+}

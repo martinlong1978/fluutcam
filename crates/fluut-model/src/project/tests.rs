@@ -515,6 +515,7 @@ orientation = { rotary_axis = "+X" }
 stock       = { kind = "cylinder", radius = 20, length = 90.5 }
 zero        = { x = -3.5 }
 clearance   = { kind = "cylinder", radius = 30 }
+fixtures    = [{ kind = "chuck", diameter = 120, length = 40 }, { kind = "tailstock", diameter = 60, length = 30, tip_diameter = 10 }, { kind = "clamp", min = [10, -30, -5.5], max = [20, 30, 5] }]
 
 [[setup]]
 id          = "s4"
@@ -563,7 +564,82 @@ fn every_setup_form_round_trips() {
         })
     );
     assert_eq!(p.setups[4].kind, None);
+    let fx = p.setups[2].fixtures.as_ref().unwrap();
+    assert_eq!(fx.len(), 3);
+    assert_eq!(
+        fx[0],
+        Fixture::Chuck {
+            diameter: Num::int(120),
+            length: Num::int(40)
+        }
+    );
+    assert!(matches!(
+        fx[1],
+        Fixture::Tailstock {
+            tip_diameter: Some(_),
+            ..
+        }
+    ));
+    assert_eq!(p.setups[3].fixtures, None);
     assert_eq!(write(p), FORMS);
+}
+
+#[test]
+fn fixtures_are_inherited_as_a_list_and_reset_by_an_empty_one() {
+    use crate::setup::{FieldOrigin, resolve_setup};
+    let l = read(FORMS).unwrap();
+    let mut p = l.project;
+    // `s4` is based on `s3`: it takes its three fixtures.
+    let r = resolve_setup(&p, "s4").unwrap();
+    assert_eq!(r.fixtures.len(), 3);
+    assert_eq!(r.origin("fixtures"), &FieldOrigin::Inherited("s3".into()));
+    // Its own list replaces the parent's.
+    let one = Fixture::Chuck {
+        diameter: Num::int(80),
+        length: Num::int(25),
+    };
+    std::sync::Arc::make_mut(&mut p.setups[3]).fixtures = Some(vec![one.clone()]);
+    let r = resolve_setup(&p, "s4").unwrap();
+    assert_eq!(r.fixtures, vec![one]);
+    assert_eq!(r.origin("fixtures"), &FieldOrigin::Local);
+    // An empty list says "none"; the file keeps it.
+    std::sync::Arc::make_mut(&mut p.setups[3]).fixtures = Some(Vec::new());
+    assert!(resolve_setup(&p, "s4").unwrap().fixtures.is_empty());
+    let again = read(&write(&p)).unwrap().project;
+    assert_eq!(again.setups[3].fixtures, Some(Vec::new()));
+}
+
+#[test]
+fn bad_fixtures_are_load_errors() {
+    for (value, want) in [
+        (
+            "[{ kind = \"vice\" }]",
+            "is not one of chuck, tailstock, clamp",
+        ),
+        (
+            "[{ kind = \"chuck\", diameter = 0, length = 5 }]",
+            "`setup[0].fixtures[0].diameter` must be above 0",
+        ),
+        (
+            "[{ kind = \"chuck\", diameter = 50 }]",
+            "`setup[0].fixtures[0].length` is missing",
+        ),
+        (
+            "[{ kind = \"clamp\", min = [0, 0, 0], max = [1, 0, 1] }]",
+            "every coordinate of `max` must be above `min`",
+        ),
+        ("\"chuck\"", "expected an array of fixtures"),
+    ] {
+        let src = format!(
+            "format = \"fluut.project/1\"
+[[setup]]
+id = \"s\"
+fixtures = {value}
+"
+        );
+        let e = read(&src).unwrap_err();
+        assert!(e.0.contains(want), "{value}: {}", e.0);
+    }
 }
 
 #[test]
