@@ -697,7 +697,7 @@ fn a_pocket_from_new_project_to_gcode_matches_a_hand_written_project() {
 /// A selection holds persistent ids: re-import finds them again.
 #[test]
 fn reimport_keeps_a_picked_selection() {
-    let d = temp("pick-reimport");
+    let d = temp("pickreimport");
     let mut h = harness();
     h.step();
     app(&mut h).jobs.new_project(d.join("re"), DisplayUnit::Mm);
