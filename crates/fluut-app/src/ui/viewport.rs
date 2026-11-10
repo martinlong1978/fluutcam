@@ -10,14 +10,17 @@
 use super::UiState;
 use crate::brand::{self, Palette, c};
 use crate::jobs::Jobs;
+use crate::scene::SetupScene;
 use crate::session::Snapshot;
-use crate::text::{tr, tr_args};
-use crate::viewport::{Camera, FrameState, Pick, Renderer};
+use crate::text::{field_label, tr, tr_args};
+use crate::viewport::{Camera, FrameState, Pick, PickMask, Renderer, Tints};
 use crate::vm::Selection;
+use crate::vm::pick::{PickMode, SetupPick, highlight};
 use crate::vm::playback::StockColour;
 use eframe::egui::{self, Pos2, Rect, Sense, Stroke, Vec2};
 use eframe::egui_wgpu;
 use fluut_core::fluut_sim::StockMesh;
+use fluut_model::{Params, Sel};
 use std::sync::Arc;
 
 /// What has been uploaded: the Setup, its scene and its toolpath lines (by
@@ -40,7 +43,18 @@ pub struct ViewportState {
     /// Setup the camera was last fitted to.
     fitted: Option<String>,
     drawn: Option<FrameState>,
+    /// What the tints were last worked out for.
+    tinted: Option<TintKey>,
+    /// Where the pointer was for the last hover pick.
+    hover_at: Option<Pos2>,
+    /// The handle being dragged.
+    pub(super) handle_drag: Option<super::handles::HandleDrag>,
+    /// Where each handle was drawn last frame, in screen points.
+    pub(crate) handle_marks: Vec<(crate::vm::handles::HandleKind, Pos2)>,
 }
+
+/// The highlight changes only with the document or these.
+type TintKey = (u64, String, Selection, Option<PickMode>);
 
 impl std::fmt::Debug for ViewportState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -61,8 +75,40 @@ impl ViewportState {
             toolpaths: Vec::new(),
             fitted: None,
             drawn: None,
+            tinted: None,
+            hover_at: None,
+            handle_drag: None,
+            handle_marks: Vec::new(),
         }
     }
+}
+
+/// What a pick means in a pick mode.
+fn pick_mask(mode: &PickMode) -> PickMask {
+    PickMask {
+        faces: true,
+        edges: mode.filter.wants_edges(),
+        toolpaths: false,
+    }
+}
+
+/// The entity a pick hit, by its persistent id.
+fn entity(scene: Option<&SetupScene>, p: Pick) -> Option<Sel> {
+    let s = scene?;
+    match p {
+        Pick::Face(i) => s.faces.get(i as usize).cloned().map(Sel::Face),
+        Pick::Edge(i) => s.edge_ids.get(i as usize).cloned().map(Sel::Edge),
+        Pick::Toolpath(_) | Pick::None => None,
+    }
+}
+
+/// The scene shown under `id`: a Setup's, or the whole model's.
+fn scene_of<'a>(s: &'a Snapshot, id: &str) -> Option<&'a Arc<SetupScene>> {
+    s.scenes.get(id).or_else(|| {
+        s.all_bodies
+            .as_ref()
+            .filter(|_| id == crate::session::MODEL_SCENE)
+    })
 }
 
 /// The Setup the viewport shows for a selection.
@@ -82,7 +128,7 @@ fn upload(
     setup: &str,
     stock: Option<&[Arc<StockMesh>]>,
 ) {
-    let Some(scene) = s.scenes.get(setup) else {
+    let Some(scene) = scene_of(s, setup) else {
         return;
     };
     let st = s.project.setup(setup);
@@ -153,9 +199,21 @@ pub fn show(
         }
         return;
     };
-    let Some(setup) = shown_setup(&snap, &state.selection) else {
+    // With no Setup yet, the model alone is shown.
+    let Some(setup) = shown_setup(&snap, &state.selection).or_else(|| {
+        snap.scenes
+            .contains_key(crate::session::MODEL_SCENE)
+            .then(|| crate::session::MODEL_SCENE.to_owned())
+    }) else {
         return;
     };
+    // Picking whole bodies shows every body of the model.
+    let setup =
+        if state.pick.as_ref().is_some_and(PickMode::picks_bodies) && snap.all_bodies.is_some() {
+            crate::session::MODEL_SCENE.to_owned()
+        } else {
+            setup
+        };
     // The simulated stock of this Setup, while the simulation is current.
     let sim_frame = jobs
         .frame
@@ -164,7 +222,7 @@ pub fn show(
     let stock = sim_frame
         .as_ref()
         .and_then(|f| f.blocks.as_deref())
-        .filter(|_| state.show_stock);
+        .filter(|_| state.show_stock && state.pick.is_none());
     upload(vs, rs, &snap, &setup, stock);
     // Camera input.
     let size = rect.size();
@@ -185,13 +243,13 @@ pub fn show(
         }
     }
     if resp.double_clicked() {
-        vs.camera = Camera::fit(snap.scenes.get(&setup).and_then(|s| s.bounds.as_ref()));
+        vs.camera = Camera::fit(scene_of(&snap, &setup).and_then(|s| s.bounds.as_ref()));
     }
     let selected_tp = match &state.selection {
         Selection::Toolpath(t) => vs.toolpaths.iter().position(|x| x == t).map(|i| i as u32),
         _ => None,
     };
-    let scene = snap.scenes.get(&setup);
+    let scene = scene_of(&snap, &setup);
     let face = match &state.selection {
         Selection::Face { face, .. } => scene
             .and_then(|s| s.faces.iter().position(|f| f == face))
@@ -231,6 +289,41 @@ pub fn show(
             None => er.register_native_texture(&rs.device, view, wgpu::FilterMode::Linear),
         });
     }
+    // What is under the pointer, while picking; only when it moved.
+    let pointer = resp.hover_pos();
+    if let Some(mode) = state.pick.as_mut() {
+        if pointer != vs.hover_at {
+            vs.hover_at = pointer;
+            mode.hover = pointer.and_then(|pos| {
+                let local = (pos - rect.min) * ppp;
+                let (x, y) = (local.x as u32, local.y as u32);
+                let hit = r.pick_masked(&rs.device, &rs.queue, &frame, x, y, pick_mask(mode));
+                entity(scene.map(|s| &**s), hit).filter(|e| mode.accepts(&snap, e))
+            });
+        }
+    } else {
+        vs.hover_at = None;
+    }
+    let key = (
+        snap.revision,
+        setup.clone(),
+        state.selection.clone(),
+        state.pick.clone(),
+    );
+    if vs.tinted.as_ref() != Some(&key) {
+        let h = scene.map_or_else(Default::default, |s| {
+            highlight(&snap, s, &state.selection, state.pick.as_ref())
+        });
+        if r.set_tints(Tints {
+            faces: h.faces,
+            edges: h.edges,
+            hover_face: h.hover_face,
+            hover_edge: h.hover_edge,
+        }) {
+            vs.drawn = None;
+        }
+        vs.tinted = Some(key);
+    }
     if resized || vs.drawn != Some(frame) {
         r.render(&rs.device, &rs.queue, &frame);
         vs.drawn = Some(frame);
@@ -240,29 +333,37 @@ pub fn show(
         && let Some(pos) = resp.interact_pointer_pos()
     {
         let local = (pos - rect.min) * ppp;
-        let picked = r.pick(
-            &rs.device,
-            &rs.queue,
-            &frame,
-            local.x as u32,
-            local.y as u32,
-        );
-        state.selection = match picked {
-            Pick::Face(i) => scene.and_then(|s| s.faces.get(i as usize)).map_or(
-                Selection::Setup(setup.clone()),
-                |f| Selection::Face {
-                    setup: setup.clone(),
-                    face: f.clone(),
-                },
-            ),
-            Pick::Toolpath(i) => vs
-                .toolpaths
-                .get(i as usize)
-                .map_or(Selection::Setup(setup.clone()), |t| {
-                    Selection::Toolpath(t.clone())
-                }),
-            Pick::None => Selection::Setup(setup.clone()),
-        };
+        if let Some(mode) = state.pick.as_mut() {
+            let (x, y) = (local.x as u32, local.y as u32);
+            let hit = r.pick_masked(&rs.device, &rs.queue, &frame, x, y, pick_mask(mode));
+            if let Some(e) = entity(scene.map(|s| &**s), hit).and_then(|s| mode.hit(&snap, &s)) {
+                jobs.edit(e);
+            }
+        } else {
+            let picked = r.pick(
+                &rs.device,
+                &rs.queue,
+                &frame,
+                local.x as u32,
+                local.y as u32,
+            );
+            state.selection = match picked {
+                Pick::Face(i) => scene.and_then(|s| s.faces.get(i as usize)).map_or(
+                    Selection::Setup(setup.clone()),
+                    |f| Selection::Face {
+                        setup: setup.clone(),
+                        face: f.clone(),
+                    },
+                ),
+                Pick::Toolpath(i) => vs
+                    .toolpaths
+                    .get(i as usize)
+                    .map_or(Selection::Setup(setup.clone()), |t| {
+                        Selection::Toolpath(t.clone())
+                    }),
+                Pick::Edge(_) | Pick::None => Selection::Setup(setup.clone()),
+            };
+        }
     }
     if let Some(id) = vs.texture {
         painter.image(
@@ -308,6 +409,41 @@ pub fn show(
     }
     if let Some(q) = state.focus.and_then(|p| px(glam::Vec3::from(p))) {
         painter.circle_stroke(q, 9.0, Stroke::new(2.5, c(brand::RED)));
+    }
+    // Handles of the selected Setup: its work zero and stock margins.
+    let handled = matches!(&state.selection, Selection::Setup(id) if *id == setup);
+    if handled && state.pick.is_none() {
+        super::handles::overlay(ui, jobs, vs, &snap, &setup, rect);
+    } else {
+        vs.handle_marks.clear();
+        vs.handle_drag = None;
+    }
+    // In pick mode: what is being picked, and how to leave.
+    if let Some(mode) = &state.pick {
+        let (field, banner) = match &mode.setup {
+            Some((_, role)) => (
+                tr(role.label_id()),
+                if matches!(role, SetupPick::Bodies) {
+                    "pick-banner"
+                } else {
+                    "pick-banner-one"
+                },
+            ),
+            None => (
+                snap.project
+                    .toolpath(&mode.toolpath)
+                    .and_then(|(_, t)| Params::meta(t.kind(), &mode.path))
+                    .map_or_else(String::new, field_label),
+                "pick-banner",
+            ),
+        };
+        painter.text(
+            rect.center_top() + Vec2::new(0.0, 10.0),
+            egui::Align2::CENTER_TOP,
+            tr_args(banner, &[("field", &field)]),
+            egui::FontId::proportional(14.0),
+            c(brand::CUTTER_ORANGE),
+        );
     }
     // What is selected in the view, and the controls.
     let picked = match &state.selection {

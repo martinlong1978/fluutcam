@@ -5,21 +5,23 @@
 //! A toolpath shows the five groups of spec 03 §3.10.2 as tabs. Each field
 //! has its label, its value in the project unit, its default when unset,
 //! whether `visible_if` shows it, and the validation messages that name it.
-//! Number, enum and bool fields are edited here; heights, selections and
-//! points are shown read-only until their pickers exist.
+//! A Setup has its own editor, [`super::setup`].
 
 use super::entry::{EntryUnit, dimension, evaluate, length_unit};
+use super::setup::SetupVm;
 use super::visible::visible;
 use super::{Selection, fmt_num};
 use crate::jobs::Edit;
 use crate::session::Snapshot;
 use crate::text::{data, diagnostic, field_label, tr, tr_args};
 use fluut_i18n::{display_scale, unit_symbol};
-use fluut_model::params::{ConstVal, DefaultRule};
-use fluut_model::project::{AxisX, DisplayUnit, StockSpec, Toolpath, ZeroSpec};
-use fluut_model::setup::ResolvedSetup;
-use fluut_model::tools::Tool;
-use fluut_model::{Diagnostic, FieldKind, FieldMeta, Group, Num, PValue, Params, Severity};
+use fluut_model::edit::Edit as ModelEdit;
+use fluut_model::params::{ConstVal, DefaultRule, HeightSpec};
+use fluut_model::project::{DisplayUnit, Toolpath};
+use fluut_model::tools::{Tool, ToolShape, ToolStore};
+use fluut_model::{
+    Diagnostic, FieldKind, FieldMeta, Group, Num, PValue, Params, Sel, Severity, ToolpathTypeId,
+};
 
 /// How a field is edited.
 #[derive(Clone, PartialEq, Debug)]
@@ -33,6 +35,23 @@ pub enum Widget {
         options: Vec<(String, String)>,
     },
     Bool,
+    /// A reference and an offset. `refs` are `(value, label)`.
+    Height {
+        refs: Vec<(String, String)>,
+        reference: String,
+        offset: String,
+        unit: Option<&'static str>,
+    },
+    /// A selection, picked on the model.
+    Selection {
+        items: Vec<Sel>,
+    },
+    /// Free text.
+    Text,
+    /// `x y z` in the display unit, points separated by `;`.
+    Points {
+        unit: Option<&'static str>,
+    },
     ReadOnly,
 }
 
@@ -44,7 +63,7 @@ pub struct DiagVm {
 }
 
 impl DiagVm {
-    fn of(d: &Diagnostic) -> DiagVm {
+    pub(super) fn of(d: &Diagnostic) -> DiagVm {
         DiagVm {
             error: d.severity == Severity::Error,
             code: d.code.clone(),
@@ -78,22 +97,27 @@ pub struct TabVm {
     pub errors: usize,
 }
 
+/// The tool dropdown of a toolpath.
+#[derive(Clone, PartialEq, Debug)]
+pub struct ToolChoiceVm {
+    /// The reference the toolpath holds.
+    pub value: String,
+    /// `(reference, label)`.
+    pub options: Vec<(String, String)>,
+    /// Why the tool does not suit, under the dropdown.
+    pub diagnostics: Vec<DiagVm>,
+}
+
 #[derive(Clone, PartialEq, Debug)]
 pub struct ToolpathVm {
     pub id: String,
     pub title: String,
     /// Type, Setup and tool.
     pub subtitle: String,
+    pub tool: ToolChoiceVm,
     pub tabs: Vec<TabVm>,
     /// Diagnostics that name no field.
     pub general: Vec<DiagVm>,
-}
-
-#[derive(Clone, PartialEq, Debug)]
-pub struct SetupVm {
-    pub title: String,
-    /// `(label, value)`, read-only in M5.
-    pub rows: Vec<(String, String)>,
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -104,13 +128,13 @@ pub enum InspectorVm {
 }
 
 /// Display unit symbol and scale of a field kind.
-fn display(kind: FieldKind, unit: DisplayUnit) -> (Option<&'static str>, f64) {
+pub(super) fn display(kind: FieldKind, unit: DisplayUnit) -> (Option<&'static str>, f64) {
     let (dim, unit) = (dimension(kind), length_unit(unit));
     let sym = unit_symbol(dim, unit);
     ((!sym.is_empty()).then_some(sym), display_scale(dim, unit))
 }
 
-fn num_text(v: f64, kind: FieldKind, unit: DisplayUnit) -> String {
+pub(crate) fn num_text(v: f64, kind: FieldKind, unit: DisplayUnit) -> String {
     fmt_num(v / display(kind, unit).1)
 }
 
@@ -230,16 +254,48 @@ impl Cx<'_> {
         tr_args("inspector-default", &[("value", &value)])
     }
 
-    fn widget(&self, m: &FieldMeta) -> Widget {
+    fn widget(&self, m: &FieldMeta, local: Option<&PValue>) -> Widget {
         match m.kind {
             FieldKind::Length
             | FieldKind::Feed
             | FieldKind::Speed
             | FieldKind::Angle
+            | FieldKind::Duration
             | FieldKind::Count => Widget::Number {
                 unit: display(m.kind, self.unit).0,
             },
             FieldKind::Bool => Widget::Bool,
+            FieldKind::Height | FieldKind::XPos => {
+                let h = match local {
+                    Some(PValue::Height(h)) => Some(h.clone()),
+                    _ => match const_value(m) {
+                        Some(PValue::Height(h)) => Some(h),
+                        _ => None,
+                    },
+                };
+                let (reference, off) =
+                    h.map_or((String::new(), 0.0), |h| (h.reference.clone(), h.offset()));
+                Widget::Height {
+                    refs: m
+                        .height_refs()
+                        .iter()
+                        .map(|r| ((*r).to_owned(), tr(&format!("height-ref-{r}"))))
+                        .collect(),
+                    reference,
+                    offset: num_text(off, FieldKind::Length, self.unit),
+                    unit: display(FieldKind::Length, self.unit).0,
+                }
+            }
+            FieldKind::Selection => Widget::Selection {
+                items: match local {
+                    Some(PValue::Selection(v)) => v.clone(),
+                    _ => Vec::new(),
+                },
+            },
+            FieldKind::Text => Widget::Text,
+            FieldKind::Point | FieldKind::Points => Widget::Points {
+                unit: display(FieldKind::Length, self.unit).0,
+            },
             FieldKind::Enum(opts) => Widget::Enum {
                 options: opts.iter().map(|o| ((*o).to_owned(), data(*o))).collect(),
             },
@@ -250,7 +306,11 @@ impl Cx<'_> {
     fn field(&self, path: String, m: &FieldMeta, diags: &[Diagnostic]) -> FieldVm {
         let local = self.tp.params.get(&path);
         let value = match local.cloned().or_else(|| const_value(m)) {
-            Some(v) => value_text(&v, m.kind, self.unit),
+            Some(v) => match &v {
+                PValue::Point(p) => points_text(std::slice::from_ref(p), self.unit),
+                PValue::Points(ps) => points_text(ps, self.unit),
+                v => value_text(v, m.kind, self.unit),
+            },
             None => match m.default {
                 DefaultRule::FromTool(k) => self
                     .preset(k)
@@ -261,7 +321,7 @@ impl Cx<'_> {
         let kind = self.tp.kind();
         FieldVm {
             label: field_label(m),
-            widget: self.widget(m),
+            widget: self.widget(m, local),
             value,
             set: local.is_some(),
             default_text: self.default_text(m),
@@ -292,16 +352,18 @@ impl InspectorVm {
                         material: setup.material.as_deref(),
                         unit,
                     };
-                    InspectorVm::Toolpath(toolpath_vm(&cx, &setup.name, s.diagnostics(id)))
+                    InspectorVm::Toolpath(toolpath_vm(
+                        &cx,
+                        &s.tools,
+                        &setup.name,
+                        s.diagnostics(id),
+                    ))
                 }
                 None => empty(),
             },
             Selection::Setup(id) | Selection::Face { setup: id, .. } => {
                 match fluut_model::setup::resolve_setup(&s.project, id) {
-                    Ok(st) => {
-                        let n = s.project.setup(id).map_or(0, |x| x.toolpaths.len());
-                        InspectorVm::Setup(setup_vm(&st, n, unit))
-                    }
+                    Ok(st) => InspectorVm::Setup(SetupVm::new(s, &st)),
                     Err(_) => empty(),
                 }
             }
@@ -310,7 +372,7 @@ impl InspectorVm {
     }
 }
 
-fn toolpath_vm(cx: &Cx, setup: &str, diags: &[Diagnostic]) -> ToolpathVm {
+fn toolpath_vm(cx: &Cx, tools: &ToolStore, setup: &str, diags: &[Diagnostic]) -> ToolpathVm {
     let leaves = Params::leaf_fields(cx.tp.kind());
     let tabs = Group::ALL
         .into_iter()
@@ -337,6 +399,7 @@ fn toolpath_vm(cx: &Cx, setup: &str, diags: &[Diagnostic]) -> ToolpathVm {
     let paths: Vec<&str> = leaves.iter().map(|(p, _)| p.as_str()).collect();
     let general = diags
         .iter()
+        .filter(|d| d.field.as_deref() != Some("tool"))
         .filter(|d| d.field.as_deref().is_none_or(|f| !paths.contains(&f)))
         .map(DiagVm::of)
         .collect();
@@ -348,60 +411,76 @@ fn toolpath_vm(cx: &Cx, setup: &str, diags: &[Diagnostic]) -> ToolpathVm {
         id: cx.tp.id.clone(),
         title: data(&cx.tp.name),
         subtitle: format!("{} · {setup} · {tool}", cx.tp.kind().as_str()),
+        tool: tool_choice(cx, tools, diags),
         tabs,
         general,
     }
 }
 
-fn setup_vm(s: &ResolvedSetup, toolpaths: usize, unit: DisplayUnit) -> SetupVm {
-    let len = |v: f64| num_with_unit(v, FieldKind::Length, unit);
-    let opt = |v: &Option<String>| v.clone().unwrap_or_else(|| tr("inspector-none"));
-    let triple = |v: &[Num; 3]| format!("{} × {} × {}", len(v[0].v), len(v[1].v), len(v[2].v));
-    let stock = match &s.stock {
-        None => tr("inspector-none"),
-        Some(StockSpec::Block { size: Some(v), .. }) => format!("block, size {}", triple(v)),
-        Some(StockSpec::Block { margin, .. }) => {
-            let zero = Num { v: 0.0, int: true };
-            format!("block, margin {}", triple(&margin.unwrap_or([zero; 3])))
-        }
-        Some(StockSpec::Cylinder { radius, length }) => {
-            format!(
-                "cylinder, radius {}, length {}",
-                len(radius.v),
-                len(length.v)
-            )
-        }
-        Some(StockSpec::Body { body }) => format!("body {body}"),
-        Some(StockSpec::FromPrevious) => "from_previous".into(),
-    };
-    let zero = match &s.zero {
-        ZeroSpec::StockTopCorner(c) => format!("stock_top_corner {}", c.as_str()),
-        ZeroSpec::StockTopCentre => "stock_top_centre".into(),
-        ZeroSpec::StockBottomCorner(c) => format!("stock_bottom_corner {}", c.as_str()),
-        ZeroSpec::Point(p) => point_text(p),
-        ZeroSpec::OnAxis { x } => match x {
-            AxisX::StockLeft => "on_axis, stock_left".into(),
-            AxisX::StockRight => "on_axis, stock_right".into(),
-            AxisX::At(v) => format!("on_axis, x {}", len(v.v)),
-        },
-    };
-    let bodies = match &s.geometry.bodies {
-        None => tr("setup-bodies-all"),
-        Some(b) => b.join(", "),
-    };
-    SetupVm {
-        title: data(&s.name),
-        rows: vec![
-            (tr("setup-kind"), data(s.kind.as_str())),
-            (tr("setup-material"), opt(&s.material)),
-            (tr("setup-machine"), opt(&s.machine)),
-            (tr("setup-work-offset"), data(&s.work_offset)),
-            (tr("setup-stock"), stock),
-            (tr("setup-zero"), zero),
-            (tr("setup-bodies"), bodies),
-            (tr("setup-toolpaths"), toolpaths.to_string()),
+/// The name of a tool shape.
+fn shape_label(s: ToolShape) -> String {
+    tr(match s {
+        ToolShape::Flat => "tool-shape-flat",
+        ToolShape::Ball => "tool-shape-ball",
+        ToolShape::Bull => "tool-shape-bull",
+        ToolShape::V => "tool-shape-v",
+        ToolShape::Taper => "tool-shape-taper",
+        ToolShape::Drill => "tool-shape-drill",
+    })
+}
+
+/// "library: type diameter, name".
+fn tool_label(library: &str, t: &Tool, unit: DisplayUnit) -> String {
+    let d = num_with_unit(t.diameter, FieldKind::Length, unit);
+    let name = data(if t.name.is_empty() { &t.id } else { &t.name });
+    tr_args(
+        "inspector-tool-option",
+        &[
+            ("library", library),
+            ("shape", &shape_label(t.shape)),
+            ("diameter", &d),
+            ("name", &name),
         ],
+    )
+}
+
+fn tool_choice(cx: &Cx, tools: &ToolStore, diags: &[Diagnostic]) -> ToolChoiceVm {
+    let mut options = Vec::new();
+    if cx.tp.kind() == ToolpathTypeId::ManualNc {
+        options.push((String::new(), tr("inspector-none")));
     }
+    for lib in tools.libraries() {
+        let label = if lib.name.is_empty() {
+            &lib.id
+        } else {
+            &lib.name
+        };
+        for t in &lib.tools {
+            options.push((
+                format!("{}#{}", lib.id, t.id),
+                tool_label(label, t, cx.unit),
+            ));
+        }
+    }
+    let value = cx.tp.tool.clone();
+    if !options.iter().any(|(v, _)| *v == value) {
+        options.insert(0, (value.clone(), data(&value)));
+    }
+    ToolChoiceVm {
+        value,
+        options,
+        diagnostics: diags
+            .iter()
+            .filter(|d| d.field.as_deref() == Some("tool"))
+            .map(DiagVm::of)
+            .collect(),
+    }
+}
+
+/// The edit that gives a toolpath the tool `reference`; empty means none.
+pub fn tool_edit(toolpath: &str, reference: &str) -> ModelEdit {
+    let text = PValue::Enum(reference.to_owned()).to_toml();
+    ModelEdit::set_toolpath_field(toolpath, "tool", (!reference.is_empty()).then_some(&*text))
 }
 
 /// The edit for an entry in a number field, or why it is not a value.
@@ -440,6 +519,104 @@ pub fn number_edit(
         path: path.to_owned(),
         value,
     })
+}
+
+fn points_text(ps: &[[Num; 3]], unit: DisplayUnit) -> String {
+    let one = |p: &[Num; 3]| {
+        p.iter()
+            .map(|c| num_text(c.v, FieldKind::Length, unit))
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    ps.iter().map(one).collect::<Vec<_>>().join("; ")
+}
+
+/// The edit for an entry in a height: a new reference, a new offset, or
+/// both. Starts from the value in force, so changing one keeps the other.
+///
+/// # Errors
+///
+/// A message for display under the field.
+pub fn height_edit(
+    snap: &Snapshot,
+    toolpath: &str,
+    path: &str,
+    reference: Option<&str>,
+    offset: Option<&str>,
+) -> Result<Edit, String> {
+    let (_, tp) = snap.project.toolpath(toolpath).ok_or("no toolpath")?;
+    let m = Params::meta(tp.kind(), path).ok_or("no field")?;
+    let now = match tp.params.get(path).cloned().or_else(|| const_value(m)) {
+        Some(PValue::Height(h)) => Some(h),
+        _ => None,
+    };
+    let r = reference
+        .map(str::to_owned)
+        .or_else(|| now.as_ref().map(|h| h.reference.clone()))
+        .ok_or("no reference")?;
+    let off = match offset.map(str::trim) {
+        None => now.map_or(0.0, |h| h.offset()),
+        Some("") => 0.0,
+        Some(text) => {
+            let unit = EntryUnit::of(FieldKind::Length, snap.project.units);
+            evaluate(text, unit, snap.tools.get(&tp.tool)).map_err(|e| {
+                tr_args(
+                    "inspector-invalid-entry",
+                    &[("text", &format!("{text} ({e})"))],
+                )
+            })?
+        }
+    };
+    Ok(value_edit(
+        toolpath,
+        path,
+        Some(PValue::Height(HeightSpec::new(&r, off))),
+    ))
+}
+
+/// The edit for an entry in a `Point` or `Points` field: `x y z`, points
+/// separated by `;`, in the display unit. Empty clears the field.
+///
+/// # Errors
+///
+/// A message for display under the field.
+pub fn points_edit(
+    snap: &Snapshot,
+    toolpath: &str,
+    path: &str,
+    text: &str,
+) -> Result<Edit, String> {
+    let (_, tp) = snap.project.toolpath(toolpath).ok_or("no toolpath")?;
+    let m = Params::meta(tp.kind(), path).ok_or("no field")?;
+    let text = text.trim();
+    if text.is_empty() {
+        return Ok(value_edit(toolpath, path, None));
+    }
+    let bad = |e: &str| {
+        tr_args(
+            "inspector-invalid-entry",
+            &[("text", &format!("{text} ({e})"))],
+        )
+    };
+    let unit = EntryUnit::of(FieldKind::Length, snap.project.units);
+    let mut points = Vec::new();
+    for part in text.split(';').filter(|p| !p.trim().is_empty()) {
+        let c: Vec<&str> = part.split_whitespace().collect();
+        let [x, y, z] = c[..] else {
+            return Err(bad("x y z"));
+        };
+        let mut p = [Num::float(0.0); 3];
+        for (slot, t) in p.iter_mut().zip([x, y, z]) {
+            *slot = Num::float(evaluate(t, unit, None).map_err(|e| bad(&e))?);
+        }
+        points.push(p);
+    }
+    let value = match (m.kind, &points[..]) {
+        (FieldKind::Point, [p]) => PValue::Point(*p),
+        (FieldKind::Point, _) => return Err(bad("x y z")),
+        _ => PValue::Points(points),
+    };
+    Ok(value_edit(toolpath, path, Some(value)))
 }
 
 /// The edit that sets an enum or bool field, or clears it (`None`).

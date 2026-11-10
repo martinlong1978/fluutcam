@@ -21,6 +21,138 @@ pub enum Prim {
     Vertex(u32),
 }
 
+/// Sub-boxes per side of a B-spline patch ([`SubBox`]).
+pub const SUB_GRID: usize = 8;
+
+/// The part of the box of a piece of a B-spline patch that bounds a drop:
+/// its XY extent and its highest Z, as `f32` rounded outwards.
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub struct SubBox {
+    pub min_x: f32,
+    pub min_y: f32,
+    pub max_x: f32,
+    pub max_y: f32,
+    pub max_z: f32,
+}
+
+/// `x` as an `f32` not below it.
+fn up(x: f64) -> f32 {
+    let f = x as f32;
+    if f64::from(f) < x { f.next_up() } else { f }
+}
+
+/// `x` as an `f32` not above it.
+fn down(x: f64) -> f32 {
+    let f = x as f32;
+    if f64::from(f) > x { f.next_down() } else { f }
+}
+
+impl SubBox {
+    fn new(b: &Aabb3) -> SubBox {
+        SubBox {
+            min_x: down(b.min.x()),
+            min_y: down(b.min.y()),
+            max_x: up(b.max.x()),
+            max_y: up(b.max.y()),
+            max_z: up(b.max.z()),
+        }
+    }
+
+    /// Whether the XY box holds `p` and `p.z` is at most `max_z` (for tests).
+    pub fn holds(&self, p: Point3, eps: f64) -> bool {
+        p.x() >= f64::from(self.min_x) - eps
+            && p.x() <= f64::from(self.max_x) + eps
+            && p.y() >= f64::from(self.min_y) - eps
+            && p.y() <= f64::from(self.max_y) + eps
+            && p.z() <= f64::from(self.max_z) + eps
+    }
+}
+
+/// Sub-boxes of the part `uv` of a B-spline patch: a `SUB_GRID`² grid of
+/// cells, each the hull of its four corner points grown by the bilinear
+/// interpolation bound (as [`sampled_box`]; the second derivatives are
+/// sampled and doubled), and cut by `patch`, the box of the poles, which
+/// contains the whole patch by the convex hull property. Cells that miss
+/// the pole box altogether are not possible, a cell of the patch is in it.
+fn patch_sub_boxes(s: &Surface, uv: UvBox, patch: &Aabb3) -> Box<[SubBox]> {
+    let (mut muu, mut mvv) = (0.0f64, 0.0f64);
+    for i in 0..=4 {
+        for j in 0..=4 {
+            let d = s.derivs(uv.u.at(i as f64 / 4.0), uv.v.at(j as f64 / 4.0));
+            muu = muu.max(d.suu.length());
+            mvv = mvv.max(d.svv.length());
+        }
+    }
+    let n = SUB_GRID;
+    let (du, dv) = (uv.u.length() / n as f64, uv.v.length() / n as f64);
+    let grow = (du * du * 2.0 * muu + dv * dv * 2.0 * mvv) / 8.0;
+    let mut pts = Vec::with_capacity((n + 1) * (n + 1));
+    for i in 0..=n {
+        for j in 0..=n {
+            pts.push(s.eval(uv.u.at(i as f64 / n as f64), uv.v.at(j as f64 / n as f64)));
+        }
+    }
+    let mut out = Vec::with_capacity(n * n);
+    for i in 0..n {
+        for j in 0..n {
+            let at = |a: usize, b: usize| pts[(i + a) * (n + 1) + j + b];
+            let b = Aabb3::from_points(&[at(0, 0), at(1, 0), at(0, 1), at(1, 1)]).expand(grow);
+            out.push(SubBox::new(&cut_box(&b, patch)));
+        }
+    }
+    out.into_boxed_slice()
+}
+
+/// Segments per B-spline edge curve.
+pub const SUB_SEGMENTS: usize = 32;
+
+/// Sub-boxes of a B-spline edge curve over `range`: `SUB_SEGMENTS`
+/// segments, each the hull of its end points grown by the linear
+/// interpolation bound `Δt² · |C″| / 8` (the second derivative sampled and
+/// doubled), and cut by `whole`, the box of the poles.
+fn curve_sub_boxes(curve: &Curve3, range: Interval, whole: &Aabb3) -> Box<[SubBox]> {
+    let n = SUB_SEGMENTS;
+    let mut m = 0.0f64;
+    for k in 0..=2 * n {
+        let d = curve.derivs(range.at(k as f64 / (2 * n) as f64), 2);
+        if let Some(d2) = d.get(2) {
+            m = m.max(d2.length());
+        }
+    }
+    let dt = range.length() / n as f64;
+    let grow = dt * dt * 2.0 * m / 8.0;
+    let pts: Vec<Point3> = (0..=n)
+        .map(|k| curve.eval(range.at(k as f64 / n as f64)))
+        .collect();
+    (0..n)
+        .map(|k| {
+            let b = Aabb3::from_points(&[pts[k], pts[k + 1]]).expand(grow);
+            SubBox::new(&cut_box(&b, whole))
+        })
+        .collect()
+}
+
+/// `b` cut by `whole`, or `b` itself if they do not overlap (rounding).
+fn cut_box(b: &Aabb3, whole: &Aabb3) -> Aabb3 {
+    let cut = Aabb3 {
+        min: Point3::new(
+            b.min.x().max(whole.min.x()),
+            b.min.y().max(whole.min.y()),
+            b.min.z().max(whole.min.z()),
+        ),
+        max: Point3::new(
+            b.max.x().min(whole.max.x()),
+            b.max.y().min(whole.max.y()),
+            b.max.z().min(whole.max.z()),
+        ),
+    };
+    if cut.min.x() <= cut.max.x() && cut.min.y() <= cut.max.y() && cut.min.z() <= cut.max.z() {
+        cut
+    } else {
+        *b
+    }
+}
+
 /// A face prepared for contact queries.
 #[derive(Debug, Clone)]
 pub struct QueryFace {
@@ -96,6 +228,11 @@ pub struct QueryGeometry<'a> {
     /// Per face; `None` when its trim could not be built (see `issues`).
     pub faces: Vec<Option<QueryFace>>,
     pub prims: Vec<Prim>,
+    /// Per primitive: the sub-boxes of a B-spline patch, else empty.
+    subs: Vec<Box<[SubBox]>>,
+    /// Per face: its first primitive and how many (a face's patches are
+    /// contiguous).
+    face_prims: Vec<(u32, u32)>,
     pub bvh: Bvh,
     /// The trim chord ([`BuildOptions::trim_chord`]).
     pub trim_chord: f64,
@@ -253,6 +390,8 @@ impl<'a> QueryGeometry<'a> {
         keep: impl Fn(u32) -> bool,
     ) -> QueryGeometry<'a> {
         let mut prims = Vec::new();
+        let mut subs: Vec<Box<[SubBox]>> = Vec::new();
+        let mut face_prims: Vec<(u32, u32)> = vec![(0, 0); body.faces.len()];
         let mut boxes = Vec::new();
         let mut faces = Vec::with_capacity(body.faces.len());
         let mut issues = Vec::new();
@@ -276,6 +415,7 @@ impl<'a> QueryGeometry<'a> {
         }
         for (fi, f) in body.faces.iter().enumerate() {
             let fi = fi as u32;
+            let first_prim = prims.len() as u32;
             if !keep(fi) {
                 faces.push(None);
                 continue;
@@ -318,19 +458,20 @@ impl<'a> QueryGeometry<'a> {
                             && u.length() > 0.0
                             && v.length() > 0.0
                         {
-                            prims.push(Prim::Face {
-                                face: fi,
-                                uv: UvBox::new(u, v),
-                            });
+                            let puv = UvBox::new(u, v);
+                            prims.push(Prim::Face { face: fi, uv: puv });
+                            subs.push(patch_sub_boxes(s, puv, bx));
                             boxes.push(*bx);
                         }
                     }
                 }
                 _ => {
                     prims.push(Prim::Face { face: fi, uv });
+                    subs.push(Box::default());
                     boxes.push(surface_box(s, uv, opts.box_slack).expand(opts.trim_chord));
                 }
             }
+            face_prims[fi as usize] = (first_prim, prims.len() as u32 - first_prim);
             let rim = trim.loops_uv().iter().map(|l| Rim::new(s, l)).collect();
             faces.push(Some(QueryFace { trim, uv, rim }));
         }
@@ -340,13 +481,22 @@ impl<'a> QueryGeometry<'a> {
                 continue;
             }
             prims.push(Prim::Edge(ei as u32));
-            boxes.push(curve_box(&body.curves[c as usize], e.range));
+            let curve = &body.curves[c as usize];
+            let whole = curve_box(curve, e.range);
+            subs.push(match curve {
+                Curve3::BSpline(_) if e.range.length() > 0.0 => {
+                    curve_sub_boxes(curve, e.range, &whole)
+                }
+                _ => Box::default(),
+            });
+            boxes.push(whole);
         }
         for (vi, v) in body.vertices.iter().enumerate() {
             if !vertex_used[vi] {
                 continue;
             }
             prims.push(Prim::Vertex(vi as u32));
+            subs.push(Box::default());
             boxes.push(Aabb3::from_points(&[v.p]));
         }
         QueryGeometry {
@@ -355,6 +505,8 @@ impl<'a> QueryGeometry<'a> {
             bvh: Bvh::new(&boxes),
             trim_chord: opts.trim_chord,
             prims,
+            subs,
+            face_prims,
             issues,
         }
     }
@@ -366,10 +518,23 @@ impl<'a> QueryGeometry<'a> {
             body: Cow::Owned(self.body.into_owned()),
             faces: self.faces,
             prims: self.prims,
+            subs: self.subs,
+            face_prims: self.face_prims,
             bvh: self.bvh,
             trim_chord: self.trim_chord,
             issues: self.issues,
         }
+    }
+
+    /// Sub-boxes of B-spline patch primitive `i` (empty for other kinds).
+    pub fn sub_boxes(&self, i: u32) -> &[SubBox] {
+        &self.subs[i as usize]
+    }
+
+    /// The primitives of face `face` (its patches), as a range of indices.
+    pub fn face_prims(&self, face: u32) -> std::ops::Range<u32> {
+        let (a, n) = self.face_prims[face as usize];
+        a..a + n
     }
 
     /// Box of primitive `i`.

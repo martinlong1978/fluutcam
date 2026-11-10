@@ -67,6 +67,9 @@ pub struct BrepBody {
     /// uses the parameter of its edge's 3-D curve over `Edge::range`, so
     /// `S(pc(t)) = C(t)`. `None` where it could not be computed.
     pub pcurves: Vec<Option<Curve2>>,
+    /// Built from a triangle mesh: every face is one planar triangle, so
+    /// views draw only the sharp edges.
+    pub from_mesh: bool,
 }
 
 impl BrepBody {

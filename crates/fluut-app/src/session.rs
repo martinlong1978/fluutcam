@@ -17,10 +17,14 @@
 use crate::jobs::{CalcTargets, Edit, Event, JobCx, Outcome, PostRequest, Request};
 use crate::scene::{SetupScene, ToolpathLines};
 use fluut_cam::geometry::SetupBody;
+use fluut_cam::geometry::SetupGeometry;
 use fluut_core::fluut_sim::{Check, Monitor, Player, Step, StockMesh};
+use fluut_core::ops::MachineChoice;
 use fluut_core::{JobReport, JobState, NodeId, PostOptions, Session, SetupFrame, Targets};
 use fluut_core::{SimResult, SimSettings};
-use fluut_model::project::Project;
+use fluut_model::PValue;
+use fluut_model::project::SetupKind;
+use fluut_model::project::{DisplayUnit, Project, StockSpec};
 use fluut_model::setup::{ResolvedSetup, resolve_all};
 use fluut_model::tools::ToolStore;
 use fluut_model::validate::{ValidateCx, validate};
@@ -56,6 +60,8 @@ pub struct Snapshot {
     pub path: PathBuf,
     pub project: Project,
     pub tools: ToolStore,
+    /// The machines a Setup can name.
+    pub machines: Vec<MachineChoice>,
     /// Load findings and Setup frame errors.
     pub warnings: Vec<Diagnostic>,
     pub status: BTreeMap<String, ToolpathStatus>,
@@ -65,6 +71,9 @@ pub struct Snapshot {
     pub stats: BTreeMap<String, PathStats>,
     /// Per Setup id, in its work frame.
     pub scenes: BTreeMap<String, Arc<SetupScene>>,
+    /// Every body of the model, in the model frame: what picking whole
+    /// bodies shows. `None` while no geometry is imported.
+    pub all_bodies: Option<Arc<SetupScene>>,
     /// Per toolpath id, for current results only.
     pub paths: BTreeMap<String, Arc<ToolpathLines>>,
     /// Why the last edit was refused, if it was.
@@ -73,7 +82,17 @@ pub struct Snapshot {
     pub times: BTreeMap<String, f64>,
     /// Current simulations, by Setup id.
     pub sims: BTreeMap<String, Arc<SimView>>,
+    /// The project differs from its file (the title shows `*`).
+    pub dirty: bool,
+    pub can_undo: bool,
+    pub can_redo: bool,
+    /// The label of the edit that undo would undo.
+    pub undo_label: Option<String>,
 }
+
+/// The id under which `Snapshot::scenes` holds the model alone (all bodies
+/// in the model frame) while the project has no Setup.
+pub const MODEL_SCENE: &str = "";
 
 /// A toolpath on the simulation timeline (D13 §7).
 #[derive(Clone, PartialEq, Debug)]
@@ -273,6 +292,8 @@ struct State {
     lines: BTreeMap<String, (Arc<ToolpathResult>, Arc<ToolpathLines>)>,
     /// Scenes by Setup id, with the Setup node hash they were built for.
     scenes: BTreeMap<String, (String, Arc<SetupScene>)>,
+    /// The model alone, with the key of the sources it was built for.
+    model_scene: Option<(String, Arc<SetupScene>)>,
     frame_errors: BTreeMap<String, Diagnostic>,
     edit_error: Option<String>,
     sim_settings: SimSettings,
@@ -304,8 +325,75 @@ impl Worker {
     }
 
     fn run(&mut self, r: Request) {
+        // A job after a refused edit: the refusal is old news.
+        if !matches!(r, Request::Edit(_) | Request::Scrub { .. })
+            && let Some(st) = self.state.as_mut()
+        {
+            st.edit_error = None;
+        }
         match r {
             Request::Open(cx, path) => self.open(&cx, path),
+            Request::New(cx, path, units) => {
+                let outcome = self.new_project(&path, units);
+                self.finish(&cx, outcome);
+            }
+            Request::Save(cx, path) => {
+                let outcome = self.save(path.as_deref());
+                self.finish(&cx, outcome);
+            }
+            Request::Import(cx, path, unit) => {
+                let outcome = self.import(&path, unit.as_deref());
+                self.finish(&cx, outcome);
+            }
+            Request::Reimport(cx) => {
+                let outcome = self.reimport();
+                self.finish(&cx, outcome);
+            }
+            Request::AddSetup {
+                cx,
+                kind,
+                based_on,
+                name,
+            } => {
+                let outcome = self.change(|s| {
+                    s.add_setup(kind, based_on.as_deref(), &name)
+                        .map(|id| Outcome::SetupAdded { id, name })
+                });
+                self.finish(&cx, outcome);
+            }
+            Request::AddToolpath {
+                cx,
+                setup,
+                kind,
+                name,
+            } => {
+                let outcome = self.change(|s| {
+                    s.add_toolpath(&setup, kind, &name)
+                        .map(|id| Outcome::ToolpathAdded { id, name })
+                });
+                self.finish(&cx, outcome);
+            }
+            Request::Duplicate { cx, toolpath, name } => {
+                let outcome = self.change(|s| {
+                    s.duplicate_toolpath(&toolpath, &name)
+                        .map(|id| Outcome::ToolpathAdded { id, name })
+                });
+                self.finish(&cx, outcome);
+            }
+            Request::Undo(cx) => {
+                let outcome = self.change(|s| {
+                    Ok(s.undo()
+                        .map_or(Outcome::Cancelled, |o| Outcome::Undone { label: o.label }))
+                });
+                self.finish(&cx, outcome);
+            }
+            Request::Redo(cx) => {
+                let outcome = self.change(|s| {
+                    Ok(s.redo()
+                        .map_or(Outcome::Cancelled, |o| Outcome::Redone { label: o.label }))
+                });
+                self.finish(&cx, outcome);
+            }
             Request::Calculate(cx, targets) => {
                 let outcome = self.calculate(&cx, &targets);
                 self.finish(&cx, outcome);
@@ -402,19 +490,7 @@ impl Worker {
         cx.progress.set_total(1);
         match Session::open(&path, &[]) {
             Ok(session) => {
-                self.state = Some(State {
-                    session,
-                    path: path.clone(),
-                    calculated: BTreeSet::new(),
-                    reports: BTreeMap::new(),
-                    lines: BTreeMap::new(),
-                    scenes: BTreeMap::new(),
-                    frame_errors: BTreeMap::new(),
-                    edit_error: None,
-                    sim_settings: SimSettings::default(),
-                    sim_views: BTreeMap::new(),
-                    players: BTreeMap::new(),
-                });
+                self.state = Some(State::new(session, path.clone()));
                 cx.progress.advance();
                 self.snapshot();
                 self.finish(
@@ -428,6 +504,111 @@ impl Worker {
         }
     }
 
+    /// Starts an empty project and makes it the open one.
+    fn new_project(&mut self, path: &Path, units: DisplayUnit) -> Outcome {
+        match Session::new_project(path, units) {
+            Ok(session) => {
+                let file = session.path.clone().unwrap_or_else(|| path.to_path_buf());
+                let name = file_name(&file);
+                self.state = Some(State::new(session, file));
+                self.snapshot();
+                Outcome::Created { file: name }
+            }
+            Err(d) => Outcome::Failed(d),
+        }
+    }
+
+    /// Saves to the project's file, or as `path`.
+    fn save(&mut self, path: Option<&Path>) -> Outcome {
+        let Some(st) = self.state.as_mut() else {
+            return Outcome::Failed(vec![no_project()]);
+        };
+        let r = match path {
+            Some(p) => st.session.save_as(p),
+            None => st.session.save(),
+        };
+        if let Err(d) = r {
+            return Outcome::Failed(vec![d]);
+        }
+        if let Some(p) = &st.session.path {
+            st.path = p.clone();
+        }
+        let file = file_name(&st.path);
+        self.snapshot();
+        Outcome::Saved { file }
+    }
+
+    /// Imports a model file.
+    fn import(&mut self, path: &Path, unit: Option<&str>) -> Outcome {
+        let Some(st) = self.state.as_mut() else {
+            return Outcome::Failed(vec![no_project()]);
+        };
+        match st.session.import_model_unit(path, unit) {
+            Ok(r) => {
+                for d in r.diagnostics {
+                    push_unique(&mut st.session.warnings, d);
+                }
+                st.edit_error = None;
+                self.snapshot();
+                Outcome::Imported {
+                    file: file_name(path),
+                    bodies: r.bodies.len(),
+                }
+            }
+            Err(d) => Outcome::Failed(d),
+        }
+    }
+
+    /// Re-imports every geometry source, in project order. The first
+    /// failure stops it; the sources done stay re-imported.
+    fn reimport(&mut self) -> Outcome {
+        let Some(st) = self.state.as_mut() else {
+            return Outcome::Failed(vec![no_project()]);
+        };
+        let ids: Vec<String> = st
+            .session
+            .project
+            .geometry
+            .iter()
+            .map(|g| g.id.clone())
+            .collect();
+        let (mut sources, mut unmatched) = (0, 0);
+        for id in ids {
+            match st.session.reimport(&id) {
+                Ok(r) => {
+                    sources += 1;
+                    unmatched += r.unmatched.len();
+                    for d in r.diagnostics {
+                        push_unique(&mut st.session.warnings, d);
+                    }
+                }
+                Err(d) => {
+                    self.snapshot();
+                    return Outcome::Failed(d);
+                }
+            }
+        }
+        st.edit_error = None;
+        self.snapshot();
+        Outcome::Reimported { sources, unmatched }
+    }
+
+    /// Runs a session change and sends a snapshot; a refusal is a failed
+    /// job and the project stays as it was.
+    fn change(&mut self, f: impl FnOnce(&mut Session) -> Result<Outcome, Diagnostic>) -> Outcome {
+        let Some(st) = self.state.as_mut() else {
+            return Outcome::Failed(vec![no_project()]);
+        };
+        st.edit_error = None;
+        match f(&mut st.session) {
+            Ok(o) => {
+                self.snapshot();
+                o
+            }
+            Err(d) => Outcome::Failed(vec![d]),
+        }
+    }
+
     fn edit(&mut self, e: Edit) {
         let Some(st) = self.state.as_mut() else {
             return;
@@ -437,10 +618,13 @@ impl Worker {
                 toolpath,
                 path,
                 value,
-            } => match st.session.project.toolpath_mut(&toolpath) {
-                Some(t) => t.params.set(&path, value).err(),
-                None => Some(format!("no toolpath `{toolpath}`")),
-            },
+            } => {
+                let text = value.as_ref().map(PValue::to_toml);
+                let edit =
+                    fluut_model::edit::Edit::set_toolpath_field(&toolpath, &path, text.as_deref());
+                st.session.apply(edit).err().map(|e| e.0)
+            }
+            Edit::Model(edit) => st.session.apply(edit).err().map(|e| e.0),
         };
         self.snapshot();
     }
@@ -591,11 +775,58 @@ fn push_unique(v: &mut Vec<Diagnostic>, d: Diagnostic) {
 }
 
 impl State {
+    fn new(session: Session, path: PathBuf) -> State {
+        State {
+            session,
+            path,
+            calculated: BTreeSet::new(),
+            reports: BTreeMap::new(),
+            lines: BTreeMap::new(),
+            scenes: BTreeMap::new(),
+            model_scene: None,
+            frame_errors: BTreeMap::new(),
+            edit_error: None,
+            sim_settings: SimSettings::default(),
+            sim_views: BTreeMap::new(),
+            players: BTreeMap::new(),
+        }
+    }
+
+    /// The scene of all bodies in the model frame, rebuilt when a source
+    /// changes.
+    fn model_scene(&mut self) -> Option<Arc<SetupScene>> {
+        let key: String = self
+            .session
+            .store
+            .sources()
+            .map(|(id, s)| format!("{id}:{};", s.hash))
+            .collect();
+        if key.is_empty() {
+            return None;
+        }
+        if self.model_scene.as_ref().is_none_or(|(k, _)| *k != key) {
+            let g = SetupGeometry {
+                bodies: self.session.store.bodies().cloned().collect(),
+            };
+            self.model_scene = Some((key, Arc::new(SetupScene::new(&g, None))));
+        }
+        self.model_scene.as_ref().map(|(_, s)| s.clone())
+    }
+
     fn setup_bodies(&self, s: &ResolvedSetup) -> Vec<SetupBody> {
         let all = self.session.store.bodies();
         match &s.geometry.bodies {
             None => all.cloned().collect(),
-            Some(ids) => all.filter(|b| ids.contains(&b.id)).cloned().collect(),
+            Some(ids) => {
+                // A stock body comes along, for the frame to take out again.
+                let stock = match &s.stock {
+                    Some(StockSpec::Body { body }) => Some(body),
+                    _ => None,
+                };
+                all.filter(|b| ids.contains(&b.id) || stock == Some(&b.id))
+                    .cloned()
+                    .collect()
+            }
         }
     }
 
@@ -625,6 +856,19 @@ impl State {
             }
             scenes.insert(s.id.clone(), self.scenes[&s.id].1.clone());
         }
+        let all_bodies = self.model_scene();
+        if project.setups.is_empty()
+            && let Some(m) = &all_bodies
+        {
+            scenes.insert(MODEL_SCENE.to_owned(), m.clone());
+        }
+        // The kind decides which toolpath types validate (rotary types run in
+        // rotary Setups only), and it may be inherited.
+        let kinds: BTreeMap<String, SetupKind> = resolve_all(&project)
+            .into_iter()
+            .flatten()
+            .map(|r| (r.id, r.kind))
+            .collect();
         let mut status = BTreeMap::new();
         let mut diagnostics = BTreeMap::new();
         let mut stats = BTreeMap::new();
@@ -634,6 +878,7 @@ impl State {
                 let tool = self.session.tools.get(&t.tool);
                 let cx = ValidateCx {
                     material: s.material.as_deref(),
+                    setup_kind: kinds.get(&s.id).copied().unwrap_or(SetupKind::ThreeAxis),
                     ..ValidateCx::new(tool)
                 };
                 let mut diags = validate(t, &cx);
@@ -711,15 +956,21 @@ impl State {
             path: self.path.clone(),
             project,
             tools: self.session.tools.clone(),
+            machines: self.session.machine_choices(),
             warnings,
             status,
             diagnostics,
             stats,
             scenes,
+            all_bodies,
             paths,
             edit_error: self.edit_error.clone(),
             times,
             sims,
+            dirty: self.session.is_dirty(),
+            can_undo: self.session.can_undo(),
+            can_redo: self.session.can_redo(),
+            undo_label: self.session.undo_label(),
         }
     }
 }

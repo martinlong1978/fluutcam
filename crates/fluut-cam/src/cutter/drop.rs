@@ -3,10 +3,10 @@
 //! The drop query (D07 §2–§3): highest tool position along −Z, by
 //! best-first branch and bound over the primitive BVH.
 
-use super::geom::{Prim, QueryGeometry};
+use super::geom::{Prim, QueryGeometry, SUB_GRID, SubBox};
 use super::profile::Cutter;
 use super::solve::{self, Axis, Contact, Seeding, SolveStats};
-use fluut_geom::Aabb3;
+use fluut_geom::{Aabb3, UvBox};
 
 /// Options of a drop query.
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -49,6 +49,46 @@ pub fn bound(b: &Aabb3, ax: Axis, c: &Cutter) -> f64 {
     }
 }
 
+/// [`bound`] over the sub-boxes of a B-spline patch or edge: the highest
+/// bound of any of them, which is at most the bound of the whole box.
+pub fn sub_bound(subs: &[SubBox], ax: Axis, c: &Cutter) -> f64 {
+    subs.iter()
+        .map(|b| cell_bound(b, ax, c))
+        .fold(f64::NEG_INFINITY, f64::max)
+}
+
+fn cell_bound(b: &SubBox, ax: Axis, c: &Cutter) -> f64 {
+    let dx = (f64::from(b.min_x) - ax.x)
+        .max(ax.x - f64::from(b.max_x))
+        .max(0.0);
+    let dy = (f64::from(b.min_y) - ax.y)
+        .max(ax.y - f64::from(b.max_y))
+        .max(0.0);
+    let d = libm::hypot(dx, dy);
+    if d <= c.radius() {
+        f64::from(b.max_z) - c.h(d)
+    } else {
+        f64::NEG_INFINITY
+    }
+}
+
+/// [`sub_bound`] over only the cells of patch `uv` that lie along the
+/// boundary of its face `face_uv` (−∞ for a patch inside the face).
+fn face_edge_bound(subs: &[SubBox], uv: UvBox, face_uv: UvBox, ax: Axis, c: &Cutter) -> f64 {
+    let n = SUB_GRID;
+    let on = |a: f64, b: f64| (a - b).abs() <= 1e-9 * (1.0 + b.abs());
+    let (u0, u1) = (on(uv.u.lo, face_uv.u.lo), on(uv.u.hi, face_uv.u.hi));
+    let (v0, v1) = (on(uv.v.lo, face_uv.v.lo), on(uv.v.hi, face_uv.v.hi));
+    let mut best = f64::NEG_INFINITY;
+    for (k, b) in subs.iter().enumerate() {
+        let (i, j) = (k / n, k % n);
+        if (u0 && i == 0) || (u1 && i == n - 1) || (v0 && j == 0) || (v1 && j == n - 1) {
+            best = best.max(cell_bound(b, ax, c));
+        }
+    }
+    best
+}
+
 /// Highest contact on primitive `i`.
 pub fn solve_prim(
     g: &QueryGeometry,
@@ -89,9 +129,23 @@ pub fn drop(
     let mut best: Option<Contact> = None;
     // Faces whose highest stationary point is outside their trim, with its τ.
     let mut trimmed: Vec<(u32, f64)> = Vec::new();
-    g.bvh.best_first(
+    // B-spline patches solved, with the τ each gave (−∞ for none).
+    let mut patches: Vec<(u32, f64)> = Vec::new();
+    g.bvh.best_first_refined(
         opts.floor,
         |b| bound(b, ax, c) - opts.slack,
+        // A B-spline patch or edge goes back into the queue under the
+        // bound of its sub-boxes, so that the primitives are solved in the
+        // order of the tighter bounds and those that cannot beat the best
+        // contact are never solved.
+        |i, bound| {
+            let subs = g.sub_boxes(i);
+            if subs.is_empty() {
+                bound
+            } else {
+                bound.min(sub_bound(subs, ax, c) - opts.slack)
+            }
+        },
         |i, _| {
             let r = match g.prims[i as usize] {
                 Prim::Face { face, uv } => {
@@ -108,6 +162,10 @@ pub fn drop(
                     if t > r.map_or(f64::NEG_INFINITY, |r| r.tau) {
                         trimmed.push((face, t));
                     }
+                    if !g.sub_boxes(i).is_empty() {
+                        let tau = r.map_or(f64::NEG_INFINITY, |r| r.tau);
+                        patches.push((i, tau));
+                    }
                     r
                 }
                 _ => solve_prim(g, i, ax, c, &opts.seeding, stats),
@@ -123,6 +181,45 @@ pub fn drop(
             })
         },
     );
+    // A patch beside the boundary of its face whose own solve gave nothing,
+    // or less than the best contact, while its sub-boxes along that
+    // boundary still allow more, may have missed a contact there (Newton
+    // from its seeds can fail or stop short beside the boundary, and
+    // neighbouring patches, which used to be solved as well, no longer
+    // cover for it). It is solved again with richer seeds.
+    let have = |best: Option<Contact>| best.map_or(opts.floor, |b| b.tau.max(opts.floor));
+    if have(best) < opts.ceiling {
+        let rich = Seeding {
+            grid: opts.seeding.grid + 2,
+            rings: opts.seeding.rings + 1,
+            starts: 2 * opts.seeding.starts,
+            ..opts.seeding
+        };
+        for &(i, tau) in &patches {
+            let Prim::Face { face, uv } = g.prims[i as usize] else {
+                continue;
+            };
+            let Some(q) = g.faces[face as usize].as_ref() else {
+                continue;
+            };
+            if tau >= have(best)
+                || face_edge_bound(g.sub_boxes(i), uv, q.uv, ax, c) - opts.slack <= have(best)
+            {
+                continue;
+            }
+            stats.rescues += 1;
+            let (r, t) = solve::face_trimmed(g, face, uv, g.prim_box(i), ax, c, &rich, stats);
+            if t > r.map_or(f64::NEG_INFINITY, |r| r.tau) {
+                trimmed.push((face, t));
+            }
+            if let Some(r) = r
+                && r.tau > opts.floor
+                && best.is_none_or(|b| r.tau > b.tau)
+            {
+                best = Some(r);
+            }
+        }
+    }
     // The boundary of such a face, where it beats every contact by more
     // than the trim chord: the edges missed it (a model gap).
     let floor = best.map_or(opts.floor, |b| b.tau.max(opts.floor));

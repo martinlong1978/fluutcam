@@ -318,3 +318,241 @@ fn step_controls_and_incremental_frames() {
     assert_eq!(vm.legend[k].label, "Not cut");
     assert_ne!(vm.legend[0].colour, vm.legend[1].colour);
 }
+
+// --- Project operations (plan 2026-11-04-app-project-ops) -----------------
+
+use crate::jobs::Created;
+use fluut_model::ToolpathTypeId;
+use fluut_model::project::{DisplayUnit, SetupKind};
+
+fn temp(name: &str) -> PathBuf {
+    let d = std::env::temp_dir().join(format!("fluut-app-ops-{}-{name}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&d);
+    std::fs::create_dir_all(&d).unwrap();
+    d
+}
+
+fn boss_step() -> PathBuf {
+    project("boss").with_file_name("boss.step")
+}
+
+/// A new project with the boss model imported.
+fn fresh(name: &str) -> (Jobs, PathBuf) {
+    let d = temp(name);
+    let mut j = Jobs::start(|| {});
+    j.new_project(d.join("np"), DisplayUnit::Mm);
+    assert_eq!(
+        j.wait(),
+        Some(Outcome::Created {
+            file: "np.fluut".into()
+        })
+    );
+    j.import_model(boss_step());
+    assert_eq!(
+        j.wait(),
+        Some(Outcome::Imported {
+            file: "boss.step".into(),
+            bodies: 1
+        })
+    );
+    (j, d)
+}
+
+#[test]
+fn new_import_setup_toolpath_calculate_post_save() {
+    let (mut j, d) = fresh("e2e");
+    // The model shows before any Setup exists.
+    let s = j.snapshot.clone().unwrap();
+    assert!(s.dirty && s.can_undo && !s.can_redo);
+    assert!(!s.scenes[MODEL_SCENE].faces.is_empty());
+    assert_eq!(s.project.name, "np");
+    j.add_setup(SetupKind::ThreeAxis, None);
+    assert!(matches!(j.wait(), Some(Outcome::SetupAdded { .. })));
+    assert_eq!(j.created.take(), Some(Created::Setup("s1".into())));
+    let s = j.snapshot.clone().unwrap();
+    assert_eq!(s.project.setups[0].name, "Setup 1");
+    assert!(s.scenes["s1"].stock.is_some());
+    assert!(!s.scenes.contains_key(MODEL_SCENE));
+    j.add_toolpath("s1", ToolpathTypeId::Parallel);
+    assert!(matches!(j.wait(), Some(Outcome::ToolpathAdded { .. })));
+    assert_eq!(j.created.take(), Some(Created::Toolpath("t1".into())));
+    let s = j.snapshot.clone().unwrap();
+    assert_eq!(s.project.toolpath("t1").unwrap().1.name, "Parallel 1");
+    assert_eq!(s.status("t1"), ToolpathStatus::NotCalculated);
+    assert!(
+        s.diagnostics("t1").iter().all(|x| !x.is_error()),
+        "{:?}",
+        s.diagnostics("t1")
+    );
+    j.calculate(CalcTargets::All);
+    assert_eq!(j.wait(), Some(Outcome::Calculated { count: 1 }));
+    let out = d.join("np.ngc");
+    j.post(crate::jobs::PostRequest {
+        post: "fluut/linuxcnc".into(),
+        output: out.clone(),
+        date: "2026-11-04".into(),
+        time: "12:00:00".into(),
+    });
+    assert!(matches!(j.wait(), Some(Outcome::Posted { .. })));
+    assert!(std::fs::read_to_string(&out).unwrap().contains("G1"));
+    // Save; reopen; the file is the same bytes.
+    j.save();
+    assert_eq!(
+        j.wait(),
+        Some(Outcome::Saved {
+            file: "np.fluut".into()
+        })
+    );
+    assert!(!j.snapshot.as_ref().unwrap().dirty);
+    let first = std::fs::read(d.join("np.fluut")).unwrap();
+    let mut k = Jobs::start(|| {});
+    k.open(d.join("np.fluut"));
+    k.wait();
+    assert_eq!(
+        k.snapshot.as_ref().unwrap().project,
+        j.snapshot.as_ref().unwrap().project
+    );
+    k.save();
+    k.wait();
+    assert_eq!(std::fs::read(d.join("np.fluut")).unwrap(), first);
+}
+
+#[test]
+fn undo_restores_each_snapshot() {
+    let (mut j, _d) = fresh("undo");
+    let mut projects = vec![j.snapshot.as_ref().unwrap().project.clone()];
+    j.add_setup(SetupKind::ThreeAxis, None);
+    j.wait();
+    projects.push(j.snapshot.as_ref().unwrap().project.clone());
+    j.add_toolpath("s1", ToolpathTypeId::Pocket3d);
+    j.wait();
+    projects.push(j.snapshot.as_ref().unwrap().project.clone());
+    j.edit(Edit::SetParam {
+        toolpath: "t1".into(),
+        path: "passes.step_down".into(),
+        value: Some(PValue::Num(Num::float(2.0))),
+    });
+    j.wait_snapshot();
+    assert!(j.snapshot.as_ref().unwrap().can_undo);
+    j.undo();
+    assert!(matches!(j.wait(), Some(Outcome::Undone { .. })));
+    assert_eq!(j.snapshot.as_ref().unwrap().project, projects[2]);
+    for i in [1, 0] {
+        j.undo();
+        assert!(matches!(j.wait(), Some(Outcome::Undone { .. })));
+        let s = j.snapshot.clone().unwrap();
+        assert_eq!(s.project, projects[i], "undo to {i}");
+    }
+    // Undone to the empty project: the model still shows (import is the
+    // step before; two more undo it).
+    j.undo();
+    j.wait();
+    let s = j.snapshot.clone().unwrap();
+    assert!(s.project.geometry.is_empty() && !s.scenes.contains_key(MODEL_SCENE));
+    assert!(!s.can_undo && s.can_redo && !s.dirty);
+    // Redo brings the model back.
+    j.redo();
+    assert!(matches!(j.wait(), Some(Outcome::Redone { .. })));
+    let s = j.snapshot.clone().unwrap();
+    assert_eq!(s.project.geometry.len(), 1);
+    assert!(s.scenes.contains_key(MODEL_SCENE) && s.dirty);
+    // Nothing more to undo: ignored.
+    let (mut e, _d2) = {
+        let d = temp("undo-empty");
+        let mut e = Jobs::start(|| {});
+        e.new_project(d.join("x.fluut"), DisplayUnit::Inch);
+        e.wait();
+        (e, d)
+    };
+    e.undo();
+    assert!(!e.is_busy());
+    assert_eq!(
+        e.snapshot.as_ref().unwrap().project.units,
+        DisplayUnit::Inch
+    );
+}
+
+#[test]
+fn a_bad_import_is_a_diagnostic() {
+    let (mut j, d) = fresh("badimport");
+    let rev = j.snapshot.as_ref().unwrap().revision;
+    let bad = d.join("bad.step");
+    std::fs::write(&bad, "not a step file").unwrap();
+    j.import_model(bad);
+    match j.wait() {
+        Some(Outcome::Failed(x)) => assert_eq!(x[0].code, "model.geometry.step"),
+        o => panic!("{o:?}"),
+    }
+    j.import_model(d.join("missing.step"));
+    match j.wait() {
+        Some(Outcome::Failed(x)) => assert_eq!(x[0].code, "model.import.read"),
+        o => panic!("{o:?}"),
+    }
+    assert_eq!(j.snapshot.as_ref().unwrap().revision, rev);
+    assert_eq!(j.snapshot.as_ref().unwrap().project.geometry.len(), 1);
+}
+
+#[test]
+fn setup_and_toolpath_names_count_up() {
+    let (mut j, _d) = fresh("names");
+    for _ in 0..2 {
+        j.add_setup(SetupKind::ThreeAxis, None);
+        j.wait();
+    }
+    j.add_setup(SetupKind::ThreeAxis, Some("s2"));
+    j.wait();
+    for _ in 0..2 {
+        j.add_toolpath("s1", ToolpathTypeId::Contour2d);
+        j.wait();
+    }
+    let s = j.snapshot.clone().unwrap();
+    let names: Vec<_> = s.project.setups.iter().map(|x| x.name.as_str()).collect();
+    assert_eq!(names, ["Setup 1", "Setup 2", "Setup 3"]);
+    assert_eq!(s.project.setups[2].based_on.as_deref(), Some("s2"));
+    let t: Vec<_> = s.project.setups[0]
+        .toolpaths
+        .iter()
+        .map(|x| x.name.as_str())
+        .collect();
+    assert_eq!(t, ["2D contour 1", "2D contour 2"]);
+    // A 2-D toolpath has no drive selection: the inspector's message.
+    assert!(
+        s.diagnostics("t1")
+            .iter()
+            .any(|x| x.code == "param.geometry.drive.empty")
+    );
+}
+
+#[test]
+fn save_as_changes_the_file() {
+    let (mut j, d) = fresh("saveas");
+    let to = d.join("other");
+    std::fs::create_dir_all(&to).unwrap();
+    j.save_as(to.join("copy.fluut"));
+    assert_eq!(
+        j.wait(),
+        Some(Outcome::Saved {
+            file: "copy.fluut".into()
+        })
+    );
+    let s = j.snapshot.clone().unwrap();
+    assert_eq!(s.file_name(), "copy.fluut");
+    assert!(!s.dirty && to.join("boss.step").is_file());
+}
+
+/// Rotary toolpath types validate against the Setup's kind, not against a
+/// default of three_axis.
+#[test]
+fn rotary_toolpaths_in_a_rotary_setup_have_no_kind_error() {
+    let j = opened("shaft");
+    let s = j.snapshot.clone().unwrap();
+    for t in ["t1", "t2", "t3", "t4"] {
+        assert!(
+            s.diagnostics(t)
+                .iter()
+                .all(|d| d.code != "param.type.setup_kind"),
+            "{t}: {:?}",
+            s.diagnostics(t)
+        );
+    }
+}

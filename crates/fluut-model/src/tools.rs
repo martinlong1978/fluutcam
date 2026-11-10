@@ -15,6 +15,13 @@ use std::fmt;
 /// Format id of a tool library file.
 pub const TOOLS_FORMAT: &str = "fluut.tools/1";
 
+/// `(id, file text)` of every built-in tool library: the starter tools a
+/// new project can use at once.
+pub const BUILTIN_TOOLS: [(&str, &str); 1] = [(
+    "fluut/starter",
+    include_str!("../tools/fluut/starter.tools.toml"),
+)];
+
 #[derive(Clone, PartialEq, Debug, Deserialize)]
 pub struct ToolLibrary {
     pub format: String,
@@ -256,6 +263,24 @@ impl ToolStore {
     /// replaces it.
     pub fn insert(&mut self, lib: ToolLibrary) {
         self.libs.insert((lib.id.clone(), lib.version()), lib);
+    }
+
+    /// Every library, by id and then version.
+    pub fn libraries(&self) -> impl Iterator<Item = &ToolLibrary> {
+        self.libs.values()
+    }
+
+    /// The materials that some tool has cutting data for, sorted.
+    pub fn materials(&self) -> Vec<String> {
+        let mut m: Vec<String> = self
+            .libraries()
+            .flat_map(|l| &l.tools)
+            .flat_map(|t| &t.presets)
+            .map(|p| p.material.clone())
+            .collect();
+        m.sort();
+        m.dedup();
+        m
     }
 
     /// The highest version of library `id` that `req` accepts.

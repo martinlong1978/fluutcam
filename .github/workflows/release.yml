@@ -29,6 +29,10 @@ name: Release
 on:
   push:
     tags: ["v[0-9]+.[0-9]+.[0-9]+*"]
+  # Dry run: the same jobs from any branch, to test the workflow before a tag.
+  # Nothing is signed, attested or released; the packages are uploaded as the
+  # `dry-run-dist` workflow artifact instead.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -54,7 +58,7 @@ jobs:
       - id: v
         run: |
           version=$(cargo xtask version)
-          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+          if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "v$version" != "$GITHUB_REF_NAME" ]; then
             echo "::error::tag $GITHUB_REF_NAME does not match the workspace version $version"
             exit 1
           fi
@@ -74,6 +78,11 @@ jobs:
           MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
           MINISIGN_PUBLIC_KEY: ${{ secrets.MINISIGN_PUBLIC_KEY }}
         run: |
+          # A dry run never sends anything to SignPath and never signs.
+          if [ "$GITHUB_REF_TYPE" != "tag" ]; then
+            for f in windows windows_msi minisign; do echo "$f=false"; done | tee -a "$GITHUB_OUTPUT"
+            exit 0
+          fi
           all_set() { for v in "$@"; do [ -n "${!v}" ] || return 1; done; }
           flag() { if all_set "${@:2}"; then echo "$1=true"; else echo "$1=false"; fi; }
           {
@@ -431,14 +440,38 @@ jobs:
           rm -f "$RUNNER_TEMP/minisign.key"
 
       - name: Attest build provenance
+        if: ${{ github.ref_type == 'tag' }}
         uses: actions/attest-build-provenance@v2
         with:
           subject-path: dist/*
 
+      - name: Dry-run packages
+        if: ${{ github.ref_type != 'tag' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: dry-run-dist
+          path: dist/
+          retention-days: 7
+          if-no-files-found: error
+
+      # SignPath Foundation asks for "Code signing policy" on the download
+      # page, so every release names and links it, with the privacy policy.
       - name: Draft release
+        if: ${{ github.ref_type == 'tag' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          args=(--draft --verify-tag --title "FluutCAM $VERSION" --generate-notes)
+          repo="https://github.com/${{ github.repository }}/blob/main"
+          cat > "$RUNNER_TEMP/notes.md" <<NOTES
+          ## Code signing policy
+
+          Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by
+          [SignPath Foundation](https://signpath.org/). What is signed, who approves signatures and
+          how to check a download: [Code signing policy]($repo/docs/CODE_SIGNING.md).
+          Privacy: [Privacy policy]($repo/PRIVACY.md). Installing and uninstalling:
+          [Installing FluutCAM]($repo/docs/install.md).
+
+          NOTES
+          args=(--draft --verify-tag --title "FluutCAM $VERSION" --notes-file "$RUNNER_TEMP/notes.md" --generate-notes)
           if [ "${{ needs.check.outputs.prerelease }}" = "true" ]; then args+=(--prerelease); fi
           gh release create "$GITHUB_REF_NAME" dist/* "${args[@]}"

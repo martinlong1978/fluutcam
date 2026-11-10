@@ -103,21 +103,21 @@ fn svg_takes_the_document_unit() {
 }
 
 #[test]
-fn stl_is_checked_but_not_offered() {
+fn stl_gives_one_body_per_shell() {
     let d = dir("stl");
     let stl = "solid t\nfacet normal 0 0 1\nouter loop\nvertex 0 0 0\nvertex 1 0 0\nvertex 0 1 0\n\
                endloop\nendfacet\nendsolid t\n";
     let (s, diags) = load(&d, "a.stl", stl, SourceKind::Stl, Some("mm"));
     assert_eq!(
         codes(&diags),
-        ["model.geometry.import", "model.geometry.mesh.unused"]
+        ["model.geometry.import", "model.geometry.mesh.open"]
     );
     assert!(
         diags[0].message.contains("3 open edges in 1 holes"),
         "{}",
         diags[0].message
     );
-    assert!(s.source("g1").unwrap().bodies.is_empty());
+    assert_eq!(s.source("g1").unwrap().bodies.len(), 1);
     let (_, diags) = load(&d, "a.stl", stl, SourceKind::Stl, None);
     assert_eq!(codes(&diags), ["model.geometry.unit.missing"]);
     let (_, diags) = load(&d, "b.stl", "garbage", SourceKind::Stl, Some("mm"));

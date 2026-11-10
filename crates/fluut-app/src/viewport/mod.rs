@@ -7,7 +7,7 @@ pub mod camera;
 pub mod render;
 
 pub use camera::Camera;
-pub use render::{FrameState, Pick, Renderer};
+pub use render::{FrameState, Pick, PickMask, Renderer, Tints};
 
 #[cfg(test)]
 mod tests {
@@ -72,6 +72,80 @@ mod tests {
         let centre = r.pick(&device, &queue, &f, w / 2, h / 2);
         assert!(!matches!(centre, Pick::Face(_)), "{centre:?}");
         assert_eq!(r.set_stock(&device, None), 1);
+    }
+
+    /// Picks an edge and a face of the boss from above, then tints them:
+    /// the tinted pixels appear without an upload. Skips without an adapter.
+    #[test]
+    fn edges_pick_by_id_and_highlights_tint() {
+        let Some((device, queue)) = render::headless() else {
+            eprintln!("no wgpu adapter: edges_pick_by_id_and_highlights_tint skipped");
+            return;
+        };
+        let j = opened("boss");
+        let s = j.snapshot.clone().unwrap();
+        let scene = &s.scenes["s1"];
+        let mut r = Renderer::new(&device);
+        r.set_scene(&device, &scene.mesh, &scene.edges, None);
+        let (w, h) = (320, 240);
+        r.ensure_size(&device, w, h);
+        let mut camera = Camera::fit(scene.bounds.as_ref());
+        camera.pitch = 1.5;
+        let f = FrameState {
+            camera,
+            dark: true,
+            face: None,
+            toolpath: None,
+            stock_colour: Default::default(),
+        };
+        r.render(&device, &queue, &f);
+        let orange = |r: &Renderer| {
+            r.read_pixels(&device, &queue)
+                .unwrap()
+                .iter()
+                .filter(|p| i32::from(p[0]) > i32::from(p[2]) + 60)
+                .count()
+        };
+        assert_eq!(orange(&r), 0);
+        // Sweep the view for a face and for an edge.
+        let (mut face, mut edge) = (None, None);
+        let all = PickMask {
+            faces: true,
+            edges: true,
+            toolpaths: false,
+        };
+        for y in (0..h).step_by(6) {
+            for x in (0..w).step_by(6) {
+                match r.pick_masked(&device, &queue, &f, x, y, all) {
+                    Pick::Face(i) => face = face.or(Some(i)),
+                    Pick::Edge(i) => edge = edge.or(Some(i)),
+                    _ => {}
+                }
+            }
+        }
+        let (face, edge) = (face.expect("a face"), edge.expect("an edge"));
+        assert!((edge as usize) < scene.edge_ids.len());
+        assert!(r.set_tints(Tints {
+            faces: vec![face],
+            edges: Vec::new(),
+            ..Tints::default()
+        }));
+        r.render(&device, &queue, &f);
+        let tinted = orange(&r);
+        assert!(tinted > 50, "{tinted}");
+        assert!(r.set_tints(Tints {
+            edges: vec![edge],
+            ..Tints::default()
+        }));
+        assert!(!r.set_tints(Tints {
+            edges: vec![edge],
+            ..Tints::default()
+        }));
+        r.render(&device, &queue, &f);
+        assert!(orange(&r) > 0);
+        // The view pick still ignores edges.
+        let p = r.pick(&device, &queue, &f, w / 2, h / 2);
+        assert!(!matches!(p, Pick::Edge(_)), "{p:?}");
     }
 
     /// Renders the simulated stock of `plate2d` from above, plain and by

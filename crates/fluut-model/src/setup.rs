@@ -97,7 +97,8 @@ impl ResolvedSetup {
     }
 }
 
-fn default_orientation(kind: SetupKind) -> Orientation {
+/// The orientation a Setup of `kind` has when none is given.
+pub fn default_orientation(kind: SetupKind) -> Orientation {
     match kind {
         SetupKind::ThreeAxis => Orientation::default(),
         _ => Orientation::Rotary {
@@ -107,7 +108,8 @@ fn default_orientation(kind: SetupKind) -> Orientation {
     }
 }
 
-fn default_zero(kind: SetupKind) -> ZeroSpec {
+/// The work zero a Setup of `kind` has when none is given.
+pub fn default_zero(kind: SetupKind) -> ZeroSpec {
     match kind {
         SetupKind::ThreeAxis => ZeroSpec::default(),
         _ => ZeroSpec::OnAxis {

@@ -1,0 +1,1 @@
+These pages are copied from `docs/wiki/` in the [FluutCAM repository](https://github.com/martinlong1978/fluutcam) when a change reaches `main`. **Edit them there, not here:** changes made in the wiki's own editor are overwritten.

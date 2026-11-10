@@ -152,3 +152,45 @@ fn fallback_text_is_used_only_without_a_message() {
     let s = p.get_or("no-such-id", "other");
     assert!(s.starts_with('⟦') && s.contains("other"), "{s}");
 }
+
+/// `add_resource` refuses a second message with an id that a bundle has;
+/// `bundle_from` ignores that at run time, so the shipped files are checked
+/// here.
+#[test]
+fn shipped_english_files_have_no_duplicate_ids() {
+    let mut seen = std::collections::BTreeMap::new();
+    let mut duplicates = Vec::new();
+    for (file, src) in EN_FILES {
+        for id in message_ids(src) {
+            if let Some(first) = seen.insert(id.clone(), file) {
+                duplicates.push(format!("{id} ({first} and {file})"));
+            }
+        }
+    }
+    assert!(duplicates.is_empty(), "duplicate ids: {duplicates:?}");
+}
+
+#[test]
+fn shipped_english_files_parse_and_load_without_overrides() {
+    let mut b = FluentBundle::new_concurrent(vec!["en".parse().unwrap()]);
+    for (file, src) in EN_FILES {
+        let (r, errors) = parse_resource(src);
+        assert!(errors.is_empty(), "{file}: {errors:?}");
+        if let Err(e) = b.add_resource(r) {
+            panic!("{file}: {e:?}");
+        }
+    }
+}
+
+#[test]
+fn the_duplicate_check_sees_a_repeated_id() {
+    let ids = message_ids("a = A\nb = B\na = Again\n");
+    let mut sorted = ids.clone();
+    sorted.sort();
+    sorted.dedup();
+    assert_ne!(ids.len(), sorted.len());
+    // The bundle also refuses it.
+    let (r, _) = parse_resource("a = A\na = Again\n");
+    let mut b: Bundle = FluentBundle::new_concurrent(vec!["en".parse().unwrap()]);
+    assert!(b.add_resource(r).is_err());
+}
