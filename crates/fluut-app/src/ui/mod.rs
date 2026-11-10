@@ -9,6 +9,7 @@
 
 mod about;
 mod browser;
+mod handles;
 mod icons;
 mod inspector;
 mod project;

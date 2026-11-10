@@ -47,6 +47,10 @@ pub struct ViewportState {
     tinted: Option<TintKey>,
     /// Where the pointer was for the last hover pick.
     hover_at: Option<Pos2>,
+    /// The handle being dragged.
+    pub(super) handle_drag: Option<super::handles::HandleDrag>,
+    /// Where each handle was drawn last frame, in screen points.
+    pub(crate) handle_marks: Vec<(crate::vm::handles::HandleKind, Pos2)>,
 }
 
 /// The highlight changes only with the document or these.
@@ -73,6 +77,8 @@ impl ViewportState {
             drawn: None,
             tinted: None,
             hover_at: None,
+            handle_drag: None,
+            handle_marks: Vec::new(),
         }
     }
 }
@@ -403,6 +409,14 @@ pub fn show(
     }
     if let Some(q) = state.focus.and_then(|p| px(glam::Vec3::from(p))) {
         painter.circle_stroke(q, 9.0, Stroke::new(2.5, c(brand::RED)));
+    }
+    // Handles of the selected Setup: its work zero and stock margins.
+    let handled = matches!(&state.selection, Selection::Setup(id) if *id == setup);
+    if handled && state.pick.is_none() {
+        super::handles::overlay(ui, jobs, vs, &snap, &setup, rect);
+    } else {
+        vs.handle_marks.clear();
+        vs.handle_drag = None;
     }
     // In pick mode: what is being picked, and how to leave.
     if let Some(mode) = &state.pick {

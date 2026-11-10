@@ -230,3 +230,122 @@ fn a_body_pick_draws_the_whole_model_and_hovers_in_the_viewport() {
         "the model is under the pointer: {hover:?}"
     );
 }
+
+/// Where `world` (in W) is on the screen of the harness.
+fn on_screen(h: &mut Harness<'static, State>, world: [f32; 3]) -> egui::Pos2 {
+    let rect = h.get_by_label("3-D viewport").rect();
+    let q = app(h)
+        .view
+        .camera
+        .project(
+            glam::Vec3::from(world),
+            glam::Vec2::new(rect.width(), rect.height()),
+        )
+        .unwrap();
+    rect.min + egui::vec2(q.x, q.y)
+}
+
+fn mark(h: &mut Harness<'static, State>, kind: crate::vm::handles::HandleKind) -> egui::Pos2 {
+    app(h)
+        .view
+        .handle_marks
+        .iter()
+        .find(|(k, _)| *k == kind)
+        .unwrap_or_else(|| panic!("no handle {kind:?}"))
+        .1
+}
+
+fn drag(h: &mut Harness<'static, State>, from: egui::Pos2, to: egui::Pos2) {
+    h.hover_at(from);
+    h.run_steps(2);
+    h.drag_at(from);
+    h.run_steps(2);
+    for k in 1..=4 {
+        h.hover_at(from + (to - from) * (k as f32 / 4.0));
+        h.run_steps(2);
+    }
+    h.drop_at(to);
+    h.run_steps(2);
+}
+
+#[test]
+fn dragging_the_zero_handle_snaps_to_the_top_centre_and_undoes() {
+    use crate::vm::handles::HandleKind;
+    let Some(mut h) = gpu_harness() else {
+        eprintln!("no wgpu adapter: the handle drag is skipped");
+        return;
+    };
+    h.step();
+    open(&mut h, project("block"));
+    app(&mut h).ui.selection = Selection::Setup("s1".into());
+    h.run_steps(4);
+    let zero =
+        |h: &mut Harness<'static, State>| snapshot(h).project.setup("s1").unwrap().zero.clone();
+    let zero_at = mark(&mut h, HandleKind::Zero);
+    // A drag to nowhere changes nothing.
+    let r = snapshot(&mut h).revision;
+    drag(&mut h, zero_at, egui::pos2(zero_at.x, zero_at.y - 400.0));
+    h.run_steps(3);
+    assert_eq!(snapshot(&mut h).revision, r);
+    // A drag to the top centre drops the zero there.
+    let centre = crate::vm::handles::zero_targets(&snapshot(&mut h), "s1")
+        .into_iter()
+        .find(|(k, _)| k == "top_centre")
+        .unwrap()
+        .1;
+    let to = on_screen(&mut h, centre);
+    drag(&mut h, zero_at, to);
+    newer(&mut h, r);
+    assert_eq!(
+        zero(&mut h),
+        Some(fluut_model::project::ZeroSpec::StockTopCentre)
+    );
+    // One undo step.
+    h.get_by_label("Undo").click();
+    settle(&mut h);
+    assert!(matches!(
+        zero(&mut h),
+        Some(fluut_model::project::ZeroSpec::StockTopCorner(_))
+    ));
+}
+
+#[test]
+fn dragging_a_margin_handle_changes_the_margin_in_one_step() {
+    use crate::vm::handles::HandleKind;
+    let Some(mut h) = gpu_harness() else {
+        eprintln!("no wgpu adapter: the handle drag is skipped");
+        return;
+    };
+    h.step();
+    open(&mut h, project("block"));
+    app(&mut h).ui.selection = Selection::Setup("s1".into());
+    h.run_steps(4);
+    let from = mark(&mut h, HandleKind::Margin(2));
+    // About 6 mm up the Z axis on the screen.
+    let top = crate::vm::handles::handles(&snapshot(&mut h), "s1")
+        .into_iter()
+        .find(|k| k.kind == HandleKind::Margin(2))
+        .unwrap()
+        .at;
+    let to = on_screen(&mut h, [top[0], top[1], top[2] + 6.0]);
+    let r = snapshot(&mut h).revision;
+    drag(&mut h, from, to);
+    newer(&mut h, r);
+    let margin =
+        |h: &mut Harness<'static, State>| match snapshot(h).project.setup("s1").unwrap().stock {
+            Some(StockSpec::Block {
+                margin: Some(m), ..
+            }) => m,
+            ref s => panic!("{s:?}"),
+        };
+    let m = margin(&mut h);
+    assert!(
+        (m[2].v - 6.0).abs() < 1.0,
+        "the top margin follows the drag: {}",
+        m[2].v
+    );
+    assert_eq!(m[0].v, 5.0);
+    h.get_by_label("Undo").click();
+    settle(&mut h);
+    assert_eq!(margin(&mut h)[2].v, 0.0);
+}

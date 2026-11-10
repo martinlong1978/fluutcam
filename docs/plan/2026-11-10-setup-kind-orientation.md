@@ -44,8 +44,8 @@ All earlier Global Constraints apply. In addition:
 - [x] Orientation group and pick roles.
 
 ### Task 5: Handles
-- [ ] Tests first: handle list, snapping, margin from a drag, one undo step.
-- [ ] `vm::handles`, viewport overlay and drag.
+- [x] Tests first: handle list, snapping, margin from a drag, one undo step.
+- [x] `vm::handles`, viewport overlay and drag.
 
 ### Task 6: End to end
 - [ ] Merge `main`, all checks, report.

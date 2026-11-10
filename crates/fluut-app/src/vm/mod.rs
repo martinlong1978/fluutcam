@@ -5,6 +5,7 @@
 //! They know nothing of `egui`, so they are tested without a window.
 
 pub mod entry;
+pub mod handles;
 pub mod inspector;
 pub mod pick;
 pub mod playback;

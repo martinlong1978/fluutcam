@@ -134,7 +134,7 @@ pub(super) fn display(kind: FieldKind, unit: DisplayUnit) -> (Option<&'static st
     ((!sym.is_empty()).then_some(sym), display_scale(dim, unit))
 }
 
-pub(super) fn num_text(v: f64, kind: FieldKind, unit: DisplayUnit) -> String {
+pub(crate) fn num_text(v: f64, kind: FieldKind, unit: DisplayUnit) -> String {
     fmt_num(v / display(kind, unit).1)
 }
 

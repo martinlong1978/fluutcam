@@ -241,7 +241,7 @@ const ZERO_ROTARY: [(&str, &str); 3] = [
     ("at", "zero-at"),
 ];
 
-fn zero_key(z: &ZeroSpec) -> String {
+pub(super) fn zero_key(z: &ZeroSpec) -> String {
     match z {
         ZeroSpec::StockTopCorner(c) => format!("top.{}", c.as_str()),
         ZeroSpec::StockBottomCorner(c) => format!("bottom.{}", c.as_str()),
