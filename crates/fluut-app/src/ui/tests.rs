@@ -585,6 +585,8 @@ fn ribbon_adds_setups_and_toolpaths_and_undoes() {
     scripted(&mut h).answer(DialogKind::New(DisplayUnit::Mm), d.join("ops"));
     h.get_by_label("New project").click();
     settle(&mut h);
+    h.get_by_label("Millimetres").click();
+    settle(&mut h);
     h.get_by_label("ops.fluut");
     scripted(&mut h).answer(DialogKind::Import, boss_step());
     h.get_by_label("Import model").click();
@@ -778,6 +780,8 @@ fn new_import_setup_toolpath_calculate_post_by_clicking() {
     app(&mut h).ui.clock = fixed_clock;
     scripted(&mut h).answer(DialogKind::New(DisplayUnit::Mm), d.join("loop"));
     h.get_by_label("New project").click();
+    settle(&mut h);
+    h.get_by_label("Millimetres").click();
     settle(&mut h);
     scripted(&mut h).answer(DialogKind::Import, boss_step());
     h.get_by_label("Import model").click();

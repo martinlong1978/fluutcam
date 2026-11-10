@@ -477,3 +477,46 @@ fn dragging_a_row_moves_it() {
     newer(&mut h, r);
     assert_eq!(toolpath_ids(&mut h), ["t3", "t1", "t2"]);
 }
+
+#[test]
+fn a_new_project_asks_for_its_unit() {
+    let d = temp("units");
+    let mut h = harness();
+    h.step();
+    scripted(&mut h).answer(DialogKind::New(DisplayUnit::Mm), d.join("inches"));
+    h.get_by_label("New project").click();
+    settle(&mut h);
+    assert!(app(&mut h).jobs.snapshot.is_none(), "nothing yet");
+    h.get_by_label("Which unit does this project use?");
+    h.get_by_label("Inches").click();
+    settle(&mut h);
+    assert_eq!(snapshot(&mut h).project.units, DisplayUnit::Inch);
+    assert!(
+        h.query_by_label("Which unit does this project use?")
+            .is_none()
+    );
+    // Cancel makes nothing.
+    scripted(&mut h).answer(DialogKind::New(DisplayUnit::Inch), d.join("other"));
+    h.get_by_label("New project").click();
+    settle(&mut h);
+    h.get_all_by_label("Cancel").last().unwrap().click();
+    settle(&mut h);
+    assert!(app(&mut h).ui.new_project.is_none());
+    assert!(!d.join("other.fluut").exists());
+}
+
+#[test]
+fn the_unit_badge_changes_the_project_unit_and_undoes() {
+    let mut h = harness();
+    h.step();
+    open(&mut h, project("block"));
+    let r = snapshot(&mut h).revision;
+    h.get_by_role_and_label(Role::Button, "mm").click();
+    h.run_steps(2);
+    newer(&mut h, r);
+    assert_eq!(snapshot(&mut h).project.units, DisplayUnit::Inch);
+    h.get_by_role_and_label(Role::Button, "inch");
+    h.get_by_label("Undo").click();
+    settle(&mut h);
+    assert_eq!(snapshot(&mut h).project.units, DisplayUnit::Mm);
+}

@@ -56,7 +56,12 @@ ribbon-gallery-rotary = Rotary
 ribbon-gallery-utility = Utility
 
 # Title bar
-title-units = Project units
+title-units = Project unit: click to change
+units-title = New project
+units-text = Which unit does this project use?
+units-mm = Millimetres
+units-inch = Inches
+units-cancel = Cancel
 title-theme-dark = Dark theme
 title-theme-light = Light theme
 title-about = About FluutCAM

@@ -32,6 +32,7 @@ use eframe::egui::{self, Color32, CornerRadius, Stroke};
 use eframe::egui_wgpu;
 use egui_dock::{DockArea, DockState, NodeIndex, TabViewer};
 use fluut_core::fluut_sim::Step;
+use fluut_model::project::DisplayUnit;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::Instant;
@@ -85,6 +86,9 @@ pub struct UiState {
     pub renaming: Option<browser::Renaming>,
     /// The selection field being picked on the model.
     pub pick: Option<PickMode>,
+    /// A new project waiting for its unit: its file, and the unit offered
+    /// first.
+    pub new_project: Option<(PathBuf, DisplayUnit)>,
     /// An Open or New waiting for the answer to "discard changes?".
     pub pending: Option<project::Pending>,
 }
@@ -110,6 +114,7 @@ impl Default for UiState {
             focus: None,
             renaming: None,
             pick: None,
+            new_project: None,
             pending: None,
         }
     }
@@ -291,6 +296,7 @@ impl FluutApp {
                     .tab_context_menus(false)
                     .show_inside(ui, &mut tabs);
             });
+        project::units_prompt(ui.ctx(), &mut self.jobs, &mut self.ui);
         project::discard_prompt(ui.ctx(), &mut self.jobs, &mut self.ui);
         about::show(ui.ctx(), &mut self.ui);
         updates::settings(ui.ctx(), &mut self.ui, &mut self.updates);
@@ -369,16 +375,28 @@ impl FluutApp {
                     self.ui.dark = !self.ui.dark;
                     brand::apply_theme(ui.ctx(), self.ui.dark);
                 }
-                if let Some(s) = &self.jobs.snapshot {
-                    ui.add(
-                        egui::Button::new(
-                            egui::RichText::new(s.project.units.as_str())
-                                .strong()
-                                .color(c(brand::INK)),
+                if let Some(units) = self.jobs.snapshot.as_ref().map(|s| s.project.units) {
+                    let clicked = ui
+                        .add(
+                            egui::Button::new(
+                                egui::RichText::new(units.as_str())
+                                    .strong()
+                                    .color(c(brand::INK)),
+                            )
+                            .fill(c(brand::STOCK_GREY)),
                         )
-                        .fill(c(brand::STOCK_GREY)),
-                    )
-                    .on_hover_text(tr("title-units"));
+                        .on_hover_text(tr("title-units"))
+                        .clicked();
+                    if clicked {
+                        let other = match units {
+                            DisplayUnit::Mm => DisplayUnit::Inch,
+                            DisplayUnit::Inch => DisplayUnit::Mm,
+                        };
+                        self.jobs
+                            .edit(Edit::Model(fluut_model::edit::Edit::SetUnits(
+                                other.as_str().to_owned(),
+                            )));
+                    }
                 }
             });
         });

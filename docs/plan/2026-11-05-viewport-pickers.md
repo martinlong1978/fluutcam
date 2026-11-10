@@ -63,7 +63,7 @@ All earlier Global Constraints apply. In addition:
 - [x] `Session::duplicate_toolpath`; context menu, F2, Del, drag.
 
 ### Task 7: New project unit choice
-- [ ] Tests first; prompt and clickable badge.
+- [x] Tests first; prompt and clickable badge.
 
 ### Task 8: End to end
 - [ ] kittest: New, import `plate2d.step`, Setup, stock margin, zero, `pocket_2d`, pick the floor by id, tool, heights, Calculate, Post; G-code equal to a hand-written reference project; undo at each step; re-import keeps the selection.
