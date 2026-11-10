@@ -20,7 +20,7 @@ These are manual test scripts for FluutCAM. Use them to check a build before you
    | `flipside` | Two indexed Setups, 0 and 180 degrees | Indexed Setups, based-on |
    | `shaft` | A rotary Setup with five toolpaths | Rotary Setups |
 
-   Other files: `fuzz/seeds/stl/tetra.stl` (an STL file that loads but gives no bodies), and the expected G-code in `crates/fluut-cli/tests/golden/`.
+   Other files: `fuzz/seeds/stl/tetra.stl` (a small closed STL file) and `fuzz/seeds/stl/open_binary.stl` (an open mesh), and the expected G-code in `crates/fluut-cli/tests/golden/`.
 
 2. **Work on copies.** Copy the folder of a reference project into a work folder before you open it, so a test cannot change the repository. The tests call that folder the *work folder*. Several tests save into it.
 3. **Install the build** you are testing, and note its version (**About FluutCAM**, or `fluut --version`).

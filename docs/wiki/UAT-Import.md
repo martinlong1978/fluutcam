@@ -1,11 +1,13 @@
 # UAT: Import
 
-Tests of importing model files, the copy rules, units and bad files. Part of the [user acceptance tests](UAT). Test files: `crates/fluut-cli/tests/projects/block/block.step`, `plate/plate.dxf`, `vcarve/vcarve.dxf`, `fuzz/seeds/stl/tetra.stl`, and two files you make yourself (below). Each test starts from a new project, `my-part`, in the work folder, as in [UAT-PRJ-02](UAT-Project-Files), unless it says otherwise.
+Tests of importing model files, the copy rules, units and bad files. Part of the [user acceptance tests](UAT). Test files: `crates/fluut-cli/tests/projects/block/block.step`, `plate/plate.dxf`, `vcarve/vcarve.dxf`, `fuzz/seeds/stl/tetra.stl`, `fuzz/seeds/stl/open_binary.stl`, and four files you make yourself (below). Each test starts from a new project, `my-part`, in the work folder, as in [UAT-PRJ-02](UAT-Project-Files), unless it says otherwise.
 
 **Files to make:**
 
 - `broken.step`: a text file containing `this is not a STEP file`.
 - `notes.txt`: any text file.
+- `two-shells.stl`: a copy of `tetra.stl` with its four facets repeated inside the same `solid ... endsolid`, the second set moved 20 units along X (add 20 to every X of its `vertex` lines). It holds two separate tetrahedra.
+- `junk.stl`: a text file containing `this is not an STL file`, then 200 more lines of any text.
 
 ---
 
@@ -77,10 +79,10 @@ Tests of importing model files, the copy rules, units and bad files. Part of the
 
 ### UAT-IMP-08 An STL file
 
-- **Preconditions:** A new project; `fuzz/seeds/stl/tetra.stl`.
+- **Preconditions:** A new project in millimetres; `fuzz/seeds/stl/tetra.stl`.
 - **Steps:**
   1. Import `tetra.stl`.
-- **Expected:** The import fails: "Failed:" and a message that the file gave no geometry. No model appears and the project folder has no copy of the file. (This is a known limit: see [Known limits](Known-Limits). If the import succeeds, record it: a feature has changed and this test needs updating.)
+- **Expected:** The import works. The status bar says "Imported tetra.stl (1 bodies)". The Browser lists one body under **Model**. The viewport shows a small tetrahedron with its six edges drawn. FluutCAM warns that STL files carry no unit and that it assumed millimetres, the project unit (`model.import.unit_assumed`). A copy of `tetra.stl` is in the project folder.
 - [ ] Pass
 
 ### UAT-IMP-09 A DXF file
@@ -146,4 +148,69 @@ Tests of importing model files, the copy rules, units and bad files. Part of the
 - **Steps:**
   1. Click **Re-import** in the Model stage.
 - **Expected:** The status bar says "Re-imported 1 models, 0 selections not found" (or the matching counts). The model looks the same. With no model in the project, **Re-import** is greyed out.
+- [ ] Pass
+
+### UAT-IMP-17 One body per shell
+
+- **Preconditions:** A new project in millimetres; `two-shells.stl` made as above.
+- **Steps:**
+  1. Import `two-shells.stl`.
+- **Expected:** The status bar says "Imported two-shells.stl (2 bodies)". The Browser lists two bodies, `b-1` and `b-2`, under **Model**. The viewport shows two tetrahedra side by side. There is no `model.geometry.mesh.open` warning.
+- [ ] Pass
+
+### UAT-IMP-18 Pick a body and a face of a mesh
+
+- **Preconditions:** UAT-IMP-17 done, then a 3-axis Setup added (**New 3-axis Setup**) and selected.
+- **Steps:**
+  1. In the **Bodies** group of the inspector click **Pick**. Click the first tetrahedron in the viewport. Press Esc.
+  2. Select the Setup again, add a **Parallel** toolpath, open its **Geometry** tab and click **Pick** beside **Drive faces**.
+  3. Click one face of the first tetrahedron. Press Esc.
+- **Expected:** Step 1 toggles the whole body: the first tetrahedron is tinted as one body, and the check box for `b-1` follows. Step 3 picks a single triangle: the inspector says "1 selected" and lists an id of the form `f-1.<n>`, and only that one triangle is tinted, not the whole tetrahedron.
+- [ ] Pass
+
+### UAT-IMP-19 Machine an STL file
+
+- **Preconditions:** A new project in millimetres with `tetra.stl` imported (UAT-IMP-08).
+- **Steps:**
+  1. In the **Setup** stage click **New 3-axis Setup**. The stock surrounds the tetrahedron.
+  2. In the **Toolpaths** stage click **Parallel** in the 3D gallery. Leave the geometry empty.
+  3. Click **Calculate all**.
+  4. Select the Setup and, in the **Simulate** stage, click **Simulate**. Look at the Simulation tab and the viewport.
+  5. In the **Post** stage click **Post** and confirm the file name.
+- **Expected:** The Setup is added with stock sized from the mesh. The toolpath calculates (green tick, no error) and the viewport shows its path over the tetrahedron. The simulation finishes ("Simulated: 0 findings") with no gouge shown in the Rest material colour mode. The post writes a `.ngc` file that contains moves with `G1` and Z values that go down onto the tetrahedron.
+- [ ] Pass
+
+### UAT-IMP-20 An STL body as the stock
+
+- **Preconditions:** UAT-IMP-17 done, with a 3-axis Setup that machines only `b-1` (clear `b-2` in the **Bodies** group, as in [UAT-SET-23](UAT-Setups)).
+- **Steps:**
+  1. Open the **Type** list under **Stock** and choose **Body**.
+  2. Add a **Parallel** toolpath with nothing picked and click **Calculate all**.
+- **Expected:** The stock outline becomes the size of `b-2`, the body the Setup does not machine. The toolpath calculates without an error.
+- [ ] Pass
+
+### UAT-IMP-21 An open STL file warns
+
+- **Preconditions:** A new project; `fuzz/seeds/stl/open_binary.stl`.
+- **Steps:**
+  1. Import `open_binary.stl`.
+  2. Look in the Messages tab.
+- **Expected:** The import works and a body is listed. The Messages tab shows the warning `model.geometry.mesh.open`: the mesh is not a closed, consistent surface. The warning does not stop you adding a Setup or a 3-D toolpath.
+- [ ] Pass
+
+### UAT-IMP-22 A junk STL file
+
+- **Preconditions:** A new project; `junk.stl` made as above.
+- **Steps:**
+  1. Import `junk.stl`.
+- **Expected:** The status bar turns red with "Failed:" and an error: either that the file gave no geometry (`model.import.empty`) or that it is not a readable STL file. The program does not crash or freeze. Nothing changes: no model in the Browser, no copy in the project folder, no new undo step.
+- [ ] Pass
+
+### UAT-IMP-23 Re-import an unchanged STL file keeps the picks
+
+- **Preconditions:** A project with `two-shells.stl` imported, a 3-axis Setup, and a Parallel toolpath with one face of `b-1` picked (as in UAT-IMP-18, step 3).
+- **Steps:**
+  1. Click **Re-import** in the Model stage.
+  2. Select the toolpath and look at its Geometry tab.
+- **Expected:** The status bar says "Re-imported 1 models, 0 selections not found". The same face is still picked, with the same id, and the toolpath shows no `param.geometry.selection.missing` message. The Browser still lists `b-1` and `b-2`.
 - [ ] Pass

@@ -16,7 +16,13 @@ Find your problem in the list. [Diagnostics](Diagnostics) has the full list of m
 
 **"not a valid STEP file".** The file is not STEP or is damaged. Export it again from your CAD program as STEP.
 
-**"gave no geometry" for an STL file.** STL files cannot be used yet. Use STEP.
+**"gave no geometry" (`model.import.empty`).** The file was read but holds nothing to machine. For an STL file this means it has no usable triangles (for example all of them are flat or have zero size). Open the file in another program to check it, and export it again.
+
+**The warning `model.geometry.mesh.open` after importing an STL file.** The mesh has holes, or some edges are shared by more than two triangles. The import still worked and you can machine the mesh, but toolpaths near the gaps may be wrong, and the simulation may show odd results there. Close the holes in your modelling program, export the STL again, and re-import.
+
+**"not a readable STL file".** The file is not an STL file or is damaged. Export it again. FluutCAM reports the error and carries on.
+
+**An STL toolpath takes a long time.** Drops on a mesh are about 100 times slower than on exact STEP faces. Use a coarser mesh, a larger stepover, or a STEP file.
 
 **The model is tiny or huge.** A DXF, SVG or STL file has no unit, so FluutCAM assumed the project's unit. Undo the import, start a project in the other unit, and import again.
 
