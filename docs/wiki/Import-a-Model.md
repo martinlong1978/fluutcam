@@ -11,7 +11,7 @@ A project holds one or more model files: the parts you want to machine. This pag
 | SVG | `.svg` | Flat curves, for 2-D work. |
 | STL | `.stl` | The file is read, but it gives no bodies yet, so the import fails. See [Known limits](Known-Limits). |
 
-2-D toolpaths need curves or faces selected, and the window cannot select curves yet. A DXF or SVG import works, but you cannot use its curves from the window today. See [Known limits](Known-Limits).
+2-D toolpaths need curves or faces picked. In the toolpath's Geometry tab, click **Pick** and click the entities on the model. The curves of a DXF or SVG import can be picked this way. See [Add a toolpath](Add-a-Toolpath).
 
 ## Import a file
 
@@ -32,7 +32,7 @@ A project folder is meant to be self-contained, so you can move or zip it as a w
 - A file that is already inside the project folder stays where it is. The project refers to it by a path relative to the project file.
 - A file from anywhere else is **copied** into the project folder, after FluutCAM has checked that it loads and has bodies. If the folder already has a different file with that name, the copy is named `name-2.step`, `name-3.step` and so on. If it has an identical file, FluutCAM uses that one.
 
-Change the original and the copy does not change. When you open the project again, FluutCAM tells you if a model file has changed on disk since it was imported (`model.geometry.changed`). To read the files again, click **Re-import** in the Model stage. It re-imports every model file of the project (one undo step for each) and the status bar says how many it read and how many selections it could not find again. There is no choice of a single file yet. The [scripting](Scripting) function `model.reimport` does the same for one file.
+Change the original and the copy does not change. When you open the project again, FluutCAM tells you if a model file has changed on disk since it was imported (`model.geometry.changed`). To read the files again, click **Re-import** in the Model stage. It re-imports every model file of the project (one undo step for each). **Your picks stay.** Faces and curves are stored by their ids, and FluutCAM maps them to the new model. A pick it cannot find again is dropped and counted in the status bar, and its toolpath reports `param.geometry.selection.missing` until you pick it again and the status bar says how many it read and how many selections it could not find again. There is no choice of a single file yet. The [scripting](Scripting) function `model.reimport` does the same for one file.
 
 ## Units
 

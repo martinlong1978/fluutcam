@@ -36,7 +36,10 @@ Each of these is one undo step:
 
 - importing a model;
 - adding a Setup or a toolpath;
-- changing a toolpath setting, or resetting it.
+- changing a toolpath setting, or resetting it, including choosing a tool, a height reference or offset, and every pick, remove or clear of a selection;
+- changing a Setup value in its inspector (name, material, machine, work offset, stock, work zero, clearance, index angle), or resetting it to inherited;
+- renaming, deleting, moving, enabling, disabling or duplicating a Setup or toolpath in the Browser;
+- changing the project unit with the unit badge.
 
 Undo restores the project exactly, including the model files in it: an undone import leaves no body behind. Calculating, simulating and posting are not changes to the project, so they are not undo steps; an undone change simply makes the affected toolpaths out of date.
 

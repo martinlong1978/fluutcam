@@ -26,7 +26,7 @@ Find your problem in the list. [Diagnostics](Diagnostics) has the full list of m
 
 | Message | What to do |
 |---|---|
-| "select drive curves or drive faces" | A 2-D toolpath needs curves or faces, and the window cannot pick them yet. Set `drive_faces` or `drive_curves` in the project file (click a face in the viewport to read its id), or use a 3-D toolpath |
+| "select drive curves or drive faces" | A 2-D toolpath needs curves or faces. On the Geometry tab click **Pick** and click them on the model (see [Add a toolpath](Add-a-Toolpath)), or use a 3-D toolpath |
 | "... runs in rotary Setups only" or "... runs in three_axis and indexed Setups only" | The toolpath type does not suit the Setup's kind. Add it to a Setup of the right kind |
 | "... has no value and the tool has no preset for the Setup's material" | The tool has no cutting data for the Setup's material. Type the value, or add a preset to the tool ([Tools](Tools)) |
 | "the toolpath has no tool" | Name a tool in the project file |

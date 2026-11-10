@@ -30,13 +30,13 @@ In the project file a setting is written as `group.key`, for example `passes.ste
 
 | Setting | File key | Value | Default | What it does |
 |---|---|---|---|---|
-| Drive faces | `geometry.drive_faces` | selection of bodies, faces or edges | not set | The faces this toolpath machines. 3-D types machine every face of the Setup's bodies when this is empty; 2-D types need something selected. Allowed: faces of the Setup's bodies. Depends on: Setup `geometry`. |
-| Drive curves | `geometry.drive_curves` | selection of bodies, faces or edges | not set | The curves this toolpath follows or fills. 2-D types need curves or faces. The app cannot pick curves yet; set them in the project file. Allowed: edges, wire curves, planar faces. Depends on: Setup `geometry`. |
+| Drive faces | `geometry.drive_faces` | selection of bodies, faces or edges | not set | The round (cylindrical) holes to drill. In the app, click Pick, then click the hole walls on the model: only cylinders can be picked here. Or leave it empty and set a hole diameter range. Allowed: faces of the Setup's bodies. Depends on: Setup `geometry`. |
+| Drive curves | `geometry.drive_curves` | selection of bodies, faces or edges | not set | The curves this toolpath follows or fills. 2-D types need curves or faces. In the app, click Pick, then click edges, wire curves or flat faces on the model. After an edge, the inspector offers its closed loop as one button. Allowed: edges, wire curves, planar faces. Depends on: Setup `geometry`. |
 | Hole diameter | `geometry.hole_diameter` | group of settings (below) |  |  |
 | Min | `geometry.hole_diameter.min` | mm | not set | Smallest hole diameter to pick up automatically. |
 | Max | `geometry.hole_diameter.max` | mm | not set | Largest hole diameter to pick up automatically. With both set and nothing selected, the toolpath takes every hole of that size. |
 | Boundary | `geometry.boundary` | group of settings (below) |  |  |
-| Curves | `geometry.boundary.curves` | selection of bodies, faces or edges | not set | Closed curves that limit where the toolpath may work. Allowed: closed chains. |
+| Curves | `geometry.boundary.curves` | selection of bodies, faces or edges | not set | Closed curves that limit where the toolpath may work. Pick them on the model like drive curves. Allowed: closed chains. |
 | Side | `geometry.boundary.side` | `inside`, `outside` | `inside` | Whether the toolpath works inside or outside the boundary. Depends on: `boundary.curves`. |
 | Tool containment | `geometry.boundary.tool_containment` | `inside`, `centre`, `outside` | `inside` | Where the tool stays relative to the boundary: its edge inside, its centre on the line, or its edge outside. Depends on: `boundary.curves`, tool radius. |
 
@@ -46,9 +46,9 @@ A height is a reference plus an offset in mm, for example `{ ref = "stock_top", 
 
 | Setting | File key | Value | Default | What it does |
 |---|---|---|---|---|
-| Clearance | `heights.clearance` | height: a `ref` and an `offset` in mm | `setup_clearance` | The height the tool rises to for the longest moves, above everything including clamps. Allowed: ≥ `retract`. Depends on: Setup clearance. |
+| Clearance | `heights.clearance` | height: a `ref` and an `offset` in mm | `setup_clearance` | The height the tool rises to for the longest moves, above everything including clamps. In the app, choose the reference from the list and type the offset; it may be negative. Allowed: ≥ `retract`. Depends on: Setup clearance. |
 | Retract | `heights.retract` | height: a `ref` and an `offset` in mm | `stock_top` + 5 | The height the tool rises to between cuts. It must not be below the feed height. Allowed: ≥ `feed`. Depends on: stock. |
-| Feed | `heights.feed` | height: a `ref` and an `offset` in mm | `top` + 2 | The height where the tool changes from rapid to cutting feed on its way down. It is measured from the top height. Allowed: ≥ `top`. Depends on: `top`. |
+| Feed | `heights.feed` | height: a `ref` and an `offset` in mm | `top` + 2 | The height where the tool changes from rapid to cutting feed on its way down. It is measured from the top height. Only this height may use the reference "Top height". Allowed: ≥ `top`. Depends on: `top`. |
 | Top | `heights.top` | height: a `ref` and an `offset` in mm | `selection` | The top of the material this toolpath cuts. The first cut starts here. Allowed: > `bottom` (≥ for `parallel`). Depends on: per type. |
 | Bottom | `heights.bottom` | height: a `ref` and an `offset` in mm | `selection` | The bottom of the cut: the lowest point the tool reaches. Depends on: per type. |
 

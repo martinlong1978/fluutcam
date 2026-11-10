@@ -30,7 +30,7 @@ In the project file a setting is written as `group.key`, for example `passes.ste
 
 | Setting | File key | Value | Default | What it does |
 |---|---|---|---|---|
-| Drive faces | `geometry.drive_faces` | selection of bodies, faces or edges | calculated from all faces of the Setup's bodies | The faces this toolpath machines. 3-D types machine every face of the Setup's bodies when this is empty; 2-D types need something selected. Allowed: faces of the Setup's bodies. Depends on: Setup `geometry`. |
+| Drive faces | `geometry.drive_faces` | selection of bodies, faces or edges | calculated from all faces of the Setup's bodies | The faces this toolpath machines. 3-D types machine every face of the Setup's bodies when this is empty; 2-D types need something selected. In the app, click Pick, then click faces on the model. Allowed: faces of the Setup's bodies. Depends on: Setup `geometry`. |
 | Check faces | `geometry.check_faces` | selection of bodies, faces or edges | calculated from faces not in drive_faces or excluded_faces | Faces the tool must not cut into. Left empty, every face that is not a drive face or an excluded face. Depends on: `drive_faces`, `excluded_faces`. |
 | Excluded faces | `geometry.excluded_faces` | selection of bodies, faces or edges | not set | Faces to leave out: the tool is allowed to cut into them. |
 | X start | `geometry.x_start` | position along X: `ref` and `offset` in mm | `model_left` | Where along the rotary axis the toolpath starts. |
@@ -42,9 +42,9 @@ A height is a reference plus an offset in mm, for example `{ ref = "stock_top", 
 
 | Setting | File key | Value | Default | What it does |
 |---|---|---|---|---|
-| Clearance | `heights.clearance` | height: a `ref` and an `offset` in mm | `setup_clearance` | The height the tool rises to for the longest moves, above everything including clamps. Allowed: ≥ `retract`. Depends on: Setup clearance. |
+| Clearance | `heights.clearance` | height: a `ref` and an `offset` in mm | `setup_clearance` | The height the tool rises to for the longest moves, above everything including clamps. In the app, choose the reference from the list and type the offset; it may be negative. Allowed: ≥ `retract`. Depends on: Setup clearance. |
 | Retract | `heights.retract` | height: a `ref` and an `offset` in mm | `stock_top` + 5 | The height the tool rises to between cuts. It must not be below the feed height. Allowed: ≥ `feed`. Depends on: stock. |
-| Feed | `heights.feed` | height: a `ref` and an `offset` in mm | `top` + 2 | The height where the tool changes from rapid to cutting feed on its way down. It is measured from the top height. Allowed: ≥ `top`. Depends on: `top`. |
+| Feed | `heights.feed` | height: a `ref` and an `offset` in mm | `top` + 2 | The height where the tool changes from rapid to cutting feed on its way down. It is measured from the top height. Only this height may use the reference "Top height". Allowed: ≥ `top`. Depends on: `top`. |
 | Top | `heights.top` | height: a `ref` and an `offset` in mm | `model_top` | The top of the material this toolpath cuts. The first cut starts here. Allowed: > `bottom` (≥ for `parallel`). Depends on: per type. |
 | Bottom | `heights.bottom` | height: a `ref` and an `offset` in mm | `model_bottom` | The bottom of the cut: the lowest point the tool reaches. Depends on: per type. |
 

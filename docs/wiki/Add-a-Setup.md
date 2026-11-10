@@ -31,7 +31,7 @@ All three start with the material **MDF**, because the built-in starter tools ha
 
 **Rotary and indexed.** The machine is `fluut/generic-4axis-router@1`, a router with a rotary axis along X. The stock is a cylinder around the X axis through the model's origin, 1 mm bigger in radius than the model and 2 mm longer. The work zero is on the axis at the left end of the stock. The clearance is a cylinder 10 mm outside the stock.
 
-FluutCAM assumes your part lies along the X axis through the model origin. If it does not, the Setup's orientation must name the axis, and the window cannot set that yet; edit the project file (see [Setups, stock and work zero](Setups-Stock-and-Zero)).
+FluutCAM assumes your part lies along the X axis through the model origin. If it does not, the Setup's orientation must name the axis, and the window cannot set that yet (not yet); edit the project file (see [Setups, stock and work zero](Setups-Stock-and-Zero)).
 
 ## Based on another Setup
 
@@ -42,13 +42,39 @@ A Setup can be **based on** an earlier one. It inherits that Setup's machine, ma
 
 The new Setup stores only what differs: the parent and the stock (`from_previous`). Changes to the parent flow through to it. The toolpaths are **not** inherited: each Setup has its own list.
 
-The button makes a Setup of the selected Setup's kind, so the window never crosses over. (A 3-axis Setup cannot be based on a rotary or indexed one, or the other way round, because the orientation and zero could not carry over; a project file that does this is refused with "a ... Setup cannot be based on the ... Setup".) To change the kind of the new Setup, edit the project file.
+The button makes a Setup of the selected Setup's kind, so the window never crosses over. (A 3-axis Setup cannot be based on a rotary or indexed one, or the other way round, because the orientation and zero could not carry over; a project file that does this is refused with "a ... Setup cannot be based on the ... Setup".) The window cannot change the kind of a Setup.
 
-The index angle of an indexed Setup (for example 0 and then 180 degrees for two sides) is not set from the window yet. Set it in the project file; the reference project `flipside` shows how.
+The index angle of an indexed Setup (for example 0 and then 180 degrees for two sides) is a box in its inspector. The reference project `flipside` is a worked example.
+
+## Edit a Setup
+
+Select the Setup in the Browser. The inspector lists its values in boxes and lists.
+
+![The Setup inspector](images/setup-inspector.png)
+
+| Value | How you change it |
+|---|---|
+| **Name** | Type in the box and press Enter. A Setup needs a name. |
+| **Kind** | Shown only. The kind is fixed when the Setup is added. |
+| **Material** | Choose one from the list. It picks the cutting data of the tools. |
+| **Machine** | Choose one from the machine list. |
+| **Work offset** | A list, G54 to G59. |
+| **Stock** | Choose the type, then type its sizes. A 3-axis Setup offers a block by margin or a block of a fixed size. A rotary or indexed Setup offers a cylinder. A Setup based on another also offers "From the previous Setup". |
+| **Work zero** | Choose the location: a corner or the centre of the stock, or a point on the model (X, Y, Z). A rotary or indexed Setup offers the left or right end of the stock, or a position along the axis. |
+| **Clearance** | The safe height above the stock (3-axis), or the radius of the safe cylinder (rotary and indexed). |
+| **Index angle** | For an indexed Setup. |
+
+The **Stock** and **Work zero** buttons in the Setup stage select the Setup and mark those rows of the inspector. Number boxes take expressions and units, as in the toolpath inspector (`1/4in`).
+
+**Inherited values.** A Setup based on another takes some values from its parent. The inspector shows such a value with "Inherited from" and the parent's name under it. Change the value and the Setup keeps its own. Click **Reset to inherited** to take the parent's value again.
+
+Every change is one undo step. If the model refuses a change, the status bar says "Not changed" and gives the reason. [Setups, stock and work zero](Setups-Stock-and-Zero) explains the values.
+
+You can also rename, reorder, and delete a Setup in the Browser: see the [Interface tour](Interface-Tour).
 
 ## What you cannot do in the window yet
 
-The **Stock** and **Work zero** buttons only select the current Setup and mark the matching row of its inspector; nothing can be edited there yet. Change these in the project file: machine, material, stock size, work zero, orientation, index angle, clearance. Delete, rename and reorder a Setup are not in the window either. See [Known limits](Known-Limits).
+Not yet editable: the kind of a Setup, a stock taken from a body of the model (it shows, read only), the orientation, and which bodies the Setup machines. To change those, edit the project file. See [Known limits](Known-Limits).
 
 ## Next
 

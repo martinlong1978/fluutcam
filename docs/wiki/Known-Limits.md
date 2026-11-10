@@ -8,14 +8,12 @@ If something you need is not here and does not work, [tell us](https://github.co
 
 The window is a first version. The ribbon drives everything the window can do. These are not yet in the window:
 
-- **Picking curves and faces for a toolpath.** The Geometry tab shows the selection but cannot change it. So 2-D toolpaths (pocket, contour, chamfer, bore, drill and so on) need their curves or faces set in the project file; a 2-D toolpath added in the window reports "select drive curves or drive faces". Clicking a face in the viewport shows its id (for example `f-494.10`), which you can copy into the file. 3-D toolpaths need no picking.
-- **Editing heights, selections and points.** They show, read only. Numbers, choices and yes-or-no settings of a toolpath can be edited.
-- **Choosing a toolpath's tool.** A new toolpath gets a starter tool; to use another, edit the project file.
-- **Editing a Setup.** The inspector shows its kind, material, machine, work offset, stock, work zero and bodies, read only. The ribbon's **Stock** and **Work zero** buttons only select the Setup and mark the matching row; they edit nothing. Change these in the project file. The same goes for the index angle, the orientation and the clearance.
-- **Deleting, renaming, reordering, duplicating or disabling** Setups and toolpaths. (The calculation skips a toolpath with `enabled = false` in the file.)
-- **Choosing a machine, or a post that is not built in.** The Post stage's list has the built-in posts (`fluut/linuxcnc`, `fluut/grbl`, `fluut/gcode`, `fluut/linuxcnc-4x`) and not those of your project's `posts/` folder. A rotary Setup does not choose `fluut/linuxcnc-4x` by itself: pick it in the list.
+- **Editing a Setup fully.** The Setup kind, a stock taken from a body of the model, the orientation (the tool axis, the X axis, the rotary axis) and the bodies a Setup machines cannot be changed in the window. A body stock shows, read only. Change these in the project file.
+- **Picking whole bodies.** A click picks a face or a curve, not a body. A field that takes a body cannot be filled from the window.
+- **Handles on the model.** The stock and the work zero have no handles to drag in the viewport. Change them in the inspector.
+- **Picking in a box.** You click one entity at a time. After an edge, the inspector offers its closed loop.
+- **A post that is not built in.** The Post stage's list has the built-in posts (`fluut/linuxcnc`, `fluut/grbl`, `fluut/gcode`, `fluut/linuxcnc-4x`) and not those of your project's `posts/` folder. A rotary Setup does not choose `fluut/linuxcnc-4x` by itself: pick it in the list.
 - **The Library commands** (Tools, Machines, Posts) are greyed out. Browsing and editing the libraries is not built.
-- **A unit choice for a new project.** New project takes the unit of the open project, else millimetres. To change it, edit `units` in the project file.
 - **Choosing one model file to re-import.** **Re-import** reads every model file of the project.
 - **A folder choice when posting.** The Post dialog names the first file; a post that writes more files numbers them beside it (`name.2.ngc`).
 - **Picking the unit when importing** a DXF, SVG or STL file. FluutCAM assumes the project's unit and warns.
@@ -30,7 +28,7 @@ Small thing you may notice: some error messages, such as a bad STEP file, show i
 
 - **STL files give no bodies yet.** The file is read, but no toolpath type can machine a mesh, so the import fails with "gave no geometry".
 - **Two files with the same body ids** (two DXF files, each with a `b-1`) cannot be in one project. The second import is refused.
-- DXF and SVG import gives curves; using them needs the curve picking above.
+- DXF and SVG import gives curves. You pick them for a 2-D toolpath in pick mode.
 - Re-importing a changed model file is a script function (`model.reimport`), not a window command.
 - Importing from other CAM programs' files (posts, tools, machines) is not available.
 

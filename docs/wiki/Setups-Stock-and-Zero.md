@@ -1,6 +1,6 @@
 # Setups, stock and work zero
 
-A **Setup** holds everything the toolpaths in it share: which bodies are machined, how the part is turned relative to the machine, the stock, the work zero, the machine and the material. This page explains each part and shows how to set it in the project file. The window shows these values in the inspector but cannot change them yet, so for now you edit the `.fluut` file in a text editor (close the project in FluutCAM first, or reopen it afterwards).
+A **Setup** holds everything the toolpaths in it share: which bodies are machined, how the part is turned relative to the machine, the stock, the work zero, the machine and the material. This page explains each part. You change most of them in the window, in the inspector of the Setup (see [Add a Setup](Add-a-Setup)). The sections below also show how each one is written in the project file, which you only need for the parts the window cannot edit yet: the orientation, the bodies, a stock taken from a body, and the Setup kind. If you edit the `.fluut` file in a text editor, close the project in FluutCAM first, or reopen it afterwards.
 
 See [Add a Setup](Add-a-Setup) for adding one from the window.
 
@@ -19,6 +19,16 @@ zero     = { method = "stock_top_corner", corner = "front_left" }
 ```
 
 All lengths in the file are millimetres, whatever unit the project shows. A key a Setup leaves out takes a default, or, for a Setup based on another, the parent's value.
+
+## Edit in the window
+
+Select a Setup in the Browser and use its inspector. The lists offer only choices that work for the Setup:
+
+- **Stock.** A 3-axis Setup offers a block by margin and a block of a fixed size. A rotary or indexed Setup offers a cylinder. A Setup based on another also offers "From the previous Setup".
+- **Work zero.** A 3-axis Setup offers the four top corners, the centre of the top, the four bottom corners, and a point on the model. A rotary or indexed Setup offers the left end, the right end, or a position along the axis.
+- **Inherited values.** A value that a based-on Setup takes from its parent shows "Inherited from" and the parent's name. Edit it to make it the Setup's own. **Reset to inherited** takes the parent's value back.
+
+Lengths follow the project unit. Each change is one undo step. Not yet editable in the window: the Setup kind, a body as the stock, the orientation, and the bodies.
 
 ## Kinds
 
@@ -42,7 +52,7 @@ Orientation says how the model sits relative to the machine's axes.
 
 **Rotary and indexed.** `orientation = { rotary_axis = "+X", a_zero_toward = "+Z" }`. The rotary axis is the line the part turns about; give a model axis or a round face (`{ face = "f-354.0" }`) whose axis it is. `a_zero_toward` is the direction in the model that points up (+Z of the work frame) when the rotary axis is at A = 0. The default is +Z.
 
-To find a face id, click the face in the viewport. Its id shows at the top left ("Face f-494.10").
+To find a face id, click the face in the viewport. Its id shows at the top left ("Face f-494.10"). The window cannot set the orientation yet (not yet).
 
 ## Stock
 

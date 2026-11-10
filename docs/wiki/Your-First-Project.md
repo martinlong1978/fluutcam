@@ -8,11 +8,15 @@ This walk takes a STEP file to G-code. Every step is a button in the ribbon: cli
 - A STEP file of one solid part. Any small part will do. The pictures use `block.step`, a block with a pocket, which is in the FluutCAM repository at `crates/fluut-cli/tests/projects/block/block.step`. Your numbers will differ if you use another part.
 - A folder for the project. FluutCAM saves the project file in it, copies the model beside it, and writes the G-code there.
 
-The whole walk is ten steps and takes a few minutes.
+The whole walk is ten steps and takes a few minutes. Everything happens in the window: you never edit the project file by hand. A second, short example at the end shows a 2-D toolpath (a pocket on a picked face).
 
 ## 1. Start a new project
 
-In the **Model** stage click **New project** (or press Ctrl+N). A file dialog opens. Pick your folder and type a name, for example `my-part`. FluutCAM adds `.fluut` and saves the empty project at once.
+In the **Model** stage click **New project** (or press Ctrl+N). A file dialog opens. Pick your folder and type a name, for example `my-part`. Then a small window asks which unit the project uses. Click **Millimetres** or **Inches**. (**Cancel** stops: no project is made.) FluutCAM adds `.fluut` and saves the empty project at once.
+
+![The unit question](images/unit-prompt.png)
+
+The unit only changes what the window shows and what you type. The project file always stores millimetres. You can change the unit later by clicking the unit badge in the title bar.
 
 ![An empty new project](images/new-project.png)
 
@@ -38,15 +42,17 @@ A Setup called "Setup 1" appears in the Browser and is selected. The inspector s
 
 ![A 3-axis Setup added](images/setup-added.png)
 
-You cannot change these in the window yet. [Setups, stock and work zero](Setups-Stock-and-Zero) explains them and how to change them in the project file.
+You can change every one of them. With the Setup selected, the inspector shows boxes and lists for the name, the material, the machine, the work offset, the stock, the work zero and the clearance. For example, choose **Stock top, centre** under **Work zero**. Each change is one undo step. [Add a Setup](Add-a-Setup) and [Setups, stock and work zero](Setups-Stock-and-Zero) explain each value.
+
+![The Setup inspector](images/setup-inspector.png)
 
 ## 4. Add a 3-D toolpath
 
-Open the **Toolpaths** stage and click **Parallel** in the 3D gallery. It runs straight passes over the whole surface, and a 3-D type needs no curves picked. (2-D types, such as pockets, need curves or faces picked, which the window cannot do yet; see [Known limits](Known-Limits).)
+Open the **Toolpaths** stage and click **Parallel** in the 3D gallery. It runs straight passes over the whole surface, and a 3-D type needs nothing picked. (2-D types, such as pockets, need faces or curves picked on the model. The 2-D example at the end of this page shows how.)
 
 ![The Toolpaths stage](images/ribbon-toolpaths.png)
 
-"Parallel 1" appears under Setup 1 with a hollow circle: not calculated yet. It is selected, so the inspector shows its settings, and it uses the 6 mm ball end mill from the built-in starter tools. Look through the five tabs. Every setting already has a default.
+"Parallel 1" appears under Setup 1 with a hollow circle: not calculated yet. It is selected, so the inspector shows its settings, and it uses the 6 mm ball end mill from the built-in starter tools. Look through the five tabs. Every setting already has a default. To use another tool, open the **Tool** tab and choose one from the **Tool** list. The **Heights** tab sets each height as a reference (such as "Stock top") plus an offset.
 
 ![A toolpath added](images/toolpath-added.png)
 
@@ -95,6 +101,23 @@ FluutCAM is early software. Before you put a tool in material:
 - Read the G-code, or run it in your controller's simulator or in the air.
 - Check that the work zero, the stock and the tool are the ones you meant. The starter tools carry cautious cutting data for MDF only; set your own feeds and speeds for your tool and material.
 - Remember that **Simulate** checks the tool and its holder against the stock and the part. It does not know about your clamps, your vise or your machine's limits.
+
+## A 2-D example: a pocket on a picked face
+
+A 2-D toolpath works on faces or curves that you pick on the model. This example cuts a pocket. It needs a STEP file of a plate with a pocket in it. The reference project `plate2d` has one: `crates/fluut-cli/tests/projects/plate2d/plate2d.step`.
+
+1. Do steps 1 to 3 above with that file: new project, **Import model**, **New 3-axis Setup**.
+2. In the **Toolpaths** stage click **2D pocket** in the 2D gallery. The toolpath shows a red triangle at first. It has nothing to cut yet, and the Messages tab says "select drive curves or drive faces".
+3. In the inspector open the **Geometry** tab. Next to **Drive faces** click **Pick**.
+4. A banner at the top of the viewport says "Picking Drive faces". The simulated stock hides, so you can reach the faces. Move the pointer over the model: the face under it lights up. Click the floor of the pocket. It turns orange and the list says "1 selected". Click it again to take it off.
+5. Click **Done** (or press Esc) to leave pick mode.
+
+![Pick mode on the model](images/pick-mode.png)
+
+6. Look at the **Heights** tab. **Top** and **Bottom** default to "Selection": the top and bottom of the picked faces.
+7. Click **Calculate all**. Then carry on from step 6 above: simulate, choose a post, post, save.
+
+Every pick is one undo step, so Ctrl+Z takes back the last click. [Add a toolpath](Add-a-Toolpath) says what each kind of field can pick.
 
 ## What next
 
