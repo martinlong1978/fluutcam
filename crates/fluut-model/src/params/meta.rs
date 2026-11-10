@@ -122,6 +122,15 @@ pub struct FieldMeta {
 }
 
 impl FieldMeta {
+    /// The references a `Height` or `XPos` field may take.
+    pub fn height_refs(&self) -> &'static [&'static str] {
+        match self.kind {
+            FieldKind::XPos => super::tables::X_REFS,
+            _ if self.group == Group::Heights && self.key == "feed" => super::tables::FEED_REFS,
+            _ => super::tables::HEIGHT_REFS,
+        }
+    }
+
     /// Fluent ids of the label and help (D15 §1.7).
     pub fn label_id(&self) -> String {
         format!("param-{}-label", self.key.replace('.', "-"))

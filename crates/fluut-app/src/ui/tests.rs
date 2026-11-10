@@ -11,6 +11,8 @@ use egui_kittest::kittest::{NodeT, Queryable};
 use fluut_model::project::DisplayUnit;
 use std::time::Duration;
 
+mod editing;
+
 /// The app is built on the first frame, from the harness's context.
 type State = Option<FluutApp>;
 
@@ -583,6 +585,8 @@ fn ribbon_adds_setups_and_toolpaths_and_undoes() {
     scripted(&mut h).answer(DialogKind::New(DisplayUnit::Mm), d.join("ops"));
     h.get_by_label("New project").click();
     settle(&mut h);
+    h.get_by_label("Millimetres").click();
+    settle(&mut h);
     h.get_by_label("ops.fluut");
     scripted(&mut h).answer(DialogKind::Import, boss_step());
     h.get_by_label("Import model").click();
@@ -743,7 +747,10 @@ fn the_post_dropdown_lists_the_store_and_posting_asks_for_a_file() {
     open(&mut h, project("block"));
     app(&mut h).ui.clock = fixed_clock;
     stage(&mut h, "POST");
-    h.get_by_role(egui::accesskit::Role::ComboBox).click();
+    h.query_all_by_role(egui::accesskit::Role::ComboBox)
+        .find(|n| n.value().as_deref() == Some("fluut/linuxcnc"))
+        .unwrap()
+        .click();
     h.run_steps(2);
     for id in ["fluut/gcode", "fluut/linuxcnc-4x"] {
         h.get_by_label(id);
@@ -773,6 +780,8 @@ fn new_import_setup_toolpath_calculate_post_by_clicking() {
     app(&mut h).ui.clock = fixed_clock;
     scripted(&mut h).answer(DialogKind::New(DisplayUnit::Mm), d.join("loop"));
     h.get_by_label("New project").click();
+    settle(&mut h);
+    h.get_by_label("Millimetres").click();
     settle(&mut h);
     scripted(&mut h).answer(DialogKind::Import, boss_step());
     h.get_by_label("Import model").click();

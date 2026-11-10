@@ -52,6 +52,19 @@ pub const HEIGHT_REFS: &[&str] = &[
     "selection",
 ];
 
+/// References of `heights.feed`: the others, and the resolved `top`, which
+/// only this height may take (D15 §2.4).
+pub const FEED_REFS: &[&str] = &[
+    "top",
+    "setup_clearance",
+    "stock_top",
+    "stock_bottom",
+    "model_top",
+    "model_bottom",
+    "work_zero",
+    "selection",
+];
+
 /// X references of rotary types (D15b §1.4).
 pub const X_REFS: &[&str] = &[
     "stock_left",

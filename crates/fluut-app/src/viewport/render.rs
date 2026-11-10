@@ -46,6 +46,34 @@ pub enum Pick {
     Face(u32),
     /// Toolpath by its index in the drawn list.
     Toolpath(u32),
+    /// Edge or wire curve by pick index (`SetupScene::edge_ids`).
+    Edge(u32),
+}
+
+/// What a pick looks for.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct PickMask {
+    pub faces: bool,
+    pub edges: bool,
+    pub toolpaths: bool,
+}
+
+impl PickMask {
+    /// A click in the view: faces and toolpaths.
+    pub const VIEW: PickMask = PickMask {
+        faces: true,
+        edges: false,
+        toolpaths: true,
+    };
+}
+
+/// Entities tinted over the scene, by pick index.
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct Tints {
+    pub faces: Vec<u32>,
+    pub edges: Vec<u32>,
+    pub hover_face: Option<u32>,
+    pub hover_edge: Option<u32>,
 }
 
 /// Marks stock vertices, whose face field holds their tag
@@ -54,6 +82,7 @@ const STOCK_BIT: u32 = 0x8000_0000;
 
 const FACE_LAYER: u32 = 0x1000_0000;
 const TOOLPATH_LAYER: u32 = 0x2000_0000;
+const EDGE_LAYER: u32 = 0x3000_0000;
 const INDEX_MASK: u32 = 0x0FFF_FFFF;
 
 impl Pick {
@@ -63,6 +92,7 @@ impl Pick {
             Pick::None => 0,
             Pick::Face(i) => FACE_LAYER | (i & INDEX_MASK),
             Pick::Toolpath(i) => TOOLPATH_LAYER | (i & INDEX_MASK),
+            Pick::Edge(i) => EDGE_LAYER | (i & INDEX_MASK),
         }
     }
 
@@ -70,6 +100,7 @@ impl Pick {
         match id & !INDEX_MASK {
             FACE_LAYER => Pick::Face(id & INDEX_MASK),
             TOOLPATH_LAYER => Pick::Toolpath(id & INDEX_MASK),
+            EDGE_LAYER => Pick::Edge(id & INDEX_MASK),
             _ => Pick::None,
         }
     }
@@ -97,7 +128,14 @@ struct Uniforms {
 struct Draw {
     style: [f32; 4],
     id: [u32; 4],
+    tint: [f32; 4],
 }
+
+/// Highlight records after the toolpaths': one for faces and three for
+/// lines (shifted a pixel, so they read thicker), selected then hovered.
+const TINT_RECORDS: u64 = 8;
+/// How much of the tint a highlight takes.
+const FACE_TINT: f32 = 0.65;
 
 /// Dynamic-offset stride of [`Draw`] records.
 const DRAW_STRIDE: u64 = 256;
@@ -115,6 +153,7 @@ struct MeshVertex {
 struct LineVertex {
     pos: [f32; 3],
     tag: u32,
+    pick: u32,
 }
 
 fn lin4(c: Rgb, scale: f32) -> [f32; 4] {
@@ -205,6 +244,10 @@ pub struct Renderer {
     stock: Option<Vec<StockBlock>>,
     edges: Option<GpuLines>,
     toolpaths: Vec<Option<GpuLines>>,
+    /// Vertex ranges of faces and edges, by pick index.
+    face_ranges: Vec<[u32; 2]>,
+    edge_ranges: Vec<[u32; 2]>,
+    tints: Tints,
 }
 
 fn uniform_layout(device: &wgpu::Device, dynamic: bool) -> wgpu::BindGroupLayout {
@@ -278,7 +321,7 @@ impl Renderer {
             immediate_size: 0,
         });
         let mesh_attrs = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Uint32];
-        let line_attrs = wgpu::vertex_attr_array![0 => Float32x3, 1 => Uint32];
+        let line_attrs = wgpu::vertex_attr_array![0 => Float32x3, 1 => Uint32, 2 => Uint32];
         let mesh_vb = wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<MeshVertex>() as u64,
             step_mode: wgpu::VertexStepMode::Vertex,
@@ -400,7 +443,17 @@ impl Renderer {
             stock: None,
             edges: None,
             toolpaths: Vec::new(),
+            face_ranges: Vec::new(),
+            edge_ranges: Vec::new(),
+            tints: Tints::default(),
         }
+    }
+
+    /// Sets what is tinted. Returns whether it changed; nothing is uploaded.
+    pub fn set_tints(&mut self, t: Tints) -> bool {
+        let changed = self.tints != t;
+        self.tints = t;
+        changed
     }
 
     /// Uploads a Setup's faces, edges and stock box.
@@ -426,6 +479,8 @@ impl Renderer {
             }),
             count: verts.len() as u32,
         });
+        self.face_ranges.clone_from(&mesh.ranges);
+        self.edge_ranges.clone_from(&edges.ranges);
         let mut lines = edges.clone();
         if let Some(b) = stock {
             box_lines(b, &mut lines);
@@ -602,9 +657,10 @@ impl Renderer {
         queue.write_buffer(&self.uniforms, 0, bytemuck::bytes_of(&u));
     }
 
-    /// Writes one [`Draw`] per line set: edges first, then toolpaths.
+    /// Writes one [`Draw`] per line set: edges first, then toolpaths, then
+    /// the highlight records.
     fn write_draws(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, f: &FrameState) {
-        let n = 1 + self.toolpaths.len() as u64;
+        let n = 1 + self.toolpaths.len() as u64 + TINT_RECORDS;
         if n > self.draw_capacity {
             self.draw_capacity = n.next_power_of_two();
             (self.draws, self.draw_group) =
@@ -620,6 +676,7 @@ impl Renderer {
             Draw {
                 style: [1.0, 0.0, 0.0, 0.0],
                 id: [0; 4],
+                tint: [0.0; 4],
             },
         );
         for i in 0..self.toolpaths.len() as u32 {
@@ -629,17 +686,54 @@ impl Renderer {
                 Draw {
                     style: [if lit { 1.0 } else { 0.35 }, 0.0, 0.0, 0.0],
                     id: [Pick::Toolpath(i).encode(), 0, 0, 0],
+                    tint: [0.0; 4],
                 },
             );
+        }
+        let base = 1 + self.toolpaths.len() as u64;
+        let (w, h) = self
+            .targets
+            .as_ref()
+            .map_or((1.0, 1.0), |t| (t.width as f32, t.height as f32));
+        let (px, py) = (2.0 / w, 2.0 / h);
+        let colours = [lin4(brand::CUTTER_ORANGE, 1.0), lin4(brand::BLUE, 1.0)];
+        for (k, c) in colours.into_iter().enumerate() {
+            let at = base + 4 * k as u64;
+            let tint = [c[0], c[1], c[2], FACE_TINT];
+            put(
+                at,
+                Draw {
+                    style: [1.0, 0.0, 0.0, 0.0],
+                    id: [0; 4],
+                    tint,
+                },
+            );
+            let solid = [c[0], c[1], c[2], 1.0];
+            for (j, (x, y)) in [(0.0, 0.0), (px, 0.0), (0.0, py)].into_iter().enumerate() {
+                put(
+                    at + 1 + j as u64,
+                    Draw {
+                        style: [1.0, 0.0, x, y],
+                        id: [0; 4],
+                        tint: solid,
+                    },
+                );
+            }
         }
         queue.write_buffer(&self.draws, 0, &bytes);
     }
 
-    fn draw_scene(&self, pass: &mut wgpu::RenderPass<'_>, pick: bool) {
+    fn draw_scene(&self, pass: &mut wgpu::RenderPass<'_>, pick: Option<PickMask>) {
+        let mask = pick.unwrap_or(PickMask {
+            faces: true,
+            edges: true,
+            toolpaths: true,
+        });
+        let picking = pick.is_some();
         pass.set_bind_group(0, &self.globals, &[]);
         pass.set_bind_group(1, &self.draw_group, &[0]);
         if let Some(blocks) = &self.stock {
-            if !pick {
+            if !picking {
                 pass.set_pipeline(&self.mesh_pipeline);
                 for (vb, ib, count) in blocks.iter().filter_map(|b| b.gpu.as_ref()) {
                     pass.set_vertex_buffer(0, vb.slice(..));
@@ -648,7 +742,7 @@ impl Renderer {
                 }
             }
         } else if let Some(m) = self.mesh.as_ref() {
-            pass.set_pipeline(if pick {
+            pass.set_pipeline(if picking {
                 &self.mesh_pick
             } else {
                 &self.mesh_pipeline
@@ -656,21 +750,63 @@ impl Renderer {
             pass.set_vertex_buffer(0, m.buffer.slice(..));
             pass.draw(0..m.count, 0..1);
         }
-        pass.set_pipeline(if pick {
+        pass.set_pipeline(if picking {
             &self.line_pick
         } else {
             &self.line_pipeline
         });
-        if let Some(e) = self.edges.as_ref().filter(|_| !pick) {
+        if let Some(e) = self.edges.as_ref().filter(|_| mask.edges) {
             pass.set_vertex_buffer(0, e.buffer.slice(..));
             pass.draw(0..e.count, 0..1);
         }
         for (i, tp) in self.toolpaths.iter().enumerate() {
-            if let Some(l) = tp {
+            if let Some(l) = tp.as_ref().filter(|_| mask.toolpaths) {
                 let offset = ((1 + i as u64) * DRAW_STRIDE) as u32;
                 pass.set_bind_group(1, &self.draw_group, &[offset]);
                 pass.set_vertex_buffer(0, l.buffer.slice(..));
                 pass.draw(0..l.count, 0..1);
+            }
+        }
+        if !picking && self.stock.is_none() {
+            self.draw_tints(pass);
+        }
+    }
+
+    /// Redraws the highlighted faces and edges over themselves, from their
+    /// ranges in the buffers already uploaded.
+    fn draw_tints(&self, pass: &mut wgpu::RenderPass<'_>) {
+        let base = 1 + self.toolpaths.len() as u64;
+        let record = |i: u64| ((base + i) * DRAW_STRIDE) as u32;
+        let hover_face = self.tints.hover_face;
+        if let Some(m) = self.mesh.as_ref() {
+            pass.set_pipeline(&self.mesh_pipeline);
+            pass.set_vertex_buffer(0, m.buffer.slice(..));
+            let groups = [(0, self.tints.faces.as_slice()), (4, hover_face.as_slice())];
+            for (at, faces) in groups {
+                pass.set_bind_group(1, &self.draw_group, &[record(at)]);
+                for r in faces
+                    .iter()
+                    .filter_map(|f| self.face_ranges.get(*f as usize))
+                {
+                    pass.draw(r[0]..r[1], 0..1);
+                }
+            }
+        }
+        if let Some(e) = self.edges.as_ref() {
+            pass.set_pipeline(&self.line_pipeline);
+            pass.set_vertex_buffer(0, e.buffer.slice(..));
+            let hover_edge = self.tints.hover_edge;
+            let groups = [(1, self.tints.edges.as_slice()), (5, hover_edge.as_slice())];
+            for (at, edges) in groups {
+                for j in 0..3 {
+                    pass.set_bind_group(1, &self.draw_group, &[record(at + j)]);
+                    for r in edges
+                        .iter()
+                        .filter_map(|i| self.edge_ranges.get(*i as usize))
+                    {
+                        pass.draw(r[0]..r[1], 0..1);
+                    }
+                }
             }
         }
     }
@@ -712,7 +848,7 @@ impl Renderer {
             pass.set_bind_group(1, &self.draw_group, &[0]);
             pass.set_pipeline(&self.bg_pipeline);
             pass.draw(0..3, 0..1);
-            self.draw_scene(&mut pass, false);
+            self.draw_scene(&mut pass, None);
         }
         queue.submit([encoder.finish()]);
     }
@@ -777,6 +913,20 @@ impl Renderer {
         x: u32,
         y: u32,
     ) -> Pick {
+        self.pick_masked(device, queue, f, x, y, PickMask::VIEW)
+    }
+
+    /// As [`Self::pick`], for what `mask` allows. An edge anywhere in the
+    /// square beats a face, since faces fill the square around their edges.
+    pub fn pick_masked(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        f: &FrameState,
+        x: u32,
+        y: u32,
+        mask: PickMask,
+    ) -> Pick {
         let Some(t) = &self.targets else {
             return Pick::None;
         };
@@ -822,7 +972,7 @@ impl Renderer {
                 multiview_mask: None,
             });
             pass.set_scissor_rect(x0, y0, w, h);
-            self.draw_scene(&mut pass, true);
+            self.draw_scene(&mut pass, Some(mask));
         }
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
@@ -855,12 +1005,16 @@ impl Renderer {
             return Pick::None;
         };
         let mut best = (u32::MAX, 0u32);
+        let mut edge = (u32::MAX, 0u32);
         for j in 0..h {
             for i in 0..w {
                 let at = (j * row + i * 4) as usize;
                 let id = u32::from_le_bytes([data[at], data[at + 1], data[at + 2], data[at + 3]]);
                 let (dx, dy) = ((x0 + i).abs_diff(x), (y0 + j).abs_diff(y));
                 let dist = dx * dx + dy * dy;
+                if matches!(Pick::decode(id), Pick::Edge(_)) && dist < edge.0 {
+                    edge = (dist, id);
+                }
                 // Toolpath lines win over faces at the same distance: they
                 // are drawn on top.
                 let better = dist < best.0
@@ -872,7 +1026,7 @@ impl Renderer {
                 }
             }
         }
-        Pick::decode(best.1)
+        Pick::decode(if edge.1 != 0 { edge.1 } else { best.1 })
     }
 }
 
@@ -881,9 +1035,11 @@ fn upload_lines(device: &wgpu::Device, l: &Lines, tag: impl Fn(u32) -> u32) -> O
         .points
         .iter()
         .zip(&l.tag)
-        .map(|(p, t)| LineVertex {
+        .enumerate()
+        .map(|(i, (p, t))| LineVertex {
             pos: *p,
             tag: tag(*t),
+            pick: l.pick.get(i).copied().unwrap_or(0),
         })
         .collect();
     (!verts.is_empty()).then(|| GpuLines {
@@ -951,11 +1107,14 @@ mod tests {
             Pick::Face(12345),
             Pick::Toolpath(0),
             Pick::Toolpath(7),
+            Pick::Edge(0),
+            Pick::Edge(99),
         ] {
             assert_eq!(Pick::decode(p.encode()), p);
         }
         assert_eq!(Pick::None.encode(), 0);
         assert_ne!(Pick::Face(3).encode(), Pick::Toolpath(3).encode());
+        assert_ne!(Pick::Edge(3).encode(), Pick::Toolpath(3).encode());
     }
 
     #[test]

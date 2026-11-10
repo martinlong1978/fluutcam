@@ -10,9 +10,10 @@
 use crate::session::{Session, builtin_library};
 use crate::store::ModelStore;
 use fluut_cam::geometry::{BodyGeom, SetupGeometry};
+use fluut_model::defs::DefRef;
 use fluut_model::edit::Edit;
 use fluut_model::hash::sha256_hex;
-use fluut_model::library::LayerKind;
+use fluut_model::library::{DefKind, LayerKind};
 use fluut_model::params::{Num, ToolpathTypeId};
 use fluut_model::persist;
 use fluut_model::project::{
@@ -20,7 +21,8 @@ use fluut_model::project::{
     SourceKind, StockSpec, Toolpath, ZeroSpec,
 };
 use fluut_model::setup::resolve_setup;
-use fluut_model::{Diagnostic, Severity};
+use fluut_model::{Diagnostic, PValue, Severity};
+use std::collections::BTreeSet;
 use std::path::{Component, Path, PathBuf};
 
 /// Margin of a new three_axis block stock: both X sides, both Y sides and
@@ -41,6 +43,16 @@ const CYLINDER_ALLOWANCE: f64 = 1.0;
 
 /// Clearance of a new rotary Setup beyond the stock radius, mm.
 const CYLINDER_CLEARANCE: f64 = 10.0;
+
+/// A machine a Setup can name.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct MachineChoice {
+    /// `id@major`, as a Setup's `machine` holds it.
+    pub reference: String,
+    pub name: String,
+    /// It has a rotary axis.
+    pub rotary: bool,
+}
 
 /// What an import added.
 #[derive(Clone, PartialEq, Debug)]
@@ -136,6 +148,35 @@ pub fn default_tool(kind: ToolpathTypeId) -> &'static str {
 }
 
 impl Session {
+    /// Every machine of the library that resolves, once per id and major
+    /// version, in id order.
+    pub fn machine_choices(&self) -> Vec<MachineChoice> {
+        let mut seen = BTreeSet::new();
+        for e in self.library.entries() {
+            if e.kind == DefKind::Machine {
+                seen.insert((e.def.id.clone(), e.def.version.major));
+            }
+        }
+        seen.into_iter()
+            .filter_map(|(id, major)| {
+                let reference = format!("{id}@{major}");
+                let m = self
+                    .library
+                    .machine(&DefRef::parse(&reference).ok()?)
+                    .ok()?;
+                Some(MachineChoice {
+                    name: if m.fields.name.is_empty() {
+                        id
+                    } else {
+                        m.fields.name.clone()
+                    },
+                    rotary: m.has_rotary(),
+                    reference,
+                })
+            })
+            .collect()
+    }
+
     /// Starts a project at `path` (`.fluut` is added when there is no
     /// extension) and writes it, so the file exists and is valid. The name
     /// is the file name; definitions beside the file are loaded.
@@ -510,6 +551,35 @@ impl Session {
         self.apply(Edit::add_toolpath(setup, None, &t))
             .map_err(|e| Diagnostic::error("toolpath.add", e.to_string()))?;
         Ok(id)
+    }
+}
+
+impl Session {
+    /// Copies toolpath `id` to just after itself, named `name`, one undo
+    /// step. Returns the copy's id.
+    pub fn duplicate_toolpath(&mut self, id: &str, name: &str) -> Result<String, Diagnostic> {
+        let new_id = free_id(&self.project, "t");
+        let Some((_, t)) = self.project.toolpath(id) else {
+            return Err(Diagnostic::error(
+                "toolpath.missing",
+                format!("toolpath `{id}` is not in the project"),
+            ));
+        };
+        let quoted = PValue::Enum(name.to_owned()).to_toml();
+        let edit = Edit::Group {
+            label: format!("Duplicate {id}"),
+            edits: vec![
+                Edit::DuplicateAs {
+                    toolpath: id.to_owned(),
+                    new_id: new_id.clone(),
+                    new_type: t.kind().as_str().to_owned(),
+                },
+                Edit::set_toolpath_field(&new_id, "name", Some(&quoted)),
+            ],
+        };
+        self.apply(edit)
+            .map_err(|e| Diagnostic::error("toolpath.duplicate", e.to_string()))?;
+        Ok(new_id)
     }
 }
 

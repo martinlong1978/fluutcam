@@ -97,6 +97,8 @@ pub enum Edit {
         path: String,
         value: Option<PValue>,
     },
+    /// Any other change to the project, one undo step.
+    Model(fluut_model::edit::Edit),
 }
 
 /// What to post and where.
@@ -133,6 +135,12 @@ pub enum Request {
         kind: ToolpathTypeId,
         name: String,
     },
+    /// Copies a toolpath, under the name, just after itself.
+    Duplicate {
+        cx: JobCx,
+        toolpath: String,
+        name: String,
+    },
     Undo(JobCx),
     Redo(JobCx),
     Calculate(JobCx, CalcTargets),
@@ -157,6 +165,7 @@ pub enum JobKind {
     Reimport,
     AddSetup,
     AddToolpath,
+    Duplicate,
     Undo,
     Redo,
     Calculate,
@@ -427,6 +436,24 @@ impl Jobs {
                 kind,
                 name,
             }
+        });
+    }
+
+    /// Copies toolpath `id` to just after itself, as "name copy". Ignored
+    /// while a job runs or with no project.
+    pub fn duplicate_toolpath(&mut self, id: &str) {
+        if self.is_busy() {
+            return;
+        }
+        let Some((_, t)) = self.snapshot.as_ref().and_then(|s| s.project.toolpath(id)) else {
+            return;
+        };
+        let name = tr_args("name-copy", &[("name", &t.name)]);
+        let toolpath = id.to_owned();
+        self.start_job(JobKind::Duplicate, name.clone(), |cx| Request::Duplicate {
+            cx,
+            toolpath,
+            name,
         });
     }
 

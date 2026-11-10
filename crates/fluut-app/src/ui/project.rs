@@ -52,6 +52,51 @@ pub fn ask(jobs: &Jobs, state: &UiState, dialogs: &mut Dialogs, kind: DialogKind
     dialogs.request(kind, dir_of(jobs), &name);
 }
 
+/// The unit of a new project: the native dialog cannot ask, so a small
+/// window does, after it. The unit asked for comes first.
+pub fn units_prompt(ctx: &egui::Context, jobs: &mut Jobs, state: &mut UiState) {
+    let Some((path, first)) = state.new_project.clone() else {
+        return;
+    };
+    let units = if first == DisplayUnit::Inch {
+        [DisplayUnit::Inch, DisplayUnit::Mm]
+    } else {
+        [DisplayUnit::Mm, DisplayUnit::Inch]
+    };
+    let mut answer = None;
+    let mut cancelled = false;
+    egui::Window::new(tr("units-title"))
+        .collapsible(false)
+        .resizable(false)
+        .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+        .show(ctx, |ui| {
+            ui.label(tr("units-text"));
+            ui.horizontal(|ui| {
+                for u in units {
+                    let id = match u {
+                        DisplayUnit::Mm => "units-mm",
+                        DisplayUnit::Inch => "units-inch",
+                    };
+                    if ui.button(tr(id)).clicked() {
+                        answer = Some(u);
+                    }
+                }
+                cancelled = ui.button(tr("units-cancel")).clicked();
+            });
+        });
+    if cancelled {
+        state.new_project = None;
+    } else if let Some(u) = answer {
+        state.new_project = None;
+        let new = Pending::New(path, u);
+        if jobs.snapshot.as_ref().is_some_and(|s| s.dirty) {
+            state.pending = Some(new);
+        } else {
+            run(jobs, new);
+        }
+    }
+}
+
 /// The "discard unsaved changes?" window for a pending Open or New.
 pub fn discard_prompt(ctx: &egui::Context, jobs: &mut Jobs, state: &mut UiState) {
     let Some(p) = state.pending.clone() else {
@@ -97,10 +142,10 @@ pub fn picked(jobs: &mut Jobs, state: &mut UiState, p: Picked) {
     let dirty = jobs.snapshot.as_ref().is_some_and(|s| s.dirty);
     let replace = match p.kind {
         K::Open => Some(Pending::Open(p.path.clone())),
-        K::New(u) => Some(Pending::New(p.path.clone(), u)),
         _ => None,
     };
     match (p.kind, replace) {
+        (K::New(u), _) => state.new_project = Some((p.path, u)),
         (_, Some(r)) if dirty => state.pending = Some(r),
         (_, Some(r)) => run(jobs, r),
         (K::SaveAs, None) => jobs.save_as(p.path),

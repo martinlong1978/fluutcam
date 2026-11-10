@@ -28,6 +28,7 @@ impl StatusVm {
                 JobKind::Reimport => tr("job-reimporting"),
                 JobKind::AddSetup => tr("job-adding-setup"),
                 JobKind::AddToolpath => tr("job-adding-toolpath"),
+                JobKind::Duplicate => tr("job-duplicating"),
                 JobKind::Undo => tr("job-undoing"),
                 JobKind::Redo => tr("job-redoing"),
                 JobKind::Simulate => {
@@ -63,6 +64,14 @@ impl StatusVm {
                 progress: Some(r.cx.progress.fraction()),
                 cancellable: true,
                 failed: false,
+            };
+        }
+        if let Some(e) = jobs.snapshot.as_ref().and_then(|s| s.edit_error.as_ref()) {
+            return StatusVm {
+                text: tr_args("job-edit-refused", &[("reason", e)]),
+                progress: None,
+                cancellable: false,
+                failed: true,
             };
         }
         let (text, failed) = match &jobs.last {
