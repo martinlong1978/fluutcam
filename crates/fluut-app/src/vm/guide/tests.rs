@@ -228,15 +228,18 @@ fn a_failed_toolpath_leaves_no_tool_waiting() {
 }
 
 #[test]
-fn undo_takes_the_toolpath_and_the_ticks_after_it_back() {
+fn undo_takes_a_toolpath_and_the_calculate_tick_back() {
     let mut j = opened("boss");
     let state = GuideState::default();
+    j.add_toolpath("s1", ToolpathTypeId::Parallel);
+    j.wait();
     j.calculate(CalcTargets::All);
     j.wait();
     assert_eq!(marks(&vm(&j, &state)), "xxxxx..");
     j.undo();
     j.wait();
-    let v = vm(&j, &state);
-    assert_eq!(marks(&v), "xxx....");
-    assert!(v.step(GuideStep::Toolpath).current);
+    let s = j.snapshot.clone().unwrap();
+    assert_eq!(s.project.setup("s1").unwrap().toolpaths.len(), 1);
+    // The file's own toolpath was calculated with it and stays done.
+    assert_eq!(marks(&vm(&j, &state)), "xxxxx..");
 }

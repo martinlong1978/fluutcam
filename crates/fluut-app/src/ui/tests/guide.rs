@@ -47,7 +47,7 @@ fn the_card_is_closed_in_a_plain_window_and_opens_from_the_title_bar() {
 
 #[test]
 fn the_card_walks_a_first_job_to_gcode() {
-    let d = temp("guide-walk");
+    let d = temp("guide_walk");
     let mut h = harness();
     h.step();
     app(&mut h).ui.clock = fixed_clock;
@@ -155,7 +155,7 @@ fn the_toolpath_step_adds_the_chosen_type_with_the_chosen_tool() {
 
 #[test]
 fn closing_the_card_is_remembered_and_the_title_bar_reopens_it() {
-    let dir = temp("guide-settings");
+    let dir = temp("guide_settings");
     let path = dir.join("settings.toml");
     let updates = || {
         Updates::with(
@@ -210,7 +210,7 @@ fn the_card_and_the_ribbon_run_the_same_command() {
     card_open(&mut h);
     scripted(&mut h).answer(
         DialogKind::New(DisplayUnit::Mm),
-        temp("guide-both").join("x"),
+        temp("guide_both").join("x"),
     );
     h.get_by_label("New project").click();
     settle(&mut h);
