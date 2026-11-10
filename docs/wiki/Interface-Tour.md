@@ -84,11 +84,15 @@ The small coloured arrows at one corner of the stock are the **work zero**: the 
 
 **Pick mode.** When you click **Pick** in a toolpath's Geometry tab, a banner at the top of the viewport says what you are picking ("Picking Drive faces: click to add or remove, Esc or Done to finish"). The face or curve under the pointer lights up, and the picked ones are tinted. Esc or **Done** leaves. See [Add a toolpath](Add-a-Toolpath).
 
+**Body pick mode.** The **Pick** buttons in a Setup's inspector (Bodies, body stock, and the orientation) work the same way. For **Bodies** and body stock the viewport shows every body of the model, and a click on any face or curve toggles its whole body. The chosen bodies are tinted. The pointer lights up only the face or curve under it, not the whole body. For an orientation, a click on a flat face, a round face or an edge fills the value and ends the pick.
+
+**Handles.** When a Setup is selected, the viewport draws drag handles on it: a ring for the work zero, and orange squares for the margins of block stock. Drag one and let go to change the Setup in one undo step. Handles hide in pick mode. See [Add a Setup](Add-a-Setup).
+
 If the computer has no usable graphics device, the viewport says so and stays off. Everything else still works.
 
 ## Inspector
 
-Select a **Setup** and the inspector lists its name, kind, material, machine, work offset, stock, work zero and clearance, then its bodies and toolpath count. You can edit all of these except the kind and the bodies. A value taken from the parent Setup shows "Inherited from" and can be reset. See [Add a Setup](Add-a-Setup) and [Setups, stock and work zero](Setups-Stock-and-Zero).
+Select a **Setup** and the inspector lists its name, kind, material, machine, work offset, stock, work zero and clearance, then its toolpath count. You can edit all of these. The **Bodies** and **Orientation** groups have **Pick** buttons for choosing on the model. A value taken from the parent Setup shows "Inherited from" and can be reset. See [Add a Setup](Add-a-Setup) and [Setups, stock and work zero](Setups-Stock-and-Zero).
 
 ![The inspector for a toolpath](images/calculated.png)
 
