@@ -7,17 +7,20 @@
 use super::entry::{EntryUnit, evaluate};
 use super::fmt_num;
 use super::inspector::{DiagVm, display, num_text};
+use super::pick::SetupPick;
 use crate::session::Snapshot;
 use crate::text::{data, diagnostic, tr, tr_args};
 use fluut_core::ops::DEFAULT_STOCK_MARGIN;
-use fluut_model::FieldKind;
 use fluut_model::edit::{Edit, setup_field_text};
 use fluut_model::params::Num;
 use fluut_model::project::{
-    AngleMode, AxisX, ClearanceSpec, Corner, DisplayUnit, IndexAngle, Setup, SetupKind, StockSpec,
-    ZeroSpec,
+    AngleMode, AxisDir, AxisPick, AxisX, ClearanceSpec, Corner, DisplayUnit, GeometrySel,
+    IndexAngle, Orientation, Setup, SetupKind, StockSpec, ZeroSpec,
 };
-use fluut_model::setup::{FieldOrigin, ResolvedSetup, resolve_setup};
+use fluut_model::setup::{
+    FieldOrigin, ResolvedSetup, default_orientation, default_zero, resolve_setup,
+};
+use fluut_model::{FieldKind, Sel};
 
 /// Work offsets of the dropdown.
 const WORK_OFFSETS: [&str; 6] = ["G54", "G55", "G56", "G57", "G58", "G59"];
@@ -31,6 +34,8 @@ pub enum RowWidget {
     Number {
         unit: Option<&'static str>,
     },
+    /// A check box; the value is `true` or `false`.
+    Check,
     ReadOnly,
 }
 
@@ -52,6 +57,8 @@ pub struct RowVm {
     /// The text shown, or the value of the option chosen.
     pub value: String,
     pub origin: OriginVm,
+    /// A Pick button beside the row starts this pick on the model.
+    pub pick: Option<SetupPick>,
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -115,6 +122,7 @@ fn length_row(key: String, label: String, mm: Option<f64>, unit: DisplayUnit) ->
         },
         value: mm.map_or_else(String::new, |v| num_text(v, FieldKind::Length, unit)),
         origin: OriginVm::default(),
+        pick: None,
     }
 }
 
@@ -146,7 +154,10 @@ fn stock_group(s: &Snapshot, r: &ResolvedSetup, unit: DisplayUnit) -> GroupVm {
         })
         .collect();
     let mut widget = choices(&offered);
-    if let (StockSpec::Body { .. }, RowWidget::Choice(o)) = (&st, &mut widget) {
+    let has_bodies = project_bodies(s).next().is_some();
+    if let RowWidget::Choice(o) = &mut widget
+        && (matches!(st, StockSpec::Body { .. }) || (has_bodies && !r.kind.is_rotary()))
+    {
         o.push(("body".to_owned(), tr("stock-body")));
     }
     let mut rows = vec![RowVm {
@@ -155,6 +166,7 @@ fn stock_group(s: &Snapshot, r: &ResolvedSetup, unit: DisplayUnit) -> GroupVm {
         widget,
         value: stock_key(&st).to_owned(),
         origin: origin(s, r, "stock"),
+        pick: None,
     }];
     let triple = |rows: &mut Vec<RowVm>, what: &str, ids: [&str; 3], v: Option<[Num; 3]>| {
         for (i, id) in ids.into_iter().enumerate() {
@@ -196,9 +208,10 @@ fn stock_group(s: &Snapshot, r: &ResolvedSetup, unit: DisplayUnit) -> GroupVm {
         StockSpec::Body { body } => rows.push(RowVm {
             key: "stock.body".to_owned(),
             label: tr("stock-body"),
-            widget: RowWidget::ReadOnly,
-            value: data(body),
+            widget: options(project_bodies(s), Some(body), false),
+            value: body.clone(),
             origin: OriginVm::default(),
+            pick: Some(SetupPick::StockBody),
         }),
         StockSpec::FromPrevious => {}
     }
@@ -228,7 +241,7 @@ const ZERO_ROTARY: [(&str, &str); 3] = [
     ("at", "zero-at"),
 ];
 
-fn zero_key(z: &ZeroSpec) -> String {
+pub(super) fn zero_key(z: &ZeroSpec) -> String {
     match z {
         ZeroSpec::StockTopCorner(c) => format!("top.{}", c.as_str()),
         ZeroSpec::StockBottomCorner(c) => format!("bottom.{}", c.as_str()),
@@ -256,6 +269,7 @@ fn zero_group(s: &Snapshot, r: &ResolvedSetup, unit: DisplayUnit) -> GroupVm {
         widget,
         value: zero_key(&r.zero),
         origin: origin(s, r, "zero"),
+        pick: None,
     }];
     match &r.zero {
         ZeroSpec::Point(p) => {
@@ -354,6 +368,7 @@ fn general_group(s: &Snapshot, r: &ResolvedSetup) -> GroupVm {
         widget,
         value,
         origin: field.map_or_else(OriginVm::default, |f| origin(s, r, f)),
+        pick: None,
     };
     let mut rows = vec![
         plain(
@@ -366,8 +381,18 @@ fn general_group(s: &Snapshot, r: &ResolvedSetup) -> GroupVm {
         plain(
             "kind",
             "setup-kind",
-            RowWidget::ReadOnly,
-            data(r.kind.as_str()),
+            RowWidget::Choice(
+                SetupKind::ALL
+                    .into_iter()
+                    .map(|k| {
+                        (
+                            k.as_str().to_owned(),
+                            tr(&format!("setup-kind-{}", k.as_str())),
+                        )
+                    })
+                    .collect(),
+            ),
+            r.kind.as_str().to_owned(),
             None,
         ),
         plain(
@@ -413,25 +438,315 @@ fn general_group(s: &Snapshot, r: &ResolvedSetup) -> GroupVm {
 impl SetupVm {
     pub fn new(s: &Snapshot, r: &ResolvedSetup) -> SetupVm {
         let unit = s.project.units;
-        let bodies = match &r.geometry.bodies {
-            None => tr("setup-bodies-all"),
-            Some(b) => b.join(", "),
-        };
         let toolpaths = s.project.setup(&r.id).map_or(0, |x| x.toolpaths.len());
         SetupVm {
             id: r.id.clone(),
             title: data(&r.name),
             groups: vec![
                 general_group(s, r),
+                bodies_group(s, r),
+                orientation_group(s, r),
                 stock_group(s, r, unit),
                 zero_group(s, r, unit),
                 clearance_group(s, r, unit),
             ],
-            info: vec![
-                (tr("setup-bodies"), bodies),
-                (tr("setup-toolpaths"), toolpaths.to_string()),
-            ],
+            info: vec![(tr("setup-toolpaths"), toolpaths.to_string())],
             diagnostics: r.diagnostics.iter().map(DiagVm::of).collect(),
+        }
+    }
+}
+
+/// `(id, label)` of every body of the project's sources, in order.
+fn project_bodies(s: &Snapshot) -> impl Iterator<Item = (String, String)> + '_ {
+    s.project.geometry.iter().flat_map(|g| {
+        g.bodies.iter().map(|b| {
+            let label = match &b.name {
+                Some(n) => format!("{n} ({})", b.id),
+                None => b.id.clone(),
+            };
+            (b.id.clone(), data(&label))
+        })
+    })
+}
+
+fn all_body_ids(s: &Snapshot) -> Vec<String> {
+    project_bodies(s).map(|(id, _)| id).collect()
+}
+
+fn check_row(key: String, label: String, on: bool, pick: Option<SetupPick>) -> RowVm {
+    RowVm {
+        key,
+        label,
+        widget: RowWidget::Check,
+        value: on.to_string(),
+        origin: OriginVm::default(),
+        pick,
+    }
+}
+
+/// The bodies the Setup machines: All bodies, or one check box per body.
+fn bodies_group(s: &Snapshot, r: &ResolvedSetup) -> GroupVm {
+    let mut rows = vec![check_row(
+        "bodies.all".to_owned(),
+        tr("setup-bodies-all"),
+        r.geometry.bodies.is_none(),
+        Some(SetupPick::Bodies),
+    )];
+    for (id, label) in project_bodies(s) {
+        let on = r.geometry.bodies.as_ref().is_none_or(|b| b.contains(&id));
+        rows.push(check_row(format!("bodies.{id}"), label, on, None));
+    }
+    GroupVm {
+        id: "setup-bodies",
+        label: tr("setup-bodies"),
+        rows,
+    }
+}
+
+/// The text of a pick as a dropdown value: `+Z`, `face:<id>`, `edge:<id>`.
+fn pick_value(p: &AxisPick) -> String {
+    match p {
+        AxisPick::Axis(a) => a.as_str().to_owned(),
+        AxisPick::Face(id) => format!("face:{id}"),
+        AxisPick::Edge(id) => format!("edge:{id}"),
+    }
+}
+
+fn parse_pick(text: &str) -> Option<AxisPick> {
+    if let Some(id) = text.strip_prefix("face:") {
+        return Some(AxisPick::Face(id.to_owned()));
+    }
+    if let Some(id) = text.strip_prefix("edge:") {
+        return Some(AxisPick::Edge(id.to_owned()));
+    }
+    AxisDir::ALL
+        .into_iter()
+        .find(|a| a.as_str() == text)
+        .map(AxisPick::Axis)
+}
+
+/// One orientation direction: the six model axes, the current pick if it
+/// is a face or edge, and `none` as the empty choice when given.
+fn axis_row(
+    s: &Snapshot,
+    r: &ResolvedSetup,
+    (key, label, role): (&str, String, SetupPick),
+    current: Option<&AxisPick>,
+    none: Option<String>,
+) -> RowVm {
+    let mut o: Vec<(String, String)> = Vec::new();
+    if let Some(n) = none {
+        o.push((String::new(), n));
+    }
+    for a in AxisDir::ALL {
+        let name = tr_args("orientation-axis", &[("axis", a.as_str())]);
+        o.push((a.as_str().to_owned(), name));
+    }
+    let value = current.map(pick_value).unwrap_or_default();
+    match current {
+        Some(AxisPick::Face(id)) => {
+            o.push((value.clone(), tr_args("orientation-face", &[("id", id)])));
+        }
+        Some(AxisPick::Edge(id)) => {
+            o.push((value.clone(), tr_args("orientation-edge", &[("id", id)])));
+        }
+        _ => {}
+    }
+    RowVm {
+        key: key.to_owned(),
+        label,
+        widget: RowWidget::Choice(o),
+        value,
+        origin: origin(s, r, "orientation"),
+        pick: Some(role),
+    }
+}
+
+/// Which model direction is up (and along X), or the rotary axis (spec 03
+/// §3.9.3). The frame, and so the viewport, follows.
+fn orientation_group(s: &Snapshot, r: &ResolvedSetup) -> GroupVm {
+    let rows = match &r.orientation {
+        Orientation::ThreeAxis { tool_axis, x_axis } => vec![
+            axis_row(
+                s,
+                r,
+                (
+                    "orientation.tool_axis",
+                    tr("orientation-tool-axis"),
+                    SetupPick::ToolAxis,
+                ),
+                Some(tool_axis),
+                None,
+            ),
+            axis_row(
+                s,
+                r,
+                (
+                    "orientation.x_axis",
+                    tr("orientation-x-axis"),
+                    SetupPick::XAxis,
+                ),
+                Some(x_axis),
+                None,
+            ),
+        ],
+        Orientation::Rotary {
+            rotary_axis,
+            a_zero_toward,
+        } => vec![
+            axis_row(
+                s,
+                r,
+                (
+                    "orientation.rotary_axis",
+                    tr("orientation-rotary-axis"),
+                    SetupPick::RotaryAxis,
+                ),
+                Some(rotary_axis),
+                None,
+            ),
+            axis_row(
+                s,
+                r,
+                (
+                    "orientation.a_zero_toward",
+                    tr("orientation-a-zero"),
+                    SetupPick::AZero,
+                ),
+                a_zero_toward.as_ref(),
+                Some(tr("orientation-default-z")),
+            ),
+        ],
+    };
+    GroupVm {
+        id: "setup-orientation",
+        label: tr("setup-orientation"),
+        rows,
+    }
+}
+
+/// The orientation with direction `role` replaced by `pick` (`None` clears
+/// the optional A = 0 direction).
+fn orientation_with(
+    o: &Orientation,
+    role: SetupPick,
+    pick: Option<AxisPick>,
+) -> Option<Orientation> {
+    Some(match (o.clone(), role) {
+        (Orientation::ThreeAxis { x_axis, .. }, SetupPick::ToolAxis) => Orientation::ThreeAxis {
+            tool_axis: pick?,
+            x_axis,
+        },
+        (Orientation::ThreeAxis { tool_axis, .. }, SetupPick::XAxis) => Orientation::ThreeAxis {
+            tool_axis,
+            x_axis: pick?,
+        },
+        (Orientation::Rotary { a_zero_toward, .. }, SetupPick::RotaryAxis) => Orientation::Rotary {
+            rotary_axis: pick?,
+            a_zero_toward,
+        },
+        (Orientation::Rotary { rotary_axis, .. }, SetupPick::AZero) => Orientation::Rotary {
+            rotary_axis,
+            a_zero_toward: pick,
+        },
+        _ => return None,
+    })
+}
+
+fn orientation_edit(setup: &str, o: Orientation) -> Edit {
+    let mut t = Setup::new(setup, "");
+    t.orientation = Some(o);
+    let text = setup_field_text(&t, "orientation");
+    Edit::set_setup_field(setup, "orientation", text.as_deref())
+}
+
+/// The edit that sets the Setup's bodies: `Err(true)` is "all bodies",
+/// `Err(false)` the same list written out, `Ok((id, on))` adds or removes
+/// one body.
+fn bodies_edit(
+    snap: &Snapshot,
+    r: &ResolvedSetup,
+    change: Result<(&str, bool), bool>,
+) -> Result<Edit, String> {
+    let all = all_body_ids(snap);
+    let mut list = r.geometry.bodies.clone().unwrap_or_else(|| all.clone());
+    let bodies = match change {
+        Err(true) => None,
+        Err(false) => Some(all.clone()),
+        Ok((id, on)) => {
+            if on && !list.iter().any(|b| b == id) {
+                list.push(id.to_owned());
+            } else if !on {
+                list.retain(|b| b != id);
+            }
+            if list.is_empty() {
+                return Err(tr("setup-bodies-one"));
+            }
+            // In the order of the model; every body is "all".
+            list.sort_by_key(|b| all.iter().position(|a| a == b));
+            (list != all).then_some(list)
+        }
+    };
+    let g = GeometrySel {
+        bodies,
+        scale: r.geometry.scale,
+        mirror: r.geometry.mirror,
+    };
+    let plain = g.bodies.is_none() && g.scale.is_none() && g.mirror.is_none();
+    let mut t = Setup::new(&r.id, "");
+    t.geometry = Some(g);
+    // A child writes `{}` to override its parent's bodies.
+    let text = (!plain || r.based_on.is_some())
+        .then(|| setup_field_text(&t, "geometry"))
+        .flatten();
+    Ok(Edit::set_setup_field(&r.id, "geometry", text.as_deref()))
+}
+
+/// The body a picked face, edge or body belongs to.
+pub fn body_of(sel: &Sel) -> Option<String> {
+    let id = sel.id();
+    let stem = id
+        .strip_prefix("f-")
+        .or_else(|| id.strip_prefix("e-"))
+        .or_else(|| id.strip_prefix("b-"))?;
+    let stem = stem.rsplit_once('.').map_or(stem, |(a, _)| a);
+    Some(format!("b-{stem}"))
+}
+
+/// The edit a pick on the model makes for `role` of Setup `setup`: a body
+/// pick toggles the body; the others take a face or an edge.
+///
+/// # Errors
+///
+/// A message when the edit is refused.
+pub fn setup_pick_edit(
+    snap: &Snapshot,
+    setup: &str,
+    role: SetupPick,
+    sel: &Sel,
+) -> Result<Edit, String> {
+    let r = resolve_setup(&snap.project, setup).map_err(|d| diagnostic(&d))?;
+    match role {
+        SetupPick::Bodies => {
+            let body = body_of(sel).ok_or(NO_FIELD)?;
+            let included = r.geometry.bodies.as_ref().is_none_or(|b| b.contains(&body));
+            bodies_edit(snap, &r, Ok((&body, !included)))
+        }
+        SetupPick::StockBody => {
+            let body = body_of(sel).ok_or(NO_FIELD)?;
+            let mut t = Setup::new(setup, "");
+            t.stock = Some(StockSpec::Body { body });
+            let text = setup_field_text(&t, "stock");
+            Ok(Edit::set_setup_field(setup, "stock", text.as_deref()))
+        }
+        role => {
+            let pick = match sel {
+                Sel::Face(id) => AxisPick::Face(id.clone()),
+                Sel::Edge(id) => AxisPick::Edge(id.clone()),
+                Sel::Body(_) => return Err(NO_FIELD.to_owned()),
+            };
+            let o = orientation_with(&r.orientation, role, Some(pick)).ok_or(NO_FIELD)?;
+            Ok(orientation_edit(setup, o))
         }
     }
 }
@@ -509,6 +824,17 @@ fn stock_from(kind: &str, s: &Snapshot, r: &ResolvedSetup) -> Option<StockSpec> 
             }
         },
         "from_previous" => StockSpec::FromPrevious,
+        "body" => {
+            // One the Setup does not machine; else the first.
+            let all = all_body_ids(s);
+            let machined = r.geometry.bodies.clone().unwrap_or_else(|| all.clone());
+            let body = all
+                .iter()
+                .find(|b| !machined.contains(b))
+                .or_else(|| all.first())?
+                .clone();
+            StockSpec::Body { body }
+        }
         _ => return None,
     })
 }
@@ -584,6 +910,31 @@ pub fn setup_edit(snap: &Snapshot, setup: &str, key: &str, text: &str) -> Result
     let length = || eval(FieldKind::Length);
     let mut t = Setup::new(setup, "");
     let field = match key.split_once('.').map_or(key, |(a, _)| a) {
+        "kind" => return kind_edit(snap, &r, text),
+        "bodies" => {
+            let on = text == "true";
+            return match key.strip_prefix("bodies.") {
+                Some("all") => bodies_edit(snap, &r, Err(on)),
+                Some(id) => bodies_edit(snap, &r, Ok((id, on))),
+                None => Err(NO_FIELD.to_owned()),
+            };
+        }
+        "orientation" => {
+            let role = match key {
+                "orientation.tool_axis" => SetupPick::ToolAxis,
+                "orientation.x_axis" => SetupPick::XAxis,
+                "orientation.rotary_axis" => SetupPick::RotaryAxis,
+                "orientation.a_zero_toward" => SetupPick::AZero,
+                _ => return Err(NO_FIELD.to_owned()),
+            };
+            let pick = if text.is_empty() {
+                None
+            } else {
+                Some(parse_pick(text).ok_or(NO_FIELD)?)
+            };
+            let o = orientation_with(&r.orientation, role, pick).ok_or(NO_FIELD)?;
+            return Ok(orientation_edit(setup, o));
+        }
         "name" => {
             if text.is_empty() {
                 return Err(tr("setup-name-empty"));
@@ -622,6 +973,10 @@ pub fn setup_edit(snap: &Snapshot, setup: &str, key: &str, text: &str) -> Result
         "stock" => {
             t.stock = Some(if key == "stock.kind" {
                 stock_from(text, snap, &r).ok_or(NO_FIELD)?
+            } else if key == "stock.body" {
+                StockSpec::Body {
+                    body: text.to_owned(),
+                }
             } else {
                 stock_entry(&r, key, &length)?
             });
@@ -666,6 +1021,62 @@ pub fn setup_edit(snap: &Snapshot, setup: &str, key: &str, text: &str) -> Result
         field,
         setup_field_text(&t, field).as_deref(),
     ))
+}
+
+/// The edit that changes the kind of a Setup. Rotary and indexed share what
+/// a Setup holds, so only `kind` is written. Crossing to or from three_axis
+/// also writes what the other class needs (orientation, zero, stock and
+/// clearance), as one undo step. Toolpaths the new kind does not allow keep
+/// their place and show their validation.
+fn kind_edit(snap: &Snapshot, r: &ResolvedSetup, text: &str) -> Result<Edit, String> {
+    let kind = SetupKind::ALL
+        .into_iter()
+        .find(|k| k.as_str() == text)
+        .ok_or(NO_FIELD)?;
+    if kind.is_rotary()
+        && let Some(m) = r
+            .machine
+            .as_deref()
+            .and_then(|m| snap.machines.iter().find(|c| c.reference == m))
+        && !m.rotary
+    {
+        return Err(tr_args("setup-kind-needs-rotary", &[("machine", &m.name)]));
+    }
+    let id = r.id.as_str();
+    let mut edits = vec![Edit::set_setup_field(
+        id,
+        "kind",
+        Some(&format!("\"{}\"", kind.as_str())),
+    )];
+    if kind.is_rotary() != r.kind.is_rotary() {
+        let mut t = Setup::new(id, "");
+        t.orientation = Some(default_orientation(kind));
+        t.zero = Some(default_zero(kind));
+        let stock = if r.stock == Some(StockSpec::FromPrevious) {
+            None
+        } else {
+            let want = if kind.is_rotary() {
+                "cylinder"
+            } else {
+                "margin"
+            };
+            stock_from(want, snap, r)
+        };
+        t.stock = stock;
+        for field in ["orientation", "zero", "stock"] {
+            if let Some(v) = setup_field_text(&t, field) {
+                edits.push(Edit::set_setup_field(id, field, Some(&v)));
+            }
+        }
+        edits.push(Edit::set_setup_field(id, "clearance", None));
+    }
+    if edits.len() == 1 {
+        return Ok(edits.remove(0));
+    }
+    Ok(Edit::Group {
+        label: format!("Change kind of {id}"),
+        edits,
+    })
 }
 
 /// The edit that resets `field` to inherited.

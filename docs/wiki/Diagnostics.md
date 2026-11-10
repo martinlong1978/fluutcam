@@ -208,6 +208,7 @@ The message in your window may fill in numbers and names where this page shows `
 | `setup.orientation.invalid` | error | the X axis is parallel to the tool axis | A Setup is incomplete or inconsistent. Select the Setup and check its kind, stock, work zero and bodies. |
 | `setup.orientation.kind` | error | Setup `…`: a three_axis Setup needs a tool_axis | A Setup is incomplete or inconsistent. Select the Setup and check its kind, stock, work zero and bodies. |
 | `setup.orientation.pick` | error | orientation: `…` … | A Setup is incomplete or inconsistent. Select the Setup and check its kind, stock, work zero and bodies. |
+| `setup.stock.body` | error | Setup `…`: stock body `…` is not in the model | A Setup is incomplete or inconsistent. Select the Setup and check its kind, stock, work zero and bodies. |
 | `setup.stock.from_previous.changed` | error | Setup `…`: with stock = from_previous, … must stay as in `…` | A Setup is incomplete or inconsistent. Select the Setup and check its kind, stock, work zero and bodies. |
 | `setup.stock.from_previous.parent` | error | Setup `…`: stock = from_previous needs `based_on` | A Setup is incomplete or inconsistent. Select the Setup and check its kind, stock, work zero and bodies. |
 | `setup.stock.missing` | error | Setup `…`: a … Setup needs a stock | A Setup is incomplete or inconsistent. Select the Setup and check its kind, stock, work zero and bodies. |

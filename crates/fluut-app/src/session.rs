@@ -24,7 +24,7 @@ use fluut_core::{JobReport, JobState, NodeId, PostOptions, Session, SetupFrame, 
 use fluut_core::{SimResult, SimSettings};
 use fluut_model::PValue;
 use fluut_model::project::SetupKind;
-use fluut_model::project::{DisplayUnit, Project};
+use fluut_model::project::{DisplayUnit, Project, StockSpec};
 use fluut_model::setup::{ResolvedSetup, resolve_all};
 use fluut_model::tools::ToolStore;
 use fluut_model::validate::{ValidateCx, validate};
@@ -71,6 +71,9 @@ pub struct Snapshot {
     pub stats: BTreeMap<String, PathStats>,
     /// Per Setup id, in its work frame.
     pub scenes: BTreeMap<String, Arc<SetupScene>>,
+    /// Every body of the model, in the model frame: what picking whole
+    /// bodies shows. `None` while no geometry is imported.
+    pub all_bodies: Option<Arc<SetupScene>>,
     /// Per toolpath id, for current results only.
     pub paths: BTreeMap<String, Arc<ToolpathLines>>,
     /// Why the last edit was refused, if it was.
@@ -814,7 +817,16 @@ impl State {
         let all = self.session.store.bodies();
         match &s.geometry.bodies {
             None => all.cloned().collect(),
-            Some(ids) => all.filter(|b| ids.contains(&b.id)).cloned().collect(),
+            Some(ids) => {
+                // A stock body comes along, for the frame to take out again.
+                let stock = match &s.stock {
+                    Some(StockSpec::Body { body }) => Some(body),
+                    _ => None,
+                };
+                all.filter(|b| ids.contains(&b.id) || stock == Some(&b.id))
+                    .cloned()
+                    .collect()
+            }
         }
     }
 
@@ -844,10 +856,11 @@ impl State {
             }
             scenes.insert(s.id.clone(), self.scenes[&s.id].1.clone());
         }
+        let all_bodies = self.model_scene();
         if project.setups.is_empty()
-            && let Some(m) = self.model_scene()
+            && let Some(m) = &all_bodies
         {
-            scenes.insert(MODEL_SCENE.to_owned(), m);
+            scenes.insert(MODEL_SCENE.to_owned(), m.clone());
         }
         // The kind decides which toolpath types validate (rotary types run in
         // rotary Setups only), and it may be inherited.
@@ -949,6 +962,7 @@ impl State {
             diagnostics,
             stats,
             scenes,
+            all_bodies,
             paths,
             edit_error: self.edit_error.clone(),
             times,

@@ -168,3 +168,88 @@ fn highlight_shows_the_picked_field_or_the_whole_toolpath() {
             .is_empty()
     );
 }
+
+#[test]
+fn a_body_pick_toggles_the_whole_body_from_any_of_its_faces_or_curves() {
+    let mut j = opened("plate");
+    let s = j.snapshot.clone().unwrap();
+    let mut m = PickMode::for_setup("s1", SetupPick::Bodies);
+    assert!(m.picks_bodies());
+    // The scene it picks in holds every body, whatever the Setup machines.
+    assert!(
+        m.scene(&s)
+            .is_some_and(|sc| sc.edge_ids.iter().any(|e| e.starts_with("e-2.")))
+    );
+    assert_eq!(
+        m.current(&s),
+        [Sel::Body("b-1".into()), Sel::Body("b-2".into())]
+    );
+    let e = m.hit(&s, &Sel::Edge("e-2.0".into())).unwrap();
+    assert!(!m.done, "a body pick stays open");
+    let s = run(&mut j, e);
+    assert_eq!(m.current(&s), [Sel::Body("b-1".into())]);
+    // The tint covers the body's curves.
+    let sc = s.all_bodies.as_ref().unwrap();
+    let h = highlight(&s, sc, &Selection::Setup("s1".into()), Some(&m));
+    assert!(!h.edges.is_empty());
+    // Picking it again puts it back; the last one cannot go.
+    let e = m.hit(&s, &Sel::Edge("e-2.1".into())).unwrap();
+    let s = run(&mut j, e);
+    assert!(s.project.setup("s1").unwrap().geometry.is_none());
+    let e = m.hit(&s, &Sel::Edge("e-1.0".into())).unwrap();
+    let s = run(&mut j, e);
+    assert!(m.hit(&s, &Sel::Edge("e-2.0".into())).is_none());
+    assert!(m.hit(&s, &Sel::Edge("e-1.0".into())).is_some());
+    // Undo steps back through the picks.
+    j.undo();
+    j.undo();
+    j.undo();
+    j.wait();
+    assert!(
+        j.snapshot
+            .clone()
+            .unwrap()
+            .project
+            .setup("s1")
+            .unwrap()
+            .geometry
+            .is_none()
+    );
+}
+
+#[test]
+fn a_body_pick_chooses_the_stock_body_and_ends() {
+    let mut j = opened("plate");
+    let s = j.snapshot.clone().unwrap();
+    let mut m = PickMode::for_setup("s1", SetupPick::StockBody);
+    let e = m.hit(&s, &Sel::Edge("e-2.0".into())).unwrap();
+    assert!(m.done);
+    let s = run(&mut j, e);
+    assert_eq!(m.current(&s), [Sel::Body("b-2".into())]);
+}
+
+#[test]
+fn a_direction_pick_takes_planar_and_cylindrical_faces_and_ends() {
+    let mut j = opened("block");
+    let s = j.snapshot.clone().unwrap();
+    let sc = s.scenes["s1"].clone();
+    let mut m = PickMode::for_setup("s1", SetupPick::XAxis);
+    assert!(!m.picks_bodies());
+    assert_eq!(m.scene(&s).map(|x| x.faces.len()), Some(sc.faces.len()));
+    let kinds: Vec<FaceKind> = sc.face_kinds.clone();
+    for (i, f) in sc.faces.iter().enumerate() {
+        let ok = matches!(kinds[i], FaceKind::Plane | FaceKind::Cylinder);
+        assert_eq!(m.accepts(&s, &Sel::Face(f.clone())), ok, "{f}");
+    }
+    let flat = sc
+        .faces
+        .iter()
+        .zip(&kinds)
+        .find(|(_, k)| **k == FaceKind::Plane)
+        .map(|(f, _)| f.clone())
+        .unwrap();
+    let e = m.hit(&s, &Sel::Face(flat.clone())).unwrap();
+    assert!(m.done);
+    let s = run(&mut j, e);
+    assert_eq!(m.current(&s), [Sel::Face(flat)]);
+}

@@ -17,7 +17,7 @@ use fluut_model::edit::{Edit, EditError};
 use fluut_model::journal::{Journal, file_hash, journal_path, recover};
 use fluut_model::library::{DefKind, LayerKind, Library};
 use fluut_model::machine::{BUILTIN_MACHINES, Machine};
-use fluut_model::project::{BodyEntry, Project, SetupKind, read};
+use fluut_model::project::{BodyEntry, Project, SetupKind, StockSpec, read};
 use fluut_model::resolve::{Coolant, DrillCycle, resolve};
 use fluut_model::setup::{ResolvedSetup, resolve_all};
 use fluut_model::tools::{BUILTIN_TOOLS, ToolLibrary, ToolStore};
@@ -781,10 +781,16 @@ impl Session {
     }
 
     fn setup_bodies(&self, s: &ResolvedSetup) -> Result<Vec<SetupBody>, Diagnostic> {
+        // A stock body comes along, for the frame to take out again.
+        let stock = match &s.stock {
+            Some(StockSpec::Body { body }) => Some(body),
+            _ => None,
+        };
         match &s.geometry.bodies {
             None => Ok(self.store.bodies().cloned().collect()),
             Some(ids) => ids
                 .iter()
+                .chain(stock.filter(|b| !ids.contains(b)))
                 .map(|id| {
                     self.store
                         .bodies()

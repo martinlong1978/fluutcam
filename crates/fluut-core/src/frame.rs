@@ -151,6 +151,15 @@ impl SetupFrame {
         if let Some(d) = s.diagnostics.iter().find(|d| d.is_error()) {
             return Err(d.clone());
         }
+        // A body used as stock is the stock, never machined.
+        let (bodies, stock_body) = match &s.stock {
+            Some(StockSpec::Body { body }) => {
+                let (stock, rest): (Vec<_>, Vec<_>) =
+                    bodies.into_iter().partition(|b| b.id == *body);
+                (rest, stock.into_iter().next())
+            }
+            _ => (bodies, None),
+        };
         if bodies.is_empty() {
             return Err(Diagnostic::error(
                 "setup.geometry.empty",
@@ -217,6 +226,23 @@ impl SetupFrame {
         };
         let stock = match spec.unwrap_or_default() {
             StockSpec::Block { margin, size } => block(&mb, margin, size),
+            StockSpec::Body { body } => {
+                let missing = || {
+                    Diagnostic::error(
+                        "setup.stock.body",
+                        format!("Setup `{}`: stock body `{body}` is not in the model", s.id),
+                    )
+                    .at("stock")
+                };
+                let sb = stock_body.ok_or_else(missing)?;
+                let moved = SetupGeometry::transformed(&[sb], &align)
+                    .map_err(|e| Diagnostic::error("setup.geometry.transform", e))?;
+                let b = moved.bounds(BOUNDS_CHORD);
+                if b.is_empty() {
+                    return Err(missing());
+                }
+                b
+            }
             other => {
                 return Err(Diagnostic::error(
                     "setup.stock.unsupported",
