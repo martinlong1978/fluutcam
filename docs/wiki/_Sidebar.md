@@ -3,6 +3,7 @@
 **Getting started**
 - [Install](Install)
 - [Interface tour](Interface-Tour)
+- [Getting started card](Getting-Started)
 - [Your first project](Your-First-Project)
 
 **How to**

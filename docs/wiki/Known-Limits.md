@@ -8,6 +8,7 @@ If something you need is not here and does not work, [tell us](https://github.co
 
 The window is a first version. The ribbon drives everything the window can do. These are not yet in the window:
 
+- **More than a first job in the Getting started card.** The card adds a 3-axis Setup and one toolpath of a type you choose; rotary and indexed Setups, more toolpaths and picking faces for a 2-D type are done with the ribbon and the inspector. Its last step is ticked when G-code is written in this session; it does not look at files on disk.
 - **Some Setup controls.** A Setup has no controls for scale and mirror, and the window leaves them as they are. A rotary or indexed Setup cannot use a body as the stock. A block given by size has only the work zero handle, and so does cylinder stock.
 - **Handles and snapping.** There are no handles for a cylinder's radius and length, and no dial for the index angle. The work zero snaps to the corners and top centre of the stock (or its ends on the axis), not to vertices or arc centres.
 - **Picking whole bodies.** A click on the model toggles a whole body, but the pointer lights up only the face or curve under it, not the whole body.
@@ -43,8 +44,8 @@ Small thing you may notice: some error messages, such as a bad STEP file, show i
 - A new rotary or indexed Setup assumes the part lies along the X axis through the model origin. For any other axis, set the rotary axis in the Orientation group.
 - **Stock.** A 3-axis Setup calculates with a block of stock, a rotary one with a cylinder, an indexed one with either. Stock taken from a body of the model works in 3-axis Setups only.
 - **5-axis.** Not yet. FluutCAM supports one rotary axis (A): rotary Setups (simultaneous) and indexed Setups (the part turned to an angle, then 3-axis). Two-angle indexing (3+2) and simultaneous 5-axis are planned.
-- **Fixtures** (a chuck, a tailstock, clamps) are not part of the project yet. The simulation, and the check that the stock clears the tool when it turns, do not know about them.
-- A tool with no `overall_length` is checked at its tip only when the Z travel is checked before a turn.
+- **Fixtures** (a chuck, a tailstock, clamps on the rotary) are part of a rotary or indexed Setup, but only in the project file and in scripts: the window has no fields for them yet. They raise the height the tool rises to before a turn, and the simulation of an indexed Setup reports a toolpath that meets one (`sim.fixture`). That check is conservative: a clamp counts as its bounding box, the tool as a plain cylinder, and arcs are checked at their ends only. Rotary Setups are not simulated, so a fixture hit there is not found. A vice or fixture that does not turn with A is not modelled; import it as a body of the model.
+- A tool with no `overall_length` is checked at its tip only when the Z travel is checked before a turn, and its holder cannot be placed, so the simulation does not check it. You get the warning `cam.tool.length_missing` once per tool; enter the overall length in the tool to remove it.
 
 ## Calculating
 

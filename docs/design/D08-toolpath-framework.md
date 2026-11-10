@@ -242,8 +242,11 @@ retract is in the post, not in the results: the toolpaths and their cache keys d
 the next Setup. The machine's Z travel limits the spindle gauge line, not the tip (spec 02
 §2.3, 2026-11-03): when the turn height + the gauge length of the tool in the spindle
 (overall length + holder length) is above the travel the post fails
-(`setup.clearance.index_travel`). Fixtures that turn with A count in the turn radius through
-one hook, `frame::turning_fixture_radius`; no fixture model exists yet, so it adds nothing. In
+(`setup.clearance.index_travel`). Fixtures that turn with A (spec 03 §3.9.8: chuck, tailstock, clamps) count in the turn radius
+over the X range the tools of the Setup reach: the stock's range widened by the largest cutter
+radius (`SetupFrame::turn_radius_reaching`). The session passes that reach; the frame's own
+`turn_radius` uses the stock's range alone. A fixture beyond the range, or smaller than the part,
+changes nothing. In
 a rotary Setup A turns on rapids at the clearance cylinder, which the post cannot change, so a
 clearance cylinder not larger than the turn radius is refused (`setup.clearance.index_unsafe`).
 

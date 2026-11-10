@@ -315,3 +315,31 @@ Tests of adding and editing Setups and basing one on another. Part of the [user 
   3. Click **Pick** in the **Bodies** group.
 - **Expected:** With a fixed-size block, or a body, only the work zero ring shows: there are no margin squares. For a rotary Setup the ring snaps to the two ends of the stock on the axis, and there are no margin squares. Pick mode hides every handle. Esc brings them back.
 - [ ] Pass
+
+### UAT-SET-34 A chuck raises the turn
+
+- **Preconditions:** A copy of `flipside` (two indexed Setups). Close the project in FluutCAM. In a text editor, add this line under the `zero` line of Setup `s1`: `fixtures = [{ kind = "chuck", diameter = 100, length = 20 }]`.
+- **Steps:**
+  1. Open the project. Select Setup `s1` and then `s2`.
+  2. Calculate all, and post with the `fluut/linuxcnc-4x` post (or run `fluut post flipside.fluut --post shop/linuxcnc-4x -o flip.ngc` in a work folder that has the project's `posts` and `machines` folders).
+  3. Find `G0 A180` in the program and read the line above it.
+- **Expected:** The project opens without a warning. The line above `G0 A180` is `G0 Z60`: the chuck radius, 50, plus the 10 mm clearance offset. Without the `fixtures` line it is `G0 Z41.321`. Setup `s2` takes the same chuck, because it is based on `s1`.
+- [ ] Pass
+
+### UAT-SET-35 A small fixture changes nothing
+
+- **Preconditions:** As UAT-SET-34, with `fixtures = [{ kind = "chuck", diameter = 40, length = 20 }]`.
+- **Steps:**
+  1. Calculate and post as in UAT-SET-34.
+- **Expected:** The program is the same as for the project without fixtures: the line above `G0 A180` is `G0 Z41.321`.
+- [ ] Pass
+
+### UAT-SET-36 Fixtures in a 3-axis Setup, and a bad fixture
+
+- **Preconditions:** A copy of `block`. Close the project in FluutCAM.
+- **Steps:**
+  1. Add `fixtures = [{ kind = "chuck", diameter = 50, length = 20 }]` to the Setup, and open the project.
+  2. Close it. Change the fixture to `{ kind = "vice" }` and open the project again.
+- **Expected:** Step 1: the Setup resolves with the warning `setup.fixtures.ignored` (fixtures turn with the rotary axis and a 3-axis Setup has none). Step 2: the project does not open; the message says that `kind` is not one of chuck, tailstock, clamp.
+- [ ] Pass
+

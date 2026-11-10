@@ -58,11 +58,20 @@ impl UpdateSettings {
     }
 }
 
+/// The first-project guide part of the settings.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GuideSettings {
+    /// The user closed the "Getting started" card. Shown until then.
+    pub dismissed: bool,
+}
+
 /// All settings.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
     pub update: UpdateSettings,
+    pub guide: GuideSettings,
 }
 
 impl Settings {
@@ -148,6 +157,27 @@ mod tests {
         u.answer(true);
         u.record_check(5_000_000);
         assert!(u.auto_check_due(1_000));
+    }
+
+    #[test]
+    fn the_guide_is_shown_until_dismissed_and_the_choice_is_kept() {
+        let path = temp_file("guide");
+        let mut s = Settings::default();
+        assert!(!s.guide.dismissed);
+        s.guide.dismissed = true;
+        s.save_to(&path).unwrap();
+        assert!(Settings::load_from(&path).guide.dismissed);
+        // A file from before the guide existed still loads.
+        std::fs::write(
+            &path,
+            "[update]
+asked = true
+",
+        )
+        .unwrap();
+        let old = Settings::load_from(&path);
+        assert!(old.update.asked && !old.guide.dismissed);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
     #[test]

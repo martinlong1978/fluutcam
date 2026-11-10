@@ -11,6 +11,7 @@ This page names every part of the FluutCAM window, so the other pages can say "t
 - a grey **mm** or **inch** badge: the unit the project shows. Click it to switch the project between mm and inch. It changes what the window shows and what you type, and it is one undo step. Inside the project file every length is in millimetres.
 - **Light theme** or **Dark theme**: switches between the two.
 - **Settings**: see [Settings and updates](Settings-and-Updates).
+- **Getting started**: opens or closes the [Getting started card](Getting-Started), a checklist for a first job. It shows at the first start.
 - **About FluutCAM**: the version and licence.
 
 **Ribbon.** The tabs under the title bar choose a stage of the work, from left to right: Model, Setup, Toolpaths, Simulate, Post and Library. Each stage shows groups of commands. Hover a button to see its name and its shortcut. A button that does not apply now is greyed out; for example Save is greyed out until a project is open.

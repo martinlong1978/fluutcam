@@ -111,3 +111,21 @@ Tests of simulating a calculated Setup, the playback controls, the colours and t
   2. Select the second Setup and click **Simulate**.
 - **Expected:** Each simulation shows only that Setup's toolpaths. The second starts from the stock the first Setup left, since it is based on the first. The two results differ.
 - [ ] Pass
+
+### UAT-SIM-13 A toolpath that meets a fixture
+
+- **Preconditions:** A copy of `flipside`, closed in FluutCAM. Add `fixtures = [{ kind = "clamp", min = [0, -30, -9], max = [90, 30, 9] }]` under the `zero` line of Setup `s1`. Open it and calculate all.
+- **Steps:**
+  1. Select Setup `s1` and click **Simulate**.
+  2. Open the **Findings** list.
+- **Expected:** The simulation reports errors `sim.fixture` ("the tool meets the clamp at ...") on the toolpaths of `s1`. With the clamp moved out of the way (`min = [300, -60, -5], max = [320, 60, 5]`) there are none.
+- [ ] Pass
+
+### UAT-SIM-14 A tool with a holder but no overall length
+
+- **Preconditions:** A copy of `flipside` with `holder = { diameter = 20, length = 40 }` added to the tool `flat-6` in `tools/shop.toml`, and no `overall_length`. Calculate all.
+- **Steps:**
+  1. Look at the Messages tab, and then simulate Setup `s1`.
+- **Expected:** One warning `cam.tool.length_missing` for the tool (not one per toolpath), saying that the holder cannot be placed without the overall length and is not checked. The simulation shows the same warning once. Add `overall_length = 60` and the warnings go.
+- [ ] Pass
+

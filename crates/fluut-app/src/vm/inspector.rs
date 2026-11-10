@@ -430,7 +430,7 @@ fn shape_label(s: ToolShape) -> String {
 }
 
 /// "library: type diameter, name".
-fn tool_label(library: &str, t: &Tool, unit: DisplayUnit) -> String {
+pub(crate) fn tool_label(library: &str, t: &Tool, unit: DisplayUnit) -> String {
     let d = num_with_unit(t.diameter, FieldKind::Length, unit);
     let name = data(if t.name.is_empty() { &t.id } else { &t.name });
     tr_args(

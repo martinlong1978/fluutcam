@@ -445,6 +445,39 @@ impl ClearanceSpec {
     }
 }
 
+/// A fixture that turns with the rotary axis of a rotary or indexed Setup
+/// (spec 03 section 3.9.8). Positions are in the Setup's work frame W,
+/// whose X is the rotary axis; sizes are in mm.
+#[derive(Clone, PartialEq, Debug)]
+pub enum Fixture {
+    /// A cylinder about the axis against the stock's start face (its lowest
+    /// X), reaching `length` outward.
+    Chuck { diameter: Num, length: Num },
+    /// A cylinder, or a cone when `tip_diameter` is given, about the axis
+    /// against the stock's end face (its highest X), reaching `length`
+    /// outward. `diameter` is the width at the far end, `tip_diameter` the
+    /// width at the stock.
+    Tailstock {
+        diameter: Num,
+        length: Num,
+        tip_diameter: Option<Num>,
+    },
+    /// A box with corners `min` and `max` in W.
+    Clamp { min: [Num; 3], max: [Num; 3] },
+}
+
+impl Fixture {
+    pub const KINDS: [&'static str; 3] = ["chuck", "tailstock", "clamp"];
+
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Fixture::Chuck { .. } => "chuck",
+            Fixture::Tailstock { .. } => "tailstock",
+            Fixture::Clamp { .. } => "clamp",
+        }
+    }
+}
+
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum AngleMode {
     Absolute,
@@ -492,6 +525,8 @@ pub struct Setup {
     pub zero: Option<ZeroSpec>,
     pub region: Option<Region>,
     pub clearance: Option<ClearanceSpec>,
+    /// Fixtures that turn with A; inherited as a whole list.
+    pub fixtures: Option<Vec<Fixture>>,
     pub toolpaths: Vec<Toolpath>,
 }
 
@@ -512,6 +547,7 @@ impl Setup {
             zero: None,
             region: None,
             clearance: None,
+            fixtures: None,
             toolpaths: Vec::new(),
         }
     }
