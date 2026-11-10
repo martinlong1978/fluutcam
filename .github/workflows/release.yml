@@ -80,10 +80,7 @@ jobs:
         run: |
           # A dry run never sends anything to SignPath and never signs.
           if [ "$GITHUB_REF_TYPE" != "tag" ]; then
-            printf 'windows=false
-windows_msi=false
-minisign=false
-' | tee -a "$GITHUB_OUTPUT"
+            for f in windows windows_msi minisign; do echo "$f=false"; done | tee -a "$GITHUB_OUTPUT"
             exit 0
           fi
           all_set() { for v in "$@"; do [ -n "${!v}" ] || return 1; done; }
