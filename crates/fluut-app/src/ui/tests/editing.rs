@@ -586,7 +586,7 @@ fn offset_entry(h: &mut Harness<'static, State>, n: usize, text: &str) {
 /// walks back through every state.
 #[test]
 fn a_pocket_from_new_project_to_gcode_matches_a_hand_written_project() {
-    let d = temp("pick-e2e");
+    let d = temp("pickflow");
     let mut h = harness();
     h.step();
     app(&mut h).ui.clock = fixed_clock;
