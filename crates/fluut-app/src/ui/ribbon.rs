@@ -213,7 +213,14 @@ fn stage_tabs(ui: &mut egui::Ui, state: &mut UiState, p: &Palette) {
     });
 }
 
-fn run(c: Command, vm: &RibbonVm, jobs: &mut Jobs, state: &mut UiState, dialogs: &mut Dialogs) {
+/// Runs a command, if it is enabled. The guide runs its steps through here.
+pub(super) fn run(
+    c: Command,
+    vm: &RibbonVm,
+    jobs: &mut Jobs,
+    state: &mut UiState,
+    dialogs: &mut Dialogs,
+) {
     if !vm.enabled(c) {
         return;
     }

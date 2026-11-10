@@ -8,7 +8,7 @@ This walk takes a STEP file to G-code. Every step is a button in the ribbon: cli
 - A STEP file of one solid part. Any small part will do. The pictures use `block.step`, a block with a pocket, which is in the FluutCAM repository at `crates/fluut-cli/tests/projects/block/block.step`. Your numbers will differ if you use another part.
 - A folder for the project. FluutCAM saves the project file in it, copies the model beside it, and writes the G-code there.
 
-The whole walk is ten steps and takes a few minutes. Everything happens in the window: you never edit the project file by hand. A second, short example at the end shows a 2-D toolpath (a pocket on a picked face).
+The first start of FluutCAM also shows the [Getting started card](Getting-Started), a checklist with a button for each main step; this page says more about each one. The whole walk is ten steps and takes a few minutes. Everything happens in the window: you never edit the project file by hand. A second, short example at the end shows a 2-D toolpath (a pocket on a picked face).
 
 ## 1. Start a new project
 

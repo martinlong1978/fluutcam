@@ -136,6 +136,20 @@ impl Updates {
         self.rx.is_some()
     }
 
+    /// The user closed the "Getting started" card; it stays closed at the
+    /// next start.
+    pub fn guide_dismissed(&self) -> bool {
+        self.settings.guide.dismissed
+    }
+
+    /// Remembers whether the "Getting started" card was closed.
+    pub fn set_guide_dismissed(&mut self, dismissed: bool) {
+        if self.settings.guide.dismissed != dismissed {
+            self.settings.guide.dismissed = dismissed;
+            self.save();
+        }
+    }
+
     /// The automatic-check choice as stored.
     pub fn auto_check(&self) -> bool {
         self.settings.update.auto_check
