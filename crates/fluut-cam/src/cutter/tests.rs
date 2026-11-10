@@ -3,9 +3,10 @@
 //! Drop solvers against the brute-force reference (D07 §9).
 
 use super::drop::{drop, drop_all};
+use super::geom::Prim;
 use super::reference::{Density, reference};
 use super::solve::{Axis, SolveStats};
-use super::synth::{Builder, Lcg, bspline_square, cuboid, tiled};
+use super::synth::{Builder, Lcg, bspline_square, cuboid, sculpted, tiled};
 use super::*;
 use fluut_geom::{Aabb3, Curve3, Frame, Interval, Point3, Surface, UvBox, Vec3};
 use fluut_topo::BrepBody;
@@ -532,4 +533,189 @@ fn a_small_ball_finds_the_same_contacts_with_split_edges_and_without_rims() {
         }
     }
     assert!(seen > 0);
+}
+
+/// The pruned drop on smooth free-form faces (sub-box bounds, patches
+/// queued again under them) equals the drop that solves every primitive, in
+/// whatever order the points come.
+#[test]
+fn smooth_bspline_drops_match_the_full_scan_in_any_order() {
+    let body = sculpted(8, 3.0, 5);
+    let g = QueryGeometry::new(&body, &BuildOptions::default());
+    let mut rng = Lcg(21);
+    let mut pts: Vec<(f64, f64)> = (0..50)
+        .map(|_| (-3.0 + 30.0 * rng.uniform(), -3.0 + 30.0 * rng.uniform()))
+        .collect();
+    let heights = |pts: &[(f64, f64)]| -> Vec<(f64, f64, f64, f64)> {
+        let mut out = Vec::new();
+        for c in cutters() {
+            for &(x, y) in pts {
+                let mut st = SolveStats::default();
+                let all = drop_all(&g, &c, x, y, &Seeding::default(), &mut st);
+                let got = drop(&g, &c, x, y, &DropOptions::default(), &mut st);
+                if let Some(r) = &got {
+                    assert_real(&g, &c, Axis { x, y }, r);
+                }
+                let h = |r: Option<Contact>| r.map_or(f64::NEG_INFINITY, |r| r.tau);
+                out.push((
+                    x + 1000.0 * c.radius() + 10.0 * c.corner(),
+                    y,
+                    h(all),
+                    h(got),
+                ));
+            }
+        }
+        out
+    };
+    let first = heights(&pts);
+    for (x, y, all, got) in &first {
+        assert!(
+            *got >= all - 1e-7,
+            "({x}, {y}): {got} below the full scan {all}"
+        );
+        assert!(
+            *got <= all + 1e-6,
+            "({x}, {y}): {got} above the full scan {all}"
+        );
+    }
+    // The same points shuffled (Fisher-Yates on a fixed LCG) give the same
+    // height at each point.
+    for i in (1..pts.len()).rev() {
+        pts.swap(i, (rng.uniform() * (i + 1) as f64) as usize);
+    }
+    let second = heights(&pts);
+    let mut a: Vec<_> = first
+        .iter()
+        .map(|r| (r.0.to_bits(), r.1.to_bits(), r.3))
+        .collect();
+    let mut b: Vec<_> = second
+        .iter()
+        .map(|r| (r.0.to_bits(), r.1.to_bits(), r.3))
+        .collect();
+    a.sort_by_key(|p| (p.0, p.1));
+    b.sort_by_key(|p| (p.0, p.1));
+    assert_eq!(a, b);
+}
+
+/// Contacts on the rim of a flat tool's footprint. Newton stops when the
+/// residual is below 1e-8, which can leave the point just outside the
+/// footprint and turn a true contact away; the last step is taken anyway.
+/// These points lost their contact (0.4 to 24 µm too low) before.
+#[test]
+fn flat_tool_rim_contacts_are_not_turned_away() {
+    let body = sculpted(8, 3.0, 5);
+    let g = QueryGeometry::new(&body, &BuildOptions::default());
+    let c = Cutter::flat(6.0).unwrap();
+    for (x, y) in [
+        (1.8801872184682518, 14.772201211271422),
+        (4.521782188777992, 12.6835457223462),
+        (6.858063336360371, 6.341528395062466),
+        (23.75588457508617, 1.235704689291329),
+    ] {
+        let mut st = SolveStats::default();
+        let all = drop_all(&g, &c, x, y, &Seeding::default(), &mut st).unwrap();
+        let got = drop(&g, &c, x, y, &DropOptions::default(), &mut st).unwrap();
+        assert_real(&g, &c, Axis { x, y }, &got);
+        assert!(
+            got.tau >= all.tau - 1e-7,
+            "({x}, {y}): {} < {}",
+            got.tau,
+            all.tau
+        );
+    }
+}
+
+/// Sub-boxes of a patch hold the patch, and lie inside its pole box.
+#[test]
+fn patch_sub_boxes_contain_the_patch() {
+    let body = tiled(2, true);
+    let g = QueryGeometry::new(&body, &BuildOptions::default());
+    let mut rng = Lcg(5);
+    let mut patches = 0;
+    for i in 0..g.prims.len() as u32 {
+        let Prim::Face { face, uv } = g.prims[i as usize] else {
+            continue;
+        };
+        let s = &g.body.surfaces[g.body.faces[face as usize].surface as usize];
+        if !matches!(s, Surface::BSpline(_)) {
+            assert!(g.sub_boxes(i).is_empty());
+            continue;
+        }
+        patches += 1;
+        let subs = g.sub_boxes(i);
+        assert!(!subs.is_empty());
+        let outer = g.prim_box(i).expand(1e-4); // f32 rounding
+        for b in subs {
+            assert!(
+                outer.contains(Point3::new(
+                    f64::from(b.min_x),
+                    f64::from(b.min_y),
+                    outer.min.z()
+                )) && outer.contains(Point3::new(
+                    f64::from(b.max_x),
+                    f64::from(b.max_y),
+                    f64::from(b.max_z)
+                )),
+                "{b:?} {outer:?}"
+            );
+        }
+        for _ in 0..200 {
+            let p = s.eval(uv.u.at(rng.uniform()), uv.v.at(rng.uniform()));
+            assert!(subs.iter().any(|b| b.holds(p, 1e-9)), "{p:?} in no sub-box");
+        }
+    }
+    assert!(patches > 10);
+}
+
+/// Sub-boxes of a B-spline edge curve hold the curve.
+#[test]
+fn edge_sub_boxes_contain_the_curve() {
+    let body = sculpted(2, 12.0, 9);
+    let g = QueryGeometry::new(&body, &BuildOptions::default());
+    let mut curves = 0;
+    for i in 0..g.prims.len() as u32 {
+        let Prim::Edge(e) = g.prims[i as usize] else {
+            continue;
+        };
+        let edge = &g.body.edges[e as usize];
+        let curve = &g.body.curves[edge.curve.unwrap() as usize];
+        let subs = g.sub_boxes(i);
+        if !matches!(curve, Curve3::BSpline(_)) {
+            assert!(subs.is_empty());
+            continue;
+        }
+        curves += 1;
+        assert!(!subs.is_empty());
+        for k in 0..=400 {
+            let p = curve.eval(edge.range.at(k as f64 / 400.0));
+            assert!(subs.iter().any(|b| b.holds(p, 1e-9)), "{p:?} in no sub-box");
+        }
+    }
+    assert!(curves > 10);
+}
+
+/// Contacts a flat tool's patch solves miss beside a face boundary: the
+/// contact is within 0.05 mm of the boundary, the patch holding it finds
+/// nothing, and neighbouring patches, which the sub-box bounds rule out, used
+/// to find it by chance. The patch is solved again with richer seeds.
+#[test]
+fn contacts_beside_a_face_boundary_are_not_missed() {
+    let c = Cutter::flat(6.0).unwrap();
+    let cases = [
+        (sculpted(4, 12.0, 9), 14.998465258227126, 47.47672328041821),
+        (tiled(4, true), 16.310242393116383, 42.75744430749068),
+    ];
+    for (body, x, y) in cases {
+        let g = QueryGeometry::new(&body, &BuildOptions::default());
+        let mut st = SolveStats::default();
+        let all = drop_all(&g, &c, x, y, &Seeding::default(), &mut st).unwrap();
+        let got = drop(&g, &c, x, y, &DropOptions::default(), &mut st).unwrap();
+        assert_real(&g, &c, Axis { x, y }, &got);
+        assert!(
+            got.tau >= all.tau - 1e-7,
+            "({x}, {y}): {} < {}",
+            got.tau,
+            all.tau
+        );
+    }
 }
