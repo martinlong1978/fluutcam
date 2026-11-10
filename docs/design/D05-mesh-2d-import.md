@@ -52,6 +52,30 @@ Then: build half-edges; mark boundary and non-manifold edges; compute triangle n
 vertex order and compare with the file's normals (majority vote decides whether to flip all, as
 some exporters write inconsistent orders). Report holes (boundary loops) and non-manifold edges.
 
+### 2.5 Mesh bodies in the model
+
+An imported STL becomes B-rep bodies, one per connected shell (triangles joined by shared welded
+vertices), so every viewport, picking, Setup and toolpath path that works on STEP bodies works on
+meshes without a second code path (`fluut_topo::mesh::to_breps`):
+
+- Each triangle is a planar face (`Surface::Plane` with the triangle as its outer loop, normal from
+  the vertex order). Edges are straight lines shared by the triangles that meet at them; the shell
+  is `closed` when every edge has two triangles. `BrepBody::from_mesh` marks such a body.
+- The drop, section, silhouette and rim queries therefore take triangles through the existing
+  plane, line and vertex primitives: flat, ball and bull contacts with the triangle interior, its
+  edges and its corners are the exact ones of D07.
+- The body's `tol_model` is 1e-6 mm, not the weld tolerance: faces are exactly planar and edges
+  exactly straight, and section chains join within 1000 times it.
+- Ids: bodies `b-1`, `b-2`, … in order of their first triangle; faces `f-<n>.<i>` with `i` the
+  triangle's index within its shell in file order. A re-import of a file with the same triangle
+  order keeps every id; the matching of re-import (spec 03 §3.5) falls back on signatures.
+- The viewport draws a mesh body's creases (normals more than 30° apart) and borders, not every
+  triangle edge.
+- Open or non-manifold meshes import with a warning (`model.geometry.mesh.open`); queries still
+  follow the triangles that exist.
+- Not done yet: facet groups (D03 §1.2) as selectable faces, and a compact triangle primitive for
+  meshes over about a million triangles (a face costs about 1 KB here).
+
 ### 2.4 Writing
 
 Binary STL writer for exporting simulation stock (D11) and debug output.

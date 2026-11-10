@@ -251,9 +251,15 @@ impl SetupScene {
                         s.mesh.ranges.push([start, s.mesh.positions.len() as u32]);
                     }
                     let base = s.edge_ids.len() as u32;
+                    let sharp = b.from_mesh.then(|| sharp_edges(b));
                     for e in 0..b.edges.len() as u32 {
-                        let pts: Vec<[f32; 3]> =
-                            b.edge_points(e, CHORD).into_iter().map(f).collect();
+                        // A mesh draws only its creases and borders; the
+                        // others keep their pick index but no line.
+                        let pts: Vec<[f32; 3]> = if sharp.as_ref().is_none_or(|s| s[e as usize]) {
+                            b.edge_points(e, CHORD).into_iter().map(f).collect()
+                        } else {
+                            Vec::new()
+                        };
                         s.edge_ids.push(edge_id(&body.id, e));
                         s.edges.edge(&pts, 0);
                     }
@@ -285,6 +291,44 @@ impl SetupScene {
         s.bounds = (!b.is_empty()).then_some(b);
         s
     }
+}
+
+/// Cosine of the angle (30 degrees) between the normals of two faces beyond
+/// which the edge between them is drawn on a mesh body.
+const MESH_CREASE_COS: f64 = 0.866_025_403_784_438_6;
+
+/// For each edge of a mesh body: not between two faces that continue each
+/// other (an open, shared-by-many or creased edge).
+fn sharp_edges(b: &BrepBody) -> Vec<bool> {
+    let mut faces: Vec<[u32; 2]> = vec![[u32::MAX; 2]; b.edges.len()];
+    let mut uses = vec![0u32; b.edges.len()];
+    for (fi, face) in b.faces.iter().enumerate() {
+        for &l in &face.loops {
+            for &c in &b.loops[l as usize].coedges {
+                let e = b.coedges[c as usize].edge as usize;
+                if uses[e] < 2 {
+                    faces[e][uses[e] as usize] = fi as u32;
+                }
+                uses[e] += 1;
+            }
+        }
+    }
+    let normal = |f: u32| match &b.surfaces[b.faces[f as usize].surface as usize] {
+        Surface::Plane { frame } => Some(frame.z.get()),
+        _ => None,
+    };
+    let cos = MESH_CREASE_COS;
+    (0..b.edges.len())
+        .map(|e| {
+            if uses[e] != 2 {
+                return true;
+            }
+            match (normal(faces[e][0]), normal(faces[e][1])) {
+                (Some(a), Some(c)) => a.dot(c) < cos,
+                _ => true,
+            }
+        })
+        .collect()
 }
 
 /// The face loops of a B-rep with more than one edge, as pick indices.
@@ -532,5 +576,45 @@ mod tests {
         assert_eq!(l.ranges, [[0, 4], [4, 6]]);
         assert_eq!(l.pick, [1, 1, 1, 1, 2, 2]);
         assert_eq!(l.pick.len(), l.points.len());
+    }
+
+    #[test]
+    fn mesh_bodies_draw_only_creases_and_borders() {
+        use fluut_cam::geometry::{BodyGeom, SetupBody, SetupGeometry};
+        use fluut_topo::MeshBody;
+        // A flat quad of two triangles, and a third triangle folded up
+        // from its far edge.
+        let p = |x, y, z| Point3::new(x, y, z);
+        let m = MeshBody {
+            name: "m".into(),
+            tol_model: 1e-4,
+            positions: vec![
+                p(0.0, 0.0, 0.0),
+                p(1.0, 0.0, 0.0),
+                p(1.0, 1.0, 0.0),
+                p(0.0, 1.0, 0.0),
+                p(0.5, 1.0, 1.0),
+            ],
+            tris: vec![[0, 1, 2], [0, 2, 3], [3, 2, 4]],
+            neighbours: Vec::new(),
+        };
+        let mut b = fluut_topo::mesh::to_breps(&m).remove(0);
+        fluut_topo::pcurve::compute(&mut b);
+        let sharp = sharp_edges(&b);
+        assert_eq!(sharp.len(), 7);
+        // The diagonal 0-2 is flat between its two triangles; the edge
+        // 2-3 is a crease; the other five are borders.
+        assert_eq!(sharp.iter().filter(|&&s| !s).count(), 1);
+        let g = SetupGeometry {
+            bodies: vec![SetupBody {
+                id: "b-1".into(),
+                geom: BodyGeom::Brep(b),
+            }],
+        };
+        let s = SetupScene::new(&g, None);
+        assert_eq!(s.faces.len(), 3);
+        assert_eq!(s.edge_ids.len(), 7);
+        assert_eq!(s.edges.ranges.len(), 7);
+        assert_eq!(s.edges.segment_count(), 6);
     }
 }
