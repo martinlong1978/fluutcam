@@ -2,7 +2,7 @@
 
 Tests of adding, editing and calculating toolpaths. Part of the [user acceptance tests](UAT). Test files: the `block`, `ridge`, `plate2d`, `shaft` and `holes` projects. Work on copies.
 
-Remember: the window cannot yet pick curves or faces for a 2-D toolpath, so a 2-D toolpath you add in the window reports an error until its geometry is set in the project file. The reference projects already have their geometry set.
+A 2-D toolpath you add in the window reports an error until you pick its faces or curves on the model (UAT-TP-21). The reference projects already have their geometry set.
 
 ---
 
@@ -114,7 +114,7 @@ Remember: the window cannot yet pick curves or faces for a 2-D toolpath, so a 2-
 - **Steps:**
   1. Click **2D pocket** in the 2D gallery.
   2. Click **Calculate all**.
-- **Expected:** The toolpath gets a red filled triangle. Its message, in the Messages tab, is that you must select drive curves or drive faces. Nothing else is changed. (When picking is built this test changes; see [Known limits](Known-Limits).)
+- **Expected:** The toolpath gets a red filled triangle. Its message, in the Messages tab, is that you must select drive curves or drive faces. Nothing else is changed. UAT-TP-21 fixes it by picking.
 
 ![Messages](images/messages.png)
 
@@ -130,10 +130,10 @@ Remember: the window cannot yet pick curves or faces for a 2-D toolpath, so a 2-
 
 ### UAT-TP-14 Heights in the wrong order
 
-- **Preconditions:** A calculated 3-D toolpath in a project. You can only do this step by editing the file.
+- **Preconditions:** A calculated 3-D toolpath in a project.
 - **Steps:**
-  1. Close FluutCAM. In the project file make the toolpath's retract height lower than its feed height.
-  2. Open the project and click **Calculate all**.
+  1. On the **Heights** tab set the **Retract** offset so the retract height is lower than the feed height (for example reference Stock top, offset `-10`).
+  2. Click **Calculate all**.
 - **Expected:** The toolpath gets a red triangle and a message that the heights must satisfy clearance, retract, feed, top and bottom in that order.
 - [ ] Pass
 
@@ -184,4 +184,144 @@ Remember: the window cannot yet pick curves or faces for a 2-D toolpath, so a 2-
 - **Steps:**
   1. Hover over a number box.
 - **Expected:** A tooltip says: type a value or an expression, for example 6/2, 1/4in or tool.diameter*0.4. (A tooltip that explains each setting is not in the window yet; the meaning of every setting is in [Toolpath types](Toolpath-Types).)
+- [ ] Pass
+
+### UAT-TP-21 Pick a face for a pocket
+
+- **Preconditions:** A new project with `plate2d/plate2d.step` imported and a 3-axis Setup added.
+- **Steps:**
+  1. Click **2D pocket**. Open the **Geometry** tab. Next to **Drive faces** click **Pick**.
+  2. Read the banner at the top of the viewport. Move the pointer over the model.
+  3. Click the floor of the pocket.
+  4. Click the same face again.
+  5. Click it once more, then click **Done**.
+  6. Click **Calculate all**.
+- **Expected:** The banner says "Picking Drive faces". The simulated stock hides. The face under the pointer lights up. After step 3 the face is tinted and the inspector says "1 selected" and lists its id. After step 4 it is off the list. After step 5 pick mode ends and the banner goes. The pocket calculates with a green circle.
+
+![Pick mode](images/pick-mode.png)
+
+- [ ] Pass
+
+### UAT-TP-22 Leave pick mode with Esc, and undo a pick
+
+- **Preconditions:** UAT-TP-21 step 1 done, in pick mode.
+- **Steps:**
+  1. Click two faces. Click **Undo**.
+  2. Press **Esc**.
+  3. Click **Pick** again, then click another toolpath in the Browser.
+- **Expected:** Undo takes back the last pick only: "1 selected". Esc leaves pick mode. Selecting another row also leaves pick mode.
+- [ ] Pass
+
+### UAT-TP-23 Remove and Clear
+
+- **Preconditions:** A pocket with two faces picked.
+- **Steps:**
+  1. Click **Remove** beside one face.
+  2. Click **Clear**.
+- **Expected:** Remove takes that one face off. Clear empties the list: "0 selected". Each is one undo step.
+- [ ] Pass
+
+### UAT-TP-24 Drill and bore take cylinders only
+
+- **Preconditions:** A new project with `holes/holes.step` imported and a 3-axis Setup added. (The `holes` project also works.)
+- **Steps:**
+  1. Click **Drill**. On the **Geometry** tab click **Pick** beside **Drive faces**.
+  2. Move the pointer over a flat face, then over the wall of a hole. Click the hole wall.
+  3. Leave pick mode. Add a **Bore** and look at what it picks.
+- **Expected:** Flat faces do not light up and a click on one adds nothing. A hole wall lights up and is added. Bore behaves the same.
+- [ ] Pass
+
+### UAT-TP-25 Pick curves and add a closed loop
+
+- **Preconditions:** A new project with `plate2d/plate2d.step` imported and a 3-axis Setup. A **2D contour** added.
+- **Steps:**
+  1. On the **Geometry** tab click **Pick** beside **Drive curves**.
+  2. Click one edge of the plate's outline.
+  3. Click **Add closed loop (n edges)**.
+- **Expected:** After step 2 the inspector offers "Add closed loop (n edges)", where n is the number of edges still to add. After step 3 the whole loop is listed and the offer goes. Picking a flat face in this field also works.
+- [ ] Pass
+
+### UAT-TP-26 Choose a tool
+
+- **Preconditions:** A project with a toolpath (UAT-TP-01).
+- **Steps:**
+  1. Open the **Tool** tab. Open the **Tool** list.
+  2. Pick another tool, for example the 6 mm flat end mill.
+  3. Click **Undo**.
+- **Expected:** The list shows lines like "Starter tools: Flat 6 mm, 6 mm flat end mill". After step 2 the toolpath's detail line in the inspector names the new tool and the toolpath is out of date. A tool that does not suit the toolpath shows a message under the list. After step 3 the first tool is back.
+
+![The Tool tab](images/toolpath-tool.png)
+
+- [ ] Pass
+
+### UAT-TP-27 Edit a height
+
+- **Preconditions:** A toolpath selected, on the **Heights** tab.
+- **Steps:**
+  1. Open the list of **Retract**. Choose "Model top".
+  2. Type `4` in its offset box and press Enter.
+  3. Open the list of **Feed**. Look at the choices.
+  4. Open the list of **Retract** again.
+- **Expected:** The grey line under Retract shows its default and a **Reset to default** link appears. The Feed list has "Top height". The Retract list does not. The offset takes a negative number (`-2`). Each change is one undo step and marks the toolpath out of date.
+
+![The Heights tab](images/toolpath-heights.png)
+
+- [ ] Pass
+
+### UAT-TP-28 Heights in inches
+
+- **Preconditions:** A project in inches (UAT-PRJ-03) with a toolpath.
+- **Steps:**
+  1. On the **Heights** tab type `0.25` in the Retract offset box. Then type `6mm`.
+- **Expected:** `0.25` is a quarter inch. `6mm` is 6 millimetres, and the box shows the same length in inches (0.2362). The project file stores 6.35 and 6.
+- [ ] Pass
+
+### UAT-TP-29 Browser: rename
+
+- **Preconditions:** A Setup with a toolpath.
+- **Steps:**
+  1. Click a toolpath. Press **F2**. Type `Rough pocket`, press Enter.
+  2. Double-click the Setup row, type a name and press Esc.
+  3. Right-click the toolpath, choose **Rename**, clear the box and press Enter.
+- **Expected:** Step 1 renames it. In step 2 Esc keeps the old name. In step 3 an empty name is not accepted and the old name stays. Each rename is one undo step.
+- [ ] Pass
+
+### UAT-TP-30 Browser: delete
+
+- **Preconditions:** A Setup with two toolpaths.
+- **Steps:**
+  1. Click a toolpath and press **Del**.
+  2. Click **Undo**.
+  3. Select the Setup, press **Del**, then click **Undo**.
+- **Expected:** The toolpath goes, and Undo brings it back in its place. Deleting the Setup removes its toolpaths too, and Undo brings back all of them.
+- [ ] Pass
+
+### UAT-TP-31 Browser: reorder
+
+- **Preconditions:** A Setup with three toolpaths A, B, C, and a second Setup.
+- **Steps:**
+  1. Right-click B and choose **Move up**. Then **Move down** twice.
+  2. Drag C onto A.
+  3. Drag A onto the second Setup row.
+  4. Right-click the first toolpath: look at **Move up**.
+- **Expected:** Move up and down change the order, and the calculation order follows. Dropping C on A puts C where A was. Dropping A on the second Setup moves it to the end of that Setup. **Move up** is greyed out on the first row. Each move is one undo step.
+- [ ] Pass
+
+### UAT-TP-32 Browser: disable, enable and duplicate
+
+- **Preconditions:** A calculated toolpath.
+- **Steps:**
+  1. Right-click it and choose **Disable**. Click **Calculate all**.
+  2. Right-click it and choose **Enable**.
+  3. Right-click it and choose **Duplicate**.
+- **Expected:** A disabled toolpath shows the grey circle with a slash and is skipped by Calculate. Enable brings it back. Duplicate adds "<name> copy" right after it, with the same settings and picks, selected and not calculated. Each is one undo step.
+- [ ] Pass
+
+### UAT-TP-33 Re-import keeps the picks
+
+- **Preconditions:** UAT-TP-21 done, saved, with the model file in the project folder.
+- **Steps:**
+  1. Click **Re-import** in the Model stage.
+  2. Select the pocket and open its **Geometry** tab.
+- **Expected:** The status bar says "Re-imported 1 models, 0 selections not found". The picked face is still listed. The toolpath still calculates.
 - [ ] Pass

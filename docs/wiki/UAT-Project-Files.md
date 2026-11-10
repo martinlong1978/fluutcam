@@ -22,24 +22,30 @@ Tests of starting, opening, saving and undoing. Part of the [user acceptance tes
 - **Steps:**
   1. In the Model stage click **New project** (or press Ctrl+N).
   2. In the dialog, go to the work folder, type `my-part`, and confirm.
-- **Expected:** The status bar says "Created my-part.fluut". The title bar shows `my-part.fluut` with no `*`. The unit badge says **mm** (a new project is in millimetres when none was open). The file `my-part.fluut` exists in the work folder. The Browser lists no Setups.
+  3. In the window that asks "Which unit does this project use?", click **Millimetres**.
+- **Expected:** The status bar says "Created my-part.fluut". The title bar shows `my-part.fluut` with no `*`. The unit badge says **mm**. The file `my-part.fluut` exists in the work folder. The Browser lists no Setups.
 - [ ] Pass
 
-### UAT-PRJ-03 A new project takes the unit of the open project
+### UAT-PRJ-03 A new project in inches
 
-- **Preconditions:** A project in inches is open: copy `my-part.fluut` from UAT-PRJ-02 to `inch.fluut` and change its `units = "mm"` line to `units = "inch"`, then open `inch.fluut`. The unit badge says **inch**.
+- **Preconditions:** A project in millimetres is open (UAT-PRJ-02).
 - **Steps:**
-  1. Click **New project**. Name it `my-part-inch` in the work folder and confirm. (There is no unit choice in the dialog.)
-- **Expected:** The window does not ask about unsaved changes (there are none). The title bar shows `my-part-inch.fluut`. The unit badge says **inch**, the unit of the project that was open.
+  1. Click **New project**. Name it `my-part-inch` in the work folder and confirm.
+  2. In the unit window, look at the order of the buttons. Click **Inches**.
+- **Expected:** The unit window lists **Millimetres** first, because the open project is in millimetres. The window does not ask about unsaved changes (there are none). The title bar shows `my-part-inch.fluut`. The unit badge says **inch**. The file stores `units = "inch"`.
+
+![The unit question](images/unit-prompt.png)
+
 - [ ] Pass
 
-### UAT-PRJ-04 Cancel the New dialog
+### UAT-PRJ-04 Cancel the New dialog or the unit question
 
 - **Preconditions:** A project is open.
 - **Steps:**
   1. Click **New project**.
   2. Cancel the dialog.
-- **Expected:** Nothing changes. The same project stays open and no file is created.
+  3. Click **New project** again, pick a name, and this time click **Cancel** in the unit window.
+- **Expected:** Nothing changes either time. The same project stays open and no file is created.
 - [ ] Pass
 
 ### UAT-PRJ-05 Open a reference project
@@ -149,4 +155,22 @@ Tests of starting, opening, saving and undoing. Part of the [user acceptance tes
 - **Steps:**
   1. Open `shaft/shaft.fluut`.
 - **Expected:** The Setup "Turn" shows kind `rotary`, with five toolpaths. The viewport shows the shaft with a cylinder stock outline. The toolpaths show no error about their type (rotary types are valid in a rotary Setup).
+- [ ] Pass
+
+### UAT-PRJ-17 Change the unit with the badge
+
+- **Preconditions:** A project in millimetres is open, with a toolpath whose **Stepover** is set (for example 3).
+- **Steps:**
+  1. Click the **mm** badge in the title bar. Hover it first: it says "Project unit: click to change".
+  2. Look at the **Stepover** box of the toolpath.
+  3. Click **Undo**.
+- **Expected:** After step 1 the badge says **inch**, the title bar shows `*`, and the Stepover box shows the same length in inches (3 mm is 0.1181 in). After step 3 the badge says **mm** again. The change was one undo step. The project file's lengths stay in millimetres either way.
+- [ ] Pass
+
+### UAT-PRJ-18 Every editing action is one undo step
+
+- **Preconditions:** A project with a Setup and a toolpath, saved.
+- **Steps:**
+  1. Do each of these, one at a time, and press **Ctrl+Z** once after each: change the Setup's work zero, rename the toolpath with F2, change the toolpath's tool, change its Top height offset, pick a face, move the toolpath down, disable it, duplicate it, delete it.
+- **Expected:** One press of Ctrl+Z undoes exactly the action just made, each time. The status bar names the change ("Undid ..."). When every action is undone, the `*` goes away.
 - [ ] Pass

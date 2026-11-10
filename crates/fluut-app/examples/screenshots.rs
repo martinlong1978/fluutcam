@@ -76,12 +76,21 @@ const SHOTS: &[Shot] = &[
         run: |_| {},
     },
     Shot {
+        name: "unit-prompt",
+        shows: "New project asks for the unit after the file dialog",
+        crop: Some((440, 380, 400, 130)),
+        run: |r| {
+            r.ask(DialogKind::New(DisplayUnit::Mm), "my-part");
+            r.click("New project");
+            r.h.run_steps(3);
+        },
+    },
+    Shot {
         name: "new-project",
         shows: "A new, empty project",
         crop: None,
         run: |r| {
-            r.ask(DialogKind::New(DisplayUnit::Mm), "my-part");
-            r.click("New project");
+            r.click("Millimetres");
             r.settle();
         },
     },
@@ -169,10 +178,74 @@ const SHOTS: &[Shot] = &[
         },
     },
     Shot {
+        name: "setup-inspector",
+        shows: "The inspector of a Setup: name, material, machine, work offset, stock, work zero and clearance, all editable",
+        crop: None,
+        run: |r| {
+            r.app().ui.selection = Selection::Setup("s1".into());
+            r.h.run_steps(3);
+        },
+    },
+    Shot {
+        name: "toolpath-tool",
+        shows: "A 2-D pocket on the Tool tab: the tool dropdown, with the starter tools listed",
+        crop: None,
+        run: |r| {
+            r.open_sample("plate2d");
+            r.app().jobs.add_toolpath("s1", ToolpathTypeId::Pocket2d);
+            r.settle();
+            r.app().ui.inspector_tab = 0;
+            r.h.run_steps(3);
+        },
+    },
+    Shot {
+        name: "toolpath-heights",
+        shows: "The Heights tab: each height is a reference and an offset",
+        crop: None,
+        run: |r| {
+            r.app().ui.inspector_tab = 2;
+            r.h.run_steps(3);
+        },
+    },
+    Shot {
+        name: "pick-mode",
+        shows: "Pick mode on the model: the banner, the picked faces tinted, and the selection list in the inspector",
+        crop: None,
+        run: |r| {
+            r.app().ui.inspector_tab = 1;
+            r.h.run_steps(3);
+            r.h.get_all_by_label("Pick")
+                .next()
+                .expect("a Pick button")
+                .click();
+            r.h.run_steps(3);
+            // Picks go in by id, as a click on the model would.
+            for face in ["f-588.14", "f-588.0"] {
+                let snap = r.app().jobs.snapshot.clone().expect("a project is open");
+                let sel = fluut_model::Sel::Face(face.into());
+                let edit = r
+                    .app()
+                    .ui
+                    .pick
+                    .as_mut()
+                    .expect("pick mode")
+                    .hit(&snap, &sel)
+                    .expect("the pocket takes this face");
+                r.app().jobs.edit(edit);
+                r.settle();
+            }
+            r.h.run_steps(3);
+        },
+    },
+    Shot {
         name: "reference-project",
         shows: "A reference project calculated, with a toolpath selected and its Passes tab in the inspector",
         crop: None,
         run: |r| {
+            // The pocket project has changes: save them, so Open does not ask.
+            r.click("MODEL");
+            r.click("Save");
+            r.settle();
             r.open_sample("block");
             r.app().jobs.calculate(CalcTargets::All);
             r.settle();

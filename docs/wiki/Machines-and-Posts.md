@@ -14,7 +14,7 @@ FluutCAM ships a few of each, and you can add your own as text files.
 | `fluut/generic-3axis-router` | A router with 1000 x 1000 mm of X and Y travel and 150 mm of Z, a 6000 to 24000 rev/min spindle, a manual tool changer. A starting point for your own. Its post is `fluut/gcode`. |
 | `fluut/generic-4axis-router` | The same, with a rotary axis A along X that can turn without limit. Its post is `fluut/linuxcnc-4x`. |
 
-A new 3-axis Setup uses the first, and a new rotary or indexed Setup the second. The window cannot change a Setup's machine yet; set `machine = "..."` in the project file ([Setups, stock and work zero](Setups-Stock-and-Zero)).
+A new 3-axis Setup uses the first, and a new rotary or indexed Setup the second. To use another machine, choose it from the **Machine** list in the Setup's inspector ([Add a Setup](Add-a-Setup)).
 
 What the machine is used for today: FluutCAM warns when a spindle speed or feed is outside the machine's range (`param.tool_params.spindle_rpm.machine_range`, `param.tool_params.feed.machine_max`), checks that a rotary toolpath has a rotary axis and enough travel, and checks the Z travel before the part is turned (`setup.clearance.index_travel`). The machine does not choose the post for the window or the command line; you do (see below).
 

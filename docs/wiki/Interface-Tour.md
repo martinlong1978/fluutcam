@@ -8,7 +8,7 @@ This page names every part of the FluutCAM window, so the other pages can say "t
 
 **Title bar.** The FluutCAM name, then the name of the open project. A `*` after the name means the project has changes you have not saved. On the right:
 
-- a grey **mm** or **inch** badge: the unit the project shows. It is for display only. Inside the project file every length is in millimetres.
+- a grey **mm** or **inch** badge: the unit the project shows. Click it to switch the project between mm and inch. It changes what the window shows and what you type, and it is one undo step. Inside the project file every length is in millimetres.
 - **Light theme** or **Dark theme**: switches between the two.
 - **Settings**: see [Settings and updates](Settings-and-Updates).
 - **About FluutCAM**: the version and licence.
@@ -18,7 +18,7 @@ This page names every part of the FluutCAM window, so the other pages can say "t
 ![The Model stage of the ribbon with no project open](images/ribbon-model.png)
 
 - **Model**: **New project**, **Open**, **Save**, **Save as**, **Import model** and **Re-import**. Open, Save as and Import open your system's file dialog.
-- **Setup**: **New 3-axis Setup**, **New Rotary Setup**, **New Indexed Setup** and **New Setup based on selected**, then **Stock** and **Work zero**. These two do not edit anything yet: they select the Setup and mark the matching row of the inspector. See [Add a Setup](Add-a-Setup).
+- **Setup**: **New 3-axis Setup**, **New Rotary Setup**, **New Indexed Setup** and **New Setup based on selected**, then **Stock** and **Work zero**. They select the Setup and mark the matching row of the inspector, where you edit it. See [Add a Setup](Add-a-Setup).
 - **Toolpaths**: galleries of toolpath types (2D, Holes, 3D, Rotary, Utility) that suit the selected Setup's kind, then **Calculate selected** and **Calculate all**.
 - **Simulate**: **Simulate** and the playback buttons (play or pause, step back, step forward).
 - **Post**: **Post** and the list of posts.
@@ -30,7 +30,7 @@ This page names every part of the FluutCAM window, so the other pages can say "t
 
 | Panel | What it shows |
 |---|---|
-| **Browser** (left) | A tree of the project: each Setup with its toolpaths, then the **Model** with its bodies. Click a Setup or a toolpath to select it. |
+| **Browser** (left) | A tree of the project: each Setup with its toolpaths, then the **Model** with its bodies. Click a Setup or a toolpath to select it. You can rename, reorder, disable, duplicate and delete rows (below). |
 | **Viewport** (middle) | The 3-D view of the selected Setup: the model, the stock outline, the work zero and the calculated toolpaths. |
 | **Inspector** (right) | The details of the selection, and where you change toolpath settings. |
 | **Messages** (below the viewport) | Warnings and errors from calculating, per toolpath. |
@@ -54,6 +54,20 @@ The Browser lists each Setup, with its kind (for example `three_axis`) beside it
 
 Hover over a toolpath to see its type, tool and status.
 
+**Rename.** Select a row and press **F2**, or double-click the row, or choose **Rename** from its context menu. Type the new name and press Enter. Esc cancels. Leaving the box also saves the name. An empty name is refused.
+
+**Delete.** Select a row and press **Del**, or choose **Delete** from the context menu. Deleting a Setup deletes its toolpaths. If the model refuses, the status bar says why. Undo brings it back.
+
+**Reorder.** Drag a row onto another row. A toolpath dropped on a toolpath takes its place. A toolpath dropped on a Setup goes to the end of that Setup, so this also moves it to another Setup. A Setup dropped on a Setup takes its place. Or right-click a row and choose **Move up** or **Move down**. Toolpaths run in the order listed, and a Setup cannot move above the Setup it is based on. If a move is not allowed, the status bar says "Not changed" and why.
+
+**Disable and enable.** Right-click a toolpath and choose **Disable**. A disabled toolpath shows the grey slashed circle and the calculation skips it. The same menu item says **Enable** to turn it on again.
+
+**Duplicate.** Right-click a toolpath and choose **Duplicate**. The copy is named "<name> copy", goes right after the original and is selected.
+
+**Context menu.** Right-click a row: Rename, Move up, Move down, Duplicate and Disable or Enable (toolpaths only), Delete.
+
+Each of these is one undo step. They need an idle program: Duplicate waits while a job runs.
+
 The **Model** at the bottom lists the bodies of the imported files. A project with no Setup shows its model in the viewport, so you can see an import straight away.
 
 ## Viewport
@@ -63,16 +77,18 @@ The **Model** at the bottom lists the bodies of the imported files. A project wi
 | Drag | Orbit around the model |
 | Right or middle drag | Pan |
 | Mouse wheel | Zoom |
-| Click | Pick the face or the toolpath under the pointer, and select it |
+| Click | Pick the face or the toolpath under the pointer, and select it. In pick mode, add or remove the face or curve under the pointer |
 | Double-click | Zoom to fit |
 
 The small coloured arrows at one corner of the stock are the **work zero**: the red arrow is X, green is Y and blue is Z. Toolpaths are drawn over the model. The selected toolpath is bright orange, and its name shows in the top-left corner of the viewport.
+
+**Pick mode.** When you click **Pick** in a toolpath's Geometry tab, a banner at the top of the viewport says what you are picking ("Picking Drive faces: click to add or remove, Esc or Done to finish"). The face or curve under the pointer lights up, and the picked ones are tinted. Esc or **Done** leaves. See [Add a toolpath](Add-a-Toolpath).
 
 If the computer has no usable graphics device, the viewport says so and stays off. Everything else still works.
 
 ## Inspector
 
-Select a **Setup** and the inspector lists its kind, material, machine, work offset, stock, work zero and bodies. These are read-only in the window for now; see [Setups, stock and work zero](Setups-Stock-and-Zero).
+Select a **Setup** and the inspector lists its name, kind, material, machine, work offset, stock, work zero and clearance, then its bodies and toolpath count. You can edit all of these except the kind and the bodies. A value taken from the parent Setup shows "Inherited from" and can be reset. See [Add a Setup](Add-a-Setup) and [Setups, stock and work zero](Setups-Stock-and-Zero).
 
 ![The inspector for a toolpath](images/calculated.png)
 
@@ -90,7 +106,7 @@ Each setting shows its value. A setting you have not changed shows its default i
 
 To change a number, click its box and type. You can type an expression, such as `6/2`, `1/4in` or `tool.diameter*0.4`. Press Enter, or click elsewhere, to apply it. If the text is not a value, a red message says so and nothing changes. A choice (such as climb or conventional) is a row of buttons or a list. A yes-or-no setting is a check box.
 
-Heights, face and curve selections and points are shown but cannot be edited in the window yet. Their value shows, and hovering says "Edit in the project file for now". See [Known limits](Known-Limits).
+The **Tool** tab starts with a **Tool** list. Heights are a list and an offset. Faces and curves have a **Pick** button, a count, **Clear**, and a list of the picked items, each with **Remove**. See [Add a toolpath](Add-a-Toolpath).
 
 If a setting has a problem, the message appears right under it, in amber for a warning and red for an error.
 

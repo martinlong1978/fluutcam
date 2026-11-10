@@ -71,7 +71,7 @@ flute_length  = 25
   step_down = 4.0
 ```
 
-Then, in the project file, name the tool in a toolpath: `tool = "shop#flat-6"`. The window cannot pick a tool for a toolpath yet, so this is the way to use your own tools today. The full list of tool settings is in the [data format specification](https://github.com/martinlong1978/fluutcam/blob/main/docs/spec/02-data-formats.md).
+Then open the project. The tool appears in the **Tool** list of a toolpath's Tool tab (see [Add a toolpath](Add-a-Toolpath)), as "shop: Flat 6 mm, ...". In the project file it is written `tool = "shop#flat-6"`. The full list of tool settings is in the [data format specification](https://github.com/martinlong1978/fluutcam/blob/main/docs/spec/02-data-formats.md).
 
 The command-line programs also take extra tool files with `--tools <file>`, loaded after the project's `tools/` folder. See [Command line](Command-Line).
 
