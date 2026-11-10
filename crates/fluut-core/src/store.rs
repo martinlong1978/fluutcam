@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! The model store (D06 §5): geometry sources loaded once per session, with
-//! entity ids. STEP, DXF and SVG give bodies; STL is read and checked only.
+//! entity ids. STEP, STL, DXF and SVG give bodies.
 
 use fluut_cam::geometry::{BodyGeom, SetupBody};
 use fluut_io_2d::Unit;
@@ -272,8 +272,8 @@ fn load_2d(g: &GeometrySource, bytes: &[u8], out: &mut Vec<Diagnostic>) -> Optio
     )
 }
 
-/// STL: read and checked. No toolpath type takes a mesh yet, so it gives no
-/// bodies.
+/// STL: one body per connected shell, every triangle a planar face (D05 §2.5),
+/// with ids `b-1`, `b-2`, … in order of their first triangle.
 fn load_stl(g: &GeometrySource, bytes: &[u8], out: &mut Vec<Diagnostic>) -> Option<Vec<SetupBody>> {
     let scale = unit_scale(g, out).ok()?;
     let Some(scale) = scale else {
@@ -325,13 +325,22 @@ fn load_stl(g: &GeometrySource, bytes: &[u8], out: &mut Vec<Diagnostic>) -> Opti
             format!("geometry `{}`: {n}", g.id),
         ));
     }
-    out.push(Diagnostic::warning(
-        "model.geometry.mesh.unused",
-        format!(
-            "geometry `{}`: {} triangles read; no toolpath type machines meshes yet",
-            g.id,
-            m.body.tris.len()
-        ),
-    ));
-    Some(Vec::new())
+    if !r.is_closed() {
+        out.push(Diagnostic::warning(
+            "model.geometry.mesh.open",
+            format!(
+                "geometry `{}`: the mesh is not a closed, consistent surface; toolpaths follow its triangles, but results near the gaps may be wrong",
+                g.id
+            ),
+        ));
+    }
+    let mut bodies = Vec::new();
+    for (i, mut b) in fluut_topo::mesh::to_breps(&m.body).into_iter().enumerate() {
+        fluut_topo::pcurve::compute(&mut b);
+        bodies.push(SetupBody {
+            id: format!("b-{}", i + 1),
+            geom: BodyGeom::Brep(b),
+        });
+    }
+    Some(bodies)
 }

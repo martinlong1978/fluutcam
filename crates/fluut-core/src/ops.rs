@@ -360,7 +360,7 @@ impl Session {
                     "{} has no {} to machine",
                     file.display(),
                     if kind == SourceKind::Stl {
-                        "bodies yet (meshes are read but no toolpath takes one)"
+                        "triangles"
                     } else {
                         "solids or curves"
                     }

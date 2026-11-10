@@ -6,7 +6,8 @@
 //! Regions and the BVH of D03 §1.1 come with the first mesh strategy; the
 //! adjacency they need is built here.
 
-use fluut_geom::Point3;
+use crate::brep::{BrepBody, Coedge, Edge, Face, Loop, Shell, Vertex};
+use fluut_geom::{Curve3, Frame, Interval, Point3, Surface, UnitVec3};
 use std::collections::BTreeMap;
 
 /// Marks a mesh edge with no unique neighbour (open or non-manifold).
@@ -95,6 +96,122 @@ fn union(parent: &mut [u32], a: u32, b: u32) {
         let (lo, hi) = (ra.min(rb), ra.max(rb));
         parent[hi as usize] = lo;
     }
+}
+
+/// Splits a mesh into one B-rep body per connected shell (triangles that
+/// share a vertex), each face a planar triangle (D05 §2.5).
+///
+/// Face `i` of a body is the `i`-th triangle of the shell in file order, so
+/// ids stay the same while the file keeps its triangle order. Edges are
+/// shared by the triangles that meet at them; the shell is closed when every
+/// edge has exactly two triangles. Triangles with no usable plane are
+/// skipped. The first body is named `<name>`, later ones `<name> 2`,
+/// `<name> 3`, … in order of their first triangle.
+pub fn to_breps(m: &MeshBody) -> Vec<BrepBody> {
+    let n = m.positions.len();
+    let ok = |t: &[u32; 3]| t.iter().all(|&v| (v as usize) < n);
+    let mut parent: Vec<u32> = (0..n as u32).collect();
+    for t in m.tris.iter().filter(|t| ok(t)) {
+        union(&mut parent, t[0], t[1]);
+        union(&mut parent, t[1], t[2]);
+    }
+    let mut shell_of: BTreeMap<u32, usize> = BTreeMap::new();
+    let mut groups: Vec<Vec<[u32; 3]>> = Vec::new();
+    for t in m.tris.iter().filter(|t| ok(t)) {
+        let root = find(&mut parent, t[0]);
+        let k = *shell_of.entry(root).or_insert_with(|| {
+            groups.push(Vec::new());
+            groups.len() - 1
+        });
+        groups[k].push(*t);
+    }
+    groups
+        .into_iter()
+        .enumerate()
+        .map(|(k, tris)| {
+            let name = if k == 0 {
+                m.name.clone()
+            } else {
+                format!("{} {}", m.name, k + 1)
+            };
+            shell_body(m, &name, &tris)
+        })
+        .collect()
+}
+
+fn shell_body(m: &MeshBody, name: &str, tris: &[[u32; 3]]) -> BrepBody {
+    let mut b = BrepBody {
+        name: name.to_owned(),
+        // Faces are exactly planar and edges exactly straight, so the body
+        // is as precise as a STEP one; the weld tolerance is not its
+        // modelling tolerance (section chains join within 1000 times it, and drop pieces shorter than half of that).
+        tol_model: m.tol_model.min(1e-6),
+        from_mesh: true,
+        ..BrepBody::default()
+    };
+    let mut local: BTreeMap<u32, u32> = BTreeMap::new();
+    let mut edges: BTreeMap<(u32, u32), u32> = BTreeMap::new();
+    let mut uses: Vec<u32> = Vec::new();
+    for tri in tris {
+        let p = tri.map(|v| m.positions[v as usize]);
+        let nrm = (p[1] - p[0]).cross(p[2] - p[0]);
+        let Some(frame) = Frame::new(p[0], nrm, p[1] - p[0]) else {
+            continue;
+        };
+        for &v in tri {
+            local.entry(v).or_insert_with(|| {
+                b.vertices.push(Vertex {
+                    p: m.positions[v as usize],
+                });
+                b.vertices.len() as u32 - 1
+            });
+        }
+        let mut ring = Vec::with_capacity(3);
+        for k in 0..3 {
+            let (a, c) = (tri[k], tri[(k + 1) % 3]);
+            let (lo, hi) = (a.min(c), a.max(c));
+            let e = *edges.entry((lo, hi)).or_insert_with(|| {
+                let (p0, p1) = (m.positions[lo as usize], m.positions[hi as usize]);
+                let d = p1 - p0;
+                let curve = UnitVec3::new(d).map(|u| {
+                    b.curves.push(Curve3::line(p0, u));
+                    b.curves.len() as u32 - 1
+                });
+                b.edges.push(Edge {
+                    curve,
+                    range: Interval {
+                        lo: 0.0,
+                        hi: d.length(),
+                    },
+                    v0: local[&lo],
+                    v1: local[&hi],
+                });
+                uses.push(0);
+                b.edges.len() as u32 - 1
+            });
+            uses[e as usize] += 1;
+            b.coedges.push(Coedge {
+                edge: e,
+                forward: a == lo,
+            });
+            ring.push(b.coedges.len() as u32 - 1);
+        }
+        b.surfaces.push(Surface::plane(frame));
+        b.loops.push(Loop {
+            outer: true,
+            coedges: ring,
+        });
+        b.faces.push(Face {
+            surface: b.surfaces.len() as u32 - 1,
+            same_sense: true,
+            loops: vec![b.loops.len() as u32 - 1],
+        });
+    }
+    b.shells.push(Shell {
+        faces: (0..b.faces.len() as u32).collect(),
+        closed: uses.iter().all(|&u| u == 2),
+    });
+    b
 }
 
 /// Per-edge neighbours of `tris` (see [`MeshBody::neighbours`]), and counts of

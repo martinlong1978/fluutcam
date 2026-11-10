@@ -227,7 +227,7 @@ The message in your window may fill in numbers and names where this page shows `
 | `model.geometry.faces_skipped` | warning | geometry `…`: body #… lost … faces it could not read | A file could not be read, or the project and its model disagree. The message names the file. |
 | `model.geometry.import` | warning | geometry `…`: … | A file could not be read, or the project and its model disagree. The message names the file. |
 | `model.geometry.kind.unsupported` | error | geometry `…`: … files are not supported yet | A file could not be read, or the project and its model disagree. The message names the file. |
-| `model.geometry.mesh.unused` | warning | geometry `…`: … triangles read; no toolpath type machines meshes yet | A file could not be read, or the project and its model disagree. The message names the file. |
+| `model.geometry.mesh.open` | warning | geometry `…`: the mesh is not a closed, consistent surface; toolpaths follow its triangles, but results near the gaps may be wrong | A file could not be read, or the project and its model disagree. The message names the file. |
 | `model.geometry.missing` | error | geometry `…` is not in the project | A file could not be read, or the project and its model disagree. The message names the file. |
 | `model.geometry.step` | error | geometry `…`: not a valid STEP file (…): … | A file could not be read, or the project and its model disagree. The message names the file. |
 | `model.geometry.stl` | error | geometry `…`: not a readable STL file: … | A file could not be read, or the project and its model disagree. The message names the file. |
@@ -237,7 +237,7 @@ The message in your window may fill in numbers and names where this page shows `
 | `model.import.apply` | error |  | The import did not change your project. Check the file and try again. |
 | `model.import.body_ids` | error | body `…` of … has the id of a body of `…`; two sources with the same body ids are not supported yet | Two imported files use the same body id, which FluutCAM cannot tell apart yet (see Known limits). Import one of them in a separate project. |
 | `model.import.copy` | error | cannot copy into … | The import did not change your project. Check the file and try again. |
-| `model.import.empty` | error | … gave no geometry | The file was read but gave nothing a toolpath can use. A STL file reads but gives no bodies yet (see Known limits). |
+| `model.import.empty` | error | … gave no geometry | The file was read but gave nothing a toolpath can use. |
 | `model.import.kind` | error | …: not a STEP, STL, DXF or SVG file | The import did not change your project. Check the file and try again. |
 | `model.import.no_project` | error | save the project first: geometry paths are stored relative to its folder | Save or open a project first. Imported files are stored beside the project, so it needs a folder. |
 | `model.import.read` | error | cannot read … | The import did not change your project. Check the file and try again. |

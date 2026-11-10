@@ -13,7 +13,7 @@
 //! A plane at the height of a horizontal face touches it everywhere
 //! (CH-03): callers take the section a little above such levels.
 
-use crate::chain::{Piece, chain_pieces, project_curve};
+use crate::chain::{Chain, Piece, chain_pieces, project_curve};
 use crate::cutter::trim::Trim;
 use crate::drive::nest;
 use crate::geometry::{BodyGeom, SetupGeometry, face_id};
@@ -129,16 +129,12 @@ impl<'a> Sectioner<'a> {
                     }
                 }
             }
-            let chains = chain_pieces(
-                pieces.iter().map(|(p, _)| p.clone()).collect(),
-                (1e3 * b.body.tol_model).max(1e-5),
-            );
-            if chains.iter().any(|c| !c.path.closed) {
+            let Some(chains) = close_chains(&pieces, (1e3 * b.body.tol_model).max(1e-5)) else {
                 return Err(format!(
                     "the section of {} at Z {z} is not closed",
                     b.body.name
                 ));
-            }
+            };
             let r = nest(chains.iter().map(|c| c.ccw_loop()).collect());
             region = if region.is_empty() {
                 r
@@ -152,6 +148,39 @@ impl<'a> Sectioner<'a> {
             pieces: all,
         })
     }
+}
+
+/// Joins the pieces of one body into closed chains within `join`, or `None`.
+///
+/// A plane just above a vertex of a triangle mesh leaves pieces much shorter
+/// than `join`, whose two ends meet the same neighbours; the chaining can
+/// then join the wrong ends. When the first try leaves an open chain, it is
+/// repeated without the pieces shorter than half of `join`, then with a
+/// hundredth of `join` (also without, then with, the short pieces).
+fn close_chains(pieces: &[(Piece, String)], join: f64) -> Option<Vec<Chain>> {
+    for scale in [1.0, 1e-2] {
+        let j = join * scale;
+        for drop_short in [false, true] {
+            let chains = chain_pieces(
+                pieces
+                    .iter()
+                    .map(|(p, _)| p)
+                    .filter(|p| {
+                        !drop_short
+                            || p.segs.len() != 1
+                            || p.segs[0].bulge != 0.0
+                            || p.segs[0].a.distance(p.segs[0].b) >= 0.5 * j
+                    })
+                    .cloned()
+                    .collect(),
+                j,
+            );
+            if chains.iter().all(|c| c.path.closed) {
+                return Some(chains);
+            }
+        }
+    }
+    None
 }
 
 /// Points where edge `e` crosses the plane `z`.
