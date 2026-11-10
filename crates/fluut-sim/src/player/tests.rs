@@ -288,9 +288,10 @@ fn a_step_back_cuts_at_most_a_stride() {
         p.seek(&s, k);
         assert!(p.last_cut() < stride, "at {k}: {}", p.last_cut());
     }
-    // Below them it cuts from the checkpoint (and leaves snapshots again).
+    // Below them it cuts from the nearest snapshot of a move start or the
+    // checkpoint, and no more than before.
     p.seek(&s, zone - 1);
-    assert_eq!(p.last_cut(), zone - 1);
+    assert!(p.last_cut() < zone);
     p.seek(&s, zone - 2);
     assert!(p.last_cut() < stride);
     // A forward step of one cuts one.
@@ -542,4 +543,93 @@ fn rest_colours_do_not_depend_on_the_thread_count() {
     let (a, b, c) = (on(1), on(3), on(8));
     assert!(a.tags.iter().any(|&t| tag_class(t) == WITHIN));
     assert!(a == b && a == c);
+}
+
+/// Limits with a fixed stride, so the tests do not depend on the clock.
+fn fixed(stride: usize) -> Limits {
+    Limits {
+        stride,
+        budget: usize::MAX,
+    }
+}
+
+/// Steps back by move from the middle of the first toolpath: after at most
+/// one step that cuts from a checkpoint, every step back lands on a
+/// snapshot made at the start of a move (or within a stride of one), so it
+/// cuts less than a stride (D11 section 10).
+#[test]
+fn steps_back_by_move_land_on_snapshots() {
+    let s = long_sim();
+    let stride = 8;
+    let tp = &s.toolpaths[0];
+    let mut t = 0.5 * (tp.start + tp.end);
+    let mut p = Player::with_limits(&s, s.chords_at(t), fixed(stride));
+    // A step forward leaves the stock it started from as a snapshot.
+    let before = p.chords();
+    t = s.step(t, Step::Move, true);
+    p.seek(&s, s.chords_at(t));
+    assert!(p.chords() > before);
+    t = s.step(t, Step::Move, false);
+    p.seek(&s, s.chords_at(t));
+    assert_eq!(p.chords(), before);
+    assert_eq!(p.last_cut(), 0, "step back after a step forward");
+    for i in 0..30 {
+        t = s.step(t, Step::Move, false);
+        let n = s.chords_at(t);
+        p.seek(&s, n);
+        assert!(
+            p.last_cut() < stride,
+            "step {i} back, at {n}: {}",
+            p.last_cut()
+        );
+        assert_eq!(p.stock().hash(), from_the_start(&s, n).hash(), "{n}");
+    }
+}
+
+/// A jump back leaves snapshots at the starts of the moves before the
+/// target, so the steps back that follow cut less than a stride (no stall a
+/// step later).
+#[test]
+fn a_jump_back_covers_the_steps_after_it() {
+    let s = long_sim();
+    let stride = 8;
+    let tp = &s.toolpaths[0];
+    let mut t = 0.5 * (tp.start + tp.end);
+    let mut p = Player::with_limits(&s, s.chords.len(), fixed(stride));
+    let n = s.chords_at(t);
+    p.seek(&s, n);
+    assert!(p.last_cut() > 0);
+    for i in 0..12 {
+        t = s.step(t, Step::Move, false);
+        let n = s.chords_at(t);
+        p.seek(&s, n);
+        assert!(
+            p.last_cut() < stride,
+            "step {i} back, at {n}: {}",
+            p.last_cut()
+        );
+    }
+}
+
+/// Steps by move, forward and back in runs, show the same blocks as a new
+/// player at each place, whatever snapshots the steps left.
+#[test]
+fn steps_by_move_show_the_blocks_of_a_new_player() {
+    let s = long_sim();
+    let tp = &s.toolpaths[0];
+    let mut t = 0.5 * (tp.start + tp.end);
+    let mut p = Player::with_limits(&s, s.chords_at(t), fixed(8));
+    let mut state = 5;
+    for i in 0..40 {
+        let forward = (i / 5) % 2 == 1 || lcg(&mut state).is_multiple_of(7);
+        t = s.step(t, Step::Move, forward);
+        let n = s.chords_at(t);
+        p.seek(&s, n);
+        let fresh = Player::new(&s, n);
+        assert_eq!(p.stock().hash(), fresh.stock().hash(), "step {i}");
+        assert_eq!(p.mesh().blocks().len(), fresh.mesh().blocks().len());
+        for (a, b) in p.mesh().blocks().iter().zip(fresh.mesh().blocks()) {
+            assert!(**a == **b, "step {i}: blocks at {n}");
+        }
+    }
 }
