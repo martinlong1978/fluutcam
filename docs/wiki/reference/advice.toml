@@ -144,6 +144,10 @@ match = "setup.clearance.index_unsafe"
 text = "The clearance cylinder of a rotary Setup must be larger than the stock. Increase its radius."
 
 [[advice]]
+match = "setup.fixtures.ignored"
+text = "Fixtures turn with the rotary axis, and a 3-axis Setup has none. Remove the fixtures from this Setup, or make it a rotary or indexed Setup."
+
+[[advice]]
 match = "setup.stock.unsupported"
 text = "That stock kind cannot be calculated yet. Use a block (3-axis) or a cylinder (rotary and indexed)."
 
@@ -202,6 +206,14 @@ text = "Rotary Setups cannot be simulated yet (see Known limits). Calculate and 
 [[advice]]
 match = "sim.index_turn"
 text = "When the stock turns for this Setup, material reaches the tool where the previous toolpath left it. Check the stock and the order of the Setups."
+
+[[advice]]
+match = "sim.fixture"
+text = "The tool meets a chuck, tailstock or clamp that turns with the part. Move the toolpath, shorten the tool or its holder, or correct the fixture's size or position in the Setup."
+
+[[advice]]
+match = "cam.tool.length_missing"
+text = "The tool has no overall length, so FluutCAM cannot place its holder or know how high the spindle sits when the part turns: it checks the tool tip only. Enter the overall length (from the tip to where the holder starts) in the tool library."
 
 [[advice]]
 match = "post.*"

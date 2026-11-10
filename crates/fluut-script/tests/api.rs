@@ -466,3 +466,23 @@ stepover = "0.4*tool.diameter"
     assert!(l[4].starts_with("project/rough"), "{}", l[4]);
     assert_eq!(l[5], "not a setup template");
 }
+
+#[test]
+fn setup_fixtures_are_set_and_read_from_a_script() {
+    let (s, _, perm) = open("block", "setup_fixtures");
+    let (o, c) = on(
+        r#"
+        let top = fluut.project.setups[0];
+        top.fixtures = [#{ kind: "chuck", diameter: 100, length: 20 }];
+        print(top.fixtures.len);
+        print(top.fixtures[0].kind);
+        try { top.fixtures = [#{ kind: "vice" }] } catch (e) { print("rejected") }
+        print(top.fixtures.len);
+        "#,
+        s,
+        perm,
+    );
+    ok(&o, &c);
+    let l: Vec<String> = c.lines().into_iter().map(|(_, l)| l).collect();
+    assert_eq!(l, ["1", "chuck", "rejected", "1"]);
+}

@@ -328,51 +328,75 @@ fn two_sided_turn_above_the_z_travel_fails() {
     );
 }
 
-/// `flipside` with a tool of `overall_length` 60 and a holder 40 long on a
-/// machine whose Z travel ends at `top`: the post's result.
-fn flipside_with_travel(name: &str, top: f64) -> Result<(), Vec<fluut_model::Diagnostic>> {
+/// A copy of `flipside` in a temporary folder: `tool_extra` goes after the
+/// tool's flute length, `fixtures` (the value of a `fixtures` key) is given
+/// to Setup `s1`, and the machine's Z travel ends at `top` when given.
+/// Calculates and posts; returns the session, the calculation's reports and
+/// the post's result.
+#[allow(clippy::type_complexity)]
+fn flipside_run(
+    name: &str,
+    tool_extra: &str,
+    fixtures: Option<&str>,
+    top: Option<f64>,
+) -> (
+    Session,
+    Vec<fluut_core::JobReport>,
+    Result<(fluut_post::PostOutput, Vec<fluut_core::JobReport>), Vec<fluut_model::Diagnostic>>,
+) {
     let d = tmp(name);
     for sub in ["tools", "posts", "machines"] {
         std::fs::create_dir_all(d.join(sub)).unwrap();
     }
-    for f in [
-        "flipside.fluut",
-        "flipside.step",
-        "posts/linuxcnc-4x.post.toml",
-    ] {
+    for f in ["flipside.step", "posts/linuxcnc-4x.post.toml"] {
         std::fs::copy(here(&format!("projects/flipside/{f}")), d.join(f)).unwrap();
     }
+    let mut project = std::fs::read_to_string(here("projects/flipside/flipside.fluut")).unwrap();
+    if let Some(f) = fixtures {
+        let zero = "zero        = { x = \"stock_left\" }\n";
+        project = project.replacen(zero, &format!("{zero}fixtures    = {f}\n"), 1);
+    }
+    std::fs::write(d.join("flipside.fluut"), project).unwrap();
     let t = std::fs::read_to_string(here("projects/flipside/tools/shop.toml"))
         .unwrap()
         .replace(
             "flute_length  = 25",
-            "flute_length  = 25
-overall_length = 60
-holder = { diameter = 20, length = 40 }",
+            &format!("flute_length  = 25\n{tool_extra}"),
         );
     std::fs::write(d.join("tools/shop.toml"), t).unwrap();
-    let m = std::fs::read_to_string(here("projects/flipside/machines/router-4x.machine.toml"))
-        .unwrap()
-        .replace(
+    let mut m =
+        std::fs::read_to_string(here("projects/flipside/machines/router-4x.machine.toml")).unwrap();
+    if let Some(top) = top {
+        m = m.replace(
             "[spindle]",
-            &format!(
-                "[travel]
-z = [-200, {top}]
-
-[spindle]"
-            ),
+            &format!("[travel]\nz = [-200, {top}]\n\n[spindle]"),
         );
+    }
     std::fs::write(d.join("machines/router-4x.machine.toml"), m).unwrap();
     let mut s = Session::open(&d.join("flipside.fluut"), &[]).unwrap();
     assert!(s.warnings.is_empty(), "{:?}", s.warnings);
-    s.calculate(&Targets::All);
+    let reports = s.calculate(&Targets::All);
     let store = s.library.mem_store(fluut_model::library::DefKind::Post);
     let opts = PostOptions {
         date: "2026-11-01".into(),
         time: "12:00:00".into(),
         notes: String::new(),
     };
-    s.post("shop/linuxcnc-4x", &store, &opts).map(|_| ())
+    let posted = s.post("shop/linuxcnc-4x", &store, &opts);
+    (s, reports, posted)
+}
+
+/// `flipside` with a tool of `overall_length` 60 and a holder 40 long on a
+/// machine whose Z travel ends at `top`: the post's result.
+fn flipside_with_travel(name: &str, top: f64) -> Result<(), Vec<fluut_model::Diagnostic>> {
+    flipside_run(
+        name,
+        "overall_length = 60\nholder = { diameter = 20, length = 40 }",
+        None,
+        Some(top),
+    )
+    .2
+    .map(|_| ())
 }
 
 #[test]
@@ -898,4 +922,155 @@ fn update_check_without_a_key_exits_3_and_says_so() {
         .unwrap();
     assert_eq!(o.status.code(), Some(3));
     assert!(String::from_utf8_lossy(&o.stderr).contains("no update key in this build"));
+}
+
+/// The Z of the rapid before `G0 A180` in the posted program.
+fn z_before_the_second_turn(out: &fluut_post::PostOutput) -> f64 {
+    let g = &out.files[0];
+    let a180 = g.lines().position(|l| l == "G0 A180").unwrap();
+    g.lines().nth(a180 - 1).unwrap()["G0 Z".len()..]
+        .parse()
+        .unwrap()
+}
+
+#[test]
+fn a_chuck_bigger_than_the_part_raises_the_turn_retract() {
+    // Without fixtures: the block's corners (31.321) + 10, as the golden file.
+    let (_, _, posted) = flipside_run("fx_none", "", None, None);
+    let z = z_before_the_second_turn(&posted.unwrap().0);
+    assert!((z - 41.321).abs() < 1e-3, "{z}");
+    // A chuck of radius 50 against the stock's start face: the 6 mm tool
+    // reaches past the face into its X range, so the retract clears it.
+    let chuck = "[{ kind = \"chuck\", diameter = 100, length = 20 }]";
+    let (_, _, posted) = flipside_run("fx_chuck", "", Some(chuck), None);
+    let out = posted.unwrap().0;
+    let z = z_before_the_second_turn(&out);
+    assert!((z - 60.0).abs() < 1e-6, "{z}");
+}
+
+#[test]
+fn fixtures_inside_the_part_leave_the_program_unchanged() {
+    let want = flipside_run("fx_ref", "", None, None).2.unwrap().0.files;
+    for (name, f) in [
+        (
+            "fx_small_chuck",
+            "[{ kind = \"chuck\", diameter = 40, length = 20 }]",
+        ),
+        (
+            "fx_far_clamp",
+            "[{ kind = \"clamp\", min = [300, -60, -5], max = [320, 60, 5] }]",
+        ),
+        (
+            "fx_small_tail",
+            "[{ kind = \"tailstock\", diameter = 30, length = 20 }]",
+        ),
+    ] {
+        let got = flipside_run(name, "", Some(f), None).2.unwrap().0.files;
+        assert_eq!(got, want, "{name}");
+    }
+}
+
+#[test]
+fn a_chuck_that_reaches_the_z_travel_fails_the_post() {
+    // The turn height is 60; with the tool and holder (100) above it, the
+    // spindle gauge line is at 160, above a travel top of 150.
+    let chuck = "[{ kind = \"chuck\", diameter = 100, length = 20 }]";
+    let (_, _, posted) = flipside_run(
+        "fx_chuck_travel",
+        "overall_length = 60\nholder = { diameter = 20, length = 40 }",
+        Some(chuck),
+        Some(150.0),
+    );
+    let e = posted.unwrap_err();
+    let d = e
+        .iter()
+        .find(|d| d.code == "setup.clearance.index_travel")
+        .unwrap_or_else(|| panic!("{e:?}"));
+    assert!(d.message.contains("tool tip at Z 60.000"), "{}", d.message);
+}
+
+fn length_warnings(reports: &[fluut_core::JobReport]) -> Vec<&fluut_model::Diagnostic> {
+    reports
+        .iter()
+        .flat_map(|r| r.diagnostics.iter())
+        .filter(|d| d.code == "cam.tool.length_missing")
+        .collect()
+}
+
+#[test]
+fn a_tool_without_a_length_is_warned_about_once_when_travel_needs_it() {
+    // Four toolpaths use the tool; the machine has a Z travel, so the check
+    // before the A turn needs the length. One warning for the tool.
+    let (_, reports, posted) = flipside_run("len_missing", "", None, Some(500.0));
+    let w = length_warnings(&reports);
+    assert_eq!(w.len(), 1, "{w:?}");
+    assert_eq!(w[0].severity, fluut_model::Severity::Warning);
+    assert!(w[0].message.contains("tool `flat-6` has no overall length"));
+    assert!(w[0].message.contains("Setup `s2`"), "{}", w[0].message);
+    assert!(w[0].toolpath.is_some());
+    // The post reports it once too, and still posts.
+    let (_, post_reports) = posted.unwrap();
+    assert_eq!(length_warnings(&post_reports).len(), 1);
+    // With the length set there is none.
+    let (_, reports, posted) = flipside_run("len_set", "overall_length = 60", None, Some(500.0));
+    assert!(length_warnings(&reports).is_empty());
+    assert!(length_warnings(&posted.unwrap().1).is_empty());
+    // Without a travel limit nothing needs the length.
+    let (_, reports, _) = flipside_run("len_no_travel", "", None, None);
+    assert!(length_warnings(&reports).is_empty());
+}
+
+#[test]
+fn a_holder_without_a_length_is_warned_about_by_calculate_and_simulate() {
+    let holder = "holder = { diameter = 20, length = 40 }";
+    let (mut s, reports, _) = flipside_run("len_holder", holder, None, None);
+    let w = length_warnings(&reports);
+    assert_eq!(w.len(), 1, "{w:?}");
+    assert!(w[0].message.contains("holder"), "{}", w[0].message);
+    let st = fluut_core::SimSettings {
+        error: 0.25,
+        ..Default::default()
+    };
+    let r = s
+        .simulate("s1", &st, &fluut_core::fluut_sim::Quiet)
+        .unwrap();
+    let n = r
+        .diagnostics
+        .iter()
+        .filter(|d| d.code == "cam.tool.length_missing")
+        .count();
+    assert_eq!(n, 1, "{:?}", r.diagnostics);
+}
+
+#[test]
+fn the_simulation_reports_a_toolpath_that_hits_a_fixture() {
+    // A clamp across the top of the stock: the pockets cut through it.
+    let clamp = "[{ kind = \"clamp\", min = [0, -30, -9], max = [90, 30, 9] }]";
+    let (mut s, _, _) = flipside_run("fx_sim_hit", "", Some(clamp), None);
+    let st = fluut_core::SimSettings {
+        error: 0.25,
+        ..Default::default()
+    };
+    let r = s
+        .simulate("s1", &st, &fluut_core::fluut_sim::Quiet)
+        .unwrap();
+    let hits: Vec<_> = r
+        .diagnostics
+        .iter()
+        .filter(|d| d.code == "sim.fixture")
+        .collect();
+    assert!(!hits.is_empty(), "{:?}", r.diagnostics);
+    assert!(hits[0].message.contains("clamp"), "{}", hits[0].message);
+    assert!(hits[0].toolpath.is_some());
+    // The same project with the clamp out of the way is clean.
+    let far = "[{ kind = \"clamp\", min = [300, -60, -5], max = [320, 60, 5] }]";
+    let (mut s, _, _) = flipside_run("fx_sim_clear", "", Some(far), None);
+    let r = s
+        .simulate("s1", &st, &fluut_core::fluut_sim::Quiet)
+        .unwrap();
+    assert!(
+        r.diagnostics.iter().all(|d| d.code != "sim.fixture"),
+        "{:?}",
+        r.diagnostics
+    );
 }

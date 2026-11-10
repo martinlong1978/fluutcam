@@ -98,6 +98,7 @@ Ray ∩ V uses the cheapest exact method (S5 measured the cost per ray):
 | Rapid through stock | rapid moves: swept volume ∩ stock non-empty | error |
 | Flute length | cutting contact height above tip > flute length | warning |
 | Index turn | before an indexed Setup: the start stock turned a full revolution about X (per Z ray its largest radius + the ray spacing) against the tool assembly where the post leaves it for the turn, as a vertical cylinder of its largest radius from the tip up | error `sim.index_turn` on the Setup's first toolpath |
+| Fixture | indexed Setups: the cutter (and a wider shank) from the tip up, and the holder from the overall length up, as vertical cylinders, against the Setup's fixtures that turn with A; segment ends and lines every millimetre | error `sim.fixture` on the toolpath |
 
 Gouge and rest checks use exact geometry for the distance, and the dexel resolution only for
 where samples are taken [S 04 §4.10].

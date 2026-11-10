@@ -133,3 +133,13 @@ Tests of writing G-code from the window. Part of the [user acceptance tests](UAT
   1. Open the file in a text editor. Check the units, the work offset, the tool numbers, the feeds and the spindle speeds against the toolpath settings.
 - **Expected:** They match. The tool numbers match the order of the tools. This test is a reminder, and is a habit to keep for every real job.
 - [ ] Pass
+
+### UAT-PST-16 The Z travel check needs the tool length
+
+- **Preconditions:** A copy of `flipside` in a work folder with its `posts`, `machines` and `tools` folders. In `machines/router-4x.machine.toml` add the lines `[travel]` and `z = [-200, 500]` above `[spindle]`. The tool `flat-6` has no `overall_length`.
+- **Steps:**
+  1. Run `fluut calc flipside.fluut`.
+  2. Add `overall_length = 60` under `flute_length` in `tools/shop.toml` and run it again.
+- **Expected:** Step 1: one warning, `cam.tool.length_missing`, for tool `flat-6` (not one for each of the four toolpaths): the retract before the A turn is checked against the Z travel at the tool tip only. Step 2: no warning. A machine without a `[travel]` table never gives the warning.
+- [ ] Pass
+
