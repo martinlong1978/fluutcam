@@ -8,9 +8,9 @@ If something you need is not here and does not work, [tell us](https://github.co
 
 The window is a first version. The ribbon drives everything the window can do. These are not yet in the window:
 
-- **Editing a Setup fully.** The Setup kind, a stock taken from a body of the model, the orientation (the tool axis, the X axis, the rotary axis) and the bodies a Setup machines cannot be changed in the window. A body stock shows, read only. Change these in the project file.
-- **Picking whole bodies.** A click picks a face or a curve, not a body. A field that takes a body cannot be filled from the window.
-- **Handles on the model.** The stock and the work zero have no handles to drag in the viewport. Change them in the inspector.
+- **Some Setup controls.** A Setup has no controls for scale and mirror, and the window leaves them as they are. A rotary or indexed Setup cannot use a body as the stock. A block given by size has only the work zero handle, and so does cylinder stock.
+- **Handles and snapping.** There are no handles for a cylinder's radius and length, and no dial for the index angle. The work zero snaps to the corners and top centre of the stock (or its ends on the axis), not to vertices or arc centres.
+- **Picking whole bodies.** A click on the model toggles a whole body, but the pointer lights up only the face or curve under it, not the whole body.
 - **Picking in a box.** You click one entity at a time. After an edge, the inspector offers its closed loop.
 - **A post that is not built in.** The Post stage's list has the built-in posts (`fluut/linuxcnc`, `fluut/grbl`, `fluut/gcode`, `fluut/linuxcnc-4x`) and not those of your project's `posts/` folder. A rotary Setup does not choose `fluut/linuxcnc-4x` by itself: pick it in the list.
 - **The Library commands** (Tools, Machines, Posts) are greyed out. Browsing and editing the libraries is not built.
@@ -34,8 +34,8 @@ Small thing you may notice: some error messages, such as a bad STEP file, show i
 
 ## Setups
 
-- A new rotary or indexed Setup assumes the part lies along the X axis through the model origin. For any other axis, set the orientation in the project file.
-- **Stock.** A 3-axis Setup calculates with a block of stock, a rotary one with a cylinder, an indexed one with either. Stock taken from a body of the model is read but not calculated yet.
+- A new rotary or indexed Setup assumes the part lies along the X axis through the model origin. For any other axis, set the rotary axis in the Orientation group.
+- **Stock.** A 3-axis Setup calculates with a block of stock, a rotary one with a cylinder, an indexed one with either. Stock taken from a body of the model works in 3-axis Setups only.
 - **5-axis.** Not yet. FluutCAM supports one rotary axis (A): rotary Setups (simultaneous) and indexed Setups (the part turned to an angle, then 3-axis). Two-angle indexing (3+2) and simultaneous 5-axis are planned.
 - **Fixtures** (a chuck, a tailstock, clamps) are not part of the project yet. The simulation, and the check that the stock clears the tool when it turns, do not know about them.
 - A tool with no `overall_length` is checked at its tip only when the Z travel is checked before a turn.

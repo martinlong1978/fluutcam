@@ -121,6 +121,21 @@ const SHOTS: &[Shot] = &[
         },
     },
     Shot {
+        name: "setup-handles",
+        shows: "The handles of a selected Setup on the model: the work zero (a ring) and the block margins (orange squares)",
+        crop: Some((265, 220, 720, 440)),
+        run: |r| {
+            r.app().ui.selection = Selection::Setup("s1".into());
+            r.h.run_steps(4);
+        },
+    },
+    Shot {
+        name: "setup-bodies-orientation",
+        shows: "The Bodies and Orientation groups of the Setup inspector: a check box for each body, and a list and Pick for each direction",
+        crop: Some((988, 190, 284, 650)),
+        run: |r| r.h.run_steps(2),
+    },
+    Shot {
         name: "ribbon-toolpaths",
         shows: "The Toolpaths stage of the ribbon: the galleries of toolpath types and the calculate buttons",
         crop: Some((0, 0, 1280, 215)),
