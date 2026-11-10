@@ -47,4 +47,7 @@ if ($LASTEXITCODE -ne 0) { throw 'wix build failed' }
 $report = wix msi validate $msi 2>&1 | Out-String
 $report
 if ($report -match 'error WIX') { throw 'MSI validation failed' }
+# wix build also writes a debug file (.wixpdb) next to the MSI. It is not a
+# release file, so remove it.
+Remove-Item -ErrorAction SilentlyContinue ([IO.Path]::ChangeExtension($msi, '.wixpdb'))
 Write-Host "wrote $msi"
