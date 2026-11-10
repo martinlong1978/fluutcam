@@ -165,7 +165,7 @@ text = "Save or open a project first. Imported files are stored beside the proje
 
 [[advice]]
 match = "model.import.empty"
-text = "The file was read but gave nothing a toolpath can use. A STL file reads but gives no bodies yet (see Known limits)."
+text = "The file was read but gave nothing a toolpath can use."
 
 [[advice]]
 match = "model.import.unit_assumed"

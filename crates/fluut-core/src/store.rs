@@ -329,7 +329,7 @@ fn load_stl(g: &GeometrySource, bytes: &[u8], out: &mut Vec<Diagnostic>) -> Opti
         out.push(Diagnostic::warning(
             "model.geometry.mesh.open",
             format!(
-                "geometry `{}`: the mesh is not a closed, consistent surface;                  toolpaths still follow its triangles, but stock and simulation                  results near the gaps may be wrong",
+                "geometry `{}`: the mesh is not a closed, consistent surface; toolpaths follow its triangles, but results near the gaps may be wrong",
                 g.id
             ),
         ));
