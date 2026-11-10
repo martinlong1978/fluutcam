@@ -291,7 +291,7 @@ fn a_step_back_cuts_at_most_a_stride() {
     // Below them it cuts from the nearest snapshot of a move start or the
     // checkpoint, and no more than before.
     p.seek(&s, zone - 1);
-    assert!(p.last_cut() <= zone - 1);
+    assert!(p.last_cut() < zone);
     p.seek(&s, zone - 2);
     assert!(p.last_cut() < stride);
     // A forward step of one cuts one.
@@ -621,7 +621,7 @@ fn steps_by_move_show_the_blocks_of_a_new_player() {
     let mut p = Player::with_limits(&s, s.chords_at(t), fixed(8));
     let mut state = 5;
     for i in 0..40 {
-        let forward = (i / 5) % 2 == 1 || lcg(&mut state) % 7 == 0;
+        let forward = (i / 5) % 2 == 1 || lcg(&mut state).is_multiple_of(7);
         t = s.step(t, Step::Move, forward);
         let n = s.chords_at(t);
         p.seek(&s, n);
