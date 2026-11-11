@@ -2,6 +2,11 @@
 
 //! B-spline and NURBS surfaces (D02 §4.1): tensor-product de Boor evaluation
 //! (*The NURBS Book* A3.6) and the rational quotient rule (A4.4).
+//!
+//! Surfaces up to degree 7 also keep every Bézier patch in Bézier form
+//! ([`Bezier`]), made once by blossoming, and evaluate from it: the span is
+//! found by a binary search over the distinct knots, and the Bernstein basis
+//! needs no knot differences or divisions.
 
 use super::{SurfDerivs, UvBox};
 use crate::bounds::{Aabb3, Interval};
@@ -9,7 +14,7 @@ use crate::bspline::BSplineError;
 use crate::bspline::basis::{MAX_DEGREE, SMALL, ders_basis_funs_n, find_span};
 use crate::transform::Affine;
 use crate::types::{Point3, Vec3};
-use glam::DVec4;
+use glam::{DVec3, DVec4};
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct BSplineSurface {
@@ -27,6 +32,282 @@ pub struct BSplineSurface {
     /// Per Bézier patch: its parameter box and the bounds of the poles that
     /// affect it (which contain the patch, by the convex hull property).
     patches: Vec<(UvBox, Aabb3)>,
+    /// The patches in Bézier form (degrees below [`SMALL`] only).
+    bezier: Option<Bezier>,
+}
+
+/// Every Bézier patch of a surface in Bézier form: an evaluation cache made
+/// from the poles and knots, so it adds no state of its own.
+#[derive(Clone, PartialEq, Debug)]
+struct Bezier {
+    /// Distinct knots in the domain along u and v: patch `(a, b)` spans
+    /// `[us[a], us[a + 1]] × [vs[b], vs[b + 1]]`.
+    us: Vec<f64>,
+    vs: Vec<f64>,
+    /// `1 / (us[a + 1] − us[a])` and the same along v.
+    ius: Vec<f64>,
+    ivs: Vec<f64>,
+    /// Bézier points per patch, patch-major (patch `a * (vs.len() − 1) + b`),
+    /// then `(i, j)` at `i * (deg_v + 1) + j`; homogeneous (`w·P`) if
+    /// rational.
+    xyz: Vec<DVec3>,
+    /// Bézier weights in the same order, if rational.
+    w: Option<Vec<f64>>,
+}
+
+/// The blossom of the B-spline in one direction at the arguments `args`
+/// (`p` of them), from the `p + 1` points `d` that affect span `span`
+/// (*The NURBS Book* §5.2: de Boor's algorithm with one argument per
+/// level). Bézier point `j` of the span is the blossom at `p − j` copies of
+/// its start and `j` of its end.
+fn blossom(knots: &[f64], p: usize, span: usize, args: &[f64], d: &mut [DVec4]) -> DVec4 {
+    for (r, &t) in args.iter().enumerate().take(p) {
+        let r = r + 1;
+        for j in (r..=p).rev() {
+            let lo = knots[span + j - p];
+            let hi = knots[span + 1 + j - r];
+            let alpha = (t - lo) / (hi - lo);
+            d[j] = d[j - 1] * (1.0 - alpha) + d[j] * alpha;
+        }
+    }
+    d[p]
+}
+
+/// Distinct knots in `[lo, hi]` with the start index of each non-empty span.
+fn spans(knots: &[f64], p: usize, n: usize) -> (Vec<f64>, Vec<usize>) {
+    let mut brk = vec![knots[p]];
+    let mut idx = Vec::new();
+    for i in p..n {
+        if knots[i + 1] > knots[i] {
+            idx.push(i);
+            brk.push(knots[i + 1]);
+        }
+    }
+    (brk, idx)
+}
+
+fn inverse_lengths(brk: &[f64]) -> Vec<f64> {
+    brk.windows(2).map(|w| 1.0 / (w[1] - w[0])).collect()
+}
+
+impl Bezier {
+    fn new(s: &BSplineSurface) -> Bezier {
+        let (pu, pv) = (s.deg_u as usize, s.deg_v as usize);
+        let (us, su) = spans(&s.knots_u, pu, s.nu);
+        let (vs, sv) = spans(&s.knots_v, pv, s.nv);
+        let hom = |i: usize, j: usize| {
+            let q = s.poles[i * s.nv + j].0;
+            let w = s.weights.as_ref().map_or(1.0, |w| w[i * s.nv + j]);
+            (q * w).extend(w)
+        };
+        let args = |lo: f64, hi: f64, p: usize, j: usize| -> Vec<f64> {
+            (0..p).map(|r| if r < p - j { lo } else { hi }).collect()
+        };
+        let mut xyz = Vec::with_capacity(su.len() * sv.len() * (pu + 1) * (pv + 1));
+        let mut ws = Vec::with_capacity(xyz.capacity());
+        let mut d = [DVec4::ZERO; SMALL];
+        for (a, &iu) in su.iter().enumerate() {
+            // Blossom along u for every pole row along v the span needs.
+            let mut col: Vec<[DVec4; SMALL]> = vec![[DVec4::ZERO; SMALL]; s.nv];
+            for (j, c) in col.iter_mut().enumerate() {
+                for (i, ci) in c.iter_mut().enumerate().take(pu + 1) {
+                    for (k, dk) in d.iter_mut().enumerate().take(pu + 1) {
+                        *dk = hom(iu - pu + k, j);
+                    }
+                    let t = args(us[a], us[a + 1], pu, i);
+                    *ci = blossom(&s.knots_u, pu, iu, &t, &mut d);
+                }
+            }
+            for (b, &iv) in sv.iter().enumerate() {
+                for i in 0..=pu {
+                    for j in 0..=pv {
+                        for (dk, ck) in d.iter_mut().zip(&col[iv - pv..=iv]) {
+                            *dk = ck[i];
+                        }
+                        let t = args(vs[b], vs[b + 1], pv, j);
+                        let q = blossom(&s.knots_v, pv, iv, &t, &mut d);
+                        xyz.push(q.truncate());
+                        ws.push(q.w);
+                    }
+                }
+            }
+        }
+        Bezier {
+            ius: inverse_lengths(&us),
+            ivs: inverse_lengths(&vs),
+            us,
+            vs,
+            xyz,
+            w: s.weights.is_some().then_some(ws),
+        }
+    }
+}
+
+/// Derivatives of `P/w` from those of the homogeneous `(w·P, w)`, for
+/// `k + l ≤ D` (*The NURBS Book* A4.4).
+fn rational<const D: usize>(aw: &[[DVec4; 3]; 3]) -> [[Vec3; 3]; 3] {
+    const BINOM: [[f64; 3]; 3] = [[1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [1.0, 2.0, 1.0]];
+    let w = |k: usize, l: usize| aw[k][l].w;
+    let mut skl = [[Vec3::ZERO; 3]; 3];
+    for k in 0..=D {
+        for l in 0..=(D - k) {
+            let mut v3 = Vec3(aw[k][l].truncate());
+            for j in 1..=l {
+                v3 -= skl[k][l - j] * (BINOM[l][j] * w(0, j));
+            }
+            for i in 1..=k {
+                v3 -= skl[k - i][l] * (BINOM[k][i] * w(i, 0));
+                let mut v2 = Vec3::ZERO;
+                for j in 1..=l {
+                    v2 += skl[k - i][l - j] * (BINOM[l][j] * w(i, j));
+                }
+                v3 -= v2 * BINOM[k][i];
+            }
+            skl[k][l] = v3 / w(0, 0);
+        }
+    }
+    skl
+}
+
+/// Derivatives `S_kl` (`k + l ≤ D`) from the Bézier form: degrees
+/// `pu, pv < N`. Parameters outside the domain are clamped to it; a knot
+/// starts its span (as `find_span`).
+#[inline(always)]
+fn skl_bezier<const N: usize, const D: usize>(
+    bz: &Bezier,
+    pu: usize,
+    pv: usize,
+    u: f64,
+    v: f64,
+) -> [[Vec3; 3]; 3] {
+    // The span, the local parameter in [0, 1] and 1 / span length.
+    let local = |brk: &[f64], inv: &[f64], x: f64| {
+        let m = brk.len() - 1;
+        let x = x.clamp(brk[0], brk[m]);
+        let a = brk[1..m].partition_point(|&k| k <= x);
+        let ih = inv[a];
+        // At most 1 (the end of the span) up to rounding.
+        (a, ((x - brk[a]) * ih).min(1.0), ih)
+    };
+    let (a, tu, iu) = local(&bz.us, &bz.ius, u);
+    let (b, tv, iv) = local(&bz.vs, &bz.ivs, v);
+    let bu = bernstein::<N, D>(pu, tu);
+    let bv = bernstein::<N, D>(pv, tv);
+    let n = (pu + 1) * (pv + 1);
+    let base = (a * (bz.vs.len() - 1) + b) * n;
+    let pts = &bz.xyz[base..base + n];
+    // Along v first, then along u, scaled by the span lengths.
+    let mut t = [[DVec3::ZERO; 3]; N];
+    for (i, ti) in t.iter_mut().enumerate().take(pu + 1) {
+        for (l, tl) in ti.iter_mut().enumerate().take(D + 1) {
+            let mut acc = DVec3::ZERO;
+            for j in 0..=pv {
+                acc += pts[i * (pv + 1) + j] * bv[l][j];
+            }
+            *tl = acc;
+        }
+    }
+    let su = [1.0, iu, iu * iu];
+    let sv = [1.0, iv, iv * iv];
+    let mut aw = [[DVec4::ZERO; 3]; 3];
+    for k in 0..=D {
+        for l in 0..=(D - k) {
+            let mut acc = DVec3::ZERO;
+            for i in 0..=pu {
+                acc += t[i][l] * bu[k][i];
+            }
+            if k + l > 0 {
+                acc *= su[k] * sv[l];
+            }
+            aw[k][l] = acc.extend(0.0);
+        }
+    }
+    let Some(ws) = &bz.w else {
+        let mut skl = [[Vec3::ZERO; 3]; 3];
+        for k in 0..=D {
+            for l in 0..=(D - k) {
+                skl[k][l] = Vec3(aw[k][l].truncate());
+            }
+        }
+        return skl;
+    };
+    let ws = &ws[base..base + n];
+    let mut tw = [[0.0f64; 3]; N];
+    for (i, ti) in tw.iter_mut().enumerate().take(pu + 1) {
+        for (l, tl) in ti.iter_mut().enumerate().take(D + 1) {
+            let mut acc = 0.0;
+            for j in 0..=pv {
+                acc += ws[i * (pv + 1) + j] * bv[l][j];
+            }
+            *tl = acc;
+        }
+    }
+    for k in 0..=D {
+        for l in 0..=(D - k) {
+            let mut acc = 0.0;
+            for i in 0..=pu {
+                acc += tw[i][l] * bu[k][i];
+            }
+            if k + l > 0 {
+                acc *= su[k] * sv[l];
+            }
+            aw[k][l].w = acc;
+        }
+    }
+    rational::<D>(&aw)
+}
+
+/// Bernstein basis of degree `p` at `t` (`[0]`) and its first and second
+/// derivatives in `t` (`[1]`, `[2]`, up to order `D`). The values do not
+/// depend on `D`.
+#[inline(always)]
+fn bernstein<const N: usize, const D: usize>(p: usize, t: f64) -> [[f64; N]; 3] {
+    let s = 1.0 - t;
+    let mut b = [0.0f64; N];
+    let mut b1 = [0.0f64; N];
+    let mut b2 = [0.0f64; N];
+    b[0] = 1.0;
+    for deg in 1..=p {
+        if deg + 2 == p + 1 {
+            b2 = b;
+        }
+        if deg == p {
+            b1 = b;
+        }
+        let mut prev = 0.0;
+        for x in b.iter_mut().take(deg + 1) {
+            let cur = *x;
+            *x = s * cur + t * prev;
+            prev = cur;
+        }
+    }
+    let mut out = [[0.0f64; N]; 3];
+    out[0] = b;
+    if D >= 1 {
+        // B′ᵢ = p (Bᵢ₋₁ − Bᵢ) at degree p − 1.
+        let pf = p as f64;
+        for i in 0..=p {
+            let l = if i >= 1 { b1[i - 1] } else { 0.0 };
+            let r = if i < p { b1[i] } else { 0.0 };
+            out[1][i] = pf * (l - r);
+        }
+    }
+    if D >= 2 && p >= 2 {
+        // B″ᵢ = p (p − 1) (Bᵢ₋₂ − 2 Bᵢ₋₁ + Bᵢ) at degree p − 2.
+        let pf = (p * (p - 1)) as f64;
+        for i in 0..=p {
+            let at = |k: isize| {
+                if k >= 0 && (k as usize) < p - 1 {
+                    b2[k as usize]
+                } else {
+                    0.0
+                }
+            };
+            let i = i as isize;
+            out[2][i as usize] = pf * (at(i - 2) - 2.0 * at(i - 1) + at(i));
+        }
+    }
+    out
 }
 
 impl BSplineSurface {
@@ -79,8 +360,10 @@ impl BSplineSurface {
             periodic_u: false,
             periodic_v: false,
             patches: Vec::new(),
+            bezier: None,
         };
         s.patches = s.compute_patches();
+        s.bezier = s.make_bezier();
         Ok(s)
     }
 
@@ -164,6 +447,18 @@ impl BSplineSurface {
     /// Derivatives `S_kl` for `k + l ≤ D` (others zero). An entry does not
     /// depend on `D`.
     fn skl<const D: usize>(&self, u: f64, v: f64) -> [[Vec3; 3]; 3] {
+        if let Some(bz) = &self.bezier {
+            let (pu, pv) = (self.deg_u as usize, self.deg_v as usize);
+            if pu == 3 && pv == 3 {
+                return skl_bezier::<4, D>(bz, 3, 3, u, v);
+            }
+            return skl_bezier::<SMALL, D>(bz, pu, pv, u, v);
+        }
+        self.skl_de_boor::<D>(u, v)
+    }
+
+    /// [`Self::skl`] by de Boor's algorithm (the only path above degree 7).
+    fn skl_de_boor<const D: usize>(&self, u: f64, v: f64) -> [[Vec3; 3]; 3] {
         if (self.deg_u.max(self.deg_v) as usize) < SMALL {
             self.skl_n::<SMALL, D>(u, v)
         } else {
@@ -201,35 +496,17 @@ impl BSplineSurface {
             }
         }
 
-        let mut skl = [[Vec3::ZERO; 3]; 3];
         if self.weights.is_none() {
+            let mut skl = [[Vec3::ZERO; 3]; 3];
             for k in 0..=D {
                 for l in 0..=(D - k) {
                     skl[k][l] = Vec3(aw[k][l].truncate());
                 }
             }
+            skl
         } else {
-            const BINOM: [[f64; 3]; 3] = [[1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [1.0, 2.0, 1.0]];
-            let w = |k: usize, l: usize| aw[k][l].w;
-            for k in 0..=D {
-                for l in 0..=(D - k) {
-                    let mut v3 = Vec3(aw[k][l].truncate());
-                    for j in 1..=l {
-                        v3 -= skl[k][l - j] * (BINOM[l][j] * w(0, j));
-                    }
-                    for i in 1..=k {
-                        v3 -= skl[k - i][l] * (BINOM[k][i] * w(i, 0));
-                        let mut v2 = Vec3::ZERO;
-                        for j in 1..=l {
-                            v2 += skl[k - i][l - j] * (BINOM[l][j] * w(i, j));
-                        }
-                        v3 -= v2 * BINOM[k][i];
-                    }
-                    skl[k][l] = v3 / w(0, 0);
-                }
-            }
+            rational::<D>(&aw)
         }
-        skl
     }
 
     /// The surface with `a` applied to its poles (exact for any affine map).
@@ -239,7 +516,12 @@ impl BSplineSurface {
             ..self.clone()
         };
         s.patches = s.compute_patches();
+        s.bezier = s.make_bezier();
         s
+    }
+
+    fn make_bezier(&self) -> Option<Bezier> {
+        ((self.deg_u.max(self.deg_v) as usize) < SMALL).then(|| Bezier::new(self))
     }
 
     /// Bézier patches with the bounds of their poles.
@@ -279,5 +561,130 @@ impl BSplineSurface {
             }
         }
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A pseudo-random number in [0, 1) from a counter (no state shared
+    /// between tests).
+    fn rnd(k: u64) -> f64 {
+        let x = k
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        (x >> 11) as f64 / (1u64 << 53) as f64
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn surface(
+        pu: u8,
+        pv: u8,
+        ku: Vec<f64>,
+        kv: Vec<f64>,
+        rational: bool,
+        seed: u64,
+    ) -> BSplineSurface {
+        let nu = ku.len() - pu as usize - 1;
+        let nv = kv.len() - pv as usize - 1;
+        let mut poles = Vec::new();
+        let mut w = Vec::new();
+        for i in 0..nu {
+            for j in 0..nv {
+                let k = seed + (i * nv + j) as u64 * 3;
+                poles.push(Point3::new(
+                    i as f64 * 3.0 + rnd(k),
+                    j as f64 * 2.0 + rnd(k + 1),
+                    5.0 * rnd(k + 2) - 2.0,
+                ));
+                w.push(0.5 + rnd(k + 7));
+            }
+        }
+        BSplineSurface::new(pu, pv, ku, kv, poles, nu, nv, rational.then_some(w)).unwrap()
+    }
+
+    #[test]
+    fn bezier_form_matches_de_boor() {
+        let cases = [
+            // Clamped uniform bicubic.
+            (
+                3,
+                3,
+                vec![0., 0., 0., 0., 1., 2., 3., 3., 3., 3.],
+                vec![0., 0., 0., 0., 0.5, 1., 1., 1., 1.],
+            ),
+            // Non-uniform with a double knot, degrees 2 and 3.
+            (
+                2,
+                3,
+                vec![0., 0., 0., 0.3, 0.3, 0.9, 2., 2., 2.],
+                vec![-1., -1., -1., -1., 0.2, 0.7, 4., 4., 4., 4.],
+            ),
+            // Unclamped (domain inside the knots), degree 3 and 1.
+            (
+                3,
+                1,
+                vec![0., 1., 2., 3., 4., 5., 6., 7., 8.],
+                vec![0., 0., 1., 2.5, 3., 3.],
+            ),
+            // Degree 5 by 4.
+            (
+                5,
+                4,
+                vec![0., 0., 0., 0., 0., 0., 0.4, 1., 1., 1., 1., 1., 1.],
+                vec![0., 0., 0., 0., 0., 2., 3., 3., 3., 3., 3.],
+            ),
+        ];
+        let mut n = 0;
+        for (c, (pu, pv, ku, kv)) in cases.into_iter().enumerate() {
+            for rational in [false, true] {
+                let s = surface(pu, pv, ku.clone(), kv.clone(), rational, 100 * c as u64);
+                assert!(s.bezier.is_some());
+                let d = s.domain();
+                let (bu, bv) = s.span_breaks();
+                // Random points, the knots themselves and points outside.
+                let mut uvs: Vec<(f64, f64)> = (0..300)
+                    .map(|k| {
+                        let k = 1000 + 2 * k as u64;
+                        (d.u.at(rnd(k) * 1.2 - 0.1), d.v.at(rnd(k + 1) * 1.2 - 0.1))
+                    })
+                    .collect();
+                for &u in &bu {
+                    for &v in &bv {
+                        uvs.push((u, v));
+                    }
+                }
+                for (u, v) in uvs {
+                    let a = s.skl::<2>(u, v);
+                    let b = s.skl_de_boor::<2>(u, v);
+                    for k in 0..=2 {
+                        for l in 0..=(2 - k) {
+                            let (x, y) = (a[k][l], b[k][l]);
+                            let tol = 1e-12 * (1.0 + y.length());
+                            assert!(
+                                (x - y).length() <= tol,
+                                "case {c} rational {rational} ({u}, {v}) S{k}{l}: {x:?} against {y:?}"
+                            );
+                            n += 1;
+                        }
+                    }
+                    // The point does not depend on the order asked for.
+                    assert_eq!(s.eval(u, v), Point3(a[0][0].0));
+                    let d1 = s.derivs1(u, v);
+                    assert_eq!((d1.1, d1.2), (a[1][0], a[0][1]));
+                }
+            }
+        }
+        assert!(n > 10_000);
+    }
+
+    #[test]
+    fn high_degrees_keep_de_boor() {
+        let k: Vec<f64> = [0.0; 9].into_iter().chain([1.0; 9]).collect();
+        let s = surface(8, 8, k.clone(), k, false, 7);
+        assert!(s.bezier.is_none());
+        let p = s.eval(0.3, 0.6);
+        assert!(p.is_finite());
     }
 }

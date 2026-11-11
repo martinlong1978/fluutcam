@@ -676,6 +676,13 @@ fn newton_contact(
         let mut moved = false;
         for _ in 0..12 {
             let (nu, nv) = bounds.clamp(u + lambda * step[0], v + lambda * step[1]);
+            // The trial is the current point (the step leaves the box on
+            // both sides, or is below rounding): it cannot lower the
+            // residual, nor can the shorter steps after it, which clamp or
+            // round to the same point. The search has failed.
+            if same_point((nu, nv), (u, v)) {
+                return None;
+            }
             // On a B-spline a trial point takes G only, from first
             // derivatives (most trials are rejected); the same bits.
             if split {
@@ -715,9 +722,15 @@ fn newton_flat(
     bounds: UvBox,
     tol: f64,
 ) -> Option<(f64, f64)> {
+    const ITERS: usize = 40;
     let eps = 1e-5 / (c.flat_radius() * c.flat_radius());
     let (mut u, mut v) = start;
-    for _ in 0..40 {
+    // The points visited. A step depends on the point alone, so once a
+    // point comes round again the iteration cycles through steps that have
+    // all failed the test below, and it cannot converge.
+    let mut seen = [(0.0f64, 0.0f64); ITERS + 1];
+    seen[0] = start;
+    for it in 0..ITERS {
         let d = s.derivs(u, v);
         let w = [d.p.x() - ax.x, d.p.y() - ax.y];
         let dotw = |x: Vec3| w[0] * x.x() + w[1] * x.y();
@@ -744,8 +757,18 @@ fn newton_flat(
         if moved < tol {
             return Some((u, v));
         }
+        if seen[..=it].iter().any(|&p| same_point(p, (u, v))) {
+            return None;
+        }
+        seen[it + 1] = (u, v);
     }
     None
+}
+
+/// Whether two parameter pairs are the same bits (a solver step is a
+/// function of the point's bits).
+fn same_point(a: (f64, f64), b: (f64, f64)) -> bool {
+    a.0.to_bits() == b.0.to_bits() && a.1.to_bits() == b.1.to_bits()
 }
 
 /// Newton on `S_xy(u, v) = (x, y)`: the surface point vertically above or

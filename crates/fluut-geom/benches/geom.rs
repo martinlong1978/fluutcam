@@ -10,8 +10,8 @@
 //! | closest point: bicubic B-spline | < 5 µs median |
 //! | plane ∩ cylinder/cone/sphere | < 200 ns |
 //!
-//! `derivs` computes second derivatives too, so the B-spline eval figure is an
-//! upper bound for the first-order target.
+//! `derivs1` is the first-order figure; `derivs` computes second derivatives
+//! too.
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use fluut_geom::{
@@ -66,6 +66,9 @@ fn benches(c: &mut Criterion) {
 
     c.bench_function("eval analytic (torus)", |b| {
         b.iter(|| black_box(&torus).eval(black_box(0.3), black_box(1.2)))
+    });
+    c.bench_function("derivs1 bicubic B-spline", |b| {
+        b.iter(|| black_box(&bs).derivs1(black_box(0.37), black_box(0.61)))
     });
     c.bench_function("derivs bicubic B-spline", |b| {
         b.iter(|| black_box(&bs).derivs(black_box(0.37), black_box(0.61)))

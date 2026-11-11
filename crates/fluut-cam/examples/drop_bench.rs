@@ -8,7 +8,8 @@
 //! Per model and tool: median and p99 of one drop in µs (the best of
 //! several repetitions, the machine being shared), and solves per drop.
 //! `VERIFY=1` instead compares the drop with the drop that solves every
-//! primitive at random points.
+//! primitive at random points. `DUMP=<file>` writes the tip height of every
+//! raster drop (first repetition) to the file, to compare two builds.
 
 use fluut_cam::cutter::drop::drop_all;
 use fluut_cam::cutter::solve::SolveStats;
@@ -38,6 +39,8 @@ fn pct(sorted: &[f64], q: f64) -> f64 {
 struct Run {
     times_us: Vec<f64>,
     stats: SolveStats,
+    /// Tip heights, −∞ where nothing is under the tool.
+    taus: Vec<f64>,
 }
 
 fn raster(g: &QueryGeometry, c: &Cutter, cols: usize, rows: usize) -> Run {
@@ -46,6 +49,7 @@ fn raster(g: &QueryGeometry, c: &Cutter, cols: usize, rows: usize) -> Run {
     let mut run = Run {
         times_us: Vec::new(),
         stats: SolveStats::default(),
+        taus: Vec::new(),
     };
     for j in 0..rows {
         let y = b.min.y() + (b.max.y() - b.min.y()) * (j as f64 + 0.5) / rows as f64;
@@ -54,8 +58,9 @@ fn raster(g: &QueryGeometry, c: &Cutter, cols: usize, rows: usize) -> Run {
             let i = if j % 2 == 0 { i } else { cols - 1 - i };
             let x = b.min.x() + (b.max.x() - b.min.x()) * (i as f64 + 0.5) / cols as f64;
             let t = Instant::now();
-            let _ = drop(g, c, x, y, &o, &mut run.stats);
+            let r = drop(g, c, x, y, &o, &mut run.stats);
             run.times_us.push(t.elapsed().as_secs_f64() * 1e6);
+            run.taus.push(r.map_or(f64::NEG_INFINITY, |r| r.tau));
         }
     }
     run
@@ -117,6 +122,17 @@ fn measure(name: &str, body: &BrepBody, cols: usize, rows: usize) {
         let reps = if quick() { 3 } else { 5 };
         let runs: Vec<Run> = (0..reps).map(|_| raster(&g, &c, cols, rows)).collect();
         report(label, &runs);
+        if let Ok(path) = std::env::var("DUMP") {
+            use std::io::Write;
+            let mut f = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(path)
+                .expect("dump file");
+            for (k, t) in runs[0].taus.iter().enumerate() {
+                writeln!(f, "{name}|{label}|{k}|{t:?}").expect("dump write");
+            }
+        }
     }
 }
 
