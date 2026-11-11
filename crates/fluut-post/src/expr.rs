@@ -112,6 +112,7 @@ impl Schema {
             ("state.feed", Num),
             ("state.rotary_clamped", Bool),
             ("state.first_tool", Bool),
+            ("state.moved", Bool),
             ("marker.kind", Str),
             ("cycle.kind", Str),
         ]

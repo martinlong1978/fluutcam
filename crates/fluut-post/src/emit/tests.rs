@@ -874,3 +874,88 @@ fn files_split_after_a_retract() {
         );
     }
 }
+
+#[test]
+fn header_sees_the_first_toolpath_and_home_z_is_the_highest_safe_z() {
+    let mut b = toolpath("B (rough)", 2, pocket());
+    b.safe_z = 12.5;
+    let j = job(vec![toolpath("A", 1, pocket()), b]);
+    let c = compiled(
+        "[blocks.header]\nlines = ['T[T] ([TOOLNAME]) S[S] ([TOOLPATH_NAME])', 'G0 Z[ZH] X[XH]']",
+    );
+    let out = post(&j, &c).unwrap();
+    let l = lines(&out);
+    assert_eq!(l[2], "T1 (flat 1) S12000 (A)");
+    assert_eq!(l[3], "G0 Z12.5 X0");
+}
+
+#[test]
+fn line_number_placeholder_counts_its_own_lines() {
+    let c = compiled(
+        "[line_numbering]\nstart = 0\nincrement = 10\nmaximum = 20\n\
+         [words.N]\nprefix = 'N'\ndecimals = 0\npad_width = 3\n\
+         [blocks.header]\nlines = ['%', '[N]G21']\n\
+         [blocks.rapid]\nlines = ['[N] G0 [X] [Y] [Z]']",
+    );
+    let out = post(&job(vec![toolpath("A", 1, pocket())]), &c).unwrap();
+    let l = lines(&out);
+    assert_eq!(&l[2..4], ["%", "N000G21"]);
+    // Rapids number from 10; a rapid whose words are all unchanged is
+    // dropped and uses no number; after the maximum, back to the start.
+    let rapids: Vec<&str> = l.iter().copied().filter(|x| x.contains("G0")).collect();
+    assert_eq!(rapids, ["N010 G0 X0 Y0 Z10", "N020 G0 Z5", "N000 G0 Z5"]);
+}
+
+#[test]
+fn substitute_values_changes_only_user_text() {
+    let c = compiled(
+        "[output.substitute_values]\n'(' = '{'\n')' = '}'\n\
+         [blocks.toolpath_start]\nlines = ['([TOOLPATH_NAME]) [LBRACKET]x[RBRACKET]']",
+    );
+    let out = post(&job(vec![toolpath("Rough (6 mm)", 1, pocket())]), &c).unwrap();
+    assert!(lines(&out).contains(&"(Rough {6 mm}) [x]"));
+}
+
+#[test]
+fn state_moved_is_false_until_the_first_motion_line() {
+    let c = compiled(
+        "[blocks.first_rapid]\nlines = [\
+         { when = '!state.moved', line = 'G0 [X] [Y]' }, { when = '!state.moved', line = 'G0 [Z]' },\
+         { when = 'state.moved', line = 'G0 [X] [Y] [Z]' }]",
+    );
+    let out = post(&job(vec![toolpath("A", 1, pocket())]), &c).unwrap();
+    let l = lines(&out);
+    let i = l.iter().position(|x| *x == "G0 X0 Y0").unwrap();
+    assert_eq!(&l[i..i + 3], ["G0 X0 Y0", "G0 Z10", "G0 Z5"]);
+}
+
+#[test]
+fn first_block_starts_again_when_the_feed_changes() {
+    let c = compiled(
+        "[blocks.first_feed]\nlines = ['G1 [X] [Y] [Z] F[F]']\n\
+         [blocks.feed]\nlines = ['G1 [X] [Y] [Z]']",
+    );
+    let out = post(&job(vec![toolpath("A", 1, pocket())]), &c).unwrap();
+    let l = lines(&out);
+    let i = l.iter().position(|x| *x == "G1 Z-1 F300").unwrap();
+    // The plunge has no block of its own, so it is a feed move at the
+    // plunge feed; the cut after it changes the feed and starts again.
+    assert_eq!(&l[i..i + 3], ["G1 Z-1 F300", "G1 X10 F1000", "G1 Y5"]);
+}
+
+#[test]
+fn rotary_post_without_index_block_turns_with_a_rapid() {
+    let c = compiled_stack(&[ROTARY, "[blocks.rapid]\nlines = ['G0 [X] [Y] [Z] [A]']"]);
+    let mut j = job(vec![toolpath("A", 1, pocket())]);
+    let s0 = j.setups[0].clone();
+    j.setups = vec![
+        s0.clone(),
+        SetupJob {
+            kind: SetupKind::Indexed,
+            index_a: Some(90.0),
+            ..s0
+        },
+    ];
+    let out = post(&j, &c).unwrap();
+    assert!(lines(&out).contains(&"G0 A90"), "{:?}", lines(&out));
+}
