@@ -714,6 +714,15 @@ fn newton_contact(
 /// point of `z − ε·d²`. The small pull towards the axis picks the point
 /// nearest the axis on a horizontal ridge (where `∇²z` is singular) and
 /// changes `z` by far less than the solver tolerance.
+///
+/// Only an interior stationary point is a result. A step that the
+/// parameter box clamps means the stationary point of the local quadratic
+/// model is off the face; the iteration gives up at the second such step.
+/// Beside the box it otherwise falls into orbits through the clamp that
+/// close up without ever repeating a point (the 40-iteration failures),
+/// and a point it stops at on the box is not stationary. This is a
+/// heuristic, not a proof: checked against the full search on every
+/// raster and verification model (see the drop-speed-2 plan).
 fn newton_flat(
     s: &Surface,
     c: &Cutter,
@@ -730,6 +739,7 @@ fn newton_flat(
     // all failed the test below, and it cannot converge.
     let mut seen = [(0.0f64, 0.0f64); ITERS + 1];
     seen[0] = start;
+    let mut clamped = 0;
     for it in 0..ITERS {
         let d = s.derivs(u, v);
         let w = [d.p.x() - ax.x, d.p.y() - ax.y];
@@ -751,9 +761,16 @@ fn newton_flat(
             ],
         ];
         let step = solve2(h, [-gr[0], -gr[1]])?;
-        let (nu, nv) = bounds.clamp(u + step[0], v + step[1]);
+        let (fu, fv) = (u + step[0], v + step[1]);
+        let (nu, nv) = bounds.clamp(fu, fv);
         let moved = (d.su * (nu - u) + d.sv * (nv - v)).length();
         (u, v) = (nu, nv);
+        if (nu, nv) != (fu, fv) {
+            clamped += 1;
+            if clamped == 2 || moved < tol {
+                return None;
+            }
+        }
         if moved < tol {
             return Some((u, v));
         }
