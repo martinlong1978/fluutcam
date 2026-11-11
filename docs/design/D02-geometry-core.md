@@ -245,6 +245,8 @@ Needed by: 2D offsetting of B-spline boundaries [S 04 §4.8], segment fitting [S
 | closest point: bicubic B-spline | < 5 µs median |
 | plane ∩ cylinder/cone/sphere | < 200 ns |
 
+**2026-11-11, measured** (`geom` bench, one machine): bicubic B-spline `derivs1` (first order) 48 ns, `derivs` 77 ns (350 ns before), from Bézier forms cached at construction (§4.1; de Boor above degree 7); B-spline closest point 1.8 µs (62 µs before on the same machine, 99 µs in M1), branch and bound over patches bounded by their Bézier points. Both targets met. Analytic figures unchanged (torus eval 37 ns, sphere closest point 84 ns: still 1.7-1.8 times their targets, CH-25). [Plan](../plan/2026-11-11-bspline-speed.md).
+
 ## 9. Tests
 
 - Property tests (`proptest`): `closest(eval(u,v)) ≈ (u,v)`; offset-then-closest distance = |d|;

@@ -8,8 +8,9 @@
 //! Per model and tool: median and p99 of one drop in µs (the best of
 //! several repetitions, the machine being shared), and solves per drop.
 //! `VERIFY=1` instead compares the drop with the drop that solves every
-//! primitive at random points (`VERIFY_SEED=<n>` for others). `DUMP=<file>` writes the tip height of every
-//! raster drop (first repetition) to the file, to compare two builds.
+//! primitive at random points (`VERIFY_SEED=<n>` for other points).
+//! `DUMP=<file>` writes the tip height of every raster drop (first
+//! repetition) to the file, to compare two builds.
 
 use fluut_cam::cutter::drop::drop_all;
 use fluut_cam::cutter::solve::SolveStats;
