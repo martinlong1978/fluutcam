@@ -87,7 +87,7 @@ The small coloured arrows at one corner of the stock are the **work zero**: the 
 
 **Body pick mode.** The **Pick** buttons in a Setup's inspector (Bodies, body stock, and the orientation) work the same way. For **Bodies** and body stock the viewport shows every body of the model, and a click on any face or curve toggles its whole body. The chosen bodies are tinted. The pointer lights up only the face or curve under it, not the whole body. For an orientation, a click on a flat face, a round face or an edge fills the value and ends the pick.
 
-**Handles.** When a Setup is selected, the viewport draws drag handles on it: a ring for the work zero, and orange squares for the margins of block stock. Drag one and let go to change the Setup in one undo step. Handles hide in pick mode. See [Add a Setup](Add-a-Setup).
+**Handles.** When a Setup is selected, the viewport draws drag handles on it: a ring for the work zero, and orange squares for the margins or size of block stock and the radius and length of cylinder stock. Drag one and let go to change the Setup in one undo step. Handles hide in pick mode. See [Add a Setup](Add-a-Setup).
 
 If the computer has no usable graphics device, the viewport says so and stays off. Everything else still works.
 

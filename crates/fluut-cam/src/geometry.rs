@@ -60,16 +60,27 @@ fn split_id(id: &str, prefix: &str) -> Option<(String, u32)> {
 impl SetupGeometry {
     /// Moves every body by `a` (model frame M → work frame W).
     pub fn transformed(bodies: &[SetupBody], a: &Affine) -> Result<SetupGeometry, String> {
+        // A scale with different factors per axis is the usual reason a
+        // body cannot move: say so.
+        let refuse = |id: &str| {
+            if a.uniform_scale(1e-9).is_none() {
+                format!(
+                    "body {id} cannot be scaled by different factors per axis; use one factor for every axis"
+                )
+            } else {
+                format!("body {id} cannot be moved into the work frame")
+            }
+        };
         let bodies = bodies
             .iter()
             .map(|b| {
                 let geom = match &b.geom {
-                    BodyGeom::Brep(x) => BodyGeom::Brep(transform_brep(x, a).ok_or_else(|| {
-                        format!("body {} cannot be moved into the work frame", b.id)
-                    })?),
-                    BodyGeom::Wire(w) => BodyGeom::Wire(w.transformed(a).ok_or_else(|| {
-                        format!("body {} cannot be moved into the work frame", b.id)
-                    })?),
+                    BodyGeom::Brep(x) => {
+                        BodyGeom::Brep(transform_brep(x, a).ok_or_else(|| refuse(&b.id))?)
+                    }
+                    BodyGeom::Wire(w) => {
+                        BodyGeom::Wire(w.transformed(a).ok_or_else(|| refuse(&b.id))?)
+                    }
                 };
                 Ok(SetupBody {
                     id: b.id.clone(),

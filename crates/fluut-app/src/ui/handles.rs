@@ -10,7 +10,7 @@ use crate::brand::{self, c};
 use crate::jobs::Jobs;
 use crate::session::Snapshot;
 use crate::vm::handles::{
-    HandleKind, dragged_margin, handles, margin_edit, nearest_target, zero_edit, zero_targets,
+    HandleKind, dragged_value, handles, nearest_target, value_edit, zero_edit, zero_targets,
 };
 use crate::vm::inspector::num_text;
 use eframe::egui::{self, Pos2, Rect, Sense, Stroke, Vec2};
@@ -24,7 +24,8 @@ const SNAP_RADIUS: f32 = 48.0;
 pub struct HandleDrag {
     pub setup: String,
     pub kind: HandleKind,
-    /// A margin: how far it has been dragged, mm.
+    /// A stock value: how far the handle has been dragged along its
+    /// direction, mm.
     pub mm: f64,
     /// The zero: the target it would drop on (a `zero.choice` key).
     pub target: Option<String>,
@@ -34,6 +35,9 @@ fn id_of(kind: HandleKind) -> usize {
     match kind {
         HandleKind::Zero => 0,
         HandleKind::Margin(i) => i + 1,
+        HandleKind::Size(i) => i + 4,
+        HandleKind::Radius => 7,
+        HandleKind::Length => 8,
     }
 }
 
@@ -72,10 +76,11 @@ pub fn overlay(
             .as_ref()
             .filter(|d| d.kind == h.kind && d.setup == setup)
             .cloned();
-        // A margin handle follows the drag.
+        // A stock handle follows the drag.
         let shown = match (h.kind, &mine) {
-            (HandleKind::Margin(_), Some(d)) => {
-                let grown = (dragged_margin(h.value_mm, d.mm) - h.value_mm) as f32;
+            (HandleKind::Zero, _) | (_, None) => at,
+            (_, Some(d)) => {
+                let grown = ((dragged_value(&h, d.mm) - h.value_mm) / h.gain) as f32;
                 px([
                     h.at[0] + h.dir[0] * grown,
                     h.at[1] + h.dir[1] * grown,
@@ -83,7 +88,6 @@ pub fn overlay(
                 ])
                 .unwrap_or(at)
             }
-            _ => at,
         };
         let id = egui::Id::new(("handle", setup, id_of(h.kind)));
         let r = ui.interact(
@@ -97,7 +101,7 @@ pub fn overlay(
                 let w = if hot { 2.5 } else { 1.5 };
                 painter.circle_stroke(at, 9.0, Stroke::new(w, orange));
             }
-            HandleKind::Margin(_) => {
+            _ => {
                 let half = if hot { 6.0 } else { 4.5 };
                 let sq = Rect::from_center_size(shown, Vec2::splat(half * 2.0));
                 painter.rect_filled(sq, 1.0, orange);
@@ -131,8 +135,19 @@ pub fn overlay(
                     });
                     d.target = to.map(|i| targets[i].0.clone());
                     // Every place it can go, and the one it would take.
+                    // Model points show only near the pointer, so a busy
+                    // model does not bury the stock's places.
+                    let pointer = r.interact_pointer_pos();
                     for (i, q) in &screen {
                         let on = to == Some(*i);
+                        let model_point = targets[*i].0.starts_with("point:")
+                            || targets[*i].0.starts_with("axis:");
+                        if model_point
+                            && !on
+                            && pointer.is_none_or(|p| p.distance(*q) > 3.0 * SNAP_RADIUS)
+                        {
+                            continue;
+                        }
                         let col = if on { orange } else { c(brand::INK) };
                         painter.circle_stroke(
                             *q,
@@ -141,7 +156,7 @@ pub fn overlay(
                         );
                     }
                 }
-                HandleKind::Margin(_) => {
+                _ => {
                     // Screen points per mm along the handle's direction.
                     let tip = px([
                         h.at[0] + h.dir[0] * 10.0,
@@ -154,7 +169,7 @@ pub fn overlay(
                             d.mm += f64::from(r.drag_delta().dot(v) / v.length_sq());
                         }
                     }
-                    let now = dragged_margin(h.value_mm, d.mm);
+                    let now = dragged_value(&h, d.mm);
                     let text = num_text(now, FieldKind::Length, snap.project.units);
                     painter.text(
                         shown + Vec2::new(12.0, -12.0),
@@ -171,11 +186,9 @@ pub fn overlay(
         {
             let edit = match d.kind {
                 HandleKind::Zero => d.target.and_then(|t| zero_edit(snap, setup, &t)),
-                HandleKind::Margin(i) => {
-                    margin_edit(snap, setup, i, dragged_margin(h.value_mm, d.mm))
-                        .ok()
-                        .flatten()
-                }
+                kind => value_edit(snap, setup, kind, dragged_value(&h, d.mm))
+                    .ok()
+                    .flatten(),
             };
             if let Some(e) = edit {
                 jobs.edit(e);

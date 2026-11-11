@@ -202,3 +202,115 @@ fn rotary_clearance_inside_the_stock_is_refused() {
         assert_eq!(e.code, "setup.clearance.index_unsafe", "{r}");
     }
 }
+
+/// A closed STL box, as triangles.
+fn stl_box(lo: [f64; 3], hi: [f64; 3]) -> String {
+    let v = |i: usize| {
+        [
+            if i & 1 == 0 { lo[0] } else { hi[0] },
+            if i & 2 == 0 { lo[1] } else { hi[1] },
+            if i & 4 == 0 { lo[2] } else { hi[2] },
+        ]
+    };
+    // Each face as two triangles, counter-clockwise from outside.
+    let quads = [
+        [0, 2, 3, 1],
+        [4, 5, 7, 6],
+        [0, 1, 5, 4],
+        [2, 6, 7, 3],
+        [0, 4, 6, 2],
+        [1, 3, 7, 5],
+    ];
+    let mut s = String::from("solid t\n");
+    for q in quads {
+        for t in [[q[0], q[1], q[2]], [q[0], q[2], q[3]]] {
+            s.push_str("facet normal 0 0 0\nouter loop\n");
+            for i in t {
+                let p = v(i);
+                s.push_str(&format!("vertex {} {} {}\n", p[0], p[1], p[2]));
+            }
+            s.push_str("endloop\nendfacet\n");
+        }
+    }
+    s.push_str("endsolid t\n");
+    s
+}
+
+/// The shaft (b-?) with a mesh blank beside it as the stock body.
+fn with_blank(
+    name: &str,
+    kind: &str,
+    orientation: &str,
+    zero: &str,
+) -> Result<SetupFrame, fluut_model::Diagnostic> {
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(name);
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("shaft.step"), step::shaft([0.0; 3])).unwrap();
+    // The blank: 30 × 24 across, Z -2 to 84; its far corner is 15 from the
+    // axis in X and 12 in Y.
+    std::fs::write(
+        dir.join("blank.stl"),
+        stl_box([-15.0, -12.0, -2.0], [15.0, 12.0, 84.0]),
+    )
+    .unwrap();
+    let text = format!(
+        "format = \"fluut.project/1\"\n[[geometry]]\nid = \"g1\"\npath = \"shaft.step\"\n\
+         kind = \"step\"\n[[geometry]]\nid = \"g2\"\npath = \"blank.stl\"\nkind = \"stl\"\nunit = \"mm\"\n\
+         [[setup]]\nid = \"s1\"\nkind = \"{kind}\"\n\
+         geometry = {{ bodies = [\"STEPBODY\"] }}\n{orientation}\n\
+         stock = {{ kind = \"body\", body = \"BLANK\" }}\n{zero}\n"
+    );
+    let probe = dir.join("probe.fluut");
+    std::fs::write(
+        &probe,
+        text.replace("geometry = { bodies = [\"STEPBODY\"] }\n", "")
+            .replace("stock = { kind = \"body\", body = \"BLANK\" }\n", ""),
+    )
+    .unwrap();
+    let s = Session::open(&probe, &[]).unwrap();
+    let ids: Vec<String> = s.store.bodies().map(|b| b.id.clone()).collect();
+    assert_eq!(ids.len(), 2, "{ids:?}");
+    let text = text.replace("STEPBODY", &ids[0]).replace("BLANK", &ids[1]);
+    std::fs::write(dir.join("p.fluut"), text).unwrap();
+    let s = Session::open(&dir.join("p.fluut"), &[]).unwrap();
+    let r = resolve_setup(&s.project, "s1")?;
+    SetupFrame::new(&r, s.store.bodies().cloned().collect())
+}
+
+#[test]
+fn a_rotary_body_stock_is_the_bounding_cylinder_of_the_body() {
+    let f = with_blank(
+        "rotary-body-stock",
+        "rotary",
+        "orientation = { rotary_axis = \"+Z\", a_zero_toward = \"+X\" }",
+        "zero = { x = \"stock_left\" }\nclearance = { kind = \"cylinder\", radius = 25 }",
+    )
+    .unwrap();
+    let r = f.rotary.unwrap();
+    // Reach: the blank's corner, sqrt(15² + 12²); along the axis it spans
+    // 86 mm from the zero at its left end.
+    let reach = (15.0f64 * 15.0 + 12.0 * 12.0).sqrt();
+    assert!((r.stock_radius - reach).abs() < 1e-9, "{}", r.stock_radius);
+    assert!(r.stock_x.0.abs() < 1e-9 && (r.stock_x.1 - 86.0).abs() < 1e-9);
+    // The shaft is machined, not the blank: its Ø30 end is the model's reach.
+    assert!((r.model_r.1 - 15.0).abs() < 1e-9, "{:?}", r.model_r);
+    assert!((f.stock.max.y() - reach).abs() < 1e-9);
+}
+
+#[test]
+fn an_indexed_body_stock_is_the_box_of_the_body() {
+    let f = with_blank(
+        "indexed-body-stock",
+        "indexed",
+        "orientation = { rotary_axis = \"+Z\", a_zero_toward = \"+X\" }",
+        "zero = { x = \"stock_left\" }\nclearance = { kind = \"cylinder\", radius = 25 }",
+    );
+    let f = f.unwrap();
+    // The box of the blank: 86 along the axis, 24 in Y, 30 in Z (the
+    // model's X, turned to +Z of W).
+    assert!((f.stock.max.x() - f.stock.min.x() - 86.0).abs() < 1e-9);
+    assert!((f.stock.max.y() - f.stock.min.y() - 24.0).abs() < 1e-9);
+    assert!((f.stock.max.z() - f.stock.min.z() - 30.0).abs() < 1e-9);
+    assert!(f.index.is_some() && f.rotary.is_none());
+}
