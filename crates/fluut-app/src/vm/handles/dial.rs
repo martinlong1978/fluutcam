@@ -115,7 +115,7 @@ pub fn angle_on_ray(ring: &Ring, origin: [f32; 3], dir: [f32; 3], near: f64) -> 
     }
     let y = f64::from(origin[1] + t * dir[1] - ring.centre[1]);
     let z = f64::from(origin[2] + t * dir[2] - ring.centre[2]);
-    if y.hypot(z) < 1e-6 {
+    if libm::hypot(y, z) < 1e-6 {
         return None;
     }
     // Pointer at (-sin a, cos a).
