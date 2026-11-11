@@ -311,9 +311,8 @@ Tests of adding and editing Setups and basing one on another. Part of the [user 
 - **Preconditions:** A project with a 3-axis Setup, selected.
 - **Steps:**
   1. Change **Type** under **Stock** to "Block, fixed size".
-  2. Change it to "Body" if the project has a second body, or note the ring only.
-  3. Click **Pick** in the **Bodies** group.
-- **Expected:** With a fixed-size block, or a body, only the work zero ring shows: there are no margin squares. For a rotary Setup the ring snaps to the two ends of the stock on the axis, and there are no margin squares. Pick mode hides every handle. Esc brings them back.
+  2. Click **Pick** in the **Bodies** group.
+- **Expected:** With a fixed-size block, the ring and three orange squares show (see UAT-SET-37). Pick mode hides every handle. Esc brings them back. For a rotary Setup the ring snaps to the two ends of the stock on the axis, and the stock has a radius and a length square (see UAT-SET-38).
 - [ ] Pass
 
 ### UAT-SET-34 A chuck raises the turn
@@ -343,3 +342,73 @@ Tests of adding and editing Setups and basing one on another. Part of the [user 
 - **Expected:** Step 1: the Setup resolves with the warning `setup.fixtures.ignored` (fixtures turn with the rotary axis and a 3-axis Setup has none). Step 2: the project does not open; the message says that `kind` is not one of chuck, tailstock, clamp.
 - [ ] Pass
 
+### UAT-SET-37 Drag the handles of a block of a fixed size
+
+- **Preconditions:** A project with `block.step` and a 3-axis Setup, selected. Change **Type** under **Stock** to "Block, fixed size". Note **Size X**, **Size Y** and **Size Z**.
+- **Steps:**
+  1. Drag the orange square on the +X side of the stock 3 mm outward and let go. Look at **Size X**.
+  2. Drag the square on top up and let go. Look at **Size Z**.
+  3. Click **Undo** twice.
+- **Expected:** Three orange squares show on the +X side, the +Y side and the top. While you drag, the square follows and the new size shows beside it. After step 1 **Size X** is about 6 mm larger: the block is centred on the model in X and Y, so both sides move. After step 2 **Size Z** has grown by about the distance dragged. A size never goes to 0 or below. Each drag is one undo step.
+- [ ] Pass
+
+### UAT-SET-38 Drag the radius and length of cylinder stock
+
+- **Preconditions:** A new project with `shaft/shaft.step`, and a Rotary Setup (UAT-SET-03), selected. Note **Radius** and **Length** under **Stock**.
+- **Steps:**
+  1. Drag the orange square on top of the cylinder up 5 mm and let go.
+  2. Drag the orange square at the right end of the cylinder 4 mm to the right and let go.
+  3. Click **Undo** twice.
+- **Expected:** After step 1 **Radius** is about 5 mm larger and the stock outline is wider. After step 2 **Length** is about 8 mm larger: the cylinder is centred on the model, so both ends move. The value shows beside the square while you drag. Each drag is one undo step, and neither goes to 0 or below.
+- [ ] Pass
+
+### UAT-SET-39 Snap the work zero to a vertex or an arc centre
+
+- **Preconditions:** A project with `holes/holes.step` and a 3-axis Setup, selected (the work zero at the top front-left corner).
+- **Steps:**
+  1. Drag the ring toward the Ø22 blind hole at the top of the part, until its centre is near the pointer. Watch the small circles.
+  2. Let go when the circle at the centre of the hole grows.
+  3. Click **Undo**.
+- **Expected:** While dragging, circles also show at the vertices of the model and at the centres of its holes, near the pointer. After step 2 **Location** under **Work zero** shows "Point on the model" with X 62, Y 25 and Z 15 (in the project unit), and the axes move to the centre of the hole. Undo returns the zero to the corner in one step. A corner of the part that is also a corner of the stock keeps its stock name ("Stock top, front left" and so on).
+- [ ] Pass
+
+### UAT-SET-40 Snap the zero of a rotary Setup along the axis
+
+- **Preconditions:** A new project with `shaft/shaft.step` and a Rotary Setup, selected.
+- **Steps:**
+  1. Drag the ring toward the step in the shaft where the Ø30 part meets the square part (30 mm from the end).
+  2. Let go on the circle there.
+  3. Click **Undo**.
+- **Expected:** **Location** under **Work zero** shows "Rotary axis, at X" with X 30 and the axes move to that step; the zero stays on the axis. Undo returns the zero to the left end.
+- [ ] Pass
+
+### UAT-SET-41 Scale and mirror the model
+
+- **Preconditions:** A project with `block.step` and a 3-axis Setup, selected.
+- **Steps:**
+  1. Under **Scale and mirror**, type `2` in **Scale, all axes** and press Enter.
+  2. Tick **Mirror Y**.
+  3. Type `0` in **Scale, all axes** and press Enter.
+  4. Type `1` in **Scale, all axes**, press Enter, and clear **Mirror Y**.
+  5. Click **Undo** four times.
+- **Expected:** After step 1 the model and its stock are twice as large and the zero stays at the corner of the stock. After step 2 the model is flipped across Y. Step 3 is refused with "Must not be 0." under the row. After step 4 the model is as it was and the Setup is back to its default (a saved file has no `geometry` line for the Setup). Each change is one undo step.
+- [ ] Pass
+
+### UAT-SET-42 Different scale factors per axis
+
+- **Preconditions:** A copy of `block`. Close the project in FluutCAM. In a text editor, add `geometry = { scale = [2, 1, 1] }` to the Setup, and open the project.
+- **Steps:**
+  1. Select the Setup and look at **Scale and mirror**.
+- **Expected:** **Scale, all axes** is empty and **Scale X**, **Scale Y** and **Scale Z** show 2, 1 and 1. The Setup shows an error that the body cannot be scaled by different factors per axis and to use one factor for every axis. Typing `2` in **Scale, all axes** clears the error and the three rows go.
+- [ ] Pass
+
+### UAT-SET-43 A body as the stock of a rotary Setup
+
+- **Preconditions:** A new project with `plate/plate.dxf` (bodies OUTLINE and POCKET) imported, and a New Rotary Setup, selected.
+- **Steps:**
+  1. In **Bodies**, clear POCKET.
+  2. Change **Type** under **Stock** to "Body".
+  3. Look at the stock outline in the viewport.
+  4. Click **Pick** beside the body list and click a curve of the other body.
+- **Expected:** After step 2 the row below shows the body POCKET (a body the Setup does not machine). The stock outline is a cylinder centred on the rotary axis, as long as the POCKET drawing along the axis and as wide as its farthest point from the axis (the bounding cylinder of the body). The Setup shows no error. After step 4 the stock body is the other one. Changing the kind of the Setup to Indexed gives a block the size of the body instead.
+- [ ] Pass

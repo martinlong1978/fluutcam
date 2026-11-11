@@ -24,14 +24,15 @@ All lengths in the file are millimetres, whatever unit the project shows. A key 
 
 Select a Setup in the Browser and use its inspector. The lists offer only choices that work for the Setup:
 
-- **Stock.** A 3-axis Setup offers a block by margin, a block of a fixed size, and a body of the model. A rotary or indexed Setup offers a cylinder. A Setup based on another also offers "From the previous Setup".
+- **Stock.** A 3-axis Setup offers a block by margin, a block of a fixed size, and a body of the model. A rotary or indexed Setup offers a cylinder, or a body of the model. A Setup based on another also offers "From the previous Setup".
 - **Kind.** Rotary and Indexed share their values. Changing to or from 3-axis also rewrites the orientation, the work zero, the stock and the clearance to the defaults of the new kind (one undo step).
 - **Bodies.** A check box for each body, and **Pick** to choose on the model.
+- **Scale and mirror.** **Scale, all axes** takes one factor for the model (for example `25.4` for a model drawn in inches). **Mirror X**, **Mirror Y** and **Mirror Z** flip the model across the model's own planes. Both are about the model's origin, and the Setup's stock, zero and handles follow.
 - **Orientation.** The tool axis and X axis, or the rotary axis and the A = 0 direction. A list of model directions, or **Pick** a face or an edge.
 - **Work zero.** A 3-axis Setup offers the four top corners, the centre of the top, the four bottom corners, and a point on the model. A rotary or indexed Setup offers the left end, the right end, or a position along the axis.
 - **Inherited values.** A value that a based-on Setup takes from its parent shows "Inherited from" and the parent's name. Edit it to make it the Setup's own. **Reset to inherited** takes the parent's value back.
 
-- **Handles.** Drag the work zero and the block margins on the model. See [Add a Setup](Add-a-Setup).
+- **Handles.** Drag the work zero, the block margins or size, and a cylinder's radius and length on the model. The work zero also snaps to the model's vertices and the centres of its arcs and circles. See [Add a Setup](Add-a-Setup).
 
 Lengths follow the project unit. Each change is one undo step.
 
@@ -47,7 +48,7 @@ Lengths follow the project unit. Each change is one undo step.
 
 ## Bodies
 
-`geometry = { bodies = ["b-494"] }` limits the Setup to some of the model's bodies. Leave it out to machine every body of every imported file. In the window, use the **Bodies** group. A Setup can also scale and mirror: `scale = [1, 1, 1]`, `mirror = [false, false, false]`. The window has no controls for those (not yet), and it leaves them as they are.
+`geometry = { bodies = ["b-494"] }` limits the Setup to some of the model's bodies. Leave it out to machine every body of every imported file. In the window, use the **Bodies** group. A Setup can also scale and mirror the model: `scale = [1, 1, 1]`, `mirror = [false, false, false]` (factors per axis, and a flip per axis, about the model's origin). In the window, use **Scale and mirror**. The window sets one factor for every axis. A STEP solid, or a drawing with arcs and circles, only takes the same factor on every axis (a mirror is fine): with different factors the Setup shows "cannot be scaled by different factors per axis". A file with a factor per axis shows each one in the inspector. The default, all ones and no mirror, is not written.
 
 ## Orientation
 
@@ -68,12 +69,12 @@ In the window, use the **Orientation** group: choose a model direction from the 
 | Block | `{ kind = "block", margin = [2, 2, 1] }` | A box: the model's size plus a margin in X, on each side, in Y, on each side, and on top |
 | Block of a given size | `{ kind = "block", size = [100, 80, 20] }` | A box of that size, centred on the model in X and Y, with its bottom at the model's bottom |
 | Cylinder | `{ kind = "cylinder", radius = 26, length = 120 }` | Round stock around the rotary axis |
-| Body | `{ kind = "body", body = "b-12" }` | A body of the model as the stock, such as a casting. 3-axis Setups only |
+| Body | `{ kind = "body", body = "b-12" }` | A body of the model as the stock, such as a casting. The body is never machined |
 | From previous | `{ kind = "from_previous" }` | The material left after the parent Setup's toolpaths. Needs `based_on` |
 
 A 3-axis Setup defaults to a block, a rotary or indexed one to a cylinder, and a Setup with `based_on` to `from_previous`.
 
-Not every kind works in every Setup yet. A 3-axis Setup calculates with a block or a body. A rotary Setup needs a cylinder. An indexed Setup takes a block or a cylinder. A `body` stock works in a 3-axis Setup: the body is never machined, and the stock box is its size. A rotary Setup cannot use it (not yet). See [Known limits](Known-Limits).
+Not every kind works in every Setup yet. A 3-axis Setup calculates with a block or a body. A rotary Setup needs a cylinder. An indexed Setup takes a block or a cylinder. A `body` stock works in all three kinds, and the body is never machined. In a 3-axis Setup the stock is the box of the body in the Setup's frame. In an indexed Setup it is that box too, at A = 0. In a rotary Setup it is the **bounding cylinder** of the body about the rotary axis: as long as the body along the axis, and as wide as its farthest point from the axis. A body that is not round, such as a square bar or a casting, therefore gives round stock that holds it, with more material than the body has. See [Known limits](Known-Limits).
 
 ## Work zero
 
@@ -86,6 +87,8 @@ The work zero is the point where the machine's X, Y and Z are zero. You set the 
 | 3-axis | `{ method = "stock_top_centre" }` | The centre of the stock's top |
 | 3-axis | `{ method = "point", at = [10, 20, 0] }` | A point in the model |
 | Rotary, indexed | `{ x = "stock_left" }` | On the rotary axis, at the left end of the stock. `"stock_right"` or a number also work |
+
+In the window, dragging the work zero handle also snaps to the model's vertices and to the centres of its arcs and circles (a 3-axis Setup writes `point` with that place; a rotary or indexed Setup writes the X along the axis, since its zero stays on the axis). Meshes (STL) have no such points: every triangle corner would be one.
 
 Rotary and indexed zeros always lie on the rotary axis in Y and Z. Putting the zero there means every rotary and indexed Setup on the same fixture can share one work offset: indexing never moves the zero.
 

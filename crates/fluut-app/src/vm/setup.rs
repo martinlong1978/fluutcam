@@ -156,7 +156,7 @@ fn stock_group(s: &Snapshot, r: &ResolvedSetup, unit: DisplayUnit) -> GroupVm {
     let mut widget = choices(&offered);
     let has_bodies = project_bodies(s).next().is_some();
     if let RowWidget::Choice(o) = &mut widget
-        && (matches!(st, StockSpec::Body { .. }) || (has_bodies && !r.kind.is_rotary()))
+        && (matches!(st, StockSpec::Body { .. }) || has_bodies)
     {
         o.push(("body".to_owned(), tr("stock-body")));
     }
@@ -449,6 +449,7 @@ impl SetupVm {
                 stock_group(s, r, unit),
                 zero_group(s, r, unit),
                 clearance_group(s, r, unit),
+                geometry_group(s, r),
             ],
             info: vec![(tr("setup-toolpaths"), toolpaths.to_string())],
             diagnostics: r.diagnostics.iter().map(DiagVm::of).collect(),
@@ -499,6 +500,50 @@ fn bodies_group(s: &Snapshot, r: &ResolvedSetup) -> GroupVm {
     GroupVm {
         id: "setup-bodies",
         label: tr("setup-bodies"),
+        rows,
+    }
+}
+
+const AXIS_NAMES: [&str; 3] = ["X", "Y", "Z"];
+
+/// Scale and mirror of the model about its origin, per axis.
+fn geometry_group(_s: &Snapshot, r: &ResolvedSetup) -> GroupVm {
+    let k = r.geometry.scale.map_or([1.0; 3], |k| k.map(|n| n.v));
+    // One factor for every axis comes first: STEP solids take no other.
+    let same = k[0] == k[1] && k[1] == k[2];
+    let mut rows = vec![RowVm {
+        key: "scale.all".to_owned(),
+        label: tr("setup-scale-all"),
+        widget: RowWidget::Number { unit: None },
+        value: if same { fmt_num(k[0]) } else { String::new() },
+        origin: OriginVm::default(),
+        pick: None,
+    }];
+    // A file with a factor per axis shows them; the bodies decide whether
+    // the frame accepts them.
+    for (i, n) in AXIS_NAMES.into_iter().enumerate().filter(|_| !same) {
+        let v = k[i];
+        rows.push(RowVm {
+            key: format!("scale.{i}"),
+            label: tr_args("setup-scale-axis", &[("axis", n)]),
+            widget: RowWidget::Number { unit: None },
+            value: fmt_num(v),
+            origin: OriginVm::default(),
+            pick: None,
+        });
+    }
+    for (i, n) in AXIS_NAMES.into_iter().enumerate() {
+        let on = r.geometry.mirror.is_some_and(|m| m[i]);
+        rows.push(check_row(
+            format!("mirror.{i}"),
+            tr_args("setup-mirror-axis", &[("axis", n)]),
+            on,
+            None,
+        ));
+    }
+    GroupVm {
+        id: "setup-geometry",
+        label: tr("setup-geometry"),
         rows,
     }
 }
@@ -687,11 +732,18 @@ fn bodies_edit(
             (list != all).then_some(list)
         }
     };
-    let g = GeometrySel {
-        bodies,
-        scale: r.geometry.scale,
-        mirror: r.geometry.mirror,
-    };
+    Ok(geometry_edit(
+        r,
+        GeometrySel {
+            bodies,
+            scale: r.geometry.scale,
+            mirror: r.geometry.mirror,
+        },
+    ))
+}
+
+/// The edit that writes the Setup's `geometry` field as `g`.
+fn geometry_edit(r: &ResolvedSetup, g: GeometrySel) -> Edit {
     let plain = g.bodies.is_none() && g.scale.is_none() && g.mirror.is_none();
     let mut t = Setup::new(&r.id, "");
     t.geometry = Some(g);
@@ -699,7 +751,46 @@ fn bodies_edit(
     let text = (!plain || r.based_on.is_some())
         .then(|| setup_field_text(&t, "geometry"))
         .flatten();
-    Ok(Edit::set_setup_field(&r.id, "geometry", text.as_deref()))
+    Edit::set_setup_field(&r.id, "geometry", text.as_deref())
+}
+
+/// The edit of a scale or mirror row: `scale.<i>` takes a non-zero number
+/// (all ones is no scale), `mirror.<i>` takes `true` or `false`.
+fn scale_mirror_edit(
+    r: &ResolvedSetup,
+    key: &str,
+    text: &str,
+    number: &dyn Fn() -> Result<Num, String>,
+) -> Result<Edit, String> {
+    let (what, i) = key.split_once('.').ok_or(NO_FIELD)?;
+    let mut g = r.geometry.clone();
+    if key == "scale.all" {
+        let v = number()?;
+        if v.v == 0.0 {
+            return Err(tr("setup-entry-nonzero"));
+        }
+        g.scale = (v.v != 1.0).then_some([v; 3]);
+        return Ok(geometry_edit(r, g));
+    }
+    let i = axis(i).ok_or(NO_FIELD)?;
+    match what {
+        "scale" => {
+            let v = number()?;
+            if v.v == 0.0 {
+                return Err(tr("setup-entry-nonzero"));
+            }
+            let mut k = g.scale.unwrap_or([Num::int(1); 3]);
+            k[i] = v;
+            g.scale = k.iter().any(|n| n.v != 1.0).then_some(k);
+        }
+        "mirror" => {
+            let mut m = g.mirror.unwrap_or([false; 3]);
+            m[i] = text == "true";
+            g.mirror = m.contains(&true).then_some(m);
+        }
+        _ => return Err(NO_FIELD.to_owned()),
+    }
+    Ok(geometry_edit(r, g))
 }
 
 /// The body a picked face, edge or body belongs to.
@@ -919,6 +1010,7 @@ pub fn setup_edit(snap: &Snapshot, setup: &str, key: &str, text: &str) -> Result
                 None => Err(NO_FIELD.to_owned()),
             };
         }
+        "scale" | "mirror" => return scale_mirror_edit(&r, key, text, &|| eval(FieldKind::Count)),
         "orientation" => {
             let role = match key {
                 "orientation.tool_axis" => SetupPick::ToolAxis,

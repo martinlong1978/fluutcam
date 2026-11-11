@@ -116,11 +116,11 @@ Windows, nightly, ASan, `-fork=6 -ignore_crashes=1`, both runs at the same time 
 | Executions | 934 693 | 870 776 | 923 274 |
 | Findings | 45 (21 booleans, 24 offsets) | 1 offset | 1 offset |
 
-No `cavalier_contours` debug assertion, panic, timeout or vertex blow-up in either run, and no boolean failure. About one failure in 900 000 executions, from one in 20 000. The two findings are growths that still fail every retry and are reported as `cam.region.offset_failed`; their exact inputs are `#[ignore]`d regression tests (below). All 45 inputs of the reproduction run pass.
+No `cavalier_contours` debug assertion, panic, timeout or vertex blow-up in either run, and no boolean failure. About one failure in 900 000 executions, from one in 20 000. The two findings are growths that still failed every retry and were reported as `cam.region.offset_failed`; their exact inputs were `#[ignore]`d regression tests (below), fixed since in [2026-11-11-region-retry.md](2026-11-11-region-retry.md). All 45 inputs of the reproduction run pass.
 
 ## Open issues
 
-- **Two growths** found by the final fuzz runs: `growth_of_a_grown_strip_with_a_micrometre_slit` (a strip with a slit 3 µm wide along its edge, grown twice) and `growth_after_a_shrink_of_unions_with_a_thin_triangle` (a shrink, then a growth by 1). Not analysed; reported as `cam.region.offset_failed`, never wrong silently.
+- ~~**Two growths** found by the final fuzz runs: `growth_of_a_grown_strip_with_a_micrometre_slit` (a strip with a slit 3 µm wide along its edge, grown twice) and `growth_after_a_shrink_of_unions_with_a_thin_triangle` (a shrink, then a growth by 1). Not analysed; reported as `cam.region.offset_failed`, never wrong silently.~~ Fixed in [2026-11-11-region-retry.md](2026-11-11-region-retry.md): an inner offset join of lines at a micro-radian angle in `cavalier_contours`, and tidying before splitting a self-touching offset loop; both tests run again.
 - **The guards are still plausibility checks.** Booleans check areas only, and the plain boolean's result is kept whenever it is plausible; offsets check areas, one vertex per loop and, where loops come within the offset distance of each other, the distance of every segment. A wrong single-loop offset of plausible area still passes.
 - **Cost:** +2.6-3.8 % on the `optimised_load` tests (above), within the noise of a shared machine but probably real.
 
