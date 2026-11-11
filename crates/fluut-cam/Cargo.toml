@@ -16,9 +16,18 @@ glam.workspace = true
 libm.workspace = true
 rayon.workspace = true
 
+[features]
+# Counts and times every drop of a `SurfaceQuery` and can record the drop
+# points (benchmarks only: `finishing_bench`).
+bench-stats = []
+
 [lints]
 workspace = true
 
 [dev-dependencies]
 fluut-io-step.workspace = true
 proptest.workspace = true
+
+[[example]]
+name = "finishing_bench"
+required-features = ["bench-stats"]

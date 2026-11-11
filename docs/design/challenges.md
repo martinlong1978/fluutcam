@@ -586,6 +586,8 @@ S2 cost model rather than D02 §8's estimate.
 
 **2026-11-11.** B-spline surfaces and curves (degree up to 7) evaluate from Bézier forms cached at construction: `derivs` 350 to 77 ns, first order 48 ns (target 250). Patch boxes and the patches' 8 x 8 sub-boxes now come from Bézier points (proven, much tighter). B-spline closest point takes 1.8 µs on the D02 §8 bench query (was 99 µs in M1, 62 µs on today's machine): **the 5 µs target is met.** The drop on free-form models is 3.4 to 6.2 times faster (25-66 µs median, a patch solve 10 µs instead of 30-40); it is still 1.2 to 3.3 times the 20 µs target ([plan](../plan/2026-11-11-bspline-speed.md)). Open: the flat-bottom Newton (flat and bull tools) and the re-solves of suspect patches.
 
+**2026-11-11 (round 2).** Whole finishing toolpaths spend 91-99 % of their time in drops on free-form parts (`finishing_bench`); `parallel`, `spiral` and `scallop` run on one thread. The flat-bottom Newton now gives up at its second step clamped by the face's parameter box (its 40-iteration failures were orbits through the clamp; a heuristic, checked drop by drop against the base on 126 000 drops, none lower by more than 1e-7 mm): flat and bull drops 1.25-1.42 times faster on the sculpted models, ball unchanged; B-spline edge sub-boxes are proven (Bézier points). Drop medians 22-55 µs on the free-form rasters, 1.1 to 2.7 times the 20 µs target. Left: the contact Newton (about 45 % of a drop) and the re-solves (about 30 % for the ball; a tighter strip bound halved them but cost as much as it saved) ([plan](../plan/2026-11-11-drop-speed-2.md)).
+
 ### CH-26 Fusion tool-library JSON has no public schema
 
 **Raised in D16 §2.1. Status: deferred.** The JSON key names the importer reads are the
