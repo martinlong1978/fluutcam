@@ -209,7 +209,7 @@ fn skl_bezier<const N: usize, const D: usize>(
     }
     let su = [1.0, iu, iu * iu];
     let sv = [1.0, iv, iv * iv];
-    let mut aw = [[DVec4::ZERO; 3]; 3];
+    let mut skl = [[Vec3::ZERO; 3]; 3];
     for k in 0..=D {
         for l in 0..=(D - k) {
             let mut acc = DVec3::ZERO;
@@ -219,18 +219,18 @@ fn skl_bezier<const N: usize, const D: usize>(
             if k + l > 0 {
                 acc *= su[k] * sv[l];
             }
-            aw[k][l] = acc.extend(0.0);
+            skl[k][l] = Vec3(acc);
         }
     }
     let Some(ws) = &bz.w else {
-        let mut skl = [[Vec3::ZERO; 3]; 3];
-        for k in 0..=D {
-            for l in 0..=(D - k) {
-                skl[k][l] = Vec3(aw[k][l].truncate());
-            }
-        }
         return skl;
     };
+    let mut aw = [[DVec4::ZERO; 3]; 3];
+    for k in 0..=D {
+        for l in 0..=(D - k) {
+            aw[k][l] = skl[k][l].0.extend(0.0);
+        }
+    }
     let ws = &ws[base..base + n];
     let mut tw = [[0.0f64; 3]; N];
     for (i, ti) in tw.iter_mut().enumerate().take(pu + 1) {
@@ -263,6 +263,29 @@ fn skl_bezier<const N: usize, const D: usize>(
 #[inline(always)]
 fn bernstein<const N: usize, const D: usize>(p: usize, t: f64) -> [[f64; N]; 3] {
     let s = 1.0 - t;
+    if p == 3 && N >= 4 {
+        // Cubic in closed form (the recurrence below up to rounding).
+        let mut out = [[0.0f64; N]; 3];
+        let (s2, t2, st) = (s * s, t * t, s * t);
+        out[0][0] = s2 * s;
+        out[0][1] = 3.0 * (st * s);
+        out[0][2] = 3.0 * (st * t);
+        out[0][3] = t2 * t;
+        if D >= 1 {
+            let q1 = 2.0 * st;
+            out[1][0] = -3.0 * s2;
+            out[1][1] = 3.0 * (s2 - q1);
+            out[1][2] = 3.0 * (q1 - t2);
+            out[1][3] = 3.0 * t2;
+        }
+        if D >= 2 {
+            out[2][0] = 6.0 * s;
+            out[2][1] = 6.0 * (t - 2.0 * s);
+            out[2][2] = 6.0 * (s - 2.0 * t);
+            out[2][3] = 6.0 * t;
+        }
+        return out;
+    }
     let mut b = [0.0f64; N];
     let mut b1 = [0.0f64; N];
     let mut b2 = [0.0f64; N];
