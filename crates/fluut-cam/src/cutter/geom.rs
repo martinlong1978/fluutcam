@@ -69,12 +69,22 @@ impl SubBox {
 }
 
 /// Sub-boxes of the part `uv` of a B-spline patch: a `SUB_GRID`² grid of
-/// cells, each the hull of its four corner points grown by the bilinear
-/// interpolation bound (as [`sampled_box`]; the second derivatives are
-/// sampled and doubled), and cut by `patch`, the box of the poles, which
-/// contains the whole patch by the convex hull property. Cells that miss
-/// the pole box altogether are not possible, a cell of the patch is in it.
+/// cells, each the box of the Bézier points of the surface over the cell
+/// (proven: `BSplineSurface::cell_bounds`), cut by `patch`, the box of the
+/// patch, which contains the whole patch by the convex hull property.
+/// Above degree 7 (no Bézier form) a cell is the hull of its four corner
+/// points grown by the bilinear interpolation bound (as [`sampled_box`];
+/// the second derivatives are sampled and doubled). Cells that miss the
+/// patch box altogether are not possible, a cell of the patch is in it.
 fn patch_sub_boxes(s: &Surface, uv: UvBox, patch: &Aabb3) -> Box<[SubBox]> {
+    if let Surface::BSpline(b) = s
+        && let Some(cells) = b.cell_bounds(uv, SUB_GRID)
+    {
+        return cells
+            .iter()
+            .map(|c| SubBox::new(&cut_box(c, patch)))
+            .collect();
+    }
     let (mut muu, mut mvv) = (0.0f64, 0.0f64);
     for i in 0..=4 {
         for j in 0..=4 {

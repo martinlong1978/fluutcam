@@ -3,6 +3,9 @@
 //! Spike S2 measurements: `cargo run -p fluut-cam --example s2 --release`.
 //! With `FLUUT_STEP_CORPUS=<dir>` it also runs on the corpus bodies and on
 //! an array of the largest one. `S2_QUICK=1` shrinks every sample.
+//! `S2_ONLY=<part>` runs one part: `synthetic`, `seeding`, `corpus` (the
+//! drops on every corpus body; `S2_SHARD=k/n` takes every n-th body from
+//! the k-th) or `largest` (the largest body and its array).
 
 use fluut_cam::cutter::reference::{Density, reference};
 use fluut_cam::cutter::solve::{Axis, SolveStats};
@@ -15,6 +18,11 @@ use std::time::Instant;
 
 fn quick() -> bool {
     std::env::var("S2_QUICK").is_ok()
+}
+
+/// Whether part `name` runs (`S2_ONLY`).
+fn part(name: &str) -> bool {
+    std::env::var("S2_ONLY").map_or(true, |p| p == name)
 }
 
 fn cutters() -> [(&'static str, Cutter); 3] {
@@ -366,14 +374,34 @@ fn corpus(dir: &str) {
         bodies.len()
     );
     println!("  face kinds (count, without trim): {kinds:?}");
-    // Drops on every body.
+    if part("corpus") {
+        corpus_drops(&bodies);
+    }
+    if part("largest") {
+        largest(&bodies);
+    }
+}
+
+/// Drops and misses on every corpus body.
+fn corpus_drops(bodies: &[(String, BrepBody)]) {
     let n_ref = if quick() { 5 } else { 40 };
+    // `S2_SHARD=k/n`: only bodies k, k + n, k + 2n, … (to split a long run).
+    let (shard, shards) = std::env::var("S2_SHARD")
+        .ok()
+        .and_then(|s| {
+            let (k, n) = s.split_once('/')?;
+            Some((k.parse().ok()?, n.parse().ok()?))
+        })
+        .unwrap_or((0usize, 1usize));
     let mut all: Vec<(&str, Run, Misses)> = Vec::new();
     for (label, c) in cutters() {
         let mut times = Vec::new();
         let mut stats = SolveStats::default();
         let mut tot = Misses::default();
         for (bi, (_, b)) in bodies.iter().enumerate() {
+            if bi % shards != shard {
+                continue;
+            }
             let g = QueryGeometry::new(b, &BuildOptions::default());
             let r = raster(&g, &c, &DropOptions::default(), 60, 30);
             times.extend(r.times_us);
@@ -407,7 +435,10 @@ fn corpus(dir: &str) {
         report(label, run);
         print_misses(label, m);
     }
-    // The largest body, and an array of it with at least 5 000 faces.
+}
+
+/// The largest body, and an array of it with at least 5 000 faces.
+fn largest(bodies: &[(String, BrepBody)]) {
     if let Some((name, big)) = bodies.iter().max_by_key(|(_, b)| b.faces.len()) {
         let k = (5000 + big.faces.len() - 1) / big.faces.len();
         let nx = (k as f64).sqrt().ceil() as usize;
@@ -436,6 +467,9 @@ fn corpus(dir: &str) {
 fn main() {
     let q = quick();
     for freeform in [false, true] {
+        if !part("synthetic") {
+            break;
+        }
         let body = tiled(25, freeform);
         let name = if freeform {
             "synthetic 5 000 faces, B-spline"
@@ -449,11 +483,16 @@ fn main() {
             if q { 10 } else { 100 },
         );
     }
-    seeding_study(
-        "synthetic B-spline tiles (2 × 2)",
-        &tiled(2, true),
-        if q { 10 } else { 100 },
-    );
+    if part("seeding") {
+        seeding_study(
+            "synthetic B-spline tiles (2 × 2)",
+            &tiled(2, true),
+            if q { 10 } else { 100 },
+        );
+    }
+    if !(part("corpus") || part("largest")) {
+        return;
+    }
     if let Ok(dir) = std::env::var("FLUUT_STEP_CORPUS") {
         corpus(&dir);
     } else {

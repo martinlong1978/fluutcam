@@ -616,6 +616,7 @@ pub(crate) fn newton_uv(
     let (mut u, mut v) = start;
     let mut d = s.derivs(u, v);
     let mut dist2 = (d.p - p).length_squared();
+    let split = matches!(s, Surface::BSpline(_));
     for _ in 0..NEWTON_UV_MAX_ITER {
         let r = d.p - p;
         let (gu, gv) = (r.dot(d.su), r.dot(d.sv));
@@ -635,6 +636,13 @@ pub(crate) fn newton_uv(
         let mut accepted = None;
         for _ in 0..30 {
             let (nu, nv) = uv.clamp(u + du, v + dv);
+            // A B-spline trial point takes the point alone (most are
+            // rejected): the same bits as `derivs`.
+            if split && (s.eval(nu, nv) - p).length_squared() > dist2 {
+                du *= 0.5;
+                dv *= 0.5;
+                continue;
+            }
             let nd = s.derivs(nu, nv);
             let nd2 = (nd.p - p).length_squared();
             if nd2 <= dist2 {
