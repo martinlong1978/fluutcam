@@ -39,7 +39,12 @@ pub(super) fn overlay(
     };
     let painter = ui.painter_at(rect);
     let orange = c(brand::CUTTER_ORANGE);
-    let ink = c(brand::INK);
+    // Dark ink on a dark viewport would vanish.
+    let ink = c(if ui.visuals().dark_mode {
+        brand::PAPER
+    } else {
+        brand::INK
+    });
     let mine = vs
         .handle_drag
         .as_ref()
