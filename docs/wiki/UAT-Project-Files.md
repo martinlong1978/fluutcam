@@ -174,3 +174,22 @@ Tests of starting, opening, saving and undoing. Part of the [user acceptance tes
   1. Do each of these, one at a time, and press **Ctrl+Z** once after each: change the Setup's work zero, rename the toolpath with F2, change the toolpath's tool, change its Top height offset, pick a face, move the toolpath down, disable it, duplicate it, delete it.
 - **Expected:** One press of Ctrl+Z undoes exactly the action just made, each time. The status bar names the change ("Undid ..."). When every action is undone, the `*` goes away.
 - [ ] Pass
+
+### UAT-PRJ-19 Tool library references round trip
+
+- **Preconditions:** a project with one Setup, saved. A tool library file `shared/shop.toml` in a folder beside the project's folder (see [UAT-TLS-14](UAT-Tools)).
+- **Steps:**
+  1. Add the library with **Add tool library…**, then save and read the project file in a text editor.
+  2. Close the project and open it again.
+  3. Do **Save as** into a new folder one level deeper, and read the new project file.
+  4. Remove the library from the browser list, save, and read the file.
+  5. Move `shared/shop.toml` away and open the project that had the reference.
+- **Expected:** Step 1: the first line is `format = "fluut.project/1.1"` and a line `tool_libraries = ["../shared/shop.toml"]` follows `units`. Step 2: the library is listed and its tools are in the tool dropdown; no `*`. Step 3: the path in the new file is one `../` longer and points to the same file; the library is not copied. Step 4: the first line is `format = "fluut.project/1"` again and there is no `tool_libraries` line; the rest of the file is as before. Step 5: the project opens; the library is marked in the browser list; the status bar or the diagnostics show `project.tools.missing`.
+- [ ] Pass
+
+### UAT-PRJ-20 A project without references is unchanged
+
+- **Steps:**
+  1. Open a copy of the `block` project, press **Ctrl+S** without changing anything, and compare the file with the original.
+- **Expected:** The file is identical, byte for byte.
+- [ ] Pass

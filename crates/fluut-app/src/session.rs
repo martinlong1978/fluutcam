@@ -646,6 +646,10 @@ impl Worker {
                 st.session.apply(edit).err().map(|e| e.0)
             }
             Edit::Model(edit) => st.session.apply(edit).err().map(|e| e.0),
+            Edit::ReloadToolLibraries => {
+                st.session.reload_tool_libraries();
+                None
+            }
         };
         self.snapshot();
     }

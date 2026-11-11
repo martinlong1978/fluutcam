@@ -156,6 +156,22 @@ match = "setup.machine.missing"
 text = "The machine the Setup names cannot be found. Choose another machine, or add the machine file to the project's `machines` folder."
 
 [[advice]]
+match = "project.tools.missing"
+text = "A tool library file the project refers to was not found. Put the file back, or remove it from the Tool libraries list in the browser."
+
+[[advice]]
+match = "project.tools.rejected"
+text = "A tool library reference must be a plain file path: web addresses and network paths are not used. Remove it from the Tool libraries list, or edit `tool_libraries` in the project file."
+
+[[advice]]
+match = "project.tools.duplicate"
+text = "The same tool library file is listed twice and is loaded once. Remove one of them."
+
+[[advice]]
+match = "project.tools.replaces"
+text = "Two tool libraries have the same id and version; the one listed later replaces the earlier one. Give one of them another id or version, or remove one."
+
+[[advice]]
 match = "model.*"
 text = "A file could not be read, or the project and its model disagree. The message names the file."
 

@@ -99,6 +99,9 @@ pub enum Edit {
     },
     /// Any other change to the project, one undo step.
     Model(fluut_model::edit::Edit),
+    /// Reads the project's tool library files again (a library file was
+    /// written or changed); not a change to the project, so no undo step.
+    ReloadToolLibraries,
 }
 
 /// What to post and where.

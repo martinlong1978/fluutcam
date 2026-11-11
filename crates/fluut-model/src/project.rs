@@ -27,18 +27,23 @@ use crate::params::{Num, Params, ToolpathTypeId};
 use std::fmt;
 use std::sync::Arc;
 
-/// File format id and version (D06 §7.2). The writer always writes
-/// `fluut.project/1`; the reader accepts minors up to [`PROJECT_MINOR`]
-/// and runs the migrations of older minors.
+/// File format id and version (D06 §7.2). The writer writes
+/// `fluut.project/1`, or `fluut.project/1.1` when the project lists tool
+/// libraries (D06 §7.2.1); the reader accepts minors up to
+/// [`PROJECT_MINOR`] and runs the migrations of older minors.
 pub const PROJECT_FORMAT: &str = "fluut.project";
 pub const PROJECT_MAJOR: u32 = 1;
-pub const PROJECT_MINOR: u32 = 0;
+pub const PROJECT_MINOR: u32 = 1;
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct Project {
     pub name: String,
     /// Display and entry unit; the file always holds mm (D15 §1.2).
     pub units: DisplayUnit,
+    /// Tool library files the project uses besides its `tools/` folder
+    /// (D06 §7.2.1), as written: relative to the project file with `/`,
+    /// or absolute. In load order; empty is not written.
+    pub tool_libraries: Vec<String>,
     pub geometry: Vec<GeometrySource>,
     /// In machining order.
     pub setups: Vec<Arc<Setup>>,
@@ -51,6 +56,7 @@ impl Project {
         Project {
             name: name.to_owned(),
             units: DisplayUnit::Mm,
+            tool_libraries: Vec::new(),
             geometry: Vec::new(),
             setups: Vec::new(),
             views: Vec::new(),

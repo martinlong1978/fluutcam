@@ -101,6 +101,9 @@ pub struct Done {
     pub report: Option<ImportReport>,
     /// Warnings, or the errors that stopped the import.
     pub diagnostics: Vec<Diagnostic>,
+    /// The project has been told to use the library ("Use in this
+    /// project").
+    pub used: bool,
 }
 
 impl Done {
@@ -115,6 +118,7 @@ impl Done {
             library_id: String::new(),
             report: None,
             diagnostics: d,
+            used: false,
         }
     }
 
@@ -255,6 +259,7 @@ pub fn run(source: &Path, target: &Path, replace: bool) -> Done {
         library_id: id,
         report: Some(r.report),
         diagnostics: r.diagnostics,
+        used: false,
     }
 }
 
@@ -365,6 +370,13 @@ impl ToolImport {
         match &self.phase {
             Phase::Done(d) => Some(d),
             _ => None,
+        }
+    }
+
+    /// The project now uses the library of the open result.
+    pub fn mark_used(&mut self) {
+        if let Phase::Done(d) = &mut self.phase {
+            d.used = true;
         }
     }
 

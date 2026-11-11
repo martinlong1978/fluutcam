@@ -17,6 +17,7 @@ mod project;
 mod ribbon;
 mod simulation;
 mod tool_import;
+mod tool_libs;
 mod updates;
 mod viewport;
 
@@ -98,6 +99,11 @@ pub struct UiState {
     pub pending: Option<project::Pending>,
     /// The tool library import (D16 §10.2).
     pub tool_import: crate::vm::tool_import::ToolImport,
+    /// The browser's "Add tool library…" button was pressed; the frame
+    /// opens the dialog (the browser has no access to the dialogs).
+    pub add_tool_library: bool,
+    /// Why the last library was not added, or that it was listed already.
+    pub tool_lib_note: Option<String>,
     /// The "Getting started" card.
     pub guide: GuideState,
 }
@@ -126,6 +132,8 @@ impl Default for UiState {
             new_project: None,
             pending: None,
             tool_import: Default::default(),
+            add_tool_library: false,
+            tool_lib_note: None,
             guide: GuideState::default(),
         }
     }
@@ -276,8 +284,12 @@ impl FluutApp {
                 K::ImportToolsSource | K::ImportToolsTarget => {
                     tool_import::picked(ui.ctx(), &self.jobs, &mut self.ui, &mut self.dialogs, p)
                 }
+                K::AddToolLibrary => tool_libs::picked(&mut self.jobs, &mut self.ui, p),
                 _ => project::picked(&mut self.jobs, &mut self.ui, p),
             }
+        }
+        if std::mem::take(&mut self.ui.add_tool_library) {
+            tool_libs::ask(&self.jobs, &mut self.dialogs);
         }
         tool_import::tick(ui.ctx(), &mut self.ui, &self.dialogs);
         if self.bench.timing_frames() && !self.bench_ready && !self.jobs.is_busy() {

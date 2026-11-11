@@ -73,7 +73,25 @@ flute_length  = 25
 
 Then open the project. The tool appears in the **Tool** list of a toolpath's Tool tab (see [Add a toolpath](Add-a-Toolpath)), as "shop: Flat 6 mm, ...". In the project file it is written `tool = "shop#flat-6"`. The full list of tool settings is in the [data format specification](https://github.com/martinlong1978/fluutcam/blob/main/docs/spec/02-data-formats.md).
 
-The command-line programs also take extra tool files with `--tools <file>`, loaded after the project's `tools/` folder. See [Command line](Command-Line).
+The command-line programs also take extra tool files with `--tools <file>`, loaded after the project's `tools/` folder and after the libraries the project lists. See [Command line](Command-Line).
+
+## Use a library from another folder
+
+A library does not have to live in the project's `tools/` folder. A shop-wide library, such as one imported from Fusion, can stay where it is, and each project that uses it can **refer to it**.
+
+1. Open the project, then on the **Library** tab click **Add tool library…**. Your system's file dialog opens; choose the library's `.toml` file. (You can also use **Add library…** under **Tool libraries** in the browser on the left.)
+2. The library is loaded at once, with no need to reopen the project, and its tools appear in the Tool list. The browser's **Tool libraries** list now shows the file. The project is marked as changed, and **Undo** takes the library out again.
+3. To stop using a library, click **Remove** beside it in that list. That is also one undo step.
+
+The project file keeps the reference, not a copy: a line `tool_libraries = ["../shared/fusion-mill.toml"]`. The path is relative to the project file when the library and the project share a folder (so the two can move together), and a full path otherwise. When you **Save As** into another folder, the relative paths are rewritten so that they still point to the same files. See [Save, undo and recover](Save-Undo-Recover) for how projects are saved.
+
+**Which library wins.** FluutCAM loads the project's `tools/` folder first, then the libraries in the list in the order shown, then any `--tools` files from the command line. If two libraries have the same id and version, the one loaded later replaces the earlier one, and a warning (`project.tools.replaces`) says so. A library with another version number is a different library.
+
+**If a file is missing.** The project still opens. The browser marks the library, a warning (`project.tools.missing`) names the file, and a toolpath that used one of its tools shows a missing tool until the file is back. The reference stays in the project, so putting the file back is enough.
+
+**Only files.** A reference is a path to a file on your computer or network drive that you can open. Web addresses (`https:`, `file:`) and network paths that start with `\` or `//` are not used (`project.tools.rejected`): opening a project never fetches anything from the network, and the library file is only read as data, never run.
+
+A project that lists libraries is saved as format `fluut.project/1.1`. A project that lists none is saved exactly as before. An older FluutCAM that opens a `1.1` project warns that newer fields will not be saved, because it does not know the list.
 
 ## Import from Fusion
 

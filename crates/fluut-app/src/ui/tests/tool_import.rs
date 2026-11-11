@@ -73,8 +73,8 @@ fn the_ribbon_asks_for_the_file_then_for_the_library_and_shows_the_result() {
     h.get_by_label("Warnings");
     h.get_by_label("[import.tool.unsupported_type]");
     // No project: the result says how to use the library.
-    h.get_by_label_contains("Open a project to use the library");
-    assert!(h.query_by_label("Reload project to use it").is_none());
+    h.get_by_label("Open a project to use the library.");
+    assert!(h.query_by_label("Use in this project").is_none());
     assert!(out.is_file());
     h.get_by_label("Close").click();
     h.run_steps(3);
@@ -186,22 +186,32 @@ fn an_existing_file_is_replaced_only_when_the_save_dialog_confirmed() {
     );
 }
 
+/// Steps until the snapshot satisfies `done` (edits run on the worker).
+fn until(h: &mut Harness<'static, State>, done: impl Fn(&crate::session::Snapshot) -> bool) {
+    for _ in 0..2000 {
+        h.step();
+        if app(h).jobs.snapshot.as_deref().is_some_and(&done) {
+            h.run_steps(3);
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    panic!("the snapshot did not change");
+}
+
+fn has_library(s: &crate::session::Snapshot) -> bool {
+    s.tools.libraries().any(|l| l.id == "fusion/fusion-sample")
+}
+
 #[test]
-fn a_library_in_the_project_tools_folder_can_be_loaded_by_reloading_the_project() {
+fn a_library_in_the_project_tools_folder_is_loaded_without_reloading_the_project() {
     let d = temp("ui-project");
     copy_dir(project("block").parent().unwrap(), &d);
     let proj = d.join("block.fluut");
     let mut h = harness();
     h.step();
     open(&mut h, proj.clone());
-    let ids = |h: &mut Harness<'static, State>| -> Vec<String> {
-        snapshot(h)
-            .tools
-            .libraries()
-            .map(|l| l.id.clone())
-            .collect()
-    };
-    assert!(!ids(&mut h).contains(&"fusion/fusion-sample".to_owned()));
+    assert!(!has_library(&snapshot(&mut h)));
     scripted(&mut h).answer(DialogKind::ImportToolsSource, fixture());
     scripted(&mut h).answer(DialogKind::ImportToolsTarget, d.join("tools/sample.toml"));
     start(&mut h);
@@ -210,26 +220,66 @@ fn a_library_in_the_project_tools_folder_can_be_loaded_by_reloading_the_project(
     assert_eq!(second.kind, DialogKind::ImportToolsTarget);
     assert_eq!(second.dir, Some(d.join("tools")));
     h.get_by_label("Tools written: 7");
-    h.get_by_label_contains("so it loads when the project is opened");
-    h.get_by_label("Reload project to use it").click();
-    settle(&mut h);
-    h.run_steps(3);
-    assert!(ids(&mut h).contains(&"fusion/fusion-sample".to_owned()));
-    assert!(h.query_by_label("Tools written: 7").is_none());
+    h.get_by_label_contains("so it loads whenever the project is opened");
+    h.get_by_label("Use in this project").click();
+    until(&mut h, has_library);
+    // The window stays and says so; nothing was added to the project.
+    h.get_by_label("This project now uses the library.");
+    assert!(
+        app(&mut h)
+            .jobs
+            .snapshot
+            .as_ref()
+            .unwrap()
+            .project
+            .tool_libraries
+            .is_empty()
+    );
+    assert!(!snapshot(&mut h).dirty);
 }
 
 #[test]
-fn a_library_elsewhere_says_a_project_cannot_refer_to_it_yet() {
+fn a_library_elsewhere_is_added_to_the_project_as_a_relative_reference() {
     let d = temp("ui-elsewhere");
+    copy_dir(project("block").parent().unwrap(), &d.join("jobs/one"));
+    let proj = d.join("jobs/one/block.fluut");
     let mut h = harness();
     h.step();
-    open(&mut h, project("block"));
+    open(&mut h, proj);
+    scripted(&mut h).answer(DialogKind::ImportToolsSource, fixture());
+    scripted(&mut h).answer(DialogKind::ImportToolsTarget, d.join("shared/lib.toml"));
+    std::fs::create_dir_all(d.join("shared")).unwrap();
+    start(&mut h);
+    h.get_by_label("Tools written: 7");
+    h.get_by_label_contains("The library is outside this project's tools folder");
+    assert!(!has_library(&snapshot(&mut h)));
+    h.get_by_label("Use in this project").click();
+    until(&mut h, has_library);
+    h.get_by_label("This project now uses the library.");
+    let s = snapshot(&mut h);
+    assert_eq!(s.project.tool_libraries, ["../../shared/lib.toml"]);
+    assert!(s.dirty);
+    assert!(s.warnings.is_empty(), "{:?}", s.warnings);
+    // One undo step takes it back.
+    h.get_by_label("Close").click();
+    h.run_steps(3);
+    stage(&mut h, "LIBRARY");
+    h.get_by_label("Undo").click();
+    until(&mut h, |s| !has_library(s));
+    assert!(snapshot(&mut h).project.tool_libraries.is_empty());
+}
+
+#[test]
+fn use_in_this_project_is_not_offered_without_a_project() {
+    let d = temp("ui-noproject");
+    let mut h = harness();
+    h.step();
     scripted(&mut h).answer(DialogKind::ImportToolsSource, fixture());
     scripted(&mut h).answer(DialogKind::ImportToolsTarget, d.join("lib.toml"));
     start(&mut h);
     h.get_by_label("Tools written: 7");
-    h.get_by_label_contains("A project cannot refer to a library in another folder yet");
-    assert!(h.query_by_label("Reload project to use it").is_none());
+    h.get_by_label("Open a project to use the library.");
+    assert!(h.query_by_label("Use in this project").is_none());
 }
 
 #[test]

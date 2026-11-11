@@ -369,16 +369,16 @@ file, and the import then replaces it. Scripted dialogs (tests) do not confirm u
 meanwhile is not replaced either. The library can never replace its own source
 (`import.output.is_input`). A failed import writes nothing. Cancelling either dialog does nothing.
 
-**Using the library.** A project does not name its tool libraries: the session loads
-`<project folder>/tools/*.toml` when the project is opened, and `--tools` adds files on the
-command line (`Library::load_tools_file`). There is no operation that adds a library to an open
-session and no project field that points at a library file. So the result window offers, when
-the new file is directly in the open project's `tools/` folder, **Reload project to use it**,
-which opens the project again through the existing Open path (it asks first about unsaved
-changes). For a library saved elsewhere, or with no project open, it says how to use it
-instead. A project reference to a library in another folder (and a live "add library" edit) is
-not built; it needs a design of its own (a `tool_libraries` field in the project format, S 02).
-Known limits say so.
+**Using the library.** Since 2026-11-11 a project can name tool library files outside `tools/`
+(`tool_libraries`, D06 §7.2.1), and the session loads a changed list at once. With a project open,
+the result window offers **Use in this project** for a library saved anywhere. For a file directly
+in the project's `tools/` folder, which the project loads whenever it opens, the button only reads
+the project's tool libraries again (`ReloadToolLibraries`, no document change, no undo step). For
+any other file it adds a reference, relative to the project file where the two share a folder
+(else absolute), as one `SetToolLibraries` edit: one undo step, and the project is marked as
+changed. A file the project lists already is read again instead, so a library imported over an
+earlier import shows its new tools. No library is copied. With no project open the window says to
+open one. The earlier "Reload project to use it" button is gone.
 
 Tests: view-model tests in `vm/tool_import/tests.rs` (the importer on the fixture, counts text,
 overwrite, own source, `.vtdb` and other formats, bad JSON, missing file, unwritable target,

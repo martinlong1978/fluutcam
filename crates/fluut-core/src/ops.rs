@@ -13,7 +13,7 @@ use fluut_cam::geometry::{BodyGeom, SetupGeometry};
 use fluut_model::defs::DefRef;
 use fluut_model::edit::Edit;
 use fluut_model::hash::sha256_hex;
-use fluut_model::library::{DefKind, LayerKind};
+use fluut_model::library::{DefKind, LayerKind, check_tool_ref, resolve_tool_ref, tool_ref_for};
 use fluut_model::params::{Num, ToolpathTypeId};
 use fluut_model::persist;
 use fluut_model::project::{
@@ -225,6 +225,9 @@ impl Session {
         if moved {
             self.copy_beside(&new_dir)?;
         }
+        if moved {
+            self.rebase_tool_references(&new_dir);
+        }
         let saved = persist::save(&path, &self.project).map_err(|e| {
             Diagnostic::error("model.project.save", format!("{}: {e}", path.display()))
         })?;
@@ -233,6 +236,19 @@ impl Session {
         self.dir = new_dir;
         self.saved = self.project.clone();
         Ok(())
+    }
+
+    /// Rewrites the relative tool library references to name the same
+    /// files from `new_dir`. The libraries themselves stay where they are:
+    /// they are shared, not part of the project folder (D06 §7.2.1).
+    fn rebase_tool_references(&mut self, new_dir: &Path) {
+        let old = self.dir.clone();
+        for r in &mut self.project.tool_libraries {
+            if check_tool_ref(r).is_ok() && !Path::new(r.as_str()).is_absolute() {
+                *r = tool_ref_for(new_dir, &resolve_tool_ref(&old, r));
+            }
+        }
+        self.tool_refs = self.project.tool_libraries.clone();
     }
 
     /// Copies what the project needs from its folder to `new_dir`.

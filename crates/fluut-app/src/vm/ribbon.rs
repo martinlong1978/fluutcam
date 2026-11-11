@@ -179,6 +179,7 @@ pub enum Command {
     Post,
     Cancel,
     ImportTools,
+    AddToolLibrary,
     LibraryTools,
     LibraryMachines,
     LibraryPosts,
@@ -210,6 +211,7 @@ impl Command {
             Command::Post,
             Command::Cancel,
             Command::ImportTools,
+            Command::AddToolLibrary,
             Command::LibraryTools,
             Command::LibraryMachines,
             Command::LibraryPosts,
@@ -268,6 +270,7 @@ impl Command {
             Command::Post => "post.all",
             Command::Cancel => "job.cancel",
             Command::ImportTools => "library.import_tools",
+            Command::AddToolLibrary => "library.add_tool_library",
             Command::LibraryTools => "library.tools",
             Command::LibraryMachines => "library.machines",
             Command::LibraryPosts => "library.posts",
@@ -302,6 +305,7 @@ impl Command {
             Command::Post => "ribbon-post",
             Command::Cancel => "ribbon-cancel",
             Command::ImportTools => "ribbon-import-tools",
+            Command::AddToolLibrary => "ribbon-add-tool-library",
             Command::LibraryTools => "ribbon-library-tools",
             Command::LibraryMachines => "ribbon-library-machines",
             Command::LibraryPosts => "ribbon-library-posts",
@@ -360,6 +364,7 @@ impl Command {
             Command::Post => "post",
             Command::Cancel => "cancel",
             Command::ImportTools => "import-tools",
+            Command::AddToolLibrary => "add-tool-library",
             Command::LibraryTools => "library-tools",
             Command::LibraryMachines => "library-machines",
             Command::LibraryPosts => "library-posts",
@@ -638,6 +643,7 @@ impl RibbonVm {
                 GroupId::Library,
                 vec![
                     C::ImportTools,
+                    C::AddToolLibrary,
                     C::LibraryTools,
                     C::LibraryMachines,
                     C::LibraryPosts,
@@ -678,7 +684,10 @@ impl RibbonVm {
         c.wired()
             && match c {
                 Command::NewProject | Command::Open | Command::ImportTools => !self.busy,
-                Command::Save | Command::SaveAs | Command::ImportModel => ready,
+                Command::Save
+                | Command::SaveAs
+                | Command::ImportModel
+                | Command::AddToolLibrary => ready,
                 Command::Reimport => ready && self.has_geometry,
                 Command::Undo => ready && self.can_undo,
                 Command::Redo => ready && self.can_redo,

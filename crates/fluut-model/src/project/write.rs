@@ -238,12 +238,20 @@ pub(crate) fn setup_value(s: &Setup, k: &str) -> Option<String> {
 pub fn write(p: &Project) -> String {
     let mut out = String::new();
     let mut b = Block::new();
-    b.put(
-        "format",
-        quote(&format!("{PROJECT_FORMAT}/{PROJECT_MAJOR}")),
-    );
+    // Minor 1 only when a minor-1 key is used, so other files stay as an
+    // older build wrote them (D06 §7.2.1).
+    let version = if p.tool_libraries.is_empty() {
+        format!("{PROJECT_MAJOR}")
+    } else {
+        format!("{PROJECT_MAJOR}.1")
+    };
+    b.put("format", quote(&format!("{PROJECT_FORMAT}/{version}")));
     b.put("name", quote(&p.name));
     b.put("units", quote(p.units.as_str()));
+    if !p.tool_libraries.is_empty() {
+        let items: Vec<String> = p.tool_libraries.iter().map(|s| quote(s)).collect();
+        b.put("tool_libraries", format!("[{}]", items.join(", ")));
+    }
     b.write(&mut out, "");
     for g in &p.geometry {
         source(&mut out, g);

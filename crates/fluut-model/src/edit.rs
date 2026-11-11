@@ -7,6 +7,7 @@
 //! is checked by the same reader as a file, and the journal (D06 §7.3)
 //! stores edits without serde on the model types.
 
+use crate::library::check_tool_ref;
 use crate::params::value::quote;
 use crate::params::{Sel, ToolpathTypeId};
 use crate::project::{
@@ -25,6 +26,8 @@ pub enum Edit {
     SetName(String),
     /// `mm` or `inch`.
     SetUnits(String),
+    /// Replaces the tool library references (D06 §7.2.1).
+    SetToolLibraries(Vec<String>),
     /// A `[[geometry]]` table.
     AddGeometry {
         at: Option<u32>,
@@ -150,6 +153,7 @@ impl Edit {
         match self {
             Edit::SetName(_) => "Rename project".into(),
             Edit::SetUnits(_) => "Change units".into(),
+            Edit::SetToolLibraries(_) => "Change tool libraries".into(),
             Edit::AddGeometry { .. } => "Add geometry".into(),
             Edit::SetGeometry { id, .. } => format!("Update geometry {id}"),
             Edit::RemoveGeometry(id) => format!("Remove geometry {id}"),
@@ -268,6 +272,16 @@ fn apply_in(p: &mut Project, edit: &Edit, ch: &mut Changed) -> R<()> {
         Edit::SetUnits(u) => {
             p.units = DisplayUnit::parse(u)
                 .ok_or_else(|| EditError(format!("`{u}` is not mm or inch")))?;
+            ch.insert("project".into());
+        }
+        Edit::SetToolLibraries(refs) => {
+            for (i, r) in refs.iter().enumerate() {
+                check_tool_ref(r).map_err(|why| EditError(format!("`{r}`: {why}")))?;
+                if refs[..i].contains(r) {
+                    return e(format!("`{r}` is listed twice"));
+                }
+            }
+            p.tool_libraries = refs.clone();
             ch.insert("project".into());
         }
         Edit::AddGeometry { at, text } => {

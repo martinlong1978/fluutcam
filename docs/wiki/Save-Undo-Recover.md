@@ -8,7 +8,7 @@ A project is a folder with a **project file** (`name.fluut`) in it. The file is 
 - `name.fluut.bak`, the previous saved version, kept every time you save;
 - optionally, folders with your own definitions: `tools/`, `machines/`, `posts/` and `templates/` (see [Machines and posts](Machines-and-Posts) and [Tools](Tools)).
 
-Keep the folder together. To move or share a project, move or zip the whole folder.
+Keep the folder together. To move or share a project, move or zip the whole folder. If the project refers to a tool library kept in another folder ([Tools](Tools)), that file is not in the project folder: take it along, or the library will be reported as missing.
 
 ## Save
 
@@ -16,7 +16,7 @@ Keep the folder together. To move or share a project, move or zip the whole fold
 
 FluutCAM saves safely: it writes a new file first, keeps the old file as `name.fluut.bak`, and only then puts the new file in place. A power cut during a save leaves the old file or the new one, not half of each. Saving a project that has not changed gives exactly the same file.
 
-**Save as** (**Ctrl+Shift+S**), which opens a file dialog, saves under a new name or in a new folder. When the folder is new, FluutCAM copies what the project needs next to it: the model files and the `tools/`, `machines/`, `posts/` and `templates/` folders. The new project opens just as the old one did.
+**Save as** (**Ctrl+Shift+S**), which opens a file dialog, saves under a new name or in a new folder. When the folder is new, FluutCAM copies what the project needs next to it: the model files and the `tools/`, `machines/`, `posts/` and `templates/` folders. The new project opens just as the old one did. Tool libraries the project refers to in other folders are not copied; their paths are rewritten so that they still point to the same files.
 
 A new project (**New project**, **Ctrl+N**) is saved at once, empty, so the file exists from the start.
 
