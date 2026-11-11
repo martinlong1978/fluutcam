@@ -30,7 +30,9 @@ pub struct BSplineSurface {
     periodic_u: bool,
     periodic_v: bool,
     /// Per Bézier patch: its parameter box and the bounds of the poles that
-    /// affect it (which contain the patch, by the convex hull property).
+    /// affect it (which contain the patch, by the convex hull property),
+    /// cut by the bounds of its Bézier points where there is a Bézier form
+    /// (they contain it too, and are tighter).
     patches: Vec<(UvBox, Aabb3)>,
     /// The patches in Bézier form (degrees below [`SMALL`] only).
     bezier: Option<Bezier>,
@@ -90,7 +92,29 @@ fn inverse_lengths(brk: &[f64]) -> Vec<f64> {
     brk.windows(2).map(|w| 1.0 / (w[1] - w[0])).collect()
 }
 
+/// `a` cut by `b`; `a` where they do not overlap (not possible for two
+/// bounds of the same patch, but rounding).
+fn cut(a: &Aabb3, b: &Aabb3) -> Aabb3 {
+    let c = Aabb3 {
+        min: Point3(a.min.0.max(b.min.0)),
+        max: Point3(a.max.0.min(b.max.0)),
+    };
+    if c.min.0.cmple(c.max.0).all() { c } else { *a }
+}
+
 impl Bezier {
+    /// Bounds of the Bézier points of patch `k` (degrees `pu`, `pv`), which
+    /// contain the patch (convex hull property; the weights are positive).
+    fn bounds(&self, k: usize, pu: usize, pv: usize) -> Aabb3 {
+        let n = (pu + 1) * (pv + 1);
+        let mut b = Aabb3::empty();
+        for (i, q) in self.xyz[k * n..(k + 1) * n].iter().enumerate() {
+            let w = self.w.as_ref().map_or(1.0, |w| w[k * n + i]);
+            b = b.with_point(Point3(*q / w));
+        }
+        b
+    }
+
     fn new(s: &BSplineSurface) -> Bezier {
         let (pu, pv) = (s.deg_u as usize, s.deg_v as usize);
         let (us, su) = spans(&s.knots_u, pu, s.nu);
@@ -385,8 +409,8 @@ impl BSplineSurface {
             patches: Vec::new(),
             bezier: None,
         };
-        s.patches = s.compute_patches();
         s.bezier = s.make_bezier();
+        s.patches = s.compute_patches();
         Ok(s)
     }
 
@@ -538,8 +562,8 @@ impl BSplineSurface {
             poles: self.poles.iter().map(|&q| a.apply_point(q)).collect(),
             ..self.clone()
         };
-        s.patches = s.compute_patches();
         s.bezier = s.make_bezier();
+        s.patches = s.compute_patches();
         s
     }
 
@@ -579,6 +603,13 @@ impl BSplineSurface {
                     for c in j - pv..=j {
                         b = b.with_point(self.poles[a * self.nv + c]);
                     }
+                }
+                if let Some(bz) = &self.bezier {
+                    // Grown by a few units in the last place: an evaluated
+                    // point can round just outside the hull of its points.
+                    b = cut(&b, &bz.bounds(out.len(), pu, pv));
+                    let m = b.min.0.abs().max(b.max.0.abs()).max_element();
+                    b = b.expand(1e-13 * (1.0 + m));
                 }
                 out.push((UvBox::new(iu, iv), b));
             }
@@ -700,6 +731,59 @@ mod tests {
             }
         }
         assert!(n > 10_000);
+    }
+
+    #[test]
+    fn patch_bounds_contain_the_patch_and_are_tighter_than_the_poles() {
+        let cases = [
+            (
+                3,
+                3,
+                vec![0., 0., 0., 0., 1., 2., 3., 3., 3., 3.],
+                vec![0., 0., 0., 0., 0.5, 1., 1., 1., 1.],
+            ),
+            (
+                2,
+                3,
+                vec![0., 0., 0., 0.3, 0.3, 0.9, 2., 2., 2.],
+                vec![-1., -1., -1., -1., 0.2, 0.7, 4., 4., 4., 4.],
+            ),
+            (
+                3,
+                1,
+                vec![0., 1., 2., 3., 4., 5., 6., 7., 8.],
+                vec![0., 0., 1., 2.5, 3., 3.],
+            ),
+        ];
+        let (mut tighter, mut n) = (0, 0);
+        for (c, (pu, pv, ku, kv)) in cases.into_iter().enumerate() {
+            for rational in [false, true] {
+                let s = surface(pu, pv, ku.clone(), kv.clone(), rational, 50 + c as u64);
+                let mut plain = s.clone();
+                plain.bezier = None;
+                let poles = plain.compute_patches();
+                for ((uv, b), (_, pb)) in s.patches().iter().zip(&poles) {
+                    for i in 0..=20 {
+                        for j in 0..=20 {
+                            let p = s.eval(uv.u.at(i as f64 / 20.0), uv.v.at(j as f64 / 20.0));
+                            assert!(
+                                p.0.cmpge(b.min.0).all() && p.0.cmple(b.max.0).all(),
+                                "case {c}: {p:?} outside {b:?}"
+                            );
+                            n += 1;
+                        }
+                    }
+                    // Inside the pole box, up to the growth for rounding.
+                    let grown = pb.expand(1e-12 * (1.0 + pb.max.0.abs().max_element()));
+                    assert!(b.min.0.cmpge(grown.min.0).all() && b.max.0.cmple(grown.max.0).all());
+                    let shrunk = |k: usize| {
+                        b.min.0[k] > pb.min.0[k] + 1e-9 || b.max.0[k] < pb.max.0[k] - 1e-9
+                    };
+                    tighter += usize::from((0..3).any(shrunk));
+                }
+            }
+        }
+        assert!(n > 10_000 && tighter > 10, "{n} {tighter}");
     }
 
     #[test]
