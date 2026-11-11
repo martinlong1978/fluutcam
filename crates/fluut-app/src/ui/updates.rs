@@ -12,6 +12,7 @@ use super::UiState;
 use crate::text::{tr, tr_args};
 use crate::updates::{UpdateState, Updates};
 use eframe::egui;
+use fluut_core::update::Channel;
 
 /// "Check for updates automatically?" on first start. Escape, or a click
 /// outside the dialog, is a No.
@@ -65,6 +66,20 @@ pub fn settings(ctx: &egui::Context, state: &mut UiState, updates: &mut Updates)
                 updates.answer(auto);
             }
             ui.label(egui::RichText::new(tr("settings-privacy")).small());
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                ui.label(tr("settings-channel"));
+                let mut channel = updates.channel();
+                let before = channel;
+                ui.radio_value(&mut channel, Channel::Stable, tr("settings-channel-stable"));
+                ui.radio_value(&mut channel, Channel::Beta, tr("settings-channel-beta"));
+                if channel != before {
+                    updates.set_channel(channel);
+                }
+            });
+            if updates.channel() == Channel::Beta {
+                ui.label(egui::RichText::new(tr("settings-channel-beta-note")).small());
+            }
             ui.add_space(4.0);
             ui.horizontal(|ui| {
                 let idle = !updates.is_checking();

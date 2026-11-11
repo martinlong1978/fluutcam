@@ -88,5 +88,5 @@ its point in the spec.
 | Per-type parameter definitions (strategy specification) | 02 §2.1, 04 §4.13.7 |
 | Vectric features with no equivalent (direct output, drill banks, laser) | 05 §5.10.1 |
 | Vectric / Fusion tool library field mapping | 05 §5.10.5 |
-| Telemetry policy (opt-in only, if any) | 06 §6.4 |
-| Release channels and update cadence | 06 §6.5 |
+| Telemetry policy (opt-in only, if any) | 06 §6.4: recommended none in v1, D17, awaiting the maintainer |
+| Release channels and update cadence | 06 §6.2, §6.5: designed, D17 |

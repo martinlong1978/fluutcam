@@ -10,7 +10,7 @@ advertising. Your projects, models, tools and settings stay on your computer.
 
 | Feature | When | What is sent | Where |
 |---|---|---|---|
-| Update check | Only if you say Yes when FluutCAM asks on first start, or turn it on in Settings; at most once a day | One HTTPS request for the release list. GitHub sees your IP address and the fixed user agent `FluutCAM-update-check`, which carries no version or system details; nothing else is sent | `github.com` (GitHub's [privacy statement](https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement)) |
+| Update check | Only if you say Yes when FluutCAM asks on first start, or turn it on in Settings; at most once a day | One HTTPS request for the release list (and one for its signature). GitHub sees your IP address and the fixed user agent `FluutCAM-update-check`, which carries no version or system details; nothing else is sent. If you choose the **Beta** release channel in Settings, the list asked for is the beta one, so GitHub can tell that you chose it | `github.com` (GitHub's [privacy statement](https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement)) |
 | Check now | Only when you click **Check now**, or run `fluut update-check` | The same single request | `github.com` |
 
 The Linux Flatpak is built without the network permission, so neither of these can run

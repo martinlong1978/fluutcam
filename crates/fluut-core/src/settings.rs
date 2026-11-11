@@ -8,6 +8,7 @@
 //! the defaults.
 
 use crate::crash;
+use crate::update::Channel;
 use serde::{Deserialize, Serialize};
 use std::io;
 use std::path::{Path, PathBuf};
@@ -23,6 +24,9 @@ pub struct UpdateSettings {
     pub asked: bool,
     /// Check automatically (at most once a day). Off until the user says yes.
     pub auto_check: bool,
+    /// Which releases to hear about (D17): `stable` unless the user chose
+    /// `beta`. An unknown value in the file reads as `stable`.
+    pub channel: Channel,
     /// Unix time of the last check, automatic or asked for.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_check: Option<u64>,
@@ -193,6 +197,42 @@ asked = true
         t.update.answer(false);
         t.save_to(&path).unwrap();
         assert_eq!(Settings::load_from(&path), t);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn the_channel_is_stable_by_default_and_the_choice_is_kept() {
+        let path = temp_file("channel");
+        let mut s = Settings::default();
+        assert_eq!(s.update.channel, Channel::Stable);
+        s.update.channel = Channel::Beta;
+        s.save_to(&path).unwrap();
+        assert_eq!(Settings::load_from(&path).update.channel, Channel::Beta);
+        // A file from before channels existed gives stable, keeping the rest.
+        std::fs::write(
+            &path,
+            "[update]
+asked = true
+auto_check = true
+",
+        )
+        .unwrap();
+        let old = Settings::load_from(&path);
+        assert!(old.update.auto_check);
+        assert_eq!(old.update.channel, Channel::Stable);
+        // An unknown channel name gives stable and does not lose the rest.
+        std::fs::write(
+            &path,
+            "[update]
+asked = true
+auto_check = true
+channel = \"nightly\"
+",
+        )
+        .unwrap();
+        let odd = Settings::load_from(&path);
+        assert!(odd.update.auto_check);
+        assert_eq!(odd.update.channel, Channel::Stable);
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
