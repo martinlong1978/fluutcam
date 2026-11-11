@@ -171,7 +171,7 @@ pub(crate) fn link_runs(
     runs: &[Run],
     mut diags: Vec<Diagnostic>,
     ty: &str,
-    level_clear: Option<&dyn Fn(Point3, Point3) -> bool>,
+    level_clear: Option<&(dyn Fn(Point3, Point3) -> bool + Sync)>,
     retract: Option<RetractPolicy>,
 ) -> Result<Generated, CamError> {
     let p = &st.params;

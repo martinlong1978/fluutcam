@@ -15,10 +15,11 @@ use super::contour::link_runs;
 use crate::follow::{CUTOFF, Drive, LoopDrive, Run, Sampler, curve_sagitta, setup};
 use crate::region::{Inside, Region2};
 use crate::toolpath::{CamError, Generated, Role, StrategyInput, ToolpathType};
-use fluut_geom::Point2;
+use fluut_geom::{Point2, Point3};
 use fluut_model::Diagnostic;
 use fluut_model::params::ToolpathTypeId;
 use fluut_model::resolve::OffsetOrder;
+use rayon::prelude::*;
 use std::f64::consts::{FRAC_PI_2, PI, TAU};
 
 #[derive(Debug)]
@@ -75,8 +76,14 @@ impl ToolpathType for Spiral {
                 end: TAU * turns,
                 reverse: sp.direction == OffsetOrder::OutsideIn,
             };
-            for (k, (t0, t1)) in d.clip(&region, 0.5 * tool.radius()).into_iter().enumerate() {
-                for pts in pl.cut_runs(&d, t0, t1) {
+            // Independent stretches: sampled in parallel, joined in order.
+            let spans = d.clip(&region, 0.5 * tool.radius());
+            let per: Vec<Vec<Vec<Point3>>> = spans
+                .par_iter()
+                .map(|&(t0, t1)| pl.cut_runs(&d, t0, t1))
+                .collect();
+            for (k, rs) in per.into_iter().enumerate() {
+                for pts in rs {
                     runs.push(Run {
                         pts,
                         pass: k + 1,
@@ -88,9 +95,16 @@ impl ToolpathType for Spiral {
         }
         if sp.machine_corners {
             let base = runs.len() + 1;
-            for (k, l) in region.loops.iter().enumerate() {
-                let d = LoopDrive::new(l);
-                for pts in pl.cut_runs(&d, 0.0, d.length()) {
+            let per: Vec<Vec<Vec<Point3>>> = region
+                .loops
+                .par_iter()
+                .map(|l| {
+                    let d = LoopDrive::new(l);
+                    pl.cut_runs(&d, 0.0, d.length())
+                })
+                .collect();
+            for (k, rs) in per.into_iter().enumerate() {
+                for pts in rs {
                     runs.push(Run {
                         pts,
                         pass: base + k,
