@@ -109,6 +109,20 @@ impl Camera {
             (1.0 - ndc.y) * 0.5 * size.y,
         ))
     }
+
+    /// The ray through pixel `pos` of a `size` viewport (origin top left):
+    /// a point on it and the unit direction.
+    #[must_use]
+    pub fn ray(&self, pos: Vec2, size: Vec2) -> (Vec3, Vec3) {
+        let inv = self.view_proj(size.x / size.y).inverse();
+        let ndc = Vec2::new(pos.x / size.x * 2.0 - 1.0, 1.0 - pos.y / size.y * 2.0);
+        let at = |z: f32| {
+            let p = inv * glam::Vec4::new(ndc.x, ndc.y, z, 1.0);
+            p.xyz() / p.w
+        };
+        let near = at(0.0);
+        (near, (at(1.0) - near).normalize())
+    }
 }
 
 #[cfg(test)]
@@ -181,5 +195,18 @@ mod tests {
         let c = cam();
         let p = c.project(c.target, Vec2::new(640.0, 480.0)).unwrap();
         assert!((p - Vec2::new(320.0, 240.0)).length() < 1e-3);
+    }
+
+    #[test]
+    fn a_ray_through_a_projected_point_passes_through_it() {
+        let c = cam();
+        let size = Vec2::new(800.0, 600.0);
+        for p in [Vec3::new(3.0, -4.0, 5.0), Vec3::new(-8.0, 2.0, -1.0)] {
+            let px = c.project(p, size).unwrap();
+            let (o, d) = c.ray(px, size);
+            let off = (p - o) - d * (p - o).dot(d);
+            assert!(off.length() < 1e-2, "{off}");
+            assert!((d.length() - 1.0).abs() < 1e-4);
+        }
     }
 }

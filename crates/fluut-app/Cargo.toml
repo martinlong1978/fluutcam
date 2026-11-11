@@ -20,6 +20,7 @@ fluut-path.workspace = true
 fluut-post.workspace = true
 fluut-post-import.workspace = true
 fluut-topo.workspace = true
+libm.workspace = true
 glam = { workspace = true, features = ["bytemuck"] }
 bytemuck = { version = "1", features = ["derive"] }
 # `default_fonts` is off: the UI font is bundled in `assets/fonts` (D13 §6).

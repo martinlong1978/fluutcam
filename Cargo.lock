@@ -1513,6 +1513,7 @@ dependencies = [
  "fluut-topo",
  "glam",
  "image",
+ "libm",
  "pollster 0.4.0",
  "resvg",
  "rfd",

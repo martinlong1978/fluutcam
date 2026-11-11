@@ -30,6 +30,8 @@ pub enum HandleKind {
     Radius,
     /// The length of cylinder stock.
     Length,
+    /// The pointer of the index angle dial of an indexed Setup.
+    Dial,
 }
 
 impl HandleKind {
@@ -42,6 +44,7 @@ impl HandleKind {
             HandleKind::Size(i) => Some(format!("stock.size.{i}")),
             HandleKind::Radius => Some("stock.radius".to_owned()),
             HandleKind::Length => Some("stock.length".to_owned()),
+            HandleKind::Dial => Some("index_angle".to_owned()),
         }
     }
 }
@@ -53,7 +56,7 @@ pub struct Handle {
     pub at: [f32; 3],
     /// For a stock value: the unit direction it grows in.
     pub dir: [f32; 3],
-    /// For a stock value: it, mm.
+    /// For a stock value: it, mm; for the dial, the index angle, degrees.
     pub value_mm: f64,
     /// How far the value moves per mm the handle moves: 2 where the stock
     /// grows on both sides of the model (a length, a size in X and Y).
@@ -130,6 +133,16 @@ pub fn handles(s: &Snapshot, setup: &str) -> Vec<Handle> {
             });
         }
         _ => {}
+    }
+    // The index angle dial of an indexed Setup: the value is in degrees.
+    if let (Some(ring), Some(deg)) = (dial::ring(s, setup), dial::angle(s, setup)) {
+        out.push(Handle {
+            kind: HandleKind::Dial,
+            at: ring.point(deg),
+            dir: [0.0; 3],
+            value_mm: deg,
+            gain: 1.0,
+        });
     }
     out
 }
@@ -306,6 +319,9 @@ pub fn value_edit(
     kind: HandleKind,
     mm: f64,
 ) -> Result<Option<Edit>, String> {
+    if kind == HandleKind::Dial {
+        return Err("the dial turns, it has no length".to_owned());
+    }
     let key = kind.key().ok_or("the zero has no value")?;
     let current = handles(s, setup)
         .into_iter()
@@ -331,6 +347,8 @@ pub fn margin_edit(
 ) -> Result<Option<Edit>, String> {
     value_edit(s, setup, HandleKind::Margin(axis), mm)
 }
+
+pub mod dial;
 
 #[cfg(test)]
 mod tests;
