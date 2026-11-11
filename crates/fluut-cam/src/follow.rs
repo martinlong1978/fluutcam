@@ -422,6 +422,13 @@ const PASS: f64 = 0.8;
 /// up to rounding), and one drop checks both.
 const SAG_LINE: f64 = 1e-12;
 
+/// Cut chords up to this many `tol` long in XY are not checked for creases
+/// ([`Sampler::crease`]).
+const CREASE_MIN: f64 = 0.25;
+/// A cut chord is split when its end gradients put the CL off it by more
+/// than this many `tol` between them ([`Sampler::crease`]).
+const CREASE_LIM: f64 = 0.5;
+
 /// A CL sample at parameter `t` along a drive curve.
 #[derive(Copy, Clone, Debug)]
 pub struct Sample {
@@ -433,6 +440,8 @@ pub struct Sample {
     /// The middle drop of an accepted chord: the output must stay within
     /// `tol/4` of it, but it is not a vertex of the output.
     pub check: bool,
+    /// Gradient of the CL there ([`Hit::grad`]; 0 at `bottom`).
+    pub grad: Vec2,
 }
 
 /// CL points along drive curves: drops, classification and adaptive
@@ -456,11 +465,22 @@ impl Sampler<'_> {
 
     /// As [`Sampler::cl`], with the contact slope.
     pub fn cl_slope(&self, p: Point2) -> (f64, bool, f64) {
+        let s = self.at(p, 0.0);
+        (s.z, s.cut, s.slope)
+    }
+
+    /// The sample at `p`, parameter `t`.
+    fn at(&self, p: Point2, t: f64) -> Sample {
         let hit = self.q.drop(p.x(), p.y());
-        let (z, slope, drive) = match hit {
-            Some(Hit { tip, slope, drive }) if tip >= self.h.bottom => (tip, slope, drive),
+        let (z, slope, drive, grad) = match hit {
+            Some(Hit {
+                tip,
+                slope,
+                drive,
+                grad,
+            }) if tip >= self.h.bottom => (tip, slope, drive, grad),
             // Nothing under the tool, or below the bottom: at the bottom.
-            _ => (self.h.bottom, 0.0, true),
+            _ => (self.h.bottom, 0.0, true, Vec2::new(0.0, 0.0)),
         };
         // Slope limits are inclusive; rounding at 0° and 90° is forgiven.
         let eps = 1e-12;
@@ -468,18 +488,18 @@ impl Sampler<'_> {
             && slope >= self.min_slope - eps
             && slope <= self.max_slope + eps
             && z <= self.h.top + ABOVE_TOP;
-        (z, cut, slope)
-    }
-
-    fn sample(&self, d: &impl Drive, t: f64) -> Sample {
-        let (z, cut, slope) = self.cl_slope(d.at(t));
         Sample {
             t,
             z,
             cut,
             slope,
             check: false,
+            grad,
         }
+    }
+
+    fn sample(&self, d: &impl Drive, t: f64) -> Sample {
+        self.at(d.at(t), t)
     }
 
     /// Samples of `d` over `[t0, t1]` in order: chords within `tol/4` of
@@ -630,6 +650,9 @@ impl Sampler<'_> {
             if dev > lim && !step {
                 return Split::At(m, halves(dev));
             }
+            if !step && self.crease(d, &a, &b, &m, d.at(tm)) {
+                return Split::At(m, Hint::Unknown);
+            }
             return Split::Accept(Some(m));
         }
         if sag > lim {
@@ -651,18 +674,69 @@ impl Sampler<'_> {
             m = Some(s);
         }
         let cm = d.at(a.t) + (d.at(b.t) - d.at(a.t)) * 0.5;
-        let (zc, cut_c) = self.cl(cm);
-        let err = (zc - mid).abs();
-        if cut_c != a.cut || err > lim {
+        let c = self.at(cm, tm);
+        let err = (c.z - mid).abs();
+        if c.cut != a.cut || err > lim {
             let s = m.unwrap_or_else(|| self.sample(d, tm));
-            let h = if cut_c != a.cut {
+            let h = if c.cut != a.cut {
                 Hint::Unknown
             } else {
                 halves(err)
             };
             return Split::At(s, h);
         }
+        if self.crease(d, &a, &b, &c, cm) {
+            let s = m.unwrap_or_else(|| self.sample(d, tm));
+            return Split::At(s, Hint::Unknown);
+        }
         Split::Accept(m)
+    }
+
+    /// Whether a cut chord `a`–`b`, longer than [`CREASE_MIN`]`·tol` in
+    /// XY, that holds `tol/4` at its middle drop `c` (at `pc`) may still
+    /// leave the CL by more than [`CREASE_LIM`]`·tol` elsewhere, by the
+    /// CL's gradients at its ends and middle ([`Sample::grad`]): a crease
+    /// of a flat or bull tool's CL (the contact jumping between faces,
+    /// edges or vertices) that the middle does not see. With `s` the chord's slope and `g` the end gradients
+    /// along it, the tangent offsets over the chord are `da = (ga − s)·l`
+    /// and `db = (s − gb)·l` (both `4e` for a parabola of middle error
+    /// `e`). Of one sign, the CL bends one way (any number of creases of
+    /// one kind): it lies between the chord and its end tangents, so within
+    /// `da·db/(da + db)` of the chord (exact for one crease between straight
+    /// pieces). Of opposite signs (an S, two creases, an inflection):
+    /// `max(|da|, |db|)/2` (exact for two creases between straight pieces,
+    /// given the middle test). The same bound for each half, plus the
+    /// middle's distance from the chord, holds for the half's part of the
+    /// chord; the largest of the three decides. See the crease-checks plan.
+    fn crease(&self, d: &impl Drive, a: &Sample, b: &Sample, c: &Sample, pc: Point2) -> bool {
+        let (pa, pb) = (d.at(a.t), d.at(b.t));
+        let v = pb - pa;
+        let l = v.length();
+        if l <= CREASE_MIN * self.tol {
+            return false;
+        }
+        let u = v * (1.0 / l);
+        let g = |s: &Sample| s.grad.x() * u.x() + s.grad.y() * u.y();
+        // The CL's largest distance from the chord `(0, za)`–`(l, zb)`
+        // (along it) by the gradients `ga`, `gb` at its ends.
+        let off = |l: f64, za: f64, zb: f64, ga: f64, gb: f64| {
+            let s = (zb - za) / l;
+            let (da, db) = ((ga - s) * l, (s - gb) * l);
+            if da * db > 0.0 {
+                (da * db / (da + db)).abs()
+            } else {
+                0.5 * da.abs().max(db.abs())
+            }
+        };
+        // The middle `c` splits the chord in two; each half's CL is within
+        // its own bound of the half chord, which is within `|c − mid|` of
+        // the chord.
+        let h = (pc - pa).length();
+        let dev = (c.z - 0.5 * (a.z + b.z)).abs();
+        let e = off(l, a.z, b.z, g(a), g(b))
+            .max(off(h, a.z, c.z, g(a), g(c)) + dev)
+            .max(off(l - h, c.z, b.z, g(c), g(b)) + dev);
+        e > CREASE_LIM * self.tol
     }
 
     /// The cut stretches of `d` over `[t0, t1]` as CL polylines, collinear
