@@ -6,8 +6,9 @@
 //! counts and warnings. There is no path text box anywhere: the paths come
 //! from the system dialogs only.
 
-use super::{UiState, project};
+use super::{UiState, tool_libs};
 use crate::dialogs::{DialogKind, Dialogs, Picked};
+use crate::jobs::Edit;
 use crate::jobs::Jobs;
 use crate::text::tr;
 use crate::vm::tool_import::{self, Done};
@@ -25,6 +26,7 @@ pub fn ask(jobs: &Jobs, state: &mut UiState, dialogs: &mut Dialogs) {
         return;
     }
     state.tool_import.close();
+    state.tool_lib_note = None;
     let dir = project_path(jobs).and_then(|p| p.parent().map(PathBuf::from));
     dialogs.request(DialogKind::ImportToolsSource, dir, "");
 }
@@ -82,22 +84,27 @@ pub fn show(ctx: &egui::Context, jobs: &mut Jobs, state: &mut UiState) {
         return;
     };
     let mut close = false;
-    let mut reload = None;
+    let mut use_it = false;
+    let note = state.tool_lib_note.clone();
     window(ctx).show(ctx, |ui| {
         ui.set_max_width(520.0);
-        result(ui, jobs, &done, &mut close, &mut reload);
+        result(ui, jobs, &done, note.as_deref(), &mut close, &mut use_it);
     });
-    if let Some(path) = reload {
-        state.tool_import.close();
-        project::picked(
-            jobs,
-            state,
-            Picked {
-                kind: DialogKind::Open,
-                path,
-            },
-        );
-    } else if close {
+    if use_it {
+        // A library in the project's `tools` folder is loaded by the
+        // project already; the others are referred to by path.
+        let used = match project_path(jobs) {
+            Some(p) if tool_import::loads_with_project(&p, &done.target) => {
+                jobs.edit(Edit::ReloadToolLibraries);
+                true
+            }
+            _ => tool_libs::add(jobs, state, &done.target) != tool_libs::Used::Refused,
+        };
+        if used {
+            state.tool_import.mark_used();
+        }
+    }
+    if close {
         state.tool_import.close();
     }
 }
@@ -113,8 +120,9 @@ fn result(
     ui: &mut egui::Ui,
     jobs: &Jobs,
     done: &Done,
+    note: Option<&str>,
     close: &mut bool,
-    reload: &mut Option<PathBuf>,
+    use_it: &mut bool,
 ) {
     ui.label(egui::RichText::new(done.headline()).strong());
     for line in done.counts() {
@@ -158,16 +166,22 @@ fn result(
     }
     if done.ok() {
         ui.separator();
-        let project = project_path(jobs);
-        match project {
-            Some(p) if tool_import::loads_with_project(&p, &done.target) => {
-                ui.label(tr("tools-import-in-project"));
-                if ui.button(tr("tools-import-reload")).clicked() {
-                    *reload = Some(p);
+        match project_path(jobs) {
+            Some(p) => {
+                let inside = tool_import::loads_with_project(&p, &done.target);
+                ui.label(tr(if inside {
+                    "tools-import-in-project"
+                } else {
+                    "tools-import-elsewhere"
+                }));
+                if done.used {
+                    ui.label(egui::RichText::new(tr("tools-import-used")).strong());
+                } else if ui.button(tr("tools-import-use")).clicked() {
+                    *use_it = true;
                 }
-            }
-            Some(_) => {
-                ui.label(tr("tools-import-elsewhere"));
+                if let Some(n) = note {
+                    ui.label(n);
+                }
             }
             None => {
                 ui.label(tr("tools-import-no-project"));

@@ -340,6 +340,42 @@ const SHOTS: &[Shot] = &[
         },
     },
     Shot {
+        name: "setup-fixtures",
+        shows: "An indexed Setup with a chuck, a tailstock and a clamp: the Fixtures group of the inspector, the fixtures as wire frames, and the index angle dial (the ring with its orange pointer)",
+        crop: None,
+        run: |r| {
+            r.open_sample("flipside");
+            for kind in ["chuck", "tailstock", "clamp"] {
+                let snap = r.app().jobs.snapshot.clone().expect("a project is open");
+                let edit = fluut_app::vm::setup::setup_edit(&snap, "s1", "fixtures.add", kind)
+                    .expect("the fixture is added");
+                r.app().jobs.edit(fluut_app::jobs::Edit::Model(edit));
+                // The edit makes a newer snapshot; wait for it.
+                for _ in 0..4000 {
+                    r.h.step();
+                    let now = r.app().jobs.snapshot.as_ref().map(|s| s.revision);
+                    if now > Some(snap.revision) {
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+            }
+            r.settle();
+            r.click("SETUP");
+            r.app().ui.selection = Selection::Setup("s1".into());
+            r.app().ui.inspector_focus = Some("setup-fixtures");
+            r.h.run_steps(4);
+            // The viewport fits the Setup when it first shows it; then the
+            // camera is set.
+            r.app().view.camera.yaw = -0.9;
+            r.app().view.camera.pitch = 0.5;
+            r.app().view.camera.distance *= 1.4;
+            r.h.run_steps(4);
+            r.app().ui.inspector_focus = None;
+            r.h.run_steps(2);
+        },
+    },
+    Shot {
         name: "settings",
         shows: "Settings: the update check, which is off until you turn it on",
         crop: Some((400, 355, 480, 170)),

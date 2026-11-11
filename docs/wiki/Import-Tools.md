@@ -17,7 +17,13 @@ In Fusion's tool library, export the library you want as a JSON file. Importing 
 
 ![The Import tools result](images/import-tools-result.png)
 
-**Using the new library.** If you saved it in the open project's `tools/` folder, the window offers **Reload project to use it**. A library in that folder is loaded when the project is opened, so the button opens the project again (it asks first if you have unsaved changes). If you saved it anywhere else, the window says so: a project cannot refer to a library in another folder yet, so copy the file into the project's `tools/` folder, or use the command line with `--tools` ([Command line](Command-Line)). The window never adds the library to the project file.
+**Using the new library.** With a project open, the window offers **Use in this project**, wherever you saved the library.
+
+- If the library is in the project's `tools/` folder, the project loads it whenever it opens; the button makes FluutCAM read the libraries again now, so its tools are in the Tool list at once. Nothing is added to the project file.
+- If the library is anywhere else, the button adds a **reference** to the file to the project (a relative path where the library and the project share a folder) and loads the library at once. The project is marked as changed, and **Undo** takes the reference out again. The browser's **Tool libraries** list shows it, and you can remove it there. See [Tools](Tools) ("Use a library from another folder").
+- With no project open, the window says to open one first.
+
+The window never copies the library into the project: it stays where you saved it, so several projects can use it.
 
 Cancel either dialog and nothing happens. The library id is `fusion/` and the Fusion file's name, as on the command line; use the command line if you want another id or name.
 
@@ -37,7 +43,7 @@ fluut tools import shop-tools.json -o shop.tools.toml
 
 The command prints a warning for everything it changed or left out, and one line at the end: `shop.tools.toml: 7 of 9 tools imported as library fusion/shop-tools (2 skipped)`.
 
-To use the library, put the output file in your project's `tools/` folder, or load it with `--tools shop.tools.toml` ([Command line](Command-Line)). A toolpath then names a tool as `<library id>#<tool id>`, for example `fusion/shop-tools#t1-6-mm-flat`. See [Tools](Tools).
+To use the library, put the output file in your project's `tools/` folder, list it in the project's `tool_libraries` ([Tools](Tools)) or load it with `--tools shop.tools.toml` ([Command line](Command-Line)). A toolpath then names a tool as `<library id>#<tool id>`, for example `fusion/shop-tools#t1-6-mm-flat`. See [Tools](Tools).
 
 The import always makes a **new** file. It does not change a library you already have. To combine them, make your own library `extends` the imported one ([Tools](Tools)).
 

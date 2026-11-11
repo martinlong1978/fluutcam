@@ -84,7 +84,7 @@ The script can read and write the project's folder and the paths you list after 
 
 ## `--tools <file>`
 
-Loads an extra tool library, after the project's own `tools/` folder. Give it more than once to load more. Use it to try a tool library without copying it into the project. See [Tools](Tools).
+Loads an extra tool library, after the project's own `tools/` folder and after the libraries the project lists in `tool_libraries` (`calc`, `sim`, `post` and `run` all read that list). A library from `--tools` replaces one with the same id and version loaded before it. Give it more than once to load more. Use it to try a tool library without copying it into the project or listing it. See [Tools](Tools).
 
 ## `fluut tools import`
 

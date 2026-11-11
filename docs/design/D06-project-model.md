@@ -333,6 +333,67 @@ scrubbing a value) merge into one entry.
   rename temp to `name.fluut` (`tempfile::NamedTempFile::persist`; on Windows `ReplaceFileW`
   semantics).
 
+### 7.2.1 Tool library references (2026-11-11)
+
+Before this, tool libraries came only from `<project>/tools/*.toml` (loaded when the project
+opens) and from `--tools <file>` on the command line. A library kept somewhere else, such as a
+shop-wide Fusion import, could not be used by a project. The project file gets one key.
+
+```toml
+format         = "fluut.project/1.1"
+name           = "Bracket"
+units          = "mm"
+tool_libraries = ["../../shared/fusion-mill.toml", "C:/shop/router-bits.toml"]
+```
+
+- **Key.** `tool_libraries`, a top-level array of strings after `units`, one library file each.
+  `Project.tool_libraries: Vec<String>` holds the strings as written. Empty or absent means
+  none; an empty list is not written.
+- **Paths.** A reference is relative to the folder of the project file, written with `/` on every
+  system, or absolute. The app writes a relative path whenever the library and the project share
+  a folder below the root (`tool_ref_for`, purely lexical), else an absolute path. `Save As` into
+  another folder rewrites the relative references so that they name the same files from the new
+  place; the libraries themselves are shared and are not copied (unlike `tools/`, which is).
+- **Order and duplicates.** All of these are the project layer, loaded in this order: the files
+  of `tools/` by name, then the references in the order of the list, then `--tools` files. The
+  rule that already held for `--tools` stays: of two libraries with the same id and version, the
+  one loaded later replaces the earlier one (a different version is a different library). A
+  reference whose library replaces one loaded from `tools/` or from an earlier reference is a
+  warning, `project.tools.replaces`, so a shadowed library does not go unnoticed. The same file
+  listed twice (after normalising `.` and `..`) is loaded once, with `project.tools.duplicate`.
+  The built-in and user layers are below the project layer as before.
+- **Missing or bad files.** A missing reference (or a folder) is the warning
+  `project.tools.missing`, naming the file; the project opens, the other libraries load, and a
+  toolpath that needs a tool of the missing library reports its missing tool as usual. The
+  reference stays in the list (and in the file), so putting the file back and reopening works. A
+  file that is not a valid tool library is `model.tools.load`, as for a bad file in `tools/`.
+- **Format version.** The key is a minor change, `fluut.project/1.1`. The writer writes
+  `fluut.project/1.1` only when `tool_libraries` is not empty and `fluut.project/1` otherwise, so
+  every project without references is written byte for byte as before (the golden projects do
+  not change). The reader accepts the key in any file of major 1. An older build reads
+  `1.1` with the existing newer-minor warning ("newer fields are ignored and will not be saved");
+  it does not know the key, so saving there would drop the references, and the warning says so.
+- **Security.** A reference is a file path and nothing else. URLs (`https:`, `file:`, any
+  `scheme:`) and network paths (`\server\share`, `//server/share`) are not used: the warning
+  `project.tools.rejected` is given, nothing is fetched and no network share is contacted when a
+  project is opened (on Windows a network path would start an authentication to that server).
+  Control characters and references longer than 1024 bytes are rejected the same way. The file is
+  parsed as data by the tool library reader; nothing in it is executed. Opening a project from
+  someone else therefore reads the files it names, as `tools/` already did; the app lists the
+  references in the browser so that they can be seen.
+- **Edit.** `Edit::SetToolLibraries(Vec<String>)` replaces the whole list ("Change tool
+  libraries", one undo step, journalled, marks the project changed). It refuses an unusable
+  reference or a repeated one. `Session::apply`, `undo` and `redo` load the project-layer tool
+  libraries again (`Session::reload_tool_libraries`: `tools/`, references, `--tools` files; the
+  load warnings are replaced) when the list differs from the one loaded. So the app shows a new
+  library at once, with no reload of the project, and `fluut calc`, `sim`, `post` and `run`
+  honour the references through `Session::open_with` with nothing more.
+- **App.** The Library ribbon group has **Add tool library...** (native open dialog, never a path
+  box). The browser lists the references under **Tool libraries** with a Remove button and a
+  mark on the ones that did not load. The **Import tools** result window offers **Use in this
+  project**: for a library in `tools/` it only reads the libraries again; for any other it adds a
+  reference.
+
 ### 7.3 Journal (autosave)
 
 ```

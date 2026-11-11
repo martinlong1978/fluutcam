@@ -33,6 +33,7 @@ ordered list of Toolpaths (03 §3.1, §3.9). Geometry placement and transforms a
 format = "fluut.project/1"
 name   = "Shaft"
 units  = "mm"                                  # display/entry units; internal is always mm
+# tool_libraries = ["../shared/fusion-mill.toml"]   # optional; see below (format is then fluut.project/1.1)
 
 [[geometry]]                                   # Model: one per imported file  
 id   = "g1"
@@ -120,6 +121,8 @@ stock       = { kind = "from_previous" }
 
 [[view]]                                       # saved camera views
 ```
+
+**Tool library references.** `tool_libraries` (optional) lists tool library files outside the project's `tools/` folder, one path each: relative to the project file (written with `/`) or absolute. They load after `tools/` and before `--tools` files; a library with the same id and version as an earlier one replaces it. A missing file is a warning, not an error. URLs and network paths are not accepted. The writer writes `fluut.project/1.1` only when the list is not empty. Design: D06 §7.2.1.
 
 A three-axis Setup uses `orientation = { tool_axis = …, x_axis = … }`, a `block` stock, and any
 zero point (03 §3.9.3):

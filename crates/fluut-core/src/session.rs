@@ -126,6 +126,12 @@ pub struct Session {
     pub warnings: Vec<Diagnostic>,
     /// The project file, when the session has one.
     pub path: Option<PathBuf>,
+    /// The `tool_libraries` references the project-layer tool libraries
+    /// were loaded for; a change in `project` loads them again.
+    pub(crate) tool_refs: Vec<String>,
+    /// Tool library files from the command line, loaded after the
+    /// project's own (`--tools`).
+    pub(crate) extra_tool_files: Vec<PathBuf>,
     cache: BTreeMap<String, Cached>,
     disk: Option<DiskCache>,
     /// Undo history and journal; kept in step with `project` by `apply`.
@@ -140,6 +146,8 @@ pub struct Session {
 impl Session {
     pub fn new(project: Project, dir: PathBuf, store: ModelStore, library: Library) -> Session {
         Session {
+            tool_refs: project.tool_libraries.clone(),
+            extra_tool_files: Vec::new(),
             doc: Document::new(project.clone()),
             saved: project.clone(),
             project,
@@ -158,7 +166,9 @@ impl Session {
     }
 
     /// Opens a project file. Tool libraries come from `tools/*.toml` beside
-    /// the project, then from `tool_files` (later ids replace earlier ones).
+    /// the project, then from the files the project lists in
+    /// `tool_libraries`, then from `tool_files` (later ids replace earlier
+    /// ones; D06 §7.2.1).
     pub fn open(path: &Path, tool_files: &[PathBuf]) -> Result<Session, Vec<Diagnostic>> {
         Session::open_with(
             path,
@@ -195,6 +205,11 @@ impl Session {
             warnings.extend(library.load_dir(u, LayerKind::User));
         }
         warnings.extend(library.load_dir(&dir, LayerKind::Project));
+        warnings.extend(library.load_tool_references(
+            &dir,
+            &loaded.project.tool_libraries,
+            LayerKind::Project,
+        ));
         for f in &opts.tool_files {
             warnings.extend(library.load_tools_file(f, LayerKind::Project));
         }
@@ -203,6 +218,7 @@ impl Session {
             warnings.extend(store.load(g, &dir));
         }
         let mut s = Session::new(loaded.project, dir, store, library);
+        s.extra_tool_files = opts.tool_files.clone();
         s.path = Some(path.to_owned());
         if opts.cache {
             s.disk = Some(DiskCache::for_project(path));
@@ -262,7 +278,37 @@ impl Session {
         self.sync_doc();
         let out = self.doc.apply(edit)?;
         self.project = self.doc.project().clone();
+        self.sync_tool_libraries();
         Ok(out)
+    }
+
+    /// Loads the project-layer tool libraries again: `tools/`, the files
+    /// the project lists, then the command line files. Load findings
+    /// replace the earlier tool library findings in `warnings`. Called
+    /// when the list of references changes (an edit, undo or redo).
+    pub fn reload_tool_libraries(&mut self) {
+        self.library.remove_tool_libs(LayerKind::Project);
+        let mut found = self.library.load_tools_dir(&self.dir, LayerKind::Project);
+        found.extend(self.library.load_tool_references(
+            &self.dir,
+            &self.project.tool_libraries,
+            LayerKind::Project,
+        ));
+        for f in &self.extra_tool_files {
+            found.extend(self.library.load_tools_file(f, LayerKind::Project));
+        }
+        self.tool_refs = self.project.tool_libraries.clone();
+        self.tools = self.library.tools();
+        self.warnings.retain(|d| {
+            !d.code.starts_with("project.tools.") && !d.code.starts_with("model.tools.")
+        });
+        self.warnings.extend(found);
+    }
+
+    fn sync_tool_libraries(&mut self) {
+        if self.tool_refs != self.project.tool_libraries {
+            self.reload_tool_libraries();
+        }
     }
 
     /// Opens an edit group: the edits until [`Session::end_group`] are one
@@ -300,6 +346,7 @@ impl Session {
         let out = self.doc.undo()?;
         self.project = self.doc.project().clone();
         self.sync_store();
+        self.sync_tool_libraries();
         Some(out)
     }
 
@@ -308,6 +355,7 @@ impl Session {
         let out = self.doc.redo()?;
         self.project = self.doc.project().clone();
         self.sync_store();
+        self.sync_tool_libraries();
         Some(out)
     }
 

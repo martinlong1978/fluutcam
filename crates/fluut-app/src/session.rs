@@ -646,6 +646,10 @@ impl Worker {
                 st.session.apply(edit).err().map(|e| e.0)
             }
             Edit::Model(edit) => st.session.apply(edit).err().map(|e| e.0),
+            Edit::ReloadToolLibraries => {
+                st.session.reload_tool_libraries();
+                None
+            }
         };
         self.snapshot();
     }
@@ -862,12 +866,25 @@ impl State {
                 .unwrap_or_default()
                 .to_owned();
             if self.scenes.get(&s.id).is_none_or(|(h, _)| *h != hash) {
+                // What turns with A, to draw: rotary and indexed Setups only.
+                let fixtures = rs.as_ref().ok().filter(|r| r.kind.is_rotary()).map(|r| {
+                    let deg = if r.kind == SetupKind::Indexed {
+                        r.index_angle
+                    } else {
+                        0.0
+                    };
+                    (r.fixtures.clone(), deg)
+                });
                 let frame = rs.and_then(|rs| SetupFrame::new(&rs, self.setup_bodies(&rs)));
                 let scene = match frame {
                     Ok(fr) => {
                         self.frame_errors.remove(&s.id);
                         let mut scene = SetupScene::new(&fr.geometry, Some(&fr.stock));
                         scene.snap = snap_points_of(&fr);
+                        if let Some((list, deg)) = &fixtures {
+                            let x = (fr.stock.min.x(), fr.stock.max.x());
+                            scene.add_fixtures(list, x, *deg);
+                        }
                         scene
                     }
                     Err(d) => {

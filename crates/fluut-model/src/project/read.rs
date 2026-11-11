@@ -74,7 +74,15 @@ pub fn read(src: &str) -> R<Loaded> {
     let mut cx = Cx::new(&mut w);
     cx.unknown(
         &t,
-        &["format", "name", "units", "geometry", "setup", "view"],
+        &[
+            "format",
+            "name",
+            "units",
+            "tool_libraries",
+            "geometry",
+            "setup",
+            "view",
+        ],
     );
     let name = cx.opt_str(&t, "name")?.unwrap_or_default();
     let units = match cx.opt_str(&t, "units")? {
@@ -82,6 +90,7 @@ pub fn read(src: &str) -> R<Loaded> {
         Some(u) => DisplayUnit::parse(&u)
             .ok_or_else(|| LoadError(format!("`units`: `{u}` is not mm or inch")))?,
     };
+    let tool_libraries = cx.opt_strs(&t, "tool_libraries")?.unwrap_or_default();
     let geometry = cx
         .tables(&t, "geometry")?
         .iter()
@@ -98,6 +107,7 @@ pub fn read(src: &str) -> R<Loaded> {
     let project = Project {
         name,
         units,
+        tool_libraries,
         geometry,
         setups,
         views,
@@ -210,6 +220,28 @@ impl<'a> Cx<'a> {
 
     fn opt_str(&self, t: &Table, k: &str) -> R<Option<String>> {
         t.get(k).map(|v| self.str_of(k, v)).transpose()
+    }
+
+    /// An array of non-empty strings.
+    fn opt_strs(&self, t: &Table, k: &str) -> R<Option<Vec<String>>> {
+        let Some(v) = t.get(k) else {
+            return Ok(None);
+        };
+        let Value::Array(a) = v else {
+            return self.bad(k, "an array of strings", v);
+        };
+        let mut out = Vec::new();
+        for (i, x) in a.iter().enumerate() {
+            let s = match x {
+                Value::String(s) if !s.trim().is_empty() => s.clone(),
+                Value::String(_) => {
+                    return err(format!("`{}[{i}]` is empty", self.key(k)));
+                }
+                _ => return self.bad(k, "an array of strings", v),
+            };
+            out.push(s);
+        }
+        Ok(Some(out))
     }
 
     fn req_str(&self, t: &Table, k: &str) -> R<String> {

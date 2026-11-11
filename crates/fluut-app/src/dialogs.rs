@@ -27,6 +27,8 @@ pub enum DialogKind {
     ImportToolsSource,
     /// Where the imported tool library is written.
     ImportToolsTarget,
+    /// A tool library file (TOML) for the project to refer to.
+    AddToolLibrary,
 }
 
 /// A path the user chose.
@@ -182,6 +184,9 @@ impl Dialogs {
             DialogKind::ImportToolsTarget => d
                 .set_title(tr("dialog-tools-target-title"))
                 .add_filter(tr("dialog-filter-tools-library"), &["toml"]),
+            DialogKind::AddToolLibrary => d
+                .set_title(tr("dialog-tools-add-title"))
+                .add_filter(tr("dialog-filter-tools-library"), &["toml"]),
         };
         let (tx, wake) = (self.tx.clone(), self.wake.clone());
         let spawned = std::thread::Builder::new()
@@ -189,9 +194,10 @@ impl Dialogs {
             .spawn(move || {
                 let handle = pollster::block_on(async {
                     match kind {
-                        DialogKind::Open | DialogKind::Import | DialogKind::ImportToolsSource => {
-                            d.pick_file().await
-                        }
+                        DialogKind::Open
+                        | DialogKind::Import
+                        | DialogKind::ImportToolsSource
+                        | DialogKind::AddToolLibrary => d.pick_file().await,
                         DialogKind::New(_)
                         | DialogKind::SaveAs
                         | DialogKind::PostOutput

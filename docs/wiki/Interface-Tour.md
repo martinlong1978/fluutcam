@@ -23,7 +23,7 @@ This page names every part of the FluutCAM window, so the other pages can say "t
 - **Toolpaths**: galleries of toolpath types (2D, Holes, 3D, Rotary, Utility) that suit the selected Setup's kind, then **Calculate selected** and **Calculate all**.
 - **Simulate**: **Simulate** and the playback buttons (play or pause, step back, step forward).
 - **Post**: **Post** and the list of posts.
-- **Library**: **Import tools…** turns a Fusion tool library into a FluutCAM one ([Import tools](Import-Tools)). Tools, Machines and Posts are greyed out ("Coming soon"): browsing and editing the libraries is not built yet.
+- **Library**: **Import tools…** turns a Fusion tool library into a FluutCAM one ([Import tools](Import-Tools)). **Add tool library…** lets the open project use a tool library file from any folder ([Tools](Tools)). Tools, Machines and Posts are greyed out ("Coming soon"): browsing and editing the libraries is not built yet.
 - **Edit** (on every stage): **Undo** and **Redo**.
 - **Job**: **Cancel**, available while a job runs.
 
@@ -31,7 +31,7 @@ This page names every part of the FluutCAM window, so the other pages can say "t
 
 | Panel | What it shows |
 |---|---|
-| **Browser** (left) | A tree of the project: each Setup with its toolpaths, then the **Model** with its bodies. Click a Setup or a toolpath to select it. You can rename, reorder, disable, duplicate and delete rows (below). |
+| **Browser** (left) | A tree of the project: each Setup with its toolpaths, then the **Model** with its bodies, then the **Tool libraries** the project refers to (with **Remove** and **Add library…**). Click a Setup or a toolpath to select it. You can rename, reorder, disable, duplicate and delete rows (below). |
 | **Viewport** (middle) | The 3-D view of the selected Setup: the model, the stock outline, the work zero and the calculated toolpaths. |
 | **Inspector** (right) | The details of the selection, and where you change toolpath settings. |
 | **Messages** (below the viewport) | Warnings and errors from calculating, per toolpath. |
@@ -69,7 +69,7 @@ Hover over a toolpath to see its type, tool and status.
 
 Each of these is one undo step. They need an idle program: Duplicate waits while a job runs.
 
-The **Model** at the bottom lists the bodies of the imported files. A project with no Setup shows its model in the viewport, so you can see an import straight away.
+The **Model** lists the bodies of the imported files. A project with no Setup shows its model in the viewport, so you can see an import straight away. **Tool libraries** below it lists the tool library files the project refers to ([Tools](Tools)); a library that could not be loaded has a warning mark and says why.
 
 ## Viewport
 
@@ -87,7 +87,7 @@ The small coloured arrows at one corner of the stock are the **work zero**: the 
 
 **Body pick mode.** The **Pick** buttons in a Setup's inspector (Bodies, body stock, and the orientation) work the same way. For **Bodies** and body stock the viewport shows every body of the model, and a click on any face or curve toggles its whole body. The chosen bodies are tinted. The pointer lights up only the face or curve under it, not the whole body. For an orientation, a click on a flat face, a round face or an edge fills the value and ends the pick.
 
-**Handles.** When a Setup is selected, the viewport draws drag handles on it: a ring for the work zero, and orange squares for the margins or size of block stock and the radius and length of cylinder stock. Drag one and let go to change the Setup in one undo step. Handles hide in pick mode. See [Add a Setup](Add-a-Setup).
+**Handles.** When a Setup is selected, the viewport draws drag handles on it: a ring for the work zero, orange squares for the margins or size of block stock and the radius and length of cylinder stock, and for an indexed Setup a ring round the rotary axis with a pointer for the index angle. Drag one and let go to change the Setup in one undo step. Handles hide in pick mode. See [Add a Setup](Add-a-Setup).
 
 If the computer has no usable graphics device, the viewport says so and stays off. Everything else still works.
 

@@ -37,6 +37,7 @@ pub const PICK_SIZE: u32 = 9;
 pub const TAG_EDGE: u32 = 4;
 pub const TAG_WIRE: u32 = 5;
 pub const TAG_STOCK: u32 = 6;
+pub const TAG_FIXTURE: u32 = 7;
 
 /// What a pick found.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -161,7 +162,8 @@ fn lin4(c: Rgb, scale: f32) -> [f32; 4] {
     [r * scale, g * scale, b * scale, 1.0]
 }
 
-/// Line colours by tag: rapid, cut, plunge/ramp, lead; edge, wire, stock.
+/// Line colours by tag: rapid, cut, plunge/ramp, lead; edge, wire, stock,
+/// fixture.
 fn palette(dark: bool) -> [[f32; 4]; 8] {
     let edge = if dark {
         [0x0E, 0x10, 0x14]
@@ -176,7 +178,7 @@ fn palette(dark: bool) -> [[f32; 4]; 8] {
         lin4(edge, 1.0),
         lin4(brand::AMBER, 1.0),
         lin4(if dark { brand::PAPER } else { brand::INK }, 0.6),
-        [1.0; 4],
+        lin4(brand::BLUE, if dark { 1.0 } else { 0.8 }),
     ]
 }
 
@@ -488,6 +490,7 @@ impl Renderer {
         self.edges = upload_lines(device, &lines, |t| match t {
             1 => TAG_WIRE,
             2 => TAG_STOCK,
+            crate::scene::FIXTURE_TAG => TAG_FIXTURE,
             _ => TAG_EDGE,
         });
     }
