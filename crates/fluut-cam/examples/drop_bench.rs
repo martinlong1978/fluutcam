@@ -8,9 +8,11 @@
 //! Per model and tool: median and p99 of one drop in µs (the best of
 //! several repetitions, the machine being shared), and solves per drop.
 //! `VERIFY=1` instead compares the drop with the drop that solves every
-//! primitive at random points (`VERIFY_SEED=<n>` for other points).
+//! primitive at random points (`VERIFY_SEED=<n>` for other points;
+//! `VERIFY_WINDOW=<w>` also checks a windowed drop, as a waterline makes).
 //! `DUMP=<file>` writes the tip height of every raster drop (first
-//! repetition) to the file, to compare two builds.
+//! repetition), or with `VERIFY` of every drop at the random points, to the
+//! file, to compare two builds.
 
 use fluut_cam::cutter::drop::drop_all;
 use fluut_cam::cutter::solve::SolveStats;
@@ -163,7 +165,20 @@ fn verify(name: &str, body: &BrepBody, n: usize) {
         let mut st = SolveStats::default();
         let b = b.expand(3.0);
         let (mut below, mut above, mut worst) = (0, 0, 0.0f64);
-        for _ in 0..n {
+        // `VERIFY_WINDOW=<w>`: also a windowed drop (floor and ceiling
+        // `w` either side of a level near the answer, as a waterline's).
+        let window: Option<f64> = std::env::var("VERIFY_WINDOW")
+            .ok()
+            .and_then(|s| s.parse().ok());
+        let mut win_bad = 0;
+        let mut dump = std::env::var("DUMP").ok().map(|path| {
+            std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(path)
+                .expect("dump file")
+        });
+        for k in 0..n {
             let x = b.min.x() + (b.max.x() - b.min.x()) * rng.uniform();
             let y = b.min.y() + (b.max.y() - b.min.y()) * rng.uniform();
             let tau =
@@ -176,11 +191,48 @@ fn verify(name: &str, body: &BrepBody, n: usize) {
                 worst = worst.max(all - got);
             }
             above += (got > all + 1e-7) as usize;
+            if let Some(w) = window {
+                // A level near the answer and the windowed drop a
+                // waterline makes there.
+                let z = if all.is_finite() {
+                    all + w * (3.0 * rng.uniform() - 1.5)
+                } else {
+                    0.0
+                };
+                let wo = DropOptions {
+                    floor: z - w,
+                    ceiling: z + w,
+                    ..o
+                };
+                let win = tau(drop(&g, &c, x, y, &wo, &mut st));
+                let bad = if all >= z + w {
+                    win < z + w
+                } else if all > z - w {
+                    win < all - 1e-7
+                } else {
+                    win > z - w && win > all + 1e-7
+                };
+                if bad {
+                    win_bad += 1;
+                    println!("    window miss at ({x:?}, {y:?}) level {z}: {win} against {all}");
+                }
+                if let Some(f) = &mut dump {
+                    use std::io::Write;
+                    writeln!(f, "{name}|{label} window|{k}|{win:?}").expect("dump write");
+                }
+            }
+            if let Some(f) = &mut dump {
+                use std::io::Write;
+                writeln!(f, "{name}|{label}|{k}|{got:?}").expect("dump write");
+            }
         }
         println!(
             "  {label}: {below} below (worst {worst:.2e} mm), {above} above; {} rescue solves",
             st.rescues
         );
+        if window.is_some() {
+            println!("  {label}: {win_bad} windowed drops wrong");
+        }
     }
 }
 
