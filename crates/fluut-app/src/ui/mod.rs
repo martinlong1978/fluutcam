@@ -270,12 +270,40 @@ impl FluutApp {
             project::picked(&mut self.jobs, &mut self.ui, p);
         }
         if self.bench.timing_frames() && !self.bench_ready && !self.jobs.is_busy() {
-            // Time frames with the toolpaths on screen: calculate first.
+            // Time frames with the toolpaths on screen: calculate first, and
+            // with `FLUUT_BENCH_SIM` simulate the first Setup too.
             match &self.jobs.last {
                 Some((JobKind::Open, Outcome::Opened { .. })) => {
                     self.jobs.calculate(CalcTargets::All);
                 }
+                Some((JobKind::Calculate, _)) if self.bench.simulate() => {
+                    let first = self
+                        .jobs
+                        .snapshot
+                        .as_ref()
+                        .and_then(|s| s.project.setups.first().map(|st| st.id.clone()));
+                    match first {
+                        Some(id) => self.jobs.simulate(&id),
+                        None => self.bench_ready = true,
+                    }
+                }
                 _ => self.bench_ready = true,
+            }
+            if self.bench_ready {
+                let info = self.render.as_ref().map(|r| {
+                    let a = r.adapter.get_info();
+                    format!(
+                        "adapter=\"{}\" backend={:?} type={:?} driver=\"{} {}\" format={:?}",
+                        a.name, a.backend, a.device_type, a.driver, a.driver_info, r.target_format
+                    )
+                });
+                let sim = self
+                    .jobs
+                    .snapshot
+                    .as_ref()
+                    .is_some_and(|s| !s.sims.is_empty());
+                let px = ui.ctx().content_rect().size() * ui.ctx().pixels_per_point();
+                self.bench.header(info, px, sim);
             }
         }
         self.playback(ui.ctx());
@@ -464,7 +492,8 @@ impl FluutApp {
 }
 
 impl eframe::App for FluutApp {
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        self.bench.cpu_usage(frame.info().cpu_usage);
         self.frame(ui);
     }
 }
