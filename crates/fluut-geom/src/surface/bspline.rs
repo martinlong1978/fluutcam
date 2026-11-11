@@ -10,8 +10,8 @@
 
 use super::{SurfDerivs, UvBox};
 use crate::bounds::{Aabb3, Interval};
-use crate::bspline::BSplineError;
 use crate::bspline::basis::{MAX_DEGREE, SMALL, ders_basis_funs_n, find_span};
+use crate::bspline::{BSplineError, blossom, span_local};
 use crate::transform::Affine;
 use crate::types::{Point3, Vec3};
 use glam::{DVec3, DVec4};
@@ -55,24 +55,6 @@ struct Bezier {
     xyz: Vec<DVec3>,
     /// Bézier weights in the same order, if rational.
     w: Option<Vec<f64>>,
-}
-
-/// The blossom of the B-spline in one direction at the arguments `args`
-/// (`p` of them), from the `p + 1` points `d` that affect span `span`
-/// (*The NURBS Book* §5.2: de Boor's algorithm with one argument per
-/// level). Bézier point `j` of the span is the blossom at `p − j` copies of
-/// its start and `j` of its end.
-fn blossom(knots: &[f64], p: usize, span: usize, args: &[f64], d: &mut [DVec4]) -> DVec4 {
-    for (r, &t) in args.iter().enumerate().take(p) {
-        let r = r + 1;
-        for j in (r..=p).rev() {
-            let lo = knots[span + j - p];
-            let hi = knots[span + 1 + j - r];
-            let alpha = (t - lo) / (hi - lo);
-            d[j] = d[j - 1] * (1.0 - alpha) + d[j] * alpha;
-        }
-    }
-    d[p]
 }
 
 /// Distinct knots in `[lo, hi]` with the start index of each non-empty span.
@@ -204,17 +186,8 @@ fn skl_bezier<const N: usize, const D: usize>(
     u: f64,
     v: f64,
 ) -> [[Vec3; 3]; 3] {
-    // The span, the local parameter in [0, 1] and 1 / span length.
-    let local = |brk: &[f64], inv: &[f64], x: f64| {
-        let m = brk.len() - 1;
-        let x = x.clamp(brk[0], brk[m]);
-        let a = brk[1..m].partition_point(|&k| k <= x);
-        let ih = inv[a];
-        // At most 1 (the end of the span) up to rounding.
-        (a, ((x - brk[a]) * ih).min(1.0), ih)
-    };
-    let (a, tu, iu) = local(&bz.us, &bz.ius, u);
-    let (b, tv, iv) = local(&bz.vs, &bz.ivs, v);
+    let (a, tu, iu) = span_local(&bz.us, &bz.ius, u);
+    let (b, tv, iv) = span_local(&bz.vs, &bz.ivs, v);
     let bu = bernstein::<N, D>(pu, tu);
     let bv = bernstein::<N, D>(pv, tv);
     let n = (pu + 1) * (pv + 1);
