@@ -12,7 +12,7 @@ use crate::defs::{Def, DefError, DefRef, DefStore, MemStore};
 use crate::diag::Diagnostic;
 use crate::machine::Machine;
 use crate::tools::{ToolLibrary, ToolStore};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
 /// Library layers, lowest first.
@@ -159,10 +159,101 @@ impl Library {
                 }
             }
         }
+        out.extend(self.load_tools_dir(dir, layer));
+        out
+    }
+
+    /// Loads `tools/*.toml` under `dir`, in file name order.
+    pub fn load_tools_dir(&mut self, dir: &Path, layer: LayerKind) -> Vec<Diagnostic> {
+        let mut out = Vec::new();
         for f in files(&dir.join("tools"), ".toml") {
             out.extend(self.load_tools_file(&f, layer));
         }
         out
+    }
+
+    /// Loads the tool library files a project lists (`tool_libraries`,
+    /// D06 §7.2.1), in order. References are paths relative to `dir` (the
+    /// project folder) or absolute. A reference that is not a plain file
+    /// path, is listed twice, or names a missing file is a warning and is
+    /// skipped; a library with the id and version of one already loaded in
+    /// `layer` replaces it, with a warning.
+    pub fn load_tool_references(
+        &mut self,
+        dir: &Path,
+        refs: &[String],
+        layer: LayerKind,
+    ) -> Vec<Diagnostic> {
+        let mut out = Vec::new();
+        let mut seen = std::collections::BTreeSet::new();
+        for r in refs {
+            if let Err(why) = check_tool_ref(r) {
+                out.push(Diagnostic::warning(
+                    "project.tools.rejected",
+                    format!("tool library reference `{r}` is not used: {why}"),
+                ));
+                continue;
+            }
+            let f = resolve_tool_ref(dir, r);
+            if !seen.insert(normal(&absolute(&f))) {
+                out.push(Diagnostic::warning(
+                    "project.tools.duplicate",
+                    format!("tool library `{r}` is listed twice; it is loaded once"),
+                ));
+                continue;
+            }
+            if !f.is_file() {
+                out.push(Diagnostic::warning(
+                    "project.tools.missing",
+                    format!(
+                        "tool library `{r}` was not found ({}); its tools are not available",
+                        f.display()
+                    ),
+                ));
+                continue;
+            }
+            out.extend(self.load_reference(&f, r, layer));
+        }
+        out
+    }
+
+    fn load_reference(&mut self, f: &Path, r: &str, layer: LayerKind) -> Vec<Diagnostic> {
+        let src = f.display().to_string();
+        let parsed = std::fs::read_to_string(f)
+            .map_err(|e| e.to_string())
+            .and_then(|t| ToolLibrary::parse(&t));
+        match parsed {
+            Ok((lib, w)) => {
+                let mut out: Vec<Diagnostic> = w
+                    .into_iter()
+                    .map(|w| Diagnostic::warning("model.tools.warning", format!("{src}: {w}")))
+                    .collect();
+                if self
+                    .tool_libs
+                    .iter()
+                    .any(|(l, x)| *l == layer && x.id == lib.id && x.version() == lib.version())
+                {
+                    out.push(Diagnostic::warning(
+                        "project.tools.replaces",
+                        format!(
+                            "tool library `{r}` has the id and version of one already loaded \
+                             for this project (`{}`); it replaces that one",
+                            lib.id
+                        ),
+                    ));
+                }
+                if let Err(d) = self.add_tools(layer, lib) {
+                    out.push(d);
+                }
+                out
+            }
+            Err(e) => vec![load_err("model.tools.load", &src, e)],
+        }
+    }
+
+    /// Drops the tool libraries of `layer` (before they are loaded again).
+    pub fn remove_tool_libs(&mut self, layer: LayerKind) {
+        self.tool_libs.retain(|(l, _)| *l != layer);
     }
 
     /// Loads one tool library file. Unknown keys are warnings.
@@ -235,6 +326,105 @@ impl Library {
     pub fn entries(&self) -> &[Entry] {
         &self.entries
     }
+}
+
+/// Longest tool library reference, in bytes.
+pub const MAX_TOOL_REF: usize = 1024;
+
+/// Why `r` cannot be a tool library reference: references are file paths,
+/// never URLs or network paths, so nothing is fetched and no network
+/// share is contacted when a project is opened (D06 §7.2.1).
+pub fn check_tool_ref(r: &str) -> Result<(), &'static str> {
+    if r.trim().is_empty() {
+        return Err("it is empty");
+    }
+    if r.len() > MAX_TOOL_REF {
+        return Err("it is too long");
+    }
+    if r.chars().any(char::is_control) {
+        return Err("it contains a control character");
+    }
+    if r.starts_with("\\\\") || r.starts_with("//") {
+        return Err("network paths are not allowed");
+    }
+    if let Some((scheme, _)) = r.split_once(':') {
+        // `C:\x` and `C:/x` are drive paths; `https://x` and `file:x` are not.
+        let drive = scheme.len() == 1 && scheme.chars().all(|c| c.is_ascii_alphabetic());
+        let word = !scheme.is_empty()
+            && scheme
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || "+-.".contains(c));
+        if !drive && word {
+            return Err("URLs are not allowed, only file paths");
+        }
+    }
+    Ok(())
+}
+
+/// The file a reference names: `r` joined to the project folder `dir`
+/// unless it is absolute.
+pub fn resolve_tool_ref(dir: &Path, r: &str) -> PathBuf {
+    let p = Path::new(r);
+    if p.is_absolute() {
+        p.to_path_buf()
+    } else {
+        dir.join(p)
+    }
+}
+
+/// The reference to write for the library file `file` in a project whose
+/// file is in `dir`: relative to `dir` with `/` when the two share a
+/// folder below the root, else the absolute path. Purely lexical.
+pub fn tool_ref_for(dir: &Path, file: &Path) -> String {
+    let abs_dir = normal(&absolute(dir));
+    let abs_file = normal(&absolute(file));
+    let slashed = |p: &Path| p.to_string_lossy().replace('\\', "/");
+    let a: Vec<Component> = abs_dir.components().collect();
+    let b: Vec<Component> = abs_file.components().collect();
+    let same = |x: &Component, y: &Component| {
+        if cfg!(windows) {
+            x.as_os_str().eq_ignore_ascii_case(y.as_os_str())
+        } else {
+            x == y
+        }
+    };
+    let common = a.iter().zip(&b).take_while(|(x, y)| same(x, y)).count();
+    let shared = a
+        .iter()
+        .take(common)
+        .any(|c| matches!(c, Component::Normal(_)));
+    if !shared {
+        return slashed(&abs_file);
+    }
+    let mut rel = PathBuf::new();
+    for _ in common..a.len() {
+        rel.push("..");
+    }
+    for c in &b[common..] {
+        rel.push(c.as_os_str());
+    }
+    slashed(&rel)
+}
+
+fn absolute(p: &Path) -> PathBuf {
+    std::path::absolute(p).unwrap_or_else(|_| p.to_path_buf())
+}
+
+/// `p` without `.`, with `..` applied where it can be (lexical).
+fn normal(p: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for c in p.components() {
+        match c {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !out.pop() {
+                    out.push("..");
+                }
+            }
+            c => out.push(c.as_os_str()),
+        }
+    }
+    out
 }
 
 fn check_namespace(id: &str, layer: LayerKind, source: &str) -> Result<(), Diagnostic> {
