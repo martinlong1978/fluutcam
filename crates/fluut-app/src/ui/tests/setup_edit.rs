@@ -358,6 +358,9 @@ fn scale_and_mirror_are_entered_in_the_inspector_and_undone() {
     stage(&mut h, "SETUP");
     app(&mut h).ui.selection = Selection::Setup("s1".into());
     h.run_steps(3);
+    // The last group: the same jump the Stock hint uses.
+    app(&mut h).ui.inspector_focus = Some("setup-geometry");
+    h.run_steps(3);
     h.get_by_label("Scale and mirror");
     let geometry =
         |h: &mut Harness<'static, State>| snapshot(h).project.setup("s1").unwrap().geometry.clone();

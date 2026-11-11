@@ -96,7 +96,7 @@ Click **Pick** to choose on the model instead. The viewport shows every body, an
 
 ## Scale and mirror the model
 
-The **Scale and mirror** group scales and flips the model for this Setup, about the model's origin. Type a factor in **Scale, all axes** (for example `25.4` for a part drawn in inches, or `0.5` for half size), and tick **Mirror X**, **Mirror Y** or **Mirror Z** to flip the model across that axis. The stock, the work zero and the handles follow the scaled model. Each change is one undo step. A factor of 0 is refused. A solid from a STEP file cannot be scaled by different factors in different directions: the Setup says so. Setting the factor back to 1 and clearing the mirrors removes the setting.
+The **Scale and mirror** group, the last in the inspector (scroll down), scales and flips the model for this Setup, about the model's origin. Type a factor in **Scale, all axes** (for example `25.4` for a part drawn in inches, or `0.5` for half size), and tick **Mirror X**, **Mirror Y** or **Mirror Z** to flip the model across that axis. The stock, the work zero and the handles follow the scaled model. Each change is one undo step. A factor of 0 is refused. A solid from a STEP file cannot be scaled by different factors in different directions: the Setup says so. Setting the factor back to 1 and clearing the mirrors removes the setting.
 
 ## Use a body as the stock
 

@@ -445,11 +445,11 @@ impl SetupVm {
             groups: vec![
                 general_group(s, r),
                 bodies_group(s, r),
-                geometry_group(s, r),
                 orientation_group(s, r),
                 stock_group(s, r, unit),
                 zero_group(s, r, unit),
                 clearance_group(s, r, unit),
+                geometry_group(s, r),
             ],
             info: vec![(tr("setup-toolpaths"), toolpaths.to_string())],
             diagnostics: r.diagnostics.iter().map(DiagVm::of).collect(),

@@ -50,11 +50,11 @@ fn rows_show_the_setup_in_the_project_unit() {
         [
             "setup-general",
             "setup-bodies",
-            "setup-geometry",
             "setup-orientation",
             "setup-stock",
             "setup-zero",
-            "setup-clearance"
+            "setup-clearance",
+            "setup-geometry"
         ]
     );
 }
