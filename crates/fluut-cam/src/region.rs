@@ -447,6 +447,42 @@ impl Loop2 {
         Some(l)
     }
 
+    /// The loop split wherever it passes the same point twice, each part
+    /// [`Loop2::tidied`] and split again; parts that tidy to nothing are
+    /// left out. The split comes first as well as after: tidying removes a
+    /// vertex between two lines in the same direction, and where the loop
+    /// touches itself at such a vertex (a lobe micrometres wide at a sharp
+    /// tip, which `cavalier_contours` keeps from a shrink within its
+    /// tolerance) the tidied loop crossed itself there instead, which
+    /// neither the split nor the next offset could handle
+    /// (docs/plan/2026-11-11-region-retry.md). A loop that does not touch
+    /// itself gives what tidying and splitting it gave before.
+    pub(crate) fn tidied_parts(self) -> Vec<Loop2> {
+        let pieces = boolean::split_touching(self.verts.clone());
+        let pieces: Vec<Loop2> = if pieces.len() == 1 {
+            vec![self]
+        } else {
+            pieces.into_iter().map(|verts| Loop2 { verts }).collect()
+        };
+        let mut parts = Vec::new();
+        for l in pieces {
+            let Some(l) = l.tidied() else {
+                continue;
+            };
+            let split = boolean::split_touching(l.verts.clone());
+            if split.len() == 1 {
+                parts.push(l);
+            } else {
+                parts.extend(
+                    split
+                        .into_iter()
+                        .filter_map(|verts| Loop2 { verts }.tidied()),
+                );
+            }
+        }
+        parts
+    }
+
     pub(crate) fn to_pline(&self) -> Polyline<f64> {
         let mut pl = Polyline::with_capacity(self.verts.len(), true);
         for v in &self.verts {
@@ -837,18 +873,7 @@ impl Region2 {
         let mut outer = Vec::new();
         let mut inner = Vec::new();
         for ip in out.ccw_plines.iter().chain(&out.cw_plines) {
-            let Some(l) = Loop2::from_pline(&ip.polyline).tidied() else {
-                continue;
-            };
-            let parts = boolean::split_touching(l.verts.clone());
-            let parts: Vec<Loop2> = if parts.len() == 1 {
-                vec![l]
-            } else {
-                parts
-                    .into_iter()
-                    .filter_map(|verts| Loop2 { verts }.tidied())
-                    .collect()
-            };
+            let parts = Loop2::from_pline(&ip.polyline).tidied_parts();
             for l in parts {
                 if l.is_ccw() {
                     outer.push(l);

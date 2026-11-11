@@ -1556,10 +1556,11 @@ fn unions_of_neighbouring_tool_sweeps() {
 }
 
 #[test]
-#[ignore = "open: docs/plan/2026-11-04-region-touching-booleans.md"]
 fn growth_of_a_grown_strip_with_a_micrometre_slit() {
     // crash-cc2e80593715d9c4 (fuzzing after the fixes, debug assertions):
-    // reported as `cam.region.offset_failed`.
+    // the first growth leaves a vertex where the left edge turns by 8e-6
+    // rad, and every growth of that by more than about 1.3 came back empty
+    // (docs/plan/2026-11-11-region-retry.md, cause 1).
     let r = check_boolean(
         &Region2::rect(0.500002, 3e-6, 1.0000019999999998, 3.000003),
         &Region2::rect(0.500002, 0.500002, 0.5000049999999999, 2.000002),
@@ -1570,10 +1571,11 @@ fn growth_of_a_grown_strip_with_a_micrometre_slit() {
 }
 
 #[test]
-#[ignore = "open: docs/plan/2026-11-04-region-touching-booleans.md"]
 fn growth_after_a_shrink_of_unions_with_a_thin_triangle() {
-    // crash-f5007002f8629b1e (fuzzing after the fixes, release): reported
-    // as `cam.region.offset_failed`.
+    // crash-f5007002f8629b1e (fuzzing after the fixes, release): the shrink
+    // left a lobe 5e-5 mm wide touching the tip of a sharp corner, which
+    // tidying turned into a loop crossing itself, and every growth of that
+    // came back empty (docs/plan/2026-11-11-region-retry.md, cause 2).
     let r = check_boolean(
         &Region2::rect(4.000001, 0.250001, 18.500002, 5.250003),
         &Region2::circle(2.25, 11.000003, 2.250001),
@@ -1591,4 +1593,113 @@ fn growth_after_a_shrink_of_unions_with_a_thin_triangle() {
     );
     let r = check_offset(&r, -3.75);
     check_offset(&r, 1.0);
+}
+
+// docs/plan/2026-11-11-region-retry.md.
+
+/// A rectangle `w` × `h` whose left edge has a vertex at height `y`, moved
+/// inward (right) by `dent`: the edge turns there by about
+/// `dent / y + dent / (h − y)` rad.
+fn rect_with_a_dented_edge(w: f64, h: f64, y: f64, dent: f64) -> Region2 {
+    Region2::polygon(&[(0.0, 0.0), (w, 0.0), (w, h), (0.0, h), (dent, y)])
+}
+
+#[test]
+fn growth_across_a_vertex_turning_by_micro_radians() {
+    // Cause 1: the offsets of two lines that meet at an angle below
+    // `pos_equal_eps` (1e-5) rad are parallel for `line_line_intr` but not
+    // collinear when one is long, so the inner join had no crossing, the
+    // raw offset an invalid gap and no self-intersection to cut it, and
+    // `cavalier_contours` dropped the whole growth. Before the fix this
+    // growth came back empty from `cavalier_contours` and only the retries
+    // got it right, if they did.
+    // The edge turns by 9.4e-6 rad between lines 1.6 and 0.4 long.
+    let r = rect_with_a_dented_edge(2.0, 2.0, 0.4, 3e-6);
+    let raw = r.loops[0].to_pline().parallel_offset(-4.0);
+    assert_eq!(raw.len(), 1, "cavalier_contours dropped the growth");
+    let before = thread_containment_retries();
+    let o = check_offset(&r, 4.0);
+    assert_eq!(
+        thread_containment_retries(),
+        before,
+        "the growth was retried"
+    );
+    // The exact growth of the square by 4, less the dent's share.
+    let want = 4.0 + 2.0 * 4.0 * 4.0 + PI * 16.0;
+    assert!(close(o.area(), want, 1e-4), "area {}", o.area());
+}
+
+#[test]
+fn growths_across_vertices_turning_by_micro_radians() {
+    // Cause 1 over a sweep of edge lengths, dents (inward and outward) and
+    // distances: every growth and shrink holds at the first attempt and
+    // agrees with the point oracle.
+    let before = thread_containment_retries();
+    for (h, y) in [
+        (2.0, 0.4),
+        (1.2, 0.2),
+        (1.9, 1.5),
+        (3.0, 0.5),
+        (12.0, 4.0),
+        (0.6, 0.2),
+    ] {
+        for dent in [1e-6, 3e-6, 8e-6, -3e-6] {
+            let r = rect_with_a_dented_edge(2.0, h, y, dent);
+            for d in [0.25, 1.0, 3.96875, 12.0, -0.25] {
+                let o = check_offset(&r, d);
+                let (w, hh) = (2.0, h);
+                let want = if d > 0.0 {
+                    w * hh + 2.0 * (w + hh) * d + PI * d * d
+                } else {
+                    (w + 2.0 * d) * (hh + 2.0 * d)
+                };
+                // The dent changes the area by at most its height times
+                // its depth.
+                assert!(
+                    close(o.area(), want, h * dent.abs() + 1e-6),
+                    "h {h} y {y} dent {dent} d {d}: area {} for {want}",
+                    o.area()
+                );
+            }
+        }
+    }
+    assert_eq!(
+        thread_containment_retries(),
+        before,
+        "an offset was retried"
+    );
+}
+
+#[test]
+fn tidied_parts_split_a_loop_where_it_touches_itself_before_tidying() {
+    // Cause 2: a triangle with a lobe 5e-5 mm wide touching its tip `p`,
+    // which lies on the straight line from `a` to `b` and on the one from
+    // `c` to `d`. Tidying first removed `p` twice (a vertex between lines in
+    // the same direction), which left a loop crossing itself near the tip.
+    let p = (10.0, 0.0);
+    let b = (0.0, 5.0);
+    let c = (0.0, 0.0);
+    let d = (10.0001, 0.0);
+    let a = (10.0001, -0.00005);
+    let l = Loop2 {
+        verts: [p, b, c, p, d, a]
+            .iter()
+            .map(|&(x, y)| Vertex::new(x, y, 0.0))
+            .collect(),
+    };
+    let parts = l.clone().tidied_parts();
+    let outer: Vec<&Loop2> = parts.iter().filter(|l| l.is_ccw()).collect();
+    assert_eq!(outer.len(), 1, "{parts:?}");
+    assert_eq!(outer[0].verts.len(), 3, "{parts:?}");
+    assert!(close(outer[0].area(), 25.0, 1e-12));
+    for l in &parts {
+        assert!(
+            boolean::split_touching(l.verts.clone()).len() == 1,
+            "{parts:?}"
+        );
+    }
+    // Tidied first, the triangle lost its tip and crosses itself.
+    let t = l.tidied().unwrap();
+    assert!(!t.verts.iter().any(|v| v.p == Point2::new(p.0, p.1)));
+    assert_eq!(boolean::split_touching(t.verts.clone()).len(), 1);
 }

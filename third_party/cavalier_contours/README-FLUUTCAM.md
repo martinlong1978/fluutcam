@@ -17,7 +17,7 @@ differ in the last bit between platforms. See the S3 report, `docs/plan/spikes/s
 
 ## What changed
 
-The trigonometric calls, and nine fixes for nearly degenerate offsets and intersections. Everything else is as
+The trigonometric calls, and ten fixes for nearly degenerate offsets and intersections. Everything else is as
 published.
 
 - `src/core/math/line_line_intersect.rs`, `line_line_intr`: for collinear segments, the
@@ -105,6 +105,21 @@ published.
   triangle it gave a slice end off its segment (a debug assertion in `PlineViewData::create`,
   found by the `region` fuzz target, `shrink_of_a_thin_triangle_to_near_its_inradius`).
   Segments with |v| |u| >= 1, and point-like ones, are unchanged.
+- `src/polyline/internal/raw_pline_offset.rs`, `RawOffsetBuilder::line_line_join` (and the new
+  `exact_line_line_params` and `trimmed_line_line`): when `line_line_intr` reports
+  `NoIntersect` for the two offset lines of an inner join, their exact crossing is used if it
+  lies on both. `line_line_intr` takes lines within an angle of about `pos_equal_eps` for
+  parallel, and then for collinear only if each end of one lies within `pos_equal_eps` of the
+  other's line; a line longer than 1 mm meeting a short one at an angle between
+  `pos_equal_eps / length` and `pos_equal_eps` is neither, although the two cross. At a source
+  vertex turning by a few micro-radians the offsets' ends lie `|offset| · angle` apart, more than
+  `pos_equal_eps` for a larger offset, so the join became an invalid gap, the raw offset had no
+  self-intersection to cut it out, and the whole closed offset was dropped: every growth by more
+  than about 1.3 mm of a strip whose edge a first growth had left turning by 8e-6 rad came back
+  empty (`growth_across_a_vertex_turning_by_micro_radians`,
+  `growths_across_vertices_turning_by_micro_radians` and
+  `growth_of_a_grown_strip_with_a_micrometre_slit`; plan `docs/plan/2026-11-11-region-retry.md`).
+  Joins that `line_line_intr` already resolves, and `line_line_intr` itself, are unchanged.
 
 The trigonometric changes:
 
