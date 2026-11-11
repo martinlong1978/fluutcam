@@ -588,6 +588,8 @@ S2 cost model rather than D02 §8's estimate.
 
 **2026-11-11 (round 2).** Whole finishing toolpaths spend 91-99 % of their time in drops on free-form parts (`finishing_bench`); `parallel`, `spiral` and `scallop` run on one thread. The flat-bottom Newton now gives up at its second step clamped by the face's parameter box (its 40-iteration failures were orbits through the clamp; a heuristic, checked drop by drop against the base on 126 000 drops, none lower by more than 1e-7 mm): flat and bull drops 1.25-1.42 times faster on the sculpted models, ball unchanged; B-spline edge sub-boxes are proven (Bézier points). Drop medians 22-55 µs on the free-form rasters, 1.1 to 2.7 times the 20 µs target. Left: the contact Newton (about 45 % of a drop) and the re-solves (about 30 % for the ball; a tighter strip bound halved them but cost as much as it saved) ([plan](../plan/2026-11-11-drop-speed-2.md)).
 
+**2026-11-11 (adaptive sampling).** Fewer drops per toolpath rather than faster drops: `spiral` takes 14-31 % fewer and `scallop` 13-23 % fewer (the chord on a curved drive is checked once, at its own middle), `parallel` the same; predicted step lengths do not beat the bisection when every chord keeps a real check drop ([plan](../plan/2026-11-11-adaptive-sampling.md)). The drop itself is unchanged.
+
 ### CH-26 Fusion tool-library JSON has no public schema
 
 **Raised in D16 §2.1. Status: deferred.** The JSON key names the importer reads are the

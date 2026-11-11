@@ -226,6 +226,19 @@ parallel and are collected in index order. Scallop's passes stay in sequence (ea
 depends on the steepest contact of the pass before). Chords of a level are sampled on the calling
 thread below 8 open chords. Drives are `Sync`; there is no shared mutable state.
 
+**Adaptive sampling (2026-11-11,** [plan](../plan/2026-11-11-adaptive-sampling.md)**).** The middle drop
+of every accepted chord is kept as a check: the merge keeps the output within `tol/4` of it but never
+ends a chord at it, so every drop on the drive is within `tol/4` of the output (before: only the chord
+ends). On curved drives a chord is checked by the drop
+at its own middle, where the tool passes, within `tol/4` on both sides (was one-sided), with the
+sagitta test as before; the drop at the drive's middle is taken first unless the parent chord's
+error predicts the chord passes, and is otherwise only the new end of a split. Line drives keep the
+bisection's acceptance and drops. `spiral` drops 14-31 % fewer, `scallop` 13-23 %; `parallel` the
+same drops. Predicted step lengths (n-ary splits, marching with a check
+drop per step) were measured and lose to the bisection on free-form parts: one real middle drop per
+accepted chord costs 2 drops a chord whatever the sampler, and the bisection reuses every rejected
+middle as an end.
+
 ### 4.4 `contour` (waterline)
 
 ```
