@@ -8,7 +8,7 @@
 //! Per model and tool: median and p99 of one drop in µs (the best of
 //! several repetitions, the machine being shared), and solves per drop.
 //! `VERIFY=1` instead compares the drop with the drop that solves every
-//! primitive at random points. `DUMP=<file>` writes the tip height of every
+//! primitive at random points (`VERIFY_SEED=<n>` for others). `DUMP=<file>` writes the tip height of every
 //! raster drop (first repetition) to the file, to compare two builds.
 
 use fluut_cam::cutter::drop::drop_all;
@@ -154,7 +154,10 @@ fn verify(name: &str, body: &BrepBody, n: usize) {
         ("ball 6", Cutter::ball(6.0).unwrap()),
         ("bull 6 r1", Cutter::new(6.0, 1.0).unwrap()),
     ] {
-        let mut rng = Lcg(4242);
+        let mut rng = Lcg(std::env::var("VERIFY_SEED")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(4242));
         let o = DropOptions::default();
         let mut st = SolveStats::default();
         let b = b.expand(3.0);

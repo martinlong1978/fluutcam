@@ -889,6 +889,23 @@ fn numeric(
         }
     }
     seeds.sort_by(|a, b| b.0.total_cmp(&a.0));
+    let starts = seeds.iter().take(seeding.starts).map(|&(_, u, v)| (u, v));
+    refine(q, face, s, ax, c, starts, stats, trimmed)
+}
+
+/// The best contact Newton finds from `starts` (the contact map, and for
+/// flat and bull tools the flat bottom); `trimmed` as in [`numeric`].
+#[allow(clippy::too_many_arguments)]
+fn refine(
+    q: &QueryFace,
+    face: u32,
+    s: &Surface,
+    ax: Axis,
+    c: &Cutter,
+    starts: impl IntoIterator<Item = (f64, f64)>,
+    stats: &mut SolveStats,
+    trimmed: &mut f64,
+) -> Option<Contact> {
     let tol = 1e-8;
     let mut best: Option<Contact> = None;
     let mut consider = |u: f64, v: f64, flat: bool| {
@@ -912,7 +929,7 @@ fn numeric(
             on: ContactOn::Face { face, u, v },
         });
     };
-    for &(_, u, v) in seeds.iter().take(seeding.starts) {
+    for (u, v) in starts {
         stats.newton_runs += 1;
         if let Some((u, v)) = newton_contact(s, c, ax, (u, v), q.uv, tol) {
             stats.newton_converged += 1;
@@ -927,6 +944,34 @@ fn numeric(
         }
     }
     best
+}
+
+/// As [`face_trimmed`] for a numeric face, with Newton started from
+/// `starts` only (no seeding).
+pub fn face_from(
+    g: &QueryGeometry,
+    face: u32,
+    ax: Axis,
+    c: &Cutter,
+    starts: &[(f64, f64)],
+    stats: &mut SolveStats,
+) -> (Option<Contact>, f64) {
+    let mut trimmed = f64::NEG_INFINITY;
+    let Some(q) = g.faces[face as usize].as_ref() else {
+        return (None, trimmed);
+    };
+    let s = &g.body.surfaces[g.body.faces[face as usize].surface as usize];
+    let r = refine(
+        q,
+        face,
+        s,
+        ax,
+        c,
+        starts.iter().copied(),
+        stats,
+        &mut trimmed,
+    );
+    (r, trimmed)
 }
 
 /// Highest contact on face primitive `(face, uv)`.

@@ -100,6 +100,34 @@ fn face_edge_bound(subs: &[SubBox], uv: UvBox, face_uv: UvBox, ax: Axis, c: &Cut
     best
 }
 
+/// Newton starts of a patch solved again (see [`drop`]).
+pub const RESCUE_STARTS: usize = 8;
+
+/// The parameters of the centres of the (at most [`RESCUE_STARTS`]) cells
+/// of patch `uv` with the highest bounds above `floor`, highest first.
+fn rescue_starts(subs: &[SubBox], uv: UvBox, ax: Axis, c: &Cutter, floor: f64) -> Vec<(f64, f64)> {
+    let n = SUB_GRID;
+    let mut cells: Vec<(f64, usize)> = subs
+        .iter()
+        .enumerate()
+        .map(|(k, b)| (cell_bound(b, ax, c), k))
+        .filter(|&(cb, _)| cb > floor)
+        .collect();
+    // Ties in cell order, so the starts do not depend on the sort.
+    cells.sort_by(|a, b| b.0.total_cmp(&a.0).then(a.1.cmp(&b.1)));
+    cells
+        .into_iter()
+        .take(RESCUE_STARTS)
+        .map(|(_, k)| {
+            let (i, j) = (k / n, k % n);
+            (
+                uv.u.at((i as f64 + 0.5) / n as f64),
+                uv.v.at((j as f64 + 0.5) / n as f64),
+            )
+        })
+        .collect()
+}
+
 /// Highest contact on primitive `i`.
 pub fn solve_prim(
     g: &QueryGeometry,
@@ -197,15 +225,11 @@ pub fn drop(
     // boundary still allow more, may have missed a contact there (Newton
     // from its seeds can fail or stop short beside the boundary, and
     // neighbouring patches, which used to be solved as well, no longer
-    // cover for it). It is solved again with richer seeds.
+    // cover for it). It is solved again, with Newton started from the
+    // centres of its cells whose bounds beat the best contact, highest
+    // first: starts where a better contact may be.
     let have = |best: Option<Contact>| best.map_or(opts.floor, |b| b.tau.max(opts.floor));
     if have(best) < opts.ceiling {
-        let rich = Seeding {
-            grid: opts.seeding.grid + 2,
-            rings: opts.seeding.rings + 1,
-            starts: 2 * opts.seeding.starts,
-            ..opts.seeding
-        };
         for &(i, tau) in &patches {
             let Prim::Face { face, uv } = g.prims[i as usize] else {
                 continue;
@@ -219,7 +243,8 @@ pub fn drop(
                 continue;
             }
             stats.rescues += 1;
-            let (r, t) = solve::face_trimmed(g, face, uv, g.prim_box(i), ax, c, &rich, stats);
+            let starts = rescue_starts(g.sub_boxes(i), uv, ax, c, have(best) + opts.slack);
+            let (r, t) = solve::face_from(g, face, ax, c, &starts, stats);
             if t > r.map_or(f64::NEG_INFINITY, |r| r.tau) {
                 trimmed.push((face, t));
             }
