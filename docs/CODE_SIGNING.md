@@ -15,7 +15,7 @@ you can check a download.
 | Every release file | GitHub build provenance attestation (Sigstore), made by the release workflow |
 | `releases.json`, `SHA256SUMS` | minisign (Ed25519); the app checks `releases.json` before it offers an update |
 | macOS app and disk image | Ad hoc only; see [macOS](#macos) |
-| Linux tarball and AppImage | No platform signature; use the attestation or the checksums |
+| Linux tarball, AppImage and Flatpak bundle | No platform signature; use the attestation or the checksums |
 
 Only files built by the release workflow ([`.github/workflows/release.yml`](../.github/workflows/release.yml))
 from a tagged commit of this repository, on GitHub-hosted runners, are signed. FluutCAM has no

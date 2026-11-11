@@ -1,0 +1,48 @@
+# Flatpak manifest for FluutCAM (design D14 §5.2; plan docs/plan/2026-11-11-flatpak.md).
+#
+# This manifest packages the PREBUILT release binaries from the Linux tarball
+# (the same files as the AppImage). It is built by build-flatpak.sh, which
+# unpacks the tarball into ./payload next to this file first. Flathub needs a
+# build from source with vendored crates; that is a stated follow-up
+# (docs/plan/2026-11-11-flatpak.md), so this manifest is not the Flathub one.
+app-id: io.github.martinlong1978.FluutCAM
+runtime: org.freedesktop.Platform
+runtime-version: "24.08"
+sdk: org.freedesktop.Sdk
+command: fluutcam
+
+# As few permissions as possible:
+# - Wayland, with X11 as the fallback (and `ipc` that X11 shared memory needs);
+# - DRI, the GPU (wgpu: Vulkan or OpenGL);
+# - no filesystem access: the file dialogs (rfd, xdg-desktop-portal) hand the
+#   app the files the person picks;
+# - no network: the opt-in update check cannot run here, by decision; a
+#   Flatpak is updated by Flatpak, not by the app (PRIVACY.md).
+finish-args:
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --share=ipc
+  - --device=dri
+
+modules:
+  - name: fluutcam
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 bin/fluutcam /app/bin/fluutcam
+      - install -Dm755 bin/fluut /app/bin/fluut
+      - install -Dm644 -t /app/share/licenses/${FLATPAK_ID} share/doc/fluutcam/LICENSE-APACHE share/doc/fluutcam/LICENSE-MIT
+      - install -Dm644 io.github.martinlong1978.FluutCAM.desktop /app/share/applications/${FLATPAK_ID}.desktop
+      - install -Dm644 io.github.martinlong1978.FluutCAM.metainfo.xml /app/share/metainfo/${FLATPAK_ID}.metainfo.xml
+      - |
+        for s in 16 24 32 48 64 128 256 512; do
+          install -Dm644 share/icons/hicolor/${s}x${s}/apps/fluutcam.png \
+            /app/share/icons/hicolor/${s}x${s}/apps/${FLATPAK_ID}.png
+        done
+    sources:
+      # The unpacked Linux tarball (bin/, share/); written by build-flatpak.sh.
+      - type: dir
+        path: payload
+      - type: file
+        path: io.github.martinlong1978.FluutCAM.desktop
+      - type: file
+        path: io.github.martinlong1978.FluutCAM.metainfo.xml

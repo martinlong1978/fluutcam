@@ -43,6 +43,7 @@ In a file `settings.toml` in FluutCAM's data folder:
 | Windows | `%LOCALAPPDATA%\FluutCAM` |
 | macOS | `~/Library/Application Support/FluutCAM` |
 | Linux | `~/.local/share/fluutcam` (or `$XDG_DATA_HOME/fluutcam`) |
+| Linux, Flatpak | `~/.var/app/io.github.martinlong1978.FluutCAM/data/fluutcam` |
 
 Setting the environment variable `FLUUT_DATA_DIR` uses that folder instead. The same folder holds the crash reports (in `crashes`). Delete the folder to remove all of it. The file holds the update choice and whether you closed the Getting started card. A missing or damaged settings file gives the defaults.
 

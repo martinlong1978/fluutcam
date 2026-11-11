@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=FluutCAM
+Comment=Open-source CAM for CNC milling
+Exec=fluutcam %f
+Icon=io.github.martinlong1978.FluutCAM
+Terminal=false
+Categories=Graphics;Engineering;
+Keywords=CAM;CNC;G-code;milling;toolpath;
+StartupWMClass=fluutcam

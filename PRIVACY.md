@@ -13,6 +13,11 @@ advertising. Your projects, models, tools and settings stay on your computer.
 | Update check | Only if you say Yes when FluutCAM asks on first start, or turn it on in Settings; at most once a day | One HTTPS request for the release list. GitHub sees your IP address and the fixed user agent `FluutCAM-update-check`, which carries no version or system details; nothing else is sent | `github.com` (GitHub's [privacy statement](https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement)) |
 | Check now | Only when you click **Check now**, or run `fluut update-check` | The same single request | `github.com` |
 
+The Linux Flatpak is built without the network permission, so neither of these can run
+there: the Flatpak sandbox blocks the request. That is by decision (a Flatpak is updated by
+Flatpak, and the least permission that works is the right one); the update check still
+reports a failure if you turn it on.
+
 The update check is off until you turn it on. You can turn it off at any time in
 Settings. FluutCAM never downloads or installs an update itself: it shows the new version
 and a link to the release page, and you download the file yourself.
@@ -23,12 +28,14 @@ and a link to the release page, and you download the file yourself.
   You can attach one to an issue yourself if you want to.
 - **Settings and recent files** are kept in your settings folder
   (`%LOCALAPPDATA%\FluutCAM` on Windows, `~/Library/Application Support/FluutCAM` on
-  macOS, `~/.local/share/fluutcam` on Linux).
+  macOS, `~/.local/share/fluutcam` on Linux, `~/.var/app/io.github.martinlong1978.FluutCAM/data/fluutcam`
+in the Flatpak).
 
 ## Installing and uninstalling
 
 The Windows installer adds the program, a Start menu entry and a `PATH` entry, and
-removes all three when you uninstall. It does not change any other system setting. See
+removes all three when you uninstall. The Linux Flatpak asks for a display and the GPU only:
+no network and no file access beyond the files you choose in the file dialogs. It does not change any other system setting. See
 [Installing FluutCAM](docs/install.md) for every platform, including how to uninstall.
 
 ## Changes
