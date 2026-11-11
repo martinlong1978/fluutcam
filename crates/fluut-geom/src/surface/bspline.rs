@@ -149,6 +149,39 @@ impl Bezier {
     }
 }
 
+/// For `n` equal parts of `[lo, hi]` (local parameters of a Bézier span of
+/// degree `p`): `[i][m][k]`, the weight of Bézier point `k` of the span in
+/// Bézier point `m` of part `i` (the blossom at `p - m` copies of the
+/// part's start and `m` of its end; the weights of each point sum to 1).
+fn restriction(p: usize, lo: f64, hi: f64, n: usize) -> Vec<[[f64; SMALL]; SMALL]> {
+    (0..n)
+        .map(|i| {
+            let a = lo + (hi - lo) * i as f64 / n as f64;
+            let b = lo + (hi - lo) * (i + 1) as f64 / n as f64;
+            let mut out = [[0.0f64; SMALL]; SMALL];
+            for (m, row) in out.iter_mut().enumerate().take(p + 1) {
+                // de Casteljau with one argument per level on the unit
+                // vectors (the Bézier knots are p + 1 zeros and ones).
+                let mut d = [[0.0f64; SMALL]; SMALL];
+                for (k, dk) in d.iter_mut().enumerate().take(p + 1) {
+                    dk[k] = 1.0;
+                }
+                for r in 1..=p {
+                    let t = if r <= p - m { a } else { b };
+                    for j in (r..=p).rev() {
+                        let (lower, upper) = d.split_at_mut(j);
+                        for (x, &y) in upper[0].iter_mut().zip(&lower[j - 1]).take(p + 1) {
+                            *x = y * (1.0 - t) + *x * t;
+                        }
+                    }
+                }
+                *row = d[p];
+            }
+            out
+        })
+        .collect()
+}
+
 /// Derivatives of `P/w` from those of the homogeneous `(w·P, w)`, for
 /// `k + l ≤ D` (*The NURBS Book* A4.4).
 fn rational<const D: usize>(aw: &[[DVec4; 3]; 3]) -> [[Vec3; 3]; 3] {
@@ -549,6 +582,59 @@ impl BSplineSurface {
         &self.patches
     }
 
+    /// Proven bounds of `n × n` cells of the surface over `uv`, which must
+    /// lie in one Bézier patch: cell `(i, j)` (`i` along u, at `i * n + j`)
+    /// is bounded by the box of the Bézier points of the surface restricted
+    /// to it, which contains it (convex hull property, positive weights),
+    /// grown by 1e-13 relative for rounding. `None` without a Bézier form
+    /// (degrees above 7).
+    pub fn cell_bounds(&self, uv: UvBox, n: usize) -> Option<Vec<Aabb3>> {
+        let bz = self.bezier.as_ref()?;
+        let (pu, pv) = (self.deg_u as usize, self.deg_v as usize);
+        let (cu, cv) = uv.centre();
+        let (a, _, _) = span_local(&bz.us, &bz.ius, cu);
+        let (b, _, _) = span_local(&bz.vs, &bz.ivs, cv);
+        let np = (pu + 1) * (pv + 1);
+        let base = (a * (bz.vs.len() - 1) + b) * np;
+        let hom = |i: usize, j: usize| {
+            let k = base + i * (pv + 1) + j;
+            bz.xyz[k].extend(bz.w.as_ref().map_or(1.0, |w| w[k]))
+        };
+        let lu = |x: f64| (x - bz.us[a]) * bz.ius[a];
+        let lv = |x: f64| (x - bz.vs[b]) * bz.ivs[b];
+        let mu = restriction(pu, lu(uv.u.lo), lu(uv.u.hi), n);
+        let mv = restriction(pv, lv(uv.v.lo), lv(uv.v.hi), n);
+        // strips[i][m][j]: Bézier point m along u of strip i, pole row j.
+        let mut strips = vec![[[DVec4::ZERO; SMALL]; SMALL]; n];
+        for (strip, m) in strips.iter_mut().zip(&mu) {
+            for (row, mrow) in strip.iter_mut().zip(m.iter()).take(pu + 1) {
+                for (j, x) in row.iter_mut().enumerate().take(pv + 1) {
+                    for (k, &c) in mrow.iter().enumerate().take(pu + 1) {
+                        *x += hom(k, j) * c;
+                    }
+                }
+            }
+        }
+        let mut out = Vec::with_capacity(n * n);
+        for strip in &strips {
+            for m in &mv {
+                let mut bx = Aabb3::empty();
+                for row in strip.iter().take(pu + 1) {
+                    for mrow in m.iter().take(pv + 1) {
+                        let mut q = DVec4::ZERO;
+                        for (x, &c) in row.iter().zip(mrow.iter()).take(pv + 1) {
+                            q += *x * c;
+                        }
+                        bx = bx.with_point(Point3(q.truncate() / q.w));
+                    }
+                }
+                let e = 1e-13 * (1.0 + bx.min.0.abs().max(bx.max.0.abs()).max_element());
+                out.push(bx.expand(e));
+            }
+        }
+        Some(out)
+    }
+
     fn compute_patches(&self) -> Vec<(UvBox, Aabb3)> {
         let (pu, pv) = (self.deg_u as usize, self.deg_v as usize);
         // Spans with non-zero length: (span index, interval).
@@ -757,6 +843,72 @@ mod tests {
             }
         }
         assert!(n > 10_000 && tighter > 10, "{n} {tighter}");
+    }
+
+    #[test]
+    fn cell_bounds_contain_their_cells() {
+        let cases = [
+            (
+                3,
+                3,
+                vec![0., 0., 0., 0., 1., 2., 3., 3., 3., 3.],
+                vec![0., 0., 0., 0., 0.5, 1., 1., 1., 1.],
+            ),
+            (
+                2,
+                3,
+                vec![0., 0., 0., 0.3, 0.3, 0.9, 2., 2., 2.],
+                vec![-1., -1., -1., -1., 0.2, 0.7, 4., 4., 4., 4.],
+            ),
+            (
+                3,
+                1,
+                vec![0., 1., 2., 3., 4., 5., 6., 7., 8.],
+                vec![0., 0., 1., 2.5, 3., 3.],
+            ),
+        ];
+        let n = 4;
+        let mut count = 0;
+        for (c, (pu, pv, ku, kv)) in cases.into_iter().enumerate() {
+            for rational in [false, true] {
+                let s = surface(pu, pv, ku.clone(), kv.clone(), rational, 70 + c as u64);
+                for (puv, pb) in s.patches() {
+                    // The whole patch and a part of it.
+                    let part = UvBox::new(
+                        Interval {
+                            lo: puv.u.at(0.2),
+                            hi: puv.u.at(0.9),
+                        },
+                        Interval {
+                            lo: puv.v.at(0.1),
+                            hi: puv.v.at(0.6),
+                        },
+                    );
+                    for uv in [*puv, part] {
+                        let cells = s.cell_bounds(uv, n).unwrap();
+                        assert_eq!(cells.len(), n * n);
+                        for (k, b) in cells.iter().enumerate() {
+                            let (i, j) = (k / n, k % n);
+                            // Cells are tighter than the patch, up to rounding.
+                            assert!(b.max.z() <= pb.max.z() + 1e-9);
+                            for a in 0..=6 {
+                                for e in 0..=6 {
+                                    let u = uv.u.at((i as f64 + a as f64 / 6.0) / n as f64);
+                                    let v = uv.v.at((j as f64 + e as f64 / 6.0) / n as f64);
+                                    let p = s.eval(u, v);
+                                    assert!(
+                                        p.0.cmpge(b.min.0).all() && p.0.cmple(b.max.0).all(),
+                                        "case {c} cell {k}: {p:?} outside {b:?}"
+                                    );
+                                    count += 1;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assert!(count > 50_000, "{count}");
     }
 
     #[test]
