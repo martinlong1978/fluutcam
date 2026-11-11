@@ -288,6 +288,7 @@ pub(super) fn run(
         }
         Command::Post => project::ask(jobs, state, dialogs, DialogKind::PostOutput),
         Command::Cancel => jobs.cancel(),
+        Command::ImportTools => super::tool_import::ask(jobs, state, dialogs),
         _ => {}
     }
 }

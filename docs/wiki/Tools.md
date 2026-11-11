@@ -77,7 +77,7 @@ The command-line programs also take extra tool files with `--tools <file>`, load
 
 ## Import from Fusion
 
-A Fusion tool library can be converted with `fluut tools import`. See [Import tools](Import-Tools).
+A Fusion tool library can be converted with **Import tools…** on the Library tab, or with `fluut tools import`. See [Import tools](Import-Tools).
 
 ## Not yet
 

@@ -23,7 +23,7 @@ This page names every part of the FluutCAM window, so the other pages can say "t
 - **Toolpaths**: galleries of toolpath types (2D, Holes, 3D, Rotary, Utility) that suit the selected Setup's kind, then **Calculate selected** and **Calculate all**.
 - **Simulate**: **Simulate** and the playback buttons (play or pause, step back, step forward).
 - **Post**: **Post** and the list of posts.
-- **Library**: Tools, Machines and Posts. These are greyed out ("Coming soon"): browsing and editing the libraries is not built yet.
+- **Library**: **Import tools…** turns a Fusion tool library into a FluutCAM one ([Import tools](Import-Tools)). Tools, Machines and Posts are greyed out ("Coming soon"): browsing and editing the libraries is not built yet.
 - **Edit** (on every stage): **Undo** and **Redo**.
 - **Job**: **Cancel**, available while a job runs.
 

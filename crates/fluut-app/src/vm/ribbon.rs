@@ -178,6 +178,7 @@ pub enum Command {
     StepForward,
     Post,
     Cancel,
+    ImportTools,
     LibraryTools,
     LibraryMachines,
     LibraryPosts,
@@ -208,6 +209,7 @@ impl Command {
             Command::StepForward,
             Command::Post,
             Command::Cancel,
+            Command::ImportTools,
             Command::LibraryTools,
             Command::LibraryMachines,
             Command::LibraryPosts,
@@ -265,6 +267,7 @@ impl Command {
             Command::StepForward => "simulation.step_forward",
             Command::Post => "post.all",
             Command::Cancel => "job.cancel",
+            Command::ImportTools => "library.import_tools",
             Command::LibraryTools => "library.tools",
             Command::LibraryMachines => "library.machines",
             Command::LibraryPosts => "library.posts",
@@ -298,6 +301,7 @@ impl Command {
             Command::StepForward => "ribbon-step-forward",
             Command::Post => "ribbon-post",
             Command::Cancel => "ribbon-cancel",
+            Command::ImportTools => "ribbon-import-tools",
             Command::LibraryTools => "ribbon-library-tools",
             Command::LibraryMachines => "ribbon-library-machines",
             Command::LibraryPosts => "ribbon-library-posts",
@@ -355,6 +359,7 @@ impl Command {
             Command::StepForward => "step-forward",
             Command::Post => "post",
             Command::Cancel => "cancel",
+            Command::ImportTools => "import-tools",
             Command::LibraryTools => "library-tools",
             Command::LibraryMachines => "library-machines",
             Command::LibraryPosts => "library-posts",
@@ -631,7 +636,12 @@ impl RibbonVm {
             Stage::Post => vec![(GroupId::Output, vec![C::Post])],
             Stage::Library => vec![(
                 GroupId::Library,
-                vec![C::LibraryTools, C::LibraryMachines, C::LibraryPosts],
+                vec![
+                    C::ImportTools,
+                    C::LibraryTools,
+                    C::LibraryMachines,
+                    C::LibraryPosts,
+                ],
             )],
         };
         groups.push((GroupId::Edit, vec![C::Undo, C::Redo]));
@@ -667,7 +677,7 @@ impl RibbonVm {
         let ready = self.open && !self.busy;
         c.wired()
             && match c {
-                Command::NewProject | Command::Open => !self.busy,
+                Command::NewProject | Command::Open | Command::ImportTools => !self.busy,
                 Command::Save | Command::SaveAs | Command::ImportModel => ready,
                 Command::Reimport => ready && self.has_geometry,
                 Command::Undo => ready && self.can_undo,

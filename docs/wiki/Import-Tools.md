@@ -2,13 +2,26 @@
 
 If you already have a tool library in Autodesk Fusion, you can turn it into a FluutCAM tool library with one command, instead of typing every tool again. This page says how, what carries over, and what does not.
 
-You can import a **Fusion tool library** (`.json`). Vectric `.vtdb` tool databases are not supported yet (see [Known limits](Known-Limits)). The window has no import button yet: the Library commands are not built. Use the command line.
+You can import a **Fusion tool library** (`.json`). Vectric `.vtdb` tool databases are not supported yet (see [Known limits](Known-Limits)). You can import in the window or on the command line.
 
 ## Export from Fusion
 
 In Fusion's tool library, export the library you want as a JSON file. Importing reads the file you give it and nothing else. It does not run anything from the file, and it does not use the network.
 
-## Import
+## Import in the window
+
+1. Open the **Library** tab of the ribbon and click **Import tools…**. You do not need a project open.
+2. Your system's file dialog opens. Choose the Fusion `.json` file. (A Vectric `.vtdb` file is answered with the error `import.format.unsupported`, and nothing is written.)
+3. A second file dialog asks where to save the new library, as a `.toml` file. It offers the file's name with `.toml`, and starts in your project's `tools/` folder when a project is open. If you choose a file that already exists, the dialog asks you to confirm replacing it; without that confirmation an existing file is never touched.
+4. The import runs in the background, then a window shows the result: the library id, the number of tools read, written and skipped, the number of source keys that were not used (open **Keys not used** for the list), and every warning with its code.
+
+![The Import tools result](images/import-tools-result.png)
+
+**Using the new library.** If you saved it in the open project's `tools/` folder, the window offers **Reload project to use it**. A library in that folder is loaded when the project is opened, so the button opens the project again (it asks first if you have unsaved changes). If you saved it anywhere else, the window says so: a project cannot refer to a library in another folder yet, so copy the file into the project's `tools/` folder, or use the command line with `--tools` ([Command line](Command-Line)). The window never adds the library to the project file.
+
+Cancel either dialog and nothing happens. The library id is `fusion/` and the Fusion file's name, as on the command line; use the command line if you want another id or name.
+
+## Import on the command line
 
 ```
 fluut tools import shop-tools.json -o shop.tools.toml
@@ -85,7 +98,9 @@ An import stops with an error for a file over 32 MiB, a file with more than 10 0
 | `import.limit.tools` (error) | More than 10 000 tools |
 | `import.library.bad_id` (error) | The `--id` is not allowed |
 | `import.format.unsupported` (error) | The file type cannot be imported (`.vtdb` today) |
-| `import.output.exists` (error) | The output file exists; add `--force` to replace it |
+| `import.output.exists` (error) | The output file exists; add `--force` to replace it (in the window: the file dialog did not confirm replacing it) |
+| `import.output.is_input` (error) | Window only: the library file is the Fusion file itself |
+| `import.worker` (error) | Window only: the background import could not run |
 | `import.output.unwritable` (error) | The output file could not be written |
 | `import.tool.unsupported_type` | The tool type has no FluutCAM shape; the tool was left out |
 | `import.tool.approximated` | Imported as a similar shape: check its size |
@@ -98,4 +113,4 @@ An import stops with an error for a file over 32 MiB, a file with more than 10 0
 | `import.preset.dropped` | A preset was dropped: a second one with the same name, more than 200, or not a preset |
 | `import.fields.dropped` | Fields of the file that FluutCAM does not use, counted |
 
-Errors exit with status 1 and write no file; warnings do not change the exit status. Messages name the tool, for example `tool 3 "6 mm flat": ...`.
+On the command line, errors exit with status 1 and write no file; warnings do not change the exit status. Messages name the tool, for example `tool 3 "6 mm flat": ...`.

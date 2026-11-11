@@ -16,7 +16,7 @@ The window is a first version. The ribbon drives everything the window can do. T
 - **Picking whole bodies.** A click on the model toggles a whole body, but the pointer lights up only the face or curve under it, not the whole body.
 - **Picking in a box.** You click one entity at a time. After an edge, the inspector offers its closed loop.
 - **A post that is not built in.** The Post stage's list has the built-in posts (`fluut/linuxcnc`, `fluut/grbl`, `fluut/gcode`, `fluut/linuxcnc-4x`) and not those of your project's `posts/` folder. A rotary Setup does not choose `fluut/linuxcnc-4x` by itself: pick it in the list.
-- **The Library commands** (Tools, Machines, Posts) are greyed out. Browsing and editing the libraries is not built.
+- **The Library browser.** Tools, Machines and Posts in the Library tab are greyed out: browsing and editing the libraries is not built. **Import tools…** works ([Import tools](Import-Tools)). A project cannot refer to a tool library by a path yet: a library is loaded from the project's `tools/` folder (or `--tools` on the command line), so after an import the window can only reload the project, and only when the file is in that folder.
 - **Choosing one model file to re-import.** **Re-import** reads every model file of the project.
 - **A folder choice when posting.** The Post dialog names the first file; a post that writes more files numbers them beside it (`name.2.ngc`).
 - **Picking the unit when importing** a DXF, SVG or STL file. FluutCAM assumes the project's unit and warns.
@@ -29,7 +29,7 @@ Small thing you may notice: some error messages, such as a bad STEP file, show i
 
 ## Importing
 
-- **Tool libraries.** Fusion tool-library `.json` files import from the command line (`fluut tools import`, [Import tools](Import-Tools)); there is no import in the window yet. Vectric `.vtdb` tool databases do not import yet: the layout of that file is not public. Fusion's JSON is not a published specification, so check imported tools. Tool types without a FluutCAM shape (dovetail, lollipop, thread mill, reamer and others) are left out; an import never changes an existing library.
+- **Tool libraries.** Fusion tool-library `.json` files import from the command line (`fluut tools import`, [Import tools](Import-Tools)); in the window use **Import tools…** on the Library tab. Vectric `.vtdb` tool databases do not import yet: the layout of that file is not public. Fusion's JSON is not a published specification, so check imported tools. Tool types without a FluutCAM shape (dovetail, lollipop, thread mill, reamer and others) are left out; an import never changes an existing library.
 
 - **STL files (meshes).** They import as bodies and can be machined, with these limits:
   - Faces are not grouped. Each triangle is its own face, so picking a face picks one triangle.
