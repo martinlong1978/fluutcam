@@ -385,12 +385,42 @@ pub struct Run {
 /// Open levels with fewer chords than this are sampled on one thread.
 const PAR_LEVEL: usize = 8;
 
-/// A chord of the bisection tree: still to decide, or ended at a sample.
+/// A chord of the bisection tree: still to decide, or accepted, with its
+/// middle drop on the drive (when one was taken) and its end.
 #[derive(Copy, Clone)]
 enum Node {
-    Done(Sample),
-    Open(Sample, Sample),
+    Done(Option<Sample>, Sample),
+    Open(Sample, Sample, Hint),
 }
+
+/// What the split of a chord's parent predicts for it. It only chooses
+/// which drop a chord on a curved drive takes first, never whether it is
+/// accepted.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+enum Hint {
+    Unknown,
+    /// Its parent's error was at most `4·PASS·tol/4`: the chord is
+    /// expected to pass.
+    Pass,
+}
+
+/// What [`Sampler::split`] decides for a chord.
+#[derive(Copy, Clone)]
+enum Split {
+    /// Accepted, with its middle drop on the drive if one was taken.
+    Accept(Option<Sample>),
+    /// Split at this sample, the halves with this hint.
+    At(Sample, Hint),
+}
+
+/// The share of `tol/4` under which the halves of a split chord are
+/// predicted to pass (their error being about a quarter of the chord's).
+const PASS: f64 = 0.8;
+
+/// Where the drive's sagitta over a chord is below this, mm, the chord's
+/// middle and the drive's are the same point (a straight piece of a loop,
+/// up to rounding), and one drop checks both.
+const SAG_LINE: f64 = 1e-12;
 
 /// A CL sample at parameter `t` along a drive curve.
 #[derive(Copy, Clone, Debug)]
@@ -444,9 +474,9 @@ impl Sampler<'_> {
     }
 
     /// Samples of `d` over `[t0, t1]` in order: chords within `tol/4` of
-    /// the drop (and of a curved drive in XY, and not below the drop at
-    /// their middle by more than `tol/4`) and at most `max_step` long, with
-    /// the cut-off points between cut and uncut stretches to [`CUTOFF`].
+    /// the drop at their middle (and of a curved drive in XY) and at most
+    /// `max_step` long, with the cut-off points between cut and uncut
+    /// stretches to [`CUTOFF`]; see [`Sampler::split`].
     pub fn samples(&self, d: &impl Drive, t0: f64, t1: f64) -> Vec<Sample> {
         let bs: Vec<f64> = d
             .breaks()
@@ -480,12 +510,19 @@ impl Sampler<'_> {
 
     /// The samples of `[t0, t1]`: the bisection tree of chords, evaluated
     /// level by level. Whether a chord is split depends only on its two
-    /// ends and its middle, so the levels can be sampled in parallel and
-    /// the result is the same, in the same order, for any thread count.
+    /// ends, its middle drops and how it came about (see [`Hint`]), so
+    /// the levels can be sampled in parallel and the result is the same,
+    /// in the same order, for any thread count.
+    ///
+    /// The output is the first sample, then for each accepted chord, left
+    /// to right, its middle drop on the drive (when one was taken) and its
+    /// end: the middle drop is a real drop within `tol/4` of the chord, so
+    /// it is not thrown away, and the merge of [`Sampler::cut_runs`] then
+    /// keeps every drop on the drive within `tol/4` of the output.
     fn samples_on(&self, d: &impl Drive, t0: f64, t1: f64) -> Vec<Sample> {
         let a = self.sample(d, t0);
         let b = self.sample(d, t1);
-        let mut nodes = vec![Node::Open(a, b)];
+        let mut nodes = vec![Node::Open(a, b, Hint::Unknown)];
         loop {
             let open = nodes.iter().filter(|n| matches!(n, Node::Open(..))).count();
             if open == 0 {
@@ -493,10 +530,10 @@ impl Sampler<'_> {
             }
             let step = |n: &Node| -> (Node, Option<Node>) {
                 match *n {
-                    Node::Done(_) => (*n, None),
-                    Node::Open(a, b) => match self.split(d, a, b) {
-                        None => (Node::Done(b), None),
-                        Some(m) => (Node::Open(a, m), Some(Node::Open(m, b))),
+                    Node::Done(..) => (*n, None),
+                    Node::Open(a, b, h) => match self.split(d, a, b, h) {
+                        Split::Accept(m) => (Node::Done(m, b), None),
+                        Split::At(m, h) => (Node::Open(a, m, h), Some(Node::Open(m, b, h))),
                     },
                 }
             };
@@ -512,49 +549,110 @@ impl Sampler<'_> {
                 nodes.extend(y);
             }
         }
-        let mut out = vec![a];
-        out.extend(nodes.into_iter().map(|n| match n {
-            Node::Done(b) | Node::Open(_, b) => b,
-        }));
+        let mut out = Vec::with_capacity(2 * nodes.len() + 1);
+        out.push(a);
+        for n in nodes {
+            match n {
+                Node::Done(m, b) => {
+                    out.extend(m);
+                    out.push(b);
+                }
+                Node::Open(_, b, _) => out.push(b),
+            }
+        }
         out
     }
 
-    /// The middle sample when the chord `a`–`b` is split, `None` when `b`
-    /// ends it.
-    fn split(&self, d: &impl Drive, a: Sample, b: Sample) -> Option<Sample> {
+    /// Whether the chord `a`–`b` is accepted (with its middle drop on the
+    /// drive, when one was taken) or split at the middle of the drive
+    /// between them (the new end, a drop, and the hint for the halves).
+    ///
+    /// A chord is accepted only when its ends are cut alike and it is
+    /// uncut and at most `max_step` long; or it is a vertical step (at most
+    /// 1e-6 mm long); or it is cut, at most `max_step` long, and
+    /// - on a line (or where the drive's sagitta over it is below
+    ///   [`SAG_LINE`]): the drop at its middle is cut and within `tol/4` of
+    ///   the chord, as the bisection always did;
+    /// - on a curve: the drive's sagitta is at most `tol/4`, and the drop
+    ///   at the chord's own middle (which the tool passes through, off the
+    ///   drive by the sagitta) is cut and within `tol/4` of the chord on
+    ///   either side. The drop at the drive's middle is taken first, and
+    ///   must then be within `tol/4` too, unless the chord is
+    ///   [`Hint::Pass`]: then it is taken only if the chord is split, as
+    ///   its new end.
+    fn split(&self, d: &impl Drive, a: Sample, b: Sample, hint: Hint) -> Split {
         let len = d.len(a.t, b.t);
+        let tm = 0.5 * (a.t + b.t);
+        let lim = 0.25 * self.tol;
         if a.cut != b.cut {
             if len <= CUTOFF {
-                return None;
+                return Split::Accept(None);
             }
-            return Some(self.sample(d, 0.5 * (a.t + b.t)));
+            return Split::At(self.sample(d, tm), Hint::Unknown);
         }
         if len <= CUTOFF {
-            return None;
+            return Split::Accept(None);
         }
         let long = len > self.max_step;
         if !a.cut && !long {
-            return None;
+            return Split::Accept(None);
         }
-        let m = self.sample(d, 0.5 * (a.t + b.t));
-        let dev = (m.z - 0.5 * (a.z + b.z)).abs();
-        // A curved drive: the chord leaves the curve sideways, so the
-        // pattern error is the sagitta and the gouge is the drop at the
-        // chord's middle above the chord.
-        let curved = || {
-            let sag = d.sagitta(a.t, b.t);
-            sag > 0.25 * self.tol
-                || (sag > 0.0 && {
-                    let cm = d.at(a.t) + (d.at(b.t) - d.at(a.t)) * 0.5;
-                    self.cl(cm).0 - 0.5 * (a.z + b.z) > 0.25 * self.tol
-                })
+        let mid = 0.5 * (a.z + b.z);
+        // The halves of a chord whose error was `e` are predicted to pass
+        // when `e/4` (the error of a smooth CL falls as the square of the
+        // length) is well within `tol/4`.
+        let halves = |e: f64| {
+            if e <= 4.0 * PASS * lim {
+                Hint::Pass
+            } else {
+                Hint::Unknown
+            }
         };
         // Stop splitting a vertical step (a flat tool over a wall).
-        let split = long
-            || m.cut != a.cut
-            || (dev > 0.25 * self.tol && len > 1e-6)
-            || (len > 1e-6 && curved());
-        split.then_some(m)
+        let step = len <= 1e-6;
+        let sag = if step { 0.0 } else { d.sagitta(a.t, b.t) };
+        if long || sag <= SAG_LINE {
+            let m = self.sample(d, tm);
+            let dev = (m.z - mid).abs();
+            if long || m.cut != a.cut {
+                return Split::At(m, Hint::Unknown);
+            }
+            if dev > lim && !step {
+                return Split::At(m, halves(dev));
+            }
+            return Split::Accept(Some(m));
+        }
+        if sag > lim {
+            // The pattern error alone: no drop decides this.
+            return Split::At(self.sample(d, tm), halves(sag));
+        }
+        // A curved drive: the chord leaves the drive sideways by `sag`;
+        // the tool passes through the chord's middle `cm`.
+        let mut m = None;
+        if hint != Hint::Pass {
+            let s = self.sample(d, tm);
+            let dev = (s.z - mid).abs();
+            if s.cut != a.cut {
+                return Split::At(s, Hint::Unknown);
+            }
+            if dev > lim {
+                return Split::At(s, halves(dev));
+            }
+            m = Some(s);
+        }
+        let cm = d.at(a.t) + (d.at(b.t) - d.at(a.t)) * 0.5;
+        let (zc, cut_c) = self.cl(cm);
+        let err = (zc - mid).abs();
+        if cut_c != a.cut || err > lim {
+            let s = m.unwrap_or_else(|| self.sample(d, tm));
+            let h = if cut_c != a.cut {
+                Hint::Unknown
+            } else {
+                halves(err)
+            };
+            return Split::At(s, h);
+        }
+        Split::Accept(m)
     }
 
     /// The cut stretches of `d` over `[t0, t1]` as CL polylines, collinear
