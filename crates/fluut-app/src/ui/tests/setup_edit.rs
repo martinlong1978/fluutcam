@@ -349,3 +349,184 @@ fn dragging_a_margin_handle_changes_the_margin_in_one_step() {
     settle(&mut h);
     assert_eq!(margin(&mut h)[2].v, 0.0);
 }
+
+#[test]
+fn scale_and_mirror_are_entered_in_the_inspector_and_undone() {
+    let mut h = harness();
+    h.step();
+    open(&mut h, project("block"));
+    stage(&mut h, "SETUP");
+    app(&mut h).ui.selection = Selection::Setup("s1".into());
+    h.run_steps(3);
+    h.get_by_label("Scale and mirror");
+    let geometry =
+        |h: &mut Harness<'static, State>| snapshot(h).project.setup("s1").unwrap().geometry.clone();
+    let r = snapshot(&mut h).revision;
+    super::editing::enter(&mut h, "Scale, all axes", "2");
+    newer(&mut h, r);
+    let g = geometry(&mut h).unwrap();
+    assert_eq!(g.scale.map(|k| k.map(|n| n.v)), Some([2.0; 3]));
+    let r = snapshot(&mut h).revision;
+    h.get_by_role_and_label(Role::CheckBox, "Mirror Y").click();
+    newer(&mut h, r);
+    let g = geometry(&mut h).unwrap();
+    assert_eq!(g.mirror, Some([false, true, false]));
+    assert!(g.scale.is_some(), "the scale stays");
+    // A zero is refused with a message under the row.
+    super::editing::enter(&mut h, "Scale, all axes", "0");
+    h.get_by_label("Must not be 0.");
+    // Two undo steps take both back.
+    h.get_by_label("Undo").click();
+    settle(&mut h);
+    h.get_by_label("Undo").click();
+    settle(&mut h);
+    assert!(geometry(&mut h).is_none());
+}
+
+#[test]
+fn a_rotary_setup_takes_a_body_as_stock_in_the_inspector() {
+    let mut h = harness();
+    h.step();
+    open(&mut h, project("plate"));
+    stage(&mut h, "SETUP");
+    for (key, text) in [
+        ("machine", "shop/router-4x@1"),
+        ("kind", "rotary"),
+        ("bodies.b-2", "false"),
+    ] {
+        let s = snapshot(&mut h);
+        let e = crate::vm::setup::setup_edit(&s, "s1", key, text).unwrap();
+        let r = s.revision;
+        app(&mut h).jobs.edit(crate::jobs::Edit::Model(e));
+        newer(&mut h, r);
+    }
+    app(&mut h).ui.selection = Selection::Setup("s1".into());
+    h.run_steps(3);
+    let r = snapshot(&mut h).revision;
+    choose(&mut h, "Type", "Body");
+    newer(&mut h, r);
+    let s = snapshot(&mut h);
+    assert_eq!(
+        s.project.setup("s1").unwrap().stock,
+        Some(StockSpec::Body { body: "b-2".into() })
+    );
+    assert!(s.warnings.is_empty(), "{:?}", s.warnings);
+    assert!(s.scenes["s1"].stock.is_some());
+    h.get_by_role_and_label(Role::ComboBox, "Body");
+}
+
+/// A stock handle dragged on the screen by `mm` along its direction.
+fn drag_stock_handle(
+    h: &mut Harness<'static, State>,
+    kind: crate::vm::handles::HandleKind,
+    mm: f32,
+) {
+    let from = mark(h, kind);
+    let hd = crate::vm::handles::handles(&snapshot(h), "s1")
+        .into_iter()
+        .find(|k| k.kind == kind)
+        .unwrap();
+    let to = on_screen(
+        h,
+        [
+            hd.at[0] + hd.dir[0] * mm,
+            hd.at[1] + hd.dir[1] * mm,
+            hd.at[2] + hd.dir[2] * mm,
+        ],
+    );
+    let r = snapshot(h).revision;
+    drag(h, from, to);
+    newer(h, r);
+}
+
+#[test]
+fn dragging_a_cylinder_handle_changes_the_radius_and_length_in_one_step_each() {
+    use crate::vm::handles::HandleKind;
+    let Some(mut h) = gpu_harness() else {
+        eprintln!("no wgpu adapter: the handle drag is skipped");
+        return;
+    };
+    h.step();
+    open(&mut h, project("shaft"));
+    let id = snapshot(&mut h).project.setups[0].id.clone();
+    app(&mut h).ui.selection = Selection::Setup(id.clone());
+    h.run_steps(4);
+    let cylinder = |h: &mut Harness<'static, State>| match snapshot(h)
+        .project
+        .setup("s1")
+        .unwrap()
+        .stock
+        .clone()
+    {
+        Some(StockSpec::Cylinder { radius, length }) => (radius.v, length.v),
+        s => panic!("{s:?}"),
+    };
+    assert_eq!(cylinder(&mut h), (17.0, 82.0));
+    drag_stock_handle(&mut h, HandleKind::Radius, 5.0);
+    let (r, l) = cylinder(&mut h);
+    assert!((r - 22.0).abs() < 1.5 && l == 82.0, "radius follows: {r}");
+    // The right end moves 4 mm: the length grows by 8.
+    drag_stock_handle(&mut h, HandleKind::Length, 4.0);
+    let (_, l) = cylinder(&mut h);
+    assert!((l - 90.0).abs() < 2.0, "length follows: {l}");
+    h.get_by_label("Undo").click();
+    settle(&mut h);
+    assert_eq!(cylinder(&mut h).1, 82.0);
+    h.get_by_label("Undo").click();
+    settle(&mut h);
+    assert_eq!(cylinder(&mut h), (17.0, 82.0));
+}
+
+#[test]
+fn dragging_a_size_handle_changes_the_size_and_a_model_point_takes_the_zero() {
+    use crate::vm::handles::HandleKind;
+    let Some(mut h) = gpu_harness() else {
+        eprintln!("no wgpu adapter: the handle drag is skipped");
+        return;
+    };
+    h.step();
+    open(&mut h, project("holes"));
+    app(&mut h).ui.selection = Selection::Setup("s1".into());
+    h.run_steps(4);
+    // Stock by size: the top handle moves the height.
+    let s = snapshot(&mut h);
+    let e = crate::vm::setup::setup_edit(&s, "s1", "stock.kind", "size").unwrap();
+    app(&mut h).jobs.edit(crate::jobs::Edit::Model(e));
+    newer(&mut h, s.revision);
+    h.run_steps(3);
+    let size = |h: &mut Harness<'static, State>| match snapshot(h)
+        .project
+        .setup("s1")
+        .unwrap()
+        .stock
+        .clone()
+    {
+        Some(StockSpec::Block { size: Some(v), .. }) => v.map(|n| n.v),
+        s => panic!("{s:?}"),
+    };
+    let before = size(&mut h);
+    drag_stock_handle(&mut h, HandleKind::Size(2), 5.0);
+    let after = size(&mut h);
+    assert!(
+        (after[2] - before[2] - 5.0).abs() < 1.5,
+        "{before:?} {after:?}"
+    );
+    assert_eq!(after[0], before[0]);
+    // The zero handle dropped on the Ø22 hole's centre at the top.
+    let key = "point:62.000000,25.000000,15.000000";
+    let at = crate::vm::handles::zero_targets(&snapshot(&mut h), "s1")
+        .into_iter()
+        .find(|(k, _)| k == key)
+        .unwrap_or_else(|| panic!("no snap point for the hole"))
+        .1;
+    let from = mark(&mut h, HandleKind::Zero);
+    let to = on_screen(&mut h, at);
+    let r = snapshot(&mut h).revision;
+    drag(&mut h, from, to);
+    newer(&mut h, r);
+    let zero = snapshot(&mut h).project.setup("s1").unwrap().zero.clone();
+    assert!(
+        matches!(zero, Some(fluut_model::project::ZeroSpec::Point(p)) if (p[0].v - 62.0).abs() < 1e-6 && (p[1].v - 25.0).abs() < 1e-6),
+        "{zero:?}"
+    );
+}
