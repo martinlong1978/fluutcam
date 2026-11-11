@@ -1683,8 +1683,12 @@ dependencies = [
 name = "fluut-post-import"
 version = "0.1.0"
 dependencies = [
+ "fluut-geom",
  "fluut-model",
+ "fluut-path",
+ "fluut-post",
  "serde_json",
+ "toml",
 ]
 
 [[package]]

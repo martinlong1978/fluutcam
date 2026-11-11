@@ -1,0 +1,151 @@
+# Imported from a Vectric post processor (fluut posts import).
+# Review it before use: imported posts are marked origin = "imported".
+#
+# The source file's opening comment:
+#    Hand-written test post for FluutCAM's Vectric importer; not a vendor
+#    file. A Grbl-like router in millimetres: arcs with incremental centres,
+#    a manual tool change as a pause, the feed written on the first move.
+format  = "fluut.post/1"
+id      = "test/grbl-like"
+version = "1.0"
+name    = "FluutCAM test, Grbl-like (mm)"
+origin  = "imported"
+
+[output]
+units = "mm"
+decimal_char = "."
+extension = "gcode"
+line_ending = "lf"
+comment_start = "("
+comment_end = ")"
+
+[words.F]
+prefix = "F"
+when = "changed"
+decimals = 1
+trailing_zeros = true
+leading_zero = true
+
+[words.I]
+prefix = "I"
+when = "always"
+decimals = 3
+trailing_zeros = true
+leading_zero = true
+
+[words.J]
+prefix = "J"
+when = "always"
+decimals = 3
+trailing_zeros = true
+leading_zero = true
+
+[words.S]
+prefix = "S"
+when = "always"
+decimals = 0
+trailing_zeros = true
+leading_zero = true
+
+[words.X]
+prefix = "X"
+when = "changed"
+decimals = 3
+trailing_zeros = true
+leading_zero = true
+
+[words.Y]
+prefix = "Y"
+when = "changed"
+decimals = 3
+trailing_zeros = true
+leading_zero = true
+
+[words.Z]
+prefix = "Z"
+when = "changed"
+decimals = 3
+trailing_zeros = true
+leading_zero = true
+
+[words.ZH]
+prefix = "Z"
+when = "always"
+decimals = 3
+trailing_zeros = true
+leading_zero = true
+
+[arcs]
+enabled = true
+planes = ["XY"]
+centre_mode = "ijk_incremental"
+
+[helix]
+enabled = false
+planes = ["XY"]
+
+[cycles]
+enabled = false
+
+[blocks.arc_ccw]
+lines = [
+  "G3 [X] [Y] [I] [J]",
+]
+
+[blocks.arc_cw]
+lines = [
+  "G2 [X] [Y] [I] [J]",
+]
+
+[blocks.feed]
+lines = [
+  "G1 [X] [Y] [Z]",
+]
+
+[blocks.first_arc_ccw]
+lines = [
+  "G3 [X] [Y] [I] [J] [F]",
+]
+
+[blocks.first_arc_cw]
+lines = [
+  "G2 [X] [Y] [I] [J] [F]",
+]
+
+[blocks.first_feed]
+lines = [
+  "G1 [X] [Y] [Z] [F]",
+]
+
+[blocks.footer]
+lines = [
+  "M5",
+  "G0 [ZH]",
+  "M30",
+]
+
+[blocks.header]
+lines = [
+  "(Job for [TOOLNAME])",
+  "G21 G90 G17",
+  "G0 [ZH]",
+  "M3 [S]",
+]
+
+[blocks.rapid]
+lines = [
+  "G0 [X] [Y] [Z]",
+]
+
+[blocks.tool_change]
+lines = [
+  { when = "!state.first_tool", line = "M5" },
+  { when = "!state.first_tool", line = "G0 [ZH]" },
+  { when = "!state.first_tool", line = "M0 (Load T[T] [TOOLNAME])" },
+]
+
+[blocks.toolpath_start]
+lines = [
+  { when = "!state.first_tool", line = "M3 [S]" },
+  { when = "!state.first_tool", line = "([TOOLPATH_NAME])" },
+]
