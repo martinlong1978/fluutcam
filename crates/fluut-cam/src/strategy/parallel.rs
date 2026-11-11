@@ -21,6 +21,7 @@ use fluut_model::Diagnostic;
 use fluut_model::params::ToolpathTypeId;
 use fluut_model::resolve::{ParallelDirection, PassLayout};
 use fluut_path::ToolpathResult;
+use rayon::prelude::*;
 
 #[derive(Debug)]
 pub struct Parallel;
@@ -142,16 +143,18 @@ pub(crate) fn parallel_runs(
     let (sn, cs) = libm::sincos(ang);
     let u = Vec2::new(cs, sn);
     let n = Vec2::new(-sn, cs);
-    let mut runs: Vec<Run> = Vec::new();
     if region.is_empty() {
-        return runs;
+        return Vec::new();
     }
     let (a, b) = region.support(n);
     let pos = match layout {
         PassLayout::Even => layout_even(a, b, stepover),
         PassLayout::FixedFromEdge => layout_fixed(a, b, stepover),
     };
+    // The passes in order, with their spans and direction; their cut runs
+    // are independent: sampled in parallel, joined in pass order.
     let mut k = 0usize;
+    let mut todo = Vec::new();
     for off in pos {
         let o = Point2::new(n.x() * off, n.y() * off);
         let spans: Vec<(f64, f64)> = region
@@ -169,25 +172,31 @@ pub(crate) fn parallel_runs(
             ParallelDirection::Climb => false,
         };
         k += 1;
-        let mut pass_runs = Vec::new();
-        let line = LineDrive { o, u };
-        for (si, (t0, t1)) in spans.into_iter().enumerate() {
-            for pts in pl.cut_runs(&line, t0, t1) {
-                pass_runs.push(Run {
-                    pts,
-                    pass: k,
-                    span: si,
-                    level: false,
-                });
-            }
-        }
-        if !forward {
-            pass_runs.reverse();
-            for r in &mut pass_runs {
-                r.pts.reverse();
-            }
-        }
-        runs.extend(pass_runs);
+        todo.push((o, spans, forward, k));
     }
-    runs
+    let per_pass: Vec<Vec<Run>> = todo
+        .par_iter()
+        .map(|(o, spans, forward, k)| {
+            let mut pass_runs = Vec::new();
+            let line = LineDrive { o: *o, u };
+            for (si, &(t0, t1)) in spans.iter().enumerate() {
+                for pts in pl.cut_runs(&line, t0, t1) {
+                    pass_runs.push(Run {
+                        pts,
+                        pass: *k,
+                        span: si,
+                        level: false,
+                    });
+                }
+            }
+            if !forward {
+                pass_runs.reverse();
+                for r in &mut pass_runs {
+                    r.pts.reverse();
+                }
+            }
+            pass_runs
+        })
+        .collect();
+    per_pass.into_iter().flatten().collect()
 }

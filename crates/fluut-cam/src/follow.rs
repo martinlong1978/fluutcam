@@ -28,6 +28,7 @@ use fluut_model::tools::ToolShape;
 use fluut_model::{Diagnostic, Sel};
 use fluut_path::PassKind;
 use fluut_topo::BrepBody;
+use rayon::prelude::*;
 use std::collections::BTreeSet;
 use std::f64::consts::FRAC_PI_2;
 
@@ -273,7 +274,7 @@ impl Setup<'_> {
 }
 
 /// A planar drive curve, by parameter `t`.
-pub trait Drive {
+pub trait Drive: Sync {
     fn at(&self, t: f64) -> Point2;
     /// XY length between two parameters (step and cut-off tests).
     fn len(&self, ta: f64, tb: f64) -> f64;
@@ -381,6 +382,16 @@ pub struct Run {
     pub level: bool,
 }
 
+/// Open levels with fewer chords than this are sampled on one thread.
+const PAR_LEVEL: usize = 8;
+
+/// A chord of the bisection tree: still to decide, or ended at a sample.
+#[derive(Copy, Clone)]
+enum Node {
+    Done(Sample),
+    Open(Sample, Sample),
+}
+
 /// A CL sample at parameter `t` along a drive curve.
 #[derive(Copy, Clone, Debug)]
 pub struct Sample {
@@ -445,71 +456,105 @@ impl Sampler<'_> {
         if bs.is_empty() {
             return self.samples_on(d, t0, t1);
         }
-        let mut out: Vec<Sample> = Vec::new();
+        // The pieces between breaks are independent: in parallel, joined
+        // in order.
+        let mut ends: Vec<(f64, f64)> = Vec::new();
         let mut a = t0;
         for b in bs.into_iter().chain(std::iter::once(t1)) {
-            let mut s = self.samples_on(d, a, b);
+            ends.push((a, b));
+            a = b;
+        }
+        let parts: Vec<Vec<Sample>> = ends
+            .par_iter()
+            .map(|&(a, b)| self.samples_on(d, a, b))
+            .collect();
+        let mut out: Vec<Sample> = Vec::new();
+        for mut s in parts {
             if !out.is_empty() {
                 s.remove(0);
             }
             out.extend(s);
-            a = b;
         }
         out
     }
 
+    /// The samples of `[t0, t1]`: the bisection tree of chords, evaluated
+    /// level by level. Whether a chord is split depends only on its two
+    /// ends and its middle, so the levels can be sampled in parallel and
+    /// the result is the same, in the same order, for any thread count.
     fn samples_on(&self, d: &impl Drive, t0: f64, t1: f64) -> Vec<Sample> {
         let a = self.sample(d, t0);
         let b = self.sample(d, t1);
-        let mut out = vec![a];
-        let mut stack = vec![(a, b)];
-        while let Some((a, b)) = stack.pop() {
-            let len = d.len(a.t, b.t);
-            if a.cut != b.cut {
-                if len <= CUTOFF {
-                    out.push(b);
-                    continue;
+        let mut nodes = vec![Node::Open(a, b)];
+        loop {
+            let open = nodes.iter().filter(|n| matches!(n, Node::Open(..))).count();
+            if open == 0 {
+                break;
+            }
+            let step = |n: &Node| -> (Node, Option<Node>) {
+                match *n {
+                    Node::Done(_) => (*n, None),
+                    Node::Open(a, b) => match self.split(d, a, b) {
+                        None => (Node::Done(b), None),
+                        Some(m) => (Node::Open(a, m), Some(Node::Open(m, b))),
+                    },
                 }
-                let m = self.sample(d, 0.5 * (a.t + b.t));
-                stack.push((m, b));
-                stack.push((a, m));
-                continue;
-            }
-            if len <= CUTOFF {
-                out.push(b);
-                continue;
-            }
-            let long = len > self.max_step;
-            if !a.cut && !long {
-                out.push(b);
-                continue;
-            }
-            let m = self.sample(d, 0.5 * (a.t + b.t));
-            let dev = (m.z - 0.5 * (a.z + b.z)).abs();
-            // A curved drive: the chord leaves the curve sideways, so the
-            // pattern error is the sagitta and the gouge is the drop at the
-            // chord's middle above the chord.
-            let curved = || {
-                let sag = d.sagitta(a.t, b.t);
-                sag > 0.25 * self.tol
-                    || (sag > 0.0 && {
-                        let cm = d.at(a.t) + (d.at(b.t) - d.at(a.t)) * 0.5;
-                        self.cl(cm).0 - 0.5 * (a.z + b.z) > 0.25 * self.tol
-                    })
             };
-            // Stop splitting a vertical step (a flat tool over a wall).
-            let split = long
-                || m.cut != a.cut
-                || (dev > 0.25 * self.tol && len > 1e-6)
-                || (len > 1e-6 && curved());
-            if split {
-                stack.push((m, b));
-                stack.push((a, m));
+            // Small levels stay on this thread: the result is the same.
+            let next: Vec<(Node, Option<Node>)> = if open < PAR_LEVEL {
+                nodes.iter().map(step).collect()
             } else {
-                out.push(b);
+                nodes.par_iter().map(step).collect()
+            };
+            nodes = Vec::with_capacity(next.len() + open);
+            for (x, y) in next {
+                nodes.push(x);
+                nodes.extend(y);
             }
         }
+        let mut out = vec![a];
+        out.extend(nodes.into_iter().map(|n| match n {
+            Node::Done(b) | Node::Open(_, b) => b,
+        }));
         out
+    }
+
+    /// The middle sample when the chord `a`–`b` is split, `None` when `b`
+    /// ends it.
+    fn split(&self, d: &impl Drive, a: Sample, b: Sample) -> Option<Sample> {
+        let len = d.len(a.t, b.t);
+        if a.cut != b.cut {
+            if len <= CUTOFF {
+                return None;
+            }
+            return Some(self.sample(d, 0.5 * (a.t + b.t)));
+        }
+        if len <= CUTOFF {
+            return None;
+        }
+        let long = len > self.max_step;
+        if !a.cut && !long {
+            return None;
+        }
+        let m = self.sample(d, 0.5 * (a.t + b.t));
+        let dev = (m.z - 0.5 * (a.z + b.z)).abs();
+        // A curved drive: the chord leaves the curve sideways, so the
+        // pattern error is the sagitta and the gouge is the drop at the
+        // chord's middle above the chord.
+        let curved = || {
+            let sag = d.sagitta(a.t, b.t);
+            sag > 0.25 * self.tol
+                || (sag > 0.0 && {
+                    let cm = d.at(a.t) + (d.at(b.t) - d.at(a.t)) * 0.5;
+                    self.cl(cm).0 - 0.5 * (a.z + b.z) > 0.25 * self.tol
+                })
+        };
+        // Stop splitting a vertical step (a flat tool over a wall).
+        let split = long
+            || m.cut != a.cut
+            || (dev > 0.25 * self.tol && len > 1e-6)
+            || (len > 1e-6 && curved());
+        split.then_some(m)
     }
 
     /// The cut stretches of `d` over `[t0, t1]` as CL polylines, collinear
@@ -639,7 +684,7 @@ pub struct Linker<'a> {
     /// For level runs: whether the horizontal XY move from the first to the
     /// second point, at the first point's Z, stays clear of the material
     /// at that level. `None`: level runs never stay down.
-    pub level_clear: Option<&'a dyn Fn(Point3, Point3) -> bool>,
+    pub level_clear: Option<&'a (dyn Fn(Point3, Point3) -> bool + Sync)>,
     /// The top of the material: the stock top, or `top` if higher. Without
     /// the in-process stock a finishing toolpath cannot see what earlier
     /// toolpaths left, so rapids stay `safety` above it (D08 §8.2, the
@@ -667,10 +712,33 @@ impl Linker<'_> {
         let mut out = Out::new(self.pl.tol);
         let mut dropped = false;
         // stays[i]: the stay-down link into run i, if any.
+        // The links and leads depend on the runs only: sampled and checked
+        // in parallel, used in order.
         let stays: Vec<Option<Vec<Point3>>> = (0..runs.len())
+            .into_par_iter()
             .map(|i| {
                 i.checked_sub(1)
                     .and_then(|j| self.stay_down(&runs[j], &runs[i]))
+            })
+            .collect();
+        // Lead-in of the runs entered from clearance or a lift, lead-out of
+        // those not followed by a stay-down link, and whether each gouges.
+        let leads: Vec<(Option<Lead3>, Option<Lead3>)> = (0..runs.len())
+            .into_par_iter()
+            .map(|i| {
+                let lin = stays[i].is_none().then(|| self.lead(&runs[i], true));
+                let next_stays = stays.get(i + 1).is_some_and(Option::is_some);
+                let lout = (!next_stays).then(|| self.lead(&runs[i], false));
+                (lin.flatten(), lout.flatten())
+            })
+            .collect();
+        let gouged: Vec<(bool, bool)> = leads
+            .par_iter()
+            .map(|(a, b)| {
+                (
+                    a.as_ref().is_some_and(|l| self.gouges(l)),
+                    b.as_ref().is_some_and(|l| self.gouges(l)),
+                )
             })
             .collect();
         for (i, run) in runs.iter().enumerate() {
@@ -683,8 +751,8 @@ impl Linker<'_> {
                     out.pass(PassKind::Link, None);
                 }
                 (cur, _) => {
-                    let lead = match self.lead(run, true) {
-                        Some(l) if self.gouges(&l) => {
+                    let lead = match leads[i].0.clone() {
+                        Some(_) if gouged[i].0 => {
                             dropped = true;
                             None
                         }
@@ -729,8 +797,8 @@ impl Linker<'_> {
             }
             // A lead-out unless the next run is joined by a stay-down link.
             let next_stays = stays.get(i + 1).is_some_and(Option::is_some);
-            if !next_stays && let Some(l) = self.lead(run, false) {
-                if self.gouges(&l) {
+            if !next_stays && let Some(l) = &leads[i].1 {
+                if gouged[i].1 {
                     dropped = true;
                 } else {
                     l.emit(&mut out, Mv::LeadOut);

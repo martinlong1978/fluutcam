@@ -21,6 +21,7 @@ use fluut_geom::{Point2, Point3};
 use fluut_model::Diagnostic;
 use fluut_model::params::ToolpathTypeId;
 use fluut_model::resolve::{CutDirection, OffsetOrder, RetractPolicy};
+use rayon::prelude::*;
 
 #[derive(Debug)]
 pub struct Scallop;
@@ -154,24 +155,30 @@ impl Loops {
         let inside_uncut = self.direction == OffsetOrder::OutsideIn;
         let climb = self.cut_direction == CutDirection::Climb;
         let flip = inside_uncut == climb;
-        let mut steepest: f64 = 0.0;
-        let mut runs = Vec::new();
         // Start each loop at its vertex nearest the region's lower left
         // corner: the offset library's start vertex is not translation
         // invariant.
         let (lo, _) = reg.bbox();
-        for l in &reg.loops {
-            let mut l = if flip { l.reversed() } else { l.clone() };
-            if let Some(k) = (0..l.verts.len()).min_by(|&i, &j| {
-                (l.verts[i].p - lo)
-                    .length()
-                    .total_cmp(&(l.verts[j].p - lo).length())
-                    .then(i.cmp(&j))
-            }) {
-                l.verts.rotate_left(k);
-            }
-            let d = LoopDrive::new(&l);
-            let (r, th) = pl.cut_runs_slope(&d, 0.0, d.length());
+        let per: Vec<(Vec<Vec<Point3>>, f64)> = reg
+            .loops
+            .par_iter()
+            .map(|l| {
+                let mut l = if flip { l.reversed() } else { l.clone() };
+                if let Some(k) = (0..l.verts.len()).min_by(|&i, &j| {
+                    (l.verts[i].p - lo)
+                        .length()
+                        .total_cmp(&(l.verts[j].p - lo).length())
+                        .then(i.cmp(&j))
+                }) {
+                    l.verts.rotate_left(k);
+                }
+                let d = LoopDrive::new(&l);
+                pl.cut_runs_slope(&d, 0.0, d.length())
+            })
+            .collect();
+        let mut steepest: f64 = 0.0;
+        let mut runs = Vec::new();
+        for (r, th) in per {
             steepest = steepest.max(th);
             runs.push(r);
         }

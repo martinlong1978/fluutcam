@@ -213,6 +213,19 @@ vertices have one too; cut-off points (slope, `top`, check faces) are bisected t
 output is lines only, within `tol/2`. Arc fitting, contact transitions (D07 §5) and `rayon`
 are left for M6.
 
+**Threads (2026-11-11,** [plan](../plan/2026-11-11-finishing-threads.md)**).** `parallel`, `spiral`
+and `scallop` sample on all `rayon` threads, with the bits of the one-thread run for any thread
+count. The adaptive sampler (`follow::Sampler::samples_on`) walks the bisection tree of a chord
+level by level: whether a chord is split depends only on its two ends and its middle drop, so
+the chords of a level are decided in parallel and the next level is built in order; the
+accepted chords' end samples, left to right, are the output, the same points as the
+depth-first walk. On top: the passes of `parallel`, the stretches of the spiral and of its
+`machine_corners` loops, the loops of a `scallop` pass, the pieces of a drive between corners,
+and the links and leads of the linker (`Linker::link`, which only reads them in order) run in
+parallel and are collected in index order. Scallop's passes stay in sequence (each step
+depends on the steepest contact of the pass before). Chords of a level are sampled on the calling
+thread below 8 open chords. Drives are `Sync`; there is no shared mutable state.
+
 ### 4.4 `contour` (waterline)
 
 ```
