@@ -75,6 +75,7 @@ fn ids_are_pinned_and_unique() {
         (Command::Cancel, "job.cancel"),
         (Command::ImportTools, "library.import_tools"),
         (Command::AddToolLibrary, "library.add_tool_library"),
+        (Command::ImportPost, "library.import_post"),
         (Command::LibraryTools, "library.tools"),
         (Command::LibraryMachines, "library.machines"),
         (Command::LibraryPosts, "library.posts"),
@@ -155,6 +156,7 @@ fn stages_hold_their_commands() {
         [
             "library.import_tools",
             "library.add_tool_library",
+            "library.import_post",
             "library.tools",
             "library.machines",
             "library.posts",

@@ -102,6 +102,10 @@ pub enum Edit {
     /// Reads the project's tool library files again (a library file was
     /// written or changed); not a change to the project, so no undo step.
     ReloadToolLibraries,
+    /// Reads the project's posts, machines and templates again (a post
+    /// file was written beside the project); not a change to the project,
+    /// so no undo step.
+    ReloadDefinitions,
 }
 
 /// What to post and where.

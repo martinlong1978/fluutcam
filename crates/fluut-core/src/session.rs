@@ -305,6 +305,17 @@ impl Session {
         self.warnings.extend(found);
     }
 
+    /// Loads the project-layer posts, machines and templates again from the
+    /// `posts`, `machines` and `templates` folders beside the project, so a
+    /// file added while the project is open is found. Load findings replace
+    /// the earlier definition findings in `warnings`.
+    pub fn reload_definitions(&mut self) {
+        self.library.remove_defs(LayerKind::Project);
+        let found = self.library.load_defs_dir(&self.dir, LayerKind::Project);
+        self.warnings.retain(|d| !d.code.starts_with("def."));
+        self.warnings.extend(found);
+    }
+
     fn sync_tool_libraries(&mut self) {
         if self.tool_refs != self.project.tool_libraries {
             self.reload_tool_libraries();

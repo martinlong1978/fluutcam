@@ -10,6 +10,7 @@ pub mod handles;
 pub mod inspector;
 pub mod pick;
 pub mod playback;
+pub mod post_import;
 pub mod ribbon;
 pub mod setup;
 pub mod status;

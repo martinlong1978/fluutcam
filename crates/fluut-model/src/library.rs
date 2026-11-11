@@ -145,6 +145,20 @@ impl Library {
     /// name order. Missing folders are skipped; a bad file is reported and
     /// left out.
     pub fn load_dir(&mut self, dir: &Path, layer: LayerKind) -> Vec<Diagnostic> {
+        let mut out = self.load_defs_dir(dir, layer);
+        out.extend(self.load_tools_dir(dir, layer));
+        out
+    }
+
+    /// Drops the posts, machines and templates of `layer` (before they are
+    /// loaded again with [`Library::load_defs_dir`]).
+    pub fn remove_defs(&mut self, layer: LayerKind) {
+        self.entries.retain(|e| e.layer != layer);
+    }
+
+    /// Loads `posts/*.post.toml`, `machines/*.machine.toml` and
+    /// `templates/*.template.toml` under `dir`, in file name order.
+    pub fn load_defs_dir(&mut self, dir: &Path, layer: LayerKind) -> Vec<Diagnostic> {
         let mut out = Vec::new();
         for kind in DefKind::ALL {
             for f in files(&dir.join(kind.folder()), kind.suffix()) {
@@ -159,7 +173,6 @@ impl Library {
                 }
             }
         }
-        out.extend(self.load_tools_dir(dir, layer));
         out
     }
 
