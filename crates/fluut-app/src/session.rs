@@ -15,13 +15,14 @@
 //! the journal, this is the file that changes.
 
 use crate::jobs::{CalcTargets, Edit, Event, JobCx, Outcome, PostRequest, Request};
-use crate::scene::{SetupScene, ToolpathLines};
+use crate::scene::{SetupScene, SnapPoint, ToolpathLines, snap_points};
 use fluut_cam::geometry::SetupBody;
 use fluut_cam::geometry::SetupGeometry;
 use fluut_core::fluut_sim::{Check, Monitor, Player, Step, StockMesh};
 use fluut_core::ops::MachineChoice;
 use fluut_core::{JobReport, JobState, NodeId, PostOptions, Session, SetupFrame, Targets};
 use fluut_core::{SimResult, SimSettings};
+use fluut_geom::Point3;
 use fluut_model::PValue;
 use fluut_model::project::SetupKind;
 use fluut_model::project::{DisplayUnit, Project, StockSpec};
@@ -88,6 +89,26 @@ pub struct Snapshot {
     pub can_redo: bool,
     /// The label of the edit that undo would undo.
     pub undo_label: Option<String>,
+}
+
+/// The model points of a Setup's frame the work zero snaps to, with their
+/// place in W and in the model frame M.
+fn snap_points_of(fr: &SetupFrame) -> Vec<SnapPoint> {
+    use glam::DVec3;
+    let origin = fr.to_work.apply_point(Point3::new(0.0, 0.0, 0.0));
+    let origin = DVec3::new(origin.x(), origin.y(), origin.z());
+    let back = fr.to_work.matrix().inverse();
+    snap_points(&fr.geometry)
+        .into_iter()
+        .map(|w| {
+            let m = back * (DVec3::from(w) - origin);
+            SnapPoint {
+                at: w.map(|v| v as f32),
+                model: m.into(),
+                axis_x: w[0] + fr.zero_x.unwrap_or(0.0),
+            }
+        })
+        .collect()
 }
 
 /// The id under which `Snapshot::scenes` holds the model alone (all bodies
@@ -845,7 +866,9 @@ impl State {
                 let scene = match frame {
                     Ok(fr) => {
                         self.frame_errors.remove(&s.id);
-                        SetupScene::new(&fr.geometry, Some(&fr.stock))
+                        let mut scene = SetupScene::new(&fr.geometry, Some(&fr.stock));
+                        scene.snap = snap_points_of(&fr);
+                        scene
                     }
                     Err(d) => {
                         self.frame_errors.insert(s.id.clone(), d);

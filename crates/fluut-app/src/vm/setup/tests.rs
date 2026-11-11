@@ -53,7 +53,8 @@ fn rows_show_the_setup_in_the_project_unit() {
             "setup-orientation",
             "setup-stock",
             "setup-zero",
-            "setup-clearance"
+            "setup-clearance",
+            "setup-geometry"
         ]
     );
 }
@@ -493,5 +494,139 @@ fn a_rotary_setup_orients_by_its_rotary_axis_and_the_a_zero_direction() {
     assert_eq!(
         vm(&s, &id).row("orientation.a_zero_toward").unwrap().value,
         "-Y"
+    );
+}
+
+#[test]
+fn scale_and_mirror_rows_show_the_model_transform_and_edit_it() {
+    let mut j = opened("block");
+    let s = j.snapshot.clone().unwrap();
+    let v = vm(&s, "s1");
+    let g = v.groups.iter().find(|g| g.id == "setup-geometry").unwrap();
+    assert_eq!(g.rows.len(), 4, "scale and three mirrors");
+    assert!(v.row("scale.0").is_none());
+    assert_eq!(v.row("scale.all").unwrap().value, "1");
+    assert_eq!(v.row("mirror.2").unwrap().value, "false");
+    assert_eq!(v.row("mirror.0").unwrap().widget, RowWidget::Check);
+    let b0 = bounds_of(&s, "s1");
+    // A scale of 2 on every axis is one edit and doubles the model.
+    let s = apply(&mut j, "scale.all", "2");
+    assert!(s.warnings.is_empty(), "{:?}", s.warnings);
+    let k = s.project.setup("s1").unwrap().geometry.clone().unwrap();
+    assert_eq!(k.scale.map(|k| k.map(|n| n.v)), Some([2.0; 3]));
+    assert_eq!(k.mirror, None);
+    let v = vm(&s, "s1");
+    assert_eq!(v.row("scale.all").unwrap().value, "2");
+    let b1 = bounds_of(&s, "s1");
+    assert!(b1.max[0] - b1.min[0] > 1.5 * (b0.max[0] - b0.min[0]));
+    // A mirror in Y keeps the scale; the model's shape is as it was.
+    let s = apply(&mut j, "mirror.1", "true");
+    let k = s.project.setup("s1").unwrap().geometry.clone().unwrap();
+    assert_eq!(k.mirror, Some([false, true, false]));
+    assert!(k.scale.is_some());
+    assert_eq!(vm(&s, "s1").row("mirror.1").unwrap().value, "true");
+    // Back to nothing: the field goes away again.
+    apply(&mut j, "scale.all", "1");
+    let s = apply(&mut j, "mirror.1", "false");
+    assert!(s.project.setup("s1").unwrap().geometry.is_none());
+    // Each was one undo step.
+    undo(&mut j);
+    undo(&mut j);
+    let s = undo(&mut j);
+    assert_eq!(
+        s.project
+            .setup("s1")
+            .unwrap()
+            .geometry
+            .as_ref()
+            .unwrap()
+            .mirror,
+        None
+    );
+    let s = undo(&mut j);
+    assert!(s.project.setup("s1").unwrap().geometry.is_none());
+}
+
+#[test]
+fn scale_entries_are_checked_and_bodies_keep_them() {
+    let mut j = opened("plate");
+    let s = j.snapshot.clone().unwrap();
+    assert!(
+        setup_edit(&s, "s1", "scale.0", "0")
+            .unwrap_err()
+            .contains("0")
+    );
+    assert!(setup_edit(&s, "s1", "scale.1", "abc").is_err());
+    assert!(setup_edit(&s, "s1", "scale.3", "2").is_err());
+    assert!(setup_edit(&s, "s1", "mirror.7", "true").is_err());
+    // A mirror in X, then a body unchecked: the mirror stays.
+    apply(&mut j, "mirror.0", "true");
+    let s = apply(&mut j, "bodies.b-2", "false");
+    let g = s.project.setup("s1").unwrap().geometry.clone().unwrap();
+    assert_eq!(g.bodies, Some(vec!["b-1".to_owned()]));
+    assert_eq!(g.mirror, Some([true, false, false]));
+    // And a scale after it keeps the bodies.
+    let s = apply(&mut j, "scale.2", "0.5");
+    let g = s.project.setup("s1").unwrap().geometry.clone().unwrap();
+    assert_eq!(g.bodies, Some(vec!["b-1".to_owned()]));
+    assert_eq!(g.scale.map(|k| k[2].v), Some(0.5));
+}
+
+#[test]
+fn a_rotary_setup_takes_a_body_as_its_stock() {
+    let mut j = opened("plate");
+    apply(&mut j, "machine", "shop/router-4x@1");
+    apply(&mut j, "kind", "rotary");
+    apply(&mut j, "bodies.b-2", "false");
+    let s = j.snapshot.clone().unwrap();
+    let v = vm(&s, "s1");
+    let RowWidget::Choice(o) = &v.row("stock.kind").unwrap().widget else {
+        panic!()
+    };
+    assert!(o.iter().any(|(k, _)| k == "body"), "{o:?}");
+    let s = apply(&mut j, "stock.kind", "body");
+    assert_eq!(
+        s.project.setup("s1").unwrap().stock,
+        Some(StockSpec::Body { body: "b-2".into() })
+    );
+    let v = vm(&s, "s1");
+    assert_eq!(v.row("stock.body").unwrap().value, "b-2");
+    assert_eq!(
+        v.row("stock.body").unwrap().pick,
+        Some(SetupPick::StockBody)
+    );
+    // The scene has the bounding cylinder of the body: centred on the axis.
+    let b = bounds_of(&s, "s1");
+    assert!(b.max[0] > b.min[0], "{b:?}");
+    assert!((b.max[1] + b.min[1]).abs() < 1e-3 && (b.max[2] + b.min[2]).abs() < 1e-3);
+    assert!(
+        !s.scenes["s1"]
+            .edge_ids
+            .iter()
+            .any(|e| e.starts_with("e-2."))
+    );
+    // Indexed takes it as a box.
+    let s = apply(&mut j, "kind", "indexed");
+    assert!(bounds_of(&s, "s1").max[0] > 0.0);
+    assert!(s.warnings.is_empty(), "{:?}", s.warnings);
+}
+
+#[test]
+fn different_scale_factors_are_shown_and_explained() {
+    let mut j = opened("block");
+    let s = j.snapshot.clone().unwrap();
+    // The window sets one factor; a file with one per axis shows them.
+    let e = setup_edit(&s, "s1", "scale.0", "2").unwrap();
+    j.edit(JobEdit::Model(e));
+    let s = j.wait_snapshot().unwrap();
+    let v = vm(&s, "s1");
+    assert_eq!(v.row("scale.all").unwrap().value, "");
+    assert_eq!(v.row("scale.0").unwrap().value, "2");
+    assert_eq!(v.row("scale.1").unwrap().value, "1");
+    // The solids take equal factors only: the Setup says to use one.
+    assert!(
+        s.warnings.iter().any(|w| w.message.contains("one factor")),
+        "{:?}",
+        s.warnings
     );
 }

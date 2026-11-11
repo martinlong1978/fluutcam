@@ -63,7 +63,7 @@ The **Bodies** and **Orientation** groups sit between the Setup values and the s
 | **Material** | Choose one from the list. It picks the cutting data of the tools. |
 | **Machine** | Choose one from the machine list. |
 | **Work offset** | A list, G54 to G59. |
-| **Stock** | Choose the type, then type its sizes. A 3-axis Setup offers a block by margin or a block of a fixed size. A rotary or indexed Setup offers a cylinder. A Setup based on another also offers "From the previous Setup". A 3-axis Setup also offers "Body" (see below). |
+| **Stock** | Choose the type, then type its sizes. A 3-axis Setup offers a block by margin or a block of a fixed size. A rotary or indexed Setup offers a cylinder. A Setup based on another also offers "From the previous Setup". Every kind also offers "Body" when the model has a body (see below). |
 | **Bodies** | Choose which bodies of the model this Setup machines. See "Choose the bodies" below. |
 | **Orientation** | Choose the tool axis and X axis, or the rotary axis. See "Set the orientation" below. |
 | **Work zero** | Choose the location: a corner or the centre of the stock, or a point on the model (X, Y, Z). A rotary or indexed Setup offers the left or right end of the stock, or a position along the axis. |
@@ -94,11 +94,19 @@ The **Bodies** group lists every body of the model with a check box. "All bodies
 
 Click **Pick** to choose on the model instead. The viewport shows every body, and a click on any face or curve of a body adds or removes that whole body. Esc or **Done** leaves. See the [Interface tour](Interface-Tour).
 
+## Scale and mirror the model
+
+The **Scale and mirror** group, the last in the inspector (scroll down), scales and flips the model for this Setup, about the model's origin. Type a factor in **Scale, all axes** (for example `25.4` for a part drawn in inches, or `0.5` for half size), and tick **Mirror X**, **Mirror Y** or **Mirror Z** to flip the model across that axis. The stock, the work zero and the handles follow the scaled model. Each change is one undo step. A factor of 0 is refused. A solid from a STEP file cannot be scaled by different factors in different directions: the Setup says so. Setting the factor back to 1 and clearing the mirrors removes the setting.
+
 ## Use a body as the stock
 
-In a 3-axis Setup, choose **Body** in the **Type** list under **Stock**. Use this when the raw material is a body of your model, such as a casting. The row below picks the body from a list, or with **Pick** on the model.
+Choose **Body** in the **Type** list under **Stock**. Use this when the raw material is a body of your model, such as a casting. The row below picks the body from a list, or with **Pick** on the model.
 
-The stock body is never machined, and the stock box is its size. A new body stock starts with a body this Setup does not machine. If there is none, it starts with the first body. A rotary or indexed Setup does not offer body stock (not yet).
+The stock body is never machined. A new body stock starts with a body this Setup does not machine. If there is none, it starts with the first body.
+
+- In a **3-axis** Setup the stock is the box of the body.
+- In an **indexed** Setup the stock is the box of the body too, as it sits at A = 0.
+- In a **rotary** Setup the stock is the **bounding cylinder** of the body about the rotary axis: as long as the body along the axis, and as wide as its farthest point from the axis. A body that is not round gives round stock that holds it, so there is more material than the body has. If you want exact round stock, choose Cylinder and type the radius and length.
 
 ## Set the orientation
 
@@ -117,14 +125,16 @@ Select a Setup and the viewport draws handles on it. Drag one and let go. Nothin
 
 ![The work zero ring and the margin handles](images/setup-handles.png)
 
-- **Work zero.** A ring at the work zero. While you drag it, small circles mark where it can land: the corners and the top centre of the stock, or the two ends of the stock on the axis for a rotary Setup. The nearest one grows. Let go on it and the zero goes there. Let go away from every point and nothing changes.
+- **Work zero.** A ring at the work zero. While you drag it, small circles mark where it can land: the corners and the top centre of the stock, or the two ends of the stock on the axis for a rotary Setup. Near the pointer, more circles show the vertices of the model and the centres of its arcs and circles (not on STL meshes). The nearest one grows. A model point gives a work zero **Point on the model** in a 3-axis Setup; in a rotary or indexed Setup only its position along the axis counts, since the zero stays on the axis. Let go on it and the zero goes there. Let go away from every point and nothing changes.
 - **Block margins.** An orange square on the +X side, the +Y side and the top of block stock that is set by margins. Drag one out and the margin grows, in steps of 0.1 mm. The new value shows beside the square.
+- **Block size.** The same three squares on a block of a fixed size change **Size X**, **Size Y** and **Size Z**. The block is centred on the model in X and Y, so dragging the +X or +Y square 3 mm grows the size by 6 mm (both sides move); the top square changes the height by what you drag.
+- **Cylinder stock.** In a rotary or indexed Setup with cylinder stock, a square on top of the cylinder changes the **Radius**, and a square at its right end changes the **Length**. The cylinder is centred on the model, so both ends move: dragging the end 4 mm changes the length by 8 mm.
 
 Handles hide while you pick on the model.
 
 ## What you cannot do in the window yet
 
-Not yet: body stock for a rotary or indexed Setup, handles for a cylinder's radius and length, a dial for the index angle, and scale and mirror controls. See [Known limits](Known-Limits).
+Not yet: a dial for the index angle. See [Known limits](Known-Limits).
 
 ## Next
 
