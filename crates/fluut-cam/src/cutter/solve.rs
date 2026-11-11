@@ -676,6 +676,13 @@ fn newton_contact(
         let mut moved = false;
         for _ in 0..12 {
             let (nu, nv) = bounds.clamp(u + lambda * step[0], v + lambda * step[1]);
+            // The trial is the current point (the step leaves the box on
+            // both sides, or is below rounding): it cannot lower the
+            // residual, nor can the shorter steps after it, which clamp or
+            // round to the same point. The search has failed.
+            if same_point((nu, nv), (u, v)) {
+                return None;
+            }
             // On a B-spline a trial point takes G only, from first
             // derivatives (most trials are rejected); the same bits.
             if split {
@@ -715,9 +722,15 @@ fn newton_flat(
     bounds: UvBox,
     tol: f64,
 ) -> Option<(f64, f64)> {
+    const ITERS: usize = 40;
     let eps = 1e-5 / (c.flat_radius() * c.flat_radius());
     let (mut u, mut v) = start;
-    for _ in 0..40 {
+    // The points visited. A step depends on the point alone, so once a
+    // point comes round again the iteration cycles through steps that have
+    // all failed the test below, and it cannot converge.
+    let mut seen = [(0.0f64, 0.0f64); ITERS + 1];
+    seen[0] = start;
+    for it in 0..ITERS {
         let d = s.derivs(u, v);
         let w = [d.p.x() - ax.x, d.p.y() - ax.y];
         let dotw = |x: Vec3| w[0] * x.x() + w[1] * x.y();
@@ -744,27 +757,38 @@ fn newton_flat(
         if moved < tol {
             return Some((u, v));
         }
+        if seen[..=it].iter().any(|&p| same_point(p, (u, v))) {
+            return None;
+        }
+        seen[it + 1] = (u, v);
     }
     None
 }
 
+/// Whether two parameter pairs are the same bits (a solver step is a
+/// function of the point's bits).
+fn same_point(a: (f64, f64), b: (f64, f64)) -> bool {
+    a.0.to_bits() == b.0.to_bits() && a.1.to_bits() == b.1.to_bits()
+}
+
 /// Newton on `S_xy(u, v) = (x, y)`: the surface point vertically above or
-/// below a target. The flag says whether it converged; otherwise the point
-/// is where Newton stopped (stuck on the parameter box: the target is off
-/// the face, or the start was at a spot where `S_xy` does not move).
+/// below a target. The flag says whether it converged (then with the
+/// point, the bits of `s.eval(u, v)`); otherwise `(u, v)` is where Newton
+/// stopped (stuck on the parameter box: the target is off the face, or the
+/// start was at a spot where `S_xy` does not move).
 fn vertical_project(
     s: &Surface,
     x: f64,
     y: f64,
     start: (f64, f64),
     bounds: UvBox,
-) -> Option<(f64, f64, bool)> {
+) -> Option<(f64, f64, Option<Point3>)> {
     let (mut u, mut v) = start;
     for _ in 0..12 {
         let (p, su, sv) = s.derivs1(u, v);
         let r = [x - p.x(), y - p.y()];
         if libm::hypot(r[0], r[1]) < 1e-6 {
-            return Some((u, v, true));
+            return Some((u, v, Some(p)));
         }
         let j = [[su.x(), sv.x()], [su.y(), sv.y()]];
         let step = solve2(j, r)?;
@@ -774,11 +798,11 @@ fn vertical_project(
         let k = (scale * 2.0 / len.max(1e-300)).min(1.0);
         let (nu, nv) = bounds.clamp(u + k * step[0], v + k * step[1]);
         if (su * (nu - u) + sv * (nv - v)).length() < 1e-9 {
-            return Some((u, v, false));
+            return Some((u, v, None));
         }
         (u, v) = (nu, nv);
     }
-    Some((u, v, false))
+    Some((u, v, None))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -848,8 +872,8 @@ fn numeric(
                 if let Some(p) = pv {
                     v += p * ((q.uv.v.at(0.5) - v) / p).round();
                 }
-                if let Some((u, v, true)) = vertical_project(s, tx, ty, (u, v), q.uv) {
-                    seeds.push((estimate(s.eval(u, v)), u, v));
+                if let Some((u, v, Some(p))) = vertical_project(s, tx, ty, (u, v), q.uv) {
+                    seeds.push((estimate(p), u, v));
                     break;
                 }
             }
@@ -859,12 +883,29 @@ fn numeric(
                 .iter()
                 .min_by(|a, b| a.0.distance(top).total_cmp(&b.0.distance(top)))
                 .map(|g| (g.1, g.2))?;
-            if let Some((u, v, true)) = vertical_project(s, tx, ty, start, q.uv) {
-                seeds.push((estimate(s.eval(u, v)), u, v));
+            if let Some((u, v, Some(p))) = vertical_project(s, tx, ty, start, q.uv) {
+                seeds.push((estimate(p), u, v));
             }
         }
     }
     seeds.sort_by(|a, b| b.0.total_cmp(&a.0));
+    let starts = seeds.iter().take(seeding.starts).map(|&(_, u, v)| (u, v));
+    refine(q, face, s, ax, c, starts, stats, trimmed)
+}
+
+/// The best contact Newton finds from `starts` (the contact map, and for
+/// flat and bull tools the flat bottom); `trimmed` as in [`numeric`].
+#[allow(clippy::too_many_arguments)]
+fn refine(
+    q: &QueryFace,
+    face: u32,
+    s: &Surface,
+    ax: Axis,
+    c: &Cutter,
+    starts: impl IntoIterator<Item = (f64, f64)>,
+    stats: &mut SolveStats,
+    trimmed: &mut f64,
+) -> Option<Contact> {
     let tol = 1e-8;
     let mut best: Option<Contact> = None;
     let mut consider = |u: f64, v: f64, flat: bool| {
@@ -888,7 +929,7 @@ fn numeric(
             on: ContactOn::Face { face, u, v },
         });
     };
-    for &(_, u, v) in seeds.iter().take(seeding.starts) {
+    for (u, v) in starts {
         stats.newton_runs += 1;
         if let Some((u, v)) = newton_contact(s, c, ax, (u, v), q.uv, tol) {
             stats.newton_converged += 1;
@@ -903,6 +944,34 @@ fn numeric(
         }
     }
     best
+}
+
+/// As [`face_trimmed`] for a numeric face, with Newton started from
+/// `starts` only (no seeding).
+pub fn face_from(
+    g: &QueryGeometry,
+    face: u32,
+    ax: Axis,
+    c: &Cutter,
+    starts: &[(f64, f64)],
+    stats: &mut SolveStats,
+) -> (Option<Contact>, f64) {
+    let mut trimmed = f64::NEG_INFINITY;
+    let Some(q) = g.faces[face as usize].as_ref() else {
+        return (None, trimmed);
+    };
+    let s = &g.body.surfaces[g.body.faces[face as usize].surface as usize];
+    let r = refine(
+        q,
+        face,
+        s,
+        ax,
+        c,
+        starts.iter().copied(),
+        stats,
+        &mut trimmed,
+    );
+    (r, trimmed)
 }
 
 /// Highest contact on face primitive `(face, uv)`.
