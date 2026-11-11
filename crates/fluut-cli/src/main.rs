@@ -8,7 +8,7 @@
 //! fluut post <project> --post <id> -o <file> [--tools <file>]... [--date <d>] [--time <t>]
 //! fluut run <script> [<project>] [--tools <file>]... [--date <d>] [--time <t>] [-- <args>...]
 //! fluut tools import <file> -o <library.toml> [--id <id>] [--name <text>] [--force]
-//! fluut update-check
+//! fluut update-check [--channel stable|beta]
 //! ```
 //!
 //! `calc` prints each toolpath's estimated machining time. `sim`
@@ -23,14 +23,17 @@
 //! `update-check` asks for the signed release list once, because you typed
 //! it (spec 06 §6.4). Nothing runs it automatically, and it downloads and
 //! installs nothing. Exit status: 0 when up to date or an update exists, 1
-//! when the check failed, 3 when this build has no update key.
+//! when the check failed, 3 when this build has no update key. The channel is
+//! the one in the settings (`stable` unless chosen otherwise) unless
+//! `--channel` says otherwise (D17).
 //!
 //! Exit status: 0 on success, 1 when a diagnostic is an error, 2 on bad
 //! arguments.
 
 mod tools_cmd;
 
-use fluut_core::update::{self, Outcome, UpdateError};
+use fluut_core::settings::{Settings, settings_path};
+use fluut_core::update::{self, Channel, Outcome, UpdateError};
 use fluut_core::{JobReport, JobState, PostOptions, Session, Targets};
 use fluut_model::{Diagnostic, Severity};
 use std::io::Write;
@@ -43,7 +46,7 @@ const USAGE: &str = "usage:
   fluut post <project> --post <id> -o <file> [--tools <file>]... [--date <yyyy-mm-dd>] [--time <hh:mm:ss>]
   fluut run <script> [<project>] [--tools <file>]... [--date <yyyy-mm-dd>] [--time <hh:mm:ss>] [-- <args>...]
   fluut tools import <file> -o <library.toml> [--id <library id>] [--name <text>] [--force]
-  fluut update-check";
+  fluut update-check [--channel stable|beta]";
 
 #[derive(Debug, Default)]
 struct Args {
@@ -122,8 +125,20 @@ fn main() -> ExitCode {
     crash_reports();
     if args.peek().map(String::as_str) == Some("update-check") {
         args.next();
-        let check = || update::check(&update::UreqFetch::default());
-        let code = update_check(args, check, &mut std::io::stdout(), &mut std::io::stderr());
+        let saved = settings_path()
+            .as_deref()
+            .map(Settings::load_from)
+            .unwrap_or_default()
+            .update
+            .channel;
+        let check = |c| update::check(&update::UreqFetch::default(), c);
+        let code = update_check(
+            args,
+            saved,
+            check,
+            &mut std::io::stdout(),
+            &mut std::io::stderr(),
+        );
         return ExitCode::from(code);
     }
     if args.peek().map(String::as_str) == Some("tools") {
@@ -536,16 +551,28 @@ mod tests {
 /// exit status.
 fn update_check(
     mut args: impl Iterator<Item = String>,
-    check: impl FnOnce() -> Result<Outcome, UpdateError>,
+    saved: Channel,
+    check: impl FnOnce(Channel) -> Result<Outcome, UpdateError>,
     out: &mut impl Write,
     err: &mut impl Write,
 ) -> u8 {
-    if let Some(a) = args.next() {
-        let _ = writeln!(err, "fluut: unexpected argument {a}\n{USAGE}");
-        return 2;
+    let mut channel = saved;
+    while let Some(a) = args.next() {
+        if a == "--channel" {
+            match args.next().as_deref().and_then(Channel::parse) {
+                Some(c) => channel = c,
+                None => {
+                    let _ = writeln!(err, "fluut: --channel needs stable or beta\n{USAGE}");
+                    return 2;
+                }
+            }
+        } else {
+            let _ = writeln!(err, "fluut: unexpected argument {a}\n{USAGE}");
+            return 2;
+        }
     }
     let version = fluut_core::build_info::VERSION;
-    match check() {
+    match check(channel) {
         Ok(Outcome::UpToDate) => {
             let _ = writeln!(out, "FluutCAM {version} is up to date.");
             0
@@ -575,12 +602,22 @@ mod update_check_tests {
     use fluut_core::update::Offer;
 
     fn run(args: &[&str], result: Result<Outcome, UpdateError>) -> (u8, String, String, bool) {
+        let (code, out, err, asked) = run_in(args, Channel::Stable, result);
+        (code, out, err, asked.is_some())
+    }
+
+    fn run_in(
+        args: &[&str],
+        saved: Channel,
+        result: Result<Outcome, UpdateError>,
+    ) -> (u8, String, String, Option<Channel>) {
         let (mut out, mut err) = (Vec::new(), Vec::new());
-        let mut asked = false;
+        let mut asked = None;
         let code = update_check(
             args.iter().map(|s| (*s).to_owned()),
-            || {
-                asked = true;
+            saved,
+            |c| {
+                asked = Some(c);
                 result
             },
             &mut out,
@@ -637,6 +674,29 @@ mod update_check_tests {
         let (code, _, err, _) = run(&[], Err(UpdateError::Fetch("timed out".into())));
         assert_eq!(code, 1);
         assert!(err.contains("timed out"), "{err}");
+    }
+
+    #[test]
+    fn the_channel_is_the_saved_one_unless_the_flag_says_otherwise() {
+        let ok = Ok(Outcome::UpToDate);
+        let (_, _, _, ch) = run_in(&[], Channel::Stable, ok.clone());
+        assert_eq!(ch, Some(Channel::Stable));
+        let (_, _, _, ch) = run_in(&[], Channel::Beta, ok.clone());
+        assert_eq!(ch, Some(Channel::Beta));
+        let (_, _, _, ch) = run_in(&["--channel", "stable"], Channel::Beta, ok.clone());
+        assert_eq!(ch, Some(Channel::Stable));
+        let (_, _, _, ch) = run_in(&["--channel", "beta"], Channel::Stable, ok);
+        assert_eq!(ch, Some(Channel::Beta));
+    }
+
+    #[test]
+    fn a_bad_channel_is_refused_before_any_request() {
+        for args in [&["--channel", "nightly"][..], &["--channel"][..]] {
+            let (code, _, err, asked) = run(args, Ok(Outcome::UpToDate));
+            assert_eq!(code, 2, "{args:?}");
+            assert!(err.contains("--channel needs stable or beta"), "{err}");
+            assert!(!asked);
+        }
     }
 
     #[test]

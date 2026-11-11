@@ -150,3 +150,12 @@ Tests of the `fluut` program. Part of the [user acceptance tests](UAT). Test fil
   2. Run `fluut post <full path> --post fluut/gcode -o out.ngc` from that folder.
 - **Expected:** Both work. `out.ngc` is written in the folder you ran from.
 - [ ] Pass
+
+### UAT-CLI-20 Update check channel option
+
+- **Steps:**
+  1. Run `fluut update-check --channel nightly`.
+  2. Run `fluut update-check --channel`.
+  3. Run `fluut update-check --channel beta`.
+- **Expected:** Steps 1 and 2: `fluut: --channel needs stable or beta` followed by the usage lines, exit status 2, and no network use. Step 3: as UAT-CLI-18 (in a build with no update key: `fluut: no update key in this build`, status 3; with a key, the answer for the beta list or a failure message with status 1 if no beta release exists yet).
+- [ ] Pass

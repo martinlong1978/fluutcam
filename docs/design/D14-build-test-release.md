@@ -121,7 +121,7 @@ release workflow checks them on the built files first.
 | Linux AppImage | No platform signature (no GPG); checksum, minisign and attestation | free |
 | macOS app and DMG | Ad hoc only. Apple has no free programme for open-source projects, so there is no Developer ID or notarisation. Users open the app once with right-click → Open ([`docs/install.md`](../install.md)). Homebrew's main cask repository will not take it | free |
 | Every release file | GitHub build provenance attestation (`actions/attest-build-provenance@v2`, Sigstore keyless) in the `release` job | free |
-| `releases.json`, `SHA256SUMS` | minisign | free |
+| `releases.json`, `releases-beta.json`, `SHA256SUMS` | minisign (one key for every channel) | free |
 
 The artifact configurations that SignPath applies are kept in
 [`packaging/signpath/artifact-configuration.xml`](../../packaging/signpath/artifact-configuration.xml)
@@ -152,7 +152,9 @@ CI verifies every signature after signing; a failed check stops the release [S 0
 public key is compiled into the app. Published with each release alongside checksums and a
 CycloneDX SBOM (`cargo-cyclonedx`).
 
-Format `fluut.releases/1`, written by `cargo xtask manifest`:
+There is one manifest per release channel ([D17](D17-telemetry-and-channels.md) §3): `releases.json` lists stable releases (`"channel": "stable"`), `releases-beta.json` lists every release, pre-releases included (`"channel": "beta"`). The text below describes the format and the stable check; the beta check differs only in its two URLs.
+
+Format `fluut.releases/1`, written by `cargo xtask manifest --channel stable|beta`:
 
 ```json
 {
@@ -180,9 +182,9 @@ plus the new release. `min_os` is `windows-10`, `macos-11.0` or `glibc-2.35`. Th
 The update check (`fluut-core::update`, plan [2026-11-03](../plan/2026-11-03-update-check.md)):
 
 1. It runs only after the user said yes on first start (stored in `<data dir>/settings.toml`, at most once a day), or when the user asks: "Check now" in Settings, or `fluut update-check`.
-2. Two HTTPS GETs: `https://github.com/martinlong1978/fluutcam/releases/latest/download/releases.json` and the same with `.minisig`. A timeout, a size limit (1 MiB, 4 KiB), a fixed User-Agent (`FluutCAM-update-check`), no cookies, redirects only to HTTPS, certificates checked by the operating system. Nothing else is sent.
+2. Two HTTPS GETs: `https://github.com/martinlong1978/fluutcam/releases/latest/download/releases.json` and the same with `.minisig`. For the beta channel they are `https://github.com/martinlong1978/fluutcam/releases/download/update-channels/releases-beta.json` and `.minisig` (the rolling pre-release `update-channels`, refreshed by `channels.yml` after a person publishes a release; D17 §3.3). A timeout, a size limit (1 MiB, 4 KiB), a fixed User-Agent (`FluutCAM-update-check`), no cookies, redirects only to HTTPS, certificates checked by the operating system. Nothing else is sent.
 3. The signature is checked against the key in `packaging/minisign.pub` before the manifest is read. Both minisign signature forms (prehashed, and the older direct one) are accepted.
-4. The newest release with a higher semantic version and a file for the platform is offered; a pre-release only to a running pre-release. The offer shows the version, the date, a link to the release notes (the tag page, built from the version) and the download page. `min_os` is not checked.
+4. The list's `channel` must equal the channel asked for (the user's setting `update.channel`, default `stable`). The newest release with a higher semantic version and a file for the platform is offered; a pre-release only on the beta channel. The offer shows the version, the date, a link to the release notes (the tag page, built from the version) and the download page. `min_os` is not checked.
 5. The app never downloads or installs an update. `update::verify_package` checks a downloaded file's size and SHA-256 against the manifest; no installer calls it yet.
 
 Without a key in `packaging/minisign.pub` the check says "no update key in this build" and does nothing (the first-start question is not asked either).

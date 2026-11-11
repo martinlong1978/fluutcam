@@ -10,7 +10,8 @@
 #   the build job waits for it.
 # - macOS: ad hoc only, by decision (no Developer ID, no notarisation).
 # - Every release file: a GitHub build provenance attestation.
-# - releases.json and SHA256SUMS: minisign.
+# - releases.json, releases-beta.json and SHA256SUMS: minisign (same key for
+#   every channel).
 #
 # SignPath and minisign are optional. Each step is guarded on its secrets
 # being set; without them the workflow still makes unsigned packages. The
@@ -454,15 +455,35 @@ jobs:
             cp "$f" "dist/fluutcam-$VERSION-sbom-$crate.cdx.json"
           done
 
-      - name: Update manifest
+      # One manifest per channel (D17 §3). `releases.json` lists stable
+      # releases only and is read through GitHub's releases/latest, so a
+      # pre-release does not make one. `releases-beta.json` lists every release
+      # and is copied to the rolling release `update-channels` by channels.yml
+      # once a person publishes this draft.
+      - name: Update manifests
         run: |
-          curl -fsSL "https://github.com/${{ github.repository }}/releases/latest/download/releases.json" \
-            -o previous.json || rm -f previous.json
+          repo="https://github.com/${{ github.repository }}/releases"
+          fetch_previous() {
+            code=$(curl -sSL -o "$2" -w '%{http_code}' "$1") || code=000
+            case "$code" in
+              200) ;;
+              404) rm -f "$2" ;;
+              *) echo "::error::could not read the previous manifest $1 (HTTP $code)"; exit 1 ;;
+            esac
+          }
+          base="$repo/download/${{ github.ref_name }}"
+          if [ "${{ needs.check.outputs.prerelease }}" != "true" ]; then
+            fetch_previous "$repo/latest/download/releases.json" previous.json
+            prev=()
+            if [ -f previous.json ]; then prev=(--previous previous.json); fi
+            cargo xtask manifest --channel stable --dist dist --out dist/releases.json "${prev[@]}" --base-url "$base"
+            cat dist/releases.json
+          fi
+          fetch_previous "$repo/download/update-channels/releases-beta.json" previous-beta.json
           prev=()
-          if [ -f previous.json ]; then prev=(--previous previous.json); fi
-          cargo xtask manifest --dist dist --out dist/releases.json "${prev[@]}" \
-            --base-url "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}"
-          cat dist/releases.json
+          if [ -f previous-beta.json ]; then prev=(--previous previous-beta.json); fi
+          cargo xtask manifest --channel beta --dist dist --out dist/releases-beta.json "${prev[@]}" --base-url "$base"
+          cat dist/releases-beta.json
       - run: cargo xtask checksums dist
 
       # minisign (Ed25519) signatures over the manifest and the checksums.
@@ -476,7 +497,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y minisign
           printf '%s\n' "$MINISIGN_SECRET_KEY" > "$RUNNER_TEMP/minisign.key"
-          for f in releases.json SHA256SUMS; do
+          for f in releases.json releases-beta.json SHA256SUMS; do
+            [ -f "dist/$f" ] || continue
             printf '%s\n' "$MINISIGN_PASSWORD" |
               minisign -S -s "$RUNNER_TEMP/minisign.key" -m "dist/$f" -x "dist/$f.minisig"
             minisign -V -P "$MINISIGN_PUBLIC_KEY" -m "dist/$f" -x "dist/$f.minisig"

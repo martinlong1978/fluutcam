@@ -13,7 +13,7 @@ you can check a download.
 | `fluutcam.exe`, `fluut.exe` (Windows) | Authenticode, through SignPath. The publisher shown by Windows is SignPath Foundation |
 | `fluutcam-<version>-windows-x86_64.msi` | Authenticode, through SignPath, in a second request after it was built from the signed executables |
 | Every release file | GitHub build provenance attestation (Sigstore), made by the release workflow |
-| `releases.json`, `SHA256SUMS` | minisign (Ed25519); the app checks `releases.json` before it offers an update |
+| `releases.json`, `releases-beta.json`, `SHA256SUMS` | minisign (Ed25519); the app checks the list of its release channel (stable or beta) before it offers an update. Beta releases are signed exactly like stable ones, with the same key and the same approval |
 | macOS app and disk image | Ad hoc only; see [macOS](#macos) |
 | Linux tarball, AppImage and Flatpak bundle | No platform signature; use the attestation or the checksums |
 
@@ -79,7 +79,8 @@ specifically requested by the user or the person installing or operating it.
 
 The update check is off unless you turn it on; the app asks once on first start, and you can change
 the answer in Settings. When on, it asks GitHub for the signed release list at most once a day and
-sends nothing beyond that request. A check you start yourself ("Check now", or `fluut update-check`)
+sends nothing beyond that request. The Settings window also lets you choose the stable (default) or the
+beta release channel; the beta list also names pre-releases. A check you start yourself ("Check now", or `fluut update-check`)
 works the same way. The app never downloads or installs an update; it shows the version and the
 release page, and you download the file yourself. Crash reports are written to local files
 only; nothing is sent ([spec 06 §6.4](spec/06-security-and-distribution.md)).

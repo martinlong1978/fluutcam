@@ -28,7 +28,7 @@ fn offer() -> Offer {
 fn counting(result: Result<Outcome, UpdateError>) -> (Checker, Arc<AtomicUsize>) {
     let n = Arc::new(AtomicUsize::new(0));
     let count = Arc::clone(&n);
-    let checker: Checker = Arc::new(move || {
+    let checker: Checker = Arc::new(move |_| {
         count.fetch_add(1, Ordering::SeqCst);
         result.clone()
     });
@@ -124,7 +124,7 @@ fn yes_checks_at_once_off_the_ui_thread_and_then_once_a_day() {
     let calls = Arc::new(AtomicUsize::new(0));
     let thread = Arc::new(Mutex::new(None));
     let (c, t) = (Arc::clone(&calls), Arc::clone(&thread));
-    let checker: Checker = Arc::new(move || {
+    let checker: Checker = Arc::new(move |_| {
         c.fetch_add(1, Ordering::SeqCst);
         *t.lock().unwrap() = std::thread::current().name().map(str::to_owned);
         Ok(Outcome::Available(offer()))
@@ -147,7 +147,7 @@ fn yes_checks_at_once_off_the_ui_thread_and_then_once_a_day() {
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     // The time of the check was stored, so a restart does not check again.
     let mut again = updates(
-        Arc::new(|| panic!("checked again after a restart")),
+        Arc::new(|_| panic!("checked again after a restart")),
         Settings::load_from(&path),
         Some(path.clone()),
     );
@@ -184,7 +184,7 @@ fn a_second_request_while_checking_is_ignored() {
     let release = Arc::new(AtomicBool::new(false));
     let calls = Arc::new(AtomicUsize::new(0));
     let (r, c) = (Arc::clone(&release), Arc::clone(&calls));
-    let checker: Checker = Arc::new(move || {
+    let checker: Checker = Arc::new(move |_| {
         c.fetch_add(1, Ordering::SeqCst);
         while !r.load(Ordering::SeqCst) {
             std::thread::sleep(Duration::from_millis(1));
@@ -236,7 +236,7 @@ fn a_build_without_a_key_reports_it() {
 fn a_check_that_panics_is_a_failure_not_a_hang() {
     let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
     CLOCK.store(1_000_000, Ordering::SeqCst);
-    let checker: Checker = Arc::new(|| panic!("test panic in the check thread"));
+    let checker: Checker = Arc::new(|_| panic!("test panic in the check thread"));
     let mut u = updates(checker, opted_in(), None);
     u.check_now();
     settle(&mut u);
@@ -267,4 +267,31 @@ fn the_window_is_woken_when_a_check_ends() {
         std::thread::sleep(Duration::from_millis(2));
     }
     assert_eq!(woken.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn the_check_gets_the_chosen_channel_and_a_change_is_kept_and_clears_the_result() {
+    let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    CLOCK.store(1_000_000, Ordering::SeqCst);
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let s = Arc::clone(&seen);
+    let checker: Checker = Arc::new(move |c| {
+        s.lock().unwrap().push(c);
+        Ok(Outcome::UpToDate)
+    });
+    let path = temp_path("channel");
+    let mut u = updates(checker, opted_in(), Some(path.clone()));
+    assert_eq!(u.channel(), Channel::Stable);
+    u.check_now();
+    settle(&mut u);
+    assert_eq!(*u.state(), UpdateState::UpToDate);
+    // Another channel: the old answer says nothing about it.
+    u.set_channel(Channel::Beta);
+    assert_eq!(*u.state(), UpdateState::Idle);
+    u.check_now();
+    settle(&mut u);
+    assert_eq!(*seen.lock().unwrap(), [Channel::Stable, Channel::Beta]);
+    // Kept for the next start.
+    assert_eq!(Settings::load_from(&path).update.channel, Channel::Beta);
+    let _ = std::fs::remove_file(&path);
 }

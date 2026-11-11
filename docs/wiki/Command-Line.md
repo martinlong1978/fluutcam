@@ -8,7 +8,7 @@ fluut sim <project> [--tools <file>]... [--error <mm>]
 fluut post <project> --post <id> -o <file> [--tools <file>]... [--date <yyyy-mm-dd>] [--time <hh:mm:ss>]
 fluut run <script> [<project>] [--tools <file>]... [--date <yyyy-mm-dd>] [--time <hh:mm:ss>] [-- <args>...]
 fluut tools import <file> -o <library.toml> [--id <library id>] [--name <text>] [--force]
-fluut update-check
+fluut update-check [--channel stable|beta]
 fluut --version
 fluut --help
 ```
@@ -92,6 +92,8 @@ Converts a Fusion tool library (`.json`) to a FluutCAM tool library file. It wri
 ## `fluut update-check`
 
 Asks once for the signed list of releases and says whether a newer version exists. It runs only when you type it. Nothing runs it automatically, and it downloads and installs nothing.
+
+It uses the release channel saved in Settings (`stable` unless you chose Beta). `--channel stable` or `--channel beta` uses that channel for this check only. See [Settings and updates](Settings-and-Updates).
 
 ```
 FluutCAM 0.1.0 is up to date.
