@@ -7,6 +7,7 @@ fluut calc <project> [--tools <file>]...
 fluut sim <project> [--tools <file>]... [--error <mm>]
 fluut post <project> --post <id> -o <file> [--tools <file>]... [--date <yyyy-mm-dd>] [--time <hh:mm:ss>]
 fluut run <script> [<project>] [--tools <file>]... [--date <yyyy-mm-dd>] [--time <hh:mm:ss>] [-- <args>...]
+fluut tools import <file> -o <library.toml> [--id <library id>] [--name <text>] [--force]
 fluut update-check [--channel stable|beta]
 fluut --version
 fluut --help
@@ -83,6 +84,10 @@ The script can read and write the project's folder and the paths you list after 
 ## `--tools <file>`
 
 Loads an extra tool library, after the project's own `tools/` folder. Give it more than once to load more. Use it to try a tool library without copying it into the project. See [Tools](Tools).
+
+## `fluut tools import`
+
+Converts a Fusion tool library (`.json`) to a FluutCAM tool library file. It writes a new file and refuses to replace one unless you give `--force`. It prints a warning for every tool or value it changed or left out. Exit status 0 when the file was written, 1 for an error, 2 for a wrong command line. See [Import tools](Import-Tools).
 
 ## `fluut update-check`
 

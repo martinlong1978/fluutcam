@@ -24,6 +24,7 @@ fluut-io-2d = { path = "crates/fluut-io-2d", version = "0.1.0" }
 fluut-io-mesh = { path = "crates/fluut-io-mesh", version = "0.1.0" }
 fluut-model = { path = "crates/fluut-model", version = "0.1.0" }
 fluut-post = { path = "crates/fluut-post", version = "0.1.0" }
+fluut-post-import = { path = "crates/fluut-post-import", version = "0.1.0" }
 fluut-sim = { path = "crates/fluut-sim", version = "0.1.0" }
 fluut-cam = { path = "crates/fluut-cam", version = "0.1.0" }
 fluut-core = { path = "crates/fluut-core", version = "0.1.0" }

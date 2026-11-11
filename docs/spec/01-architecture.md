@@ -217,7 +217,7 @@ it. The UI is a client of the same crates.
 
 | Crate | Native dependency | Reason | Status |
 |---|---|---|---|
-| — | — | none recorded yet; candidate: SQLite for Vectric `.vtdb` import (05 §5.10.5) if no pure-Rust reader fits | — |
+| — | — | none recorded. SQLite for Vectric `.vtdb` import (05 §5.10.5) is decided against: a purpose-built read-only reader is used instead ([D16](../design/D16-tool-library-import.md) §7) | — |
 
 ## 1.9 Reliability
 

@@ -12,6 +12,7 @@
 - [Add a toolpath](Add-a-Toolpath)
 - [Calculate and simulate](Calculate-and-Simulate)
 - [Post G-code](Post-G-code)
+- [Import tools](Import-Tools)
 - [Save, undo and recover](Save-Undo-Recover)
 
 **Reference**

@@ -409,7 +409,7 @@ these to pure-Rust interpreters. **[DECIDED — OQ-13]** Not planned.
 Vectric `.vtdb` (SQLite tool database) and Fusion tool-library JSON convert to native tool
 libraries (02 §2.4). SQLite reading needs a pure-Rust reader or a recorded FFI exception
 (OQ-08, 01 §1.8.3).
-Field mapping **[OPEN]**.
+Field mapping: [D16](../design/D16-tool-library-import.md) (Fusion built; Vectric `.vtdb` blocked on the table layout, which is not public). SQLite is read by a purpose-built read-only reader, not `rusqlite`, so no FFI exception is recorded.
 
 ## 5.11 Reference toolpath suite and testing
 

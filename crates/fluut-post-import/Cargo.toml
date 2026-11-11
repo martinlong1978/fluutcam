@@ -1,0 +1,14 @@
+[package]
+name = "fluut-post-import"
+description = "FluutCAM importers for definitions from other CAM products: Fusion tool libraries (design D16, D10 §6)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+fluut-model.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

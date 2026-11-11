@@ -29,6 +29,8 @@ Small thing you may notice: some error messages, such as a bad STEP file, show i
 
 ## Importing
 
+- **Tool libraries.** Fusion tool-library `.json` files import from the command line (`fluut tools import`, [Import tools](Import-Tools)); there is no import in the window yet. Vectric `.vtdb` tool databases do not import yet: the layout of that file is not public. Fusion's JSON is not a published specification, so check imported tools. Tool types without a FluutCAM shape (dovetail, lollipop, thread mill, reamer and others) are left out; an import never changes an existing library.
+
 - **STL files (meshes).** They import as bodies and can be machined, with these limits:
   - Faces are not grouped. Each triangle is its own face, so picking a face picks one triangle.
   - Drops on a mesh are about 100 times slower than on exact STEP faces, so 3-D toolpaths on a detailed mesh take much longer.
