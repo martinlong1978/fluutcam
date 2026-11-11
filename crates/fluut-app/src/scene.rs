@@ -13,7 +13,7 @@
 
 use fluut_cam::drive::is_horizontal_plane;
 use fluut_cam::geometry::{BodyGeom, SetupGeometry, edge_id, face_id};
-use fluut_geom::{Aabb3, Point2, Point3, Surface};
+use fluut_geom::{Aabb3, Curve3, Point2, Point3, Surface};
 use fluut_path::{Motion, Segment, ToolpathResult, linearize};
 use fluut_topo::BrepBody;
 use fluut_topo::trim::{loop_polyline, winding};
@@ -153,7 +153,26 @@ pub struct SetupScene {
     pub edge_loops: Vec<Vec<u32>>,
     pub stock: Option<Bounds>,
     pub bounds: Option<Bounds>,
+    /// Model vertices and arc centres the work zero can snap to.
+    pub snap: Vec<SnapPoint>,
 }
+
+/// A point of the model the work zero snaps to (S 08 §8.4): a vertex of a
+/// B-rep body or wire, or the centre of a circle or arc.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct SnapPoint {
+    /// In the Setup's work frame W.
+    pub at: [f32; 3],
+    /// In the model frame M, mm: what a `point` zero holds.
+    pub model: [f64; 3],
+    /// Rotary and indexed Setups: its X in the aligned frame, which is what
+    /// an `at` zero holds.
+    pub axis_x: f64,
+}
+
+/// The most snap points a scene keeps; a model with more is a mesh or a
+/// very large part, and the ones kept are the first.
+pub const MAX_SNAP: usize = 4000;
 
 /// Motion classes for toolpath colours (S 08 §8.9 "by motion type").
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -291,6 +310,48 @@ impl SetupScene {
         s.bounds = (!b.is_empty()).then_some(b);
         s
     }
+}
+
+/// The vertices and circle or arc centres of the exact bodies of `g`, in
+/// the frame of `g`, without repeats. Mesh bodies are left out: every
+/// triangle corner would be one.
+pub fn snap_points(g: &SetupGeometry) -> Vec<[f64; 3]> {
+    let mut out: Vec<[f64; 3]> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    let mut add = |p: Point3| {
+        let key = [p.x(), p.y(), p.z()].map(|v| (v * 1e4).round() as i64);
+        if out.len() < MAX_SNAP && seen.insert(key) {
+            out.push([p.x(), p.y(), p.z()]);
+        }
+    };
+    for body in &g.bodies {
+        match &body.geom {
+            BodyGeom::Brep(b) if !b.from_mesh => {
+                for v in &b.vertices {
+                    add(v.p);
+                }
+                for c in &b.curves {
+                    if let Curve3::Circle { frame, .. } = c {
+                        add(frame.origin);
+                    }
+                }
+            }
+            BodyGeom::Wire(w) => {
+                for c in &w.curves {
+                    if let Curve3::Circle { frame, .. } = &c.curve {
+                        add(frame.origin);
+                    }
+                    let pts = c.curve.tessellate(c.range, CHORD);
+                    if let (Some(a), Some(z)) = (pts.first(), pts.last()) {
+                        add(a.1);
+                        add(z.1);
+                    }
+                }
+            }
+            BodyGeom::Brep(_) => {}
+        }
+    }
+    out
 }
 
 /// Cosine of the angle (30 degrees) between the normals of two faces beyond

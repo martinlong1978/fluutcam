@@ -57,6 +57,9 @@ pub struct SetupFrame {
     pub rotary: Option<RotaryFrame>,
     /// Data of an `indexed` Setup.
     pub index: Option<IndexFrame>,
+    /// Rotary and indexed Setups: X of the work zero in the aligned frame,
+    /// which is what `AxisX::At` holds; a point at X in W is at X + this.
+    pub zero_x: Option<f64>,
 }
 
 /// An `indexed` Setup (spec 03 §3.9.5): 3-axis machining in W, which is
@@ -208,7 +211,7 @@ impl SetupFrame {
             }
         };
         if s.kind.is_rotary() {
-            return rotary_frame(s, &bodies, &scaled, scale);
+            return rotary_frame(s, &bodies, stock_body, &scaled, scale);
         }
         let Orientation::ThreeAxis { tool_axis, x_axis } = &s.orientation else {
             return Err(Diagnostic::error(
@@ -326,6 +329,7 @@ impl SetupFrame {
             turn_offset: 0.0,
             rotary: None,
             index: None,
+            zero_x: None,
         })
     }
 
@@ -443,6 +447,26 @@ fn axis_line(p: &AxisPick, g: &SetupGeometry) -> Result<(DVec3, DVec3), Diagnost
     }
 }
 
+fn missing_stock_body(s: &ResolvedSetup, body: &str) -> Diagnostic {
+    Diagnostic::error(
+        "setup.stock.body",
+        format!("Setup `{}`: stock body `{body}` is not in the model", s.id),
+    )
+    .at("stock")
+}
+
+/// The stock body of a rotary or indexed Setup, moved by the alignment.
+fn aligned_stock_body(
+    s: &ResolvedSetup,
+    body: &str,
+    stock_body: Option<SetupBody>,
+    align: &Affine,
+) -> Result<SetupGeometry, Diagnostic> {
+    let sb = stock_body.ok_or_else(|| missing_stock_body(s, body))?;
+    SetupGeometry::transformed(&[sb], align)
+        .map_err(|e| Diagnostic::error("setup.geometry.transform", e))
+}
+
 /// A block stock from the model bounds `mb` in the aligned frame: grown by
 /// `margin` (both X sides, both Y sides, the top), or of `size` centred on
 /// the model in X and Y with its bottom at the model bottom.
@@ -526,6 +550,7 @@ fn clearance_offset(s: &ResolvedSetup) -> f64 {
 fn rotary_frame(
     s: &ResolvedSetup,
     bodies: &[SetupBody],
+    stock_body: Option<SetupBody>,
     scaled: &SetupGeometry,
     scale: Option<DMat3>,
 ) -> Result<SetupFrame, Diagnostic> {
@@ -574,18 +599,30 @@ fn rotary_frame(
         st => st.clone(),
     };
     if s.kind == SetupKind::Indexed {
-        return indexed_frame(s, bodies, align, &mb, spec);
+        return indexed_frame(s, bodies, stock_body, align, &mb, spec);
     }
     let (radius, x0, x1) = match spec {
         Some(StockSpec::Cylinder { radius, length }) => {
             let c = 0.5 * (mb.min.x() + mb.max.x());
             (radius.v, c - 0.5 * length.v, c + 0.5 * length.v)
         }
+        // The bounding cylinder of the body about the axis: its longest
+        // reach from the axis and its extent along it.
+        Some(StockSpec::Body { body }) => {
+            let sb = aligned_stock_body(s, &body, stock_body, &align)?;
+            let b = sb.bounds(BOUNDS_CHORD);
+            let reach = fluut_cam::radial::radius_range(&sb, BOUNDS_CHORD)
+                .map_or_else(|| box_radius(&b), |(_, hi)| hi.max(0.0));
+            if b.is_empty() || reach <= 0.0 {
+                return Err(missing_stock_body(s, &body));
+            }
+            (reach, b.min.x(), b.max.x())
+        }
         other => {
             return Err(Diagnostic::error(
                 "setup.stock.unsupported",
                 format!(
-                    "Setup `{}`: a rotary Setup needs a cylinder stock, not {}",
+                    "Setup `{}`: a rotary Setup needs a cylinder or body stock, not {}",
                     s.id,
                     other.map_or("none", |o| o.kind())
                 ),
@@ -654,6 +691,7 @@ fn rotary_frame(
             model_r,
         }),
         index: None,
+        zero_x: Some(zx),
     })
 }
 
@@ -664,12 +702,22 @@ fn rotary_frame(
 fn indexed_frame(
     s: &ResolvedSetup,
     bodies: &[SetupBody],
+    stock_body: Option<SetupBody>,
     align: Affine,
     mb: &Aabb3,
     spec: Option<StockSpec>,
 ) -> Result<SetupFrame, Diagnostic> {
     let (stock, cylinder) = match spec {
         Some(StockSpec::Block { margin, size }) => (block(mb, margin, size), None),
+        // The box of the body in the aligned frame, built at A = 0.
+        Some(StockSpec::Body { body }) => {
+            let sb = aligned_stock_body(s, &body, stock_body, &align)?;
+            let b = sb.bounds(BOUNDS_CHORD);
+            if b.is_empty() {
+                return Err(missing_stock_body(s, &body));
+            }
+            (b, None)
+        }
         Some(StockSpec::Cylinder { radius, length }) => {
             let c = 0.5 * (mb.min.x() + mb.max.x());
             let (r, x0, x1) = (radius.v, c - 0.5 * length.v, c + 0.5 * length.v);
@@ -752,5 +800,6 @@ fn indexed_frame(
             angle: s.index_angle,
             cylinder: cylinder.map(|r| (r, (stock.min.x(), stock.max.x()))),
         }),
+        zero_x: Some(zx),
     })
 }
