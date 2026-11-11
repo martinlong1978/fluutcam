@@ -117,11 +117,21 @@ fn patch_sub_boxes(s: &Surface, uv: UvBox, patch: &Aabb3) -> Box<[SubBox]> {
 pub const SUB_SEGMENTS: usize = 32;
 
 /// Sub-boxes of a B-spline edge curve over `range`: `SUB_SEGMENTS`
-/// segments, each the hull of its end points grown by the linear
-/// interpolation bound `Δt² · |C″| / 8` (the second derivative sampled and
-/// doubled), and cut by `whole`, the box of the poles.
+/// segments, each the box of the Bézier points of the curve over it
+/// (proven), cut by `whole`, the box of the poles. Without a Bézier form
+/// (degree above 7) a segment is the hull of its end points grown by the
+/// linear interpolation bound `Δt² · |C″| / 8` (the second derivative
+/// sampled and doubled).
 fn curve_sub_boxes(curve: &Curve3, range: Interval, whole: &Aabb3) -> Box<[SubBox]> {
     let n = SUB_SEGMENTS;
+    if let Curve3::BSpline(b) = curve
+        && let Some(segs) = b.segment_bounds(range, n)
+    {
+        return segs
+            .iter()
+            .map(|c| SubBox::new(&cut_box(c, whole)))
+            .collect();
+    }
     let mut m = 0.0f64;
     for k in 0..=2 * n {
         let d = curve.derivs(range.at(k as f64 / (2 * n) as f64), 2);

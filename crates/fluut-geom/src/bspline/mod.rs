@@ -5,7 +5,7 @@
 
 pub mod basis;
 
-use crate::bounds::Interval;
+use crate::bounds::{Aabb3, Interval};
 use crate::transform::Affine;
 use crate::types::{Point3, Vec3};
 use basis::{MAX_DEGREE, SMALL, ders_basis_funs_n, find_span};
@@ -284,6 +284,59 @@ impl BSplineCurve3 {
         out
     }
 
+    /// Proven bounds of `n` equal parameter segments of `range`, which must
+    /// lie in the domain: segment `k` is bounded by the boxes of the Bézier
+    /// points of the curve restricted to its part of each span it crosses
+    /// (convex hull property, positive weights), grown by 1e-13 relative for
+    /// rounding. `None` without a Bézier form (degrees above 7) or for a
+    /// range outside the domain.
+    pub fn segment_bounds(&self, range: Interval, n: usize) -> Option<Vec<Aabb3>> {
+        let bz = self.bezier.as_ref()?;
+        let p = self.degree as usize;
+        let m = bz.brk.len() - 1;
+        if n == 0 || !(range.lo >= bz.brk[0] && range.hi <= bz.brk[m] && range.lo <= range.hi) {
+            return None;
+        }
+        let mut out = Vec::with_capacity(n);
+        for k in 0..n {
+            let a = range.at(k as f64 / n as f64);
+            let b = range.at((k + 1) as f64 / n as f64);
+            let mut bx = Aabb3::empty();
+            // The spans that meet [a, b] (a span starts at its break).
+            let first = bz.brk[1..m].partition_point(|&x| x <= a);
+            for s in first..m {
+                let (lo, hi) = (bz.brk[s], bz.brk[s + 1]);
+                if lo > b {
+                    break;
+                }
+                let ih = bz.inv[s];
+                let la = ((a.max(lo) - lo) * ih).clamp(0.0, 1.0);
+                let lb = ((b.min(hi) - lo) * ih).clamp(0.0, 1.0);
+                let pts = &bz.pts[s * (p + 1)..(s + 1) * (p + 1)];
+                for j in 0..=p {
+                    // Bézier point j of the part: the blossom at p - j
+                    // copies of its start and j of its end (de Casteljau
+                    // with one argument per level).
+                    let mut d = [DVec4::ZERO; SMALL];
+                    d[..=p].copy_from_slice(pts);
+                    for r in 1..=p {
+                        let t = if r <= p - j { la } else { lb };
+                        for i in (r..=p).rev() {
+                            d[i] = d[i - 1] * (1.0 - t) + d[i] * t;
+                        }
+                    }
+                    bx = bx.with_point(Point3(d[p].truncate() / d[p].w));
+                }
+                if hi >= b {
+                    break;
+                }
+            }
+            let e = 1e-13 * (1.0 + bx.min.0.abs().max(bx.max.0.abs()).max_element());
+            out.push(bx.expand(e));
+        }
+        Some(out)
+    }
+
     /// Point at `t`. `t` outside the domain is clamped to it.
     pub fn eval(&self, t: f64) -> Point3 {
         Point3(self.derivs(t, 0)[0].0)
@@ -523,6 +576,61 @@ mod tests {
                 (d[2] - fd2).length() <= 1e-5 * (1.0 + d[2].length()),
                 "C'' at {t}"
             );
+        }
+    }
+
+    #[test]
+    fn segment_bounds_contain_the_curve() {
+        // Clamped, unclamped and with a double knot; degrees 1 to 5; with
+        // and without weights; whole domains and parts of them.
+        let cases: [(u8, Vec<f64>); 5] = [
+            (3, vec![0., 0., 0., 0., 1., 2., 3., 3., 3., 3.]),
+            (2, vec![0., 0., 0., 0.3, 0.3, 0.9, 2., 2., 2.]),
+            (3, vec![0., 1., 2., 3., 4., 5., 6., 7., 8.]),
+            (1, vec![0., 0., 1., 2.5, 3., 3.]),
+            (5, vec![0., 0., 0., 0., 0., 0., 0.4, 1., 1., 1., 1., 1., 1.]),
+        ];
+        for (ci, (deg, k)) in cases.into_iter().enumerate() {
+            let np = k.len() - deg as usize - 1;
+            let poles: Vec<Point3> = (0..np)
+                .map(|i| {
+                    let f = i as f64 + ci as f64;
+                    p(f * 2.0, libm::sin(f) * 3.0, libm::cos(1.3 * f))
+                })
+                .collect();
+            let w: Vec<f64> = (0..np).map(|i| 0.6 + 0.3 * libm::sin(i as f64)).collect();
+            for weights in [None, Some(w)] {
+                let c = BSplineCurve3::new(deg, k.clone(), poles.clone(), weights).unwrap();
+                let d = c.domain();
+                for (f0, f1, n) in [
+                    (0.0, 1.0, 32),
+                    (0.13, 0.71, 7),
+                    (0.5, 0.5001, 3),
+                    (0.0, 1.0, 1),
+                ] {
+                    let range = Interval {
+                        lo: d.at(f0),
+                        hi: d.at(f1),
+                    };
+                    let bs = c.segment_bounds(range, n).unwrap();
+                    assert_eq!(bs.len(), n);
+                    for (s, b) in bs.iter().enumerate() {
+                        let seg = Interval {
+                            lo: range.at(s as f64 / n as f64),
+                            hi: range.at((s + 1) as f64 / n as f64),
+                        };
+                        for i in 0..=50 {
+                            let q = c.eval(seg.at(i as f64 / 50.0));
+                            assert!(b.contains(q), "case {ci} segment {s}: {q:?} not in {b:?}");
+                        }
+                    }
+                }
+                let out = Interval {
+                    lo: d.lo - 1.0,
+                    hi: d.hi,
+                };
+                assert!(c.segment_bounds(out, 4).is_none());
+            }
         }
     }
 
