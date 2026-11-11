@@ -840,3 +840,73 @@ fn a_based_on_setup_shows_inherited_fixtures_and_replaces_or_resets_them() {
     }
     assert_eq!(j.snapshot.clone().unwrap().project, base.project);
 }
+
+fn fixture_points(s: &Snapshot, id: &str) -> usize {
+    let e = &s.scenes[id].edges;
+    e.tag
+        .iter()
+        .filter(|t| **t == crate::scene::FIXTURE_TAG)
+        .count()
+        / 2
+}
+
+#[test]
+fn fixtures_are_drawn_in_the_scene_and_follow_the_index_angle() {
+    let mut j = opened("flipside");
+    let s = j.snapshot.clone().unwrap();
+    assert_eq!(fixture_points(&s, "s1"), 0);
+    let s = apply_to(&mut j, "s1", "fixtures.add", "clamp");
+    // A clamp is a box of twelve lines; the child inherits and shows it.
+    assert_eq!(fixture_points(&s, "s1"), 12);
+    assert_eq!(fixture_points(&s, "s2"), 12);
+    let bounds = |s: &Snapshot, id: &str| {
+        let e = &s.scenes[id].edges;
+        let pts: Vec<[f32; 3]> = e
+            .points
+            .iter()
+            .zip(&e.tag)
+            .filter(|(_, t)| **t == crate::scene::FIXTURE_TAG)
+            .map(|(p, _)| *p)
+            .collect();
+        crate::scene::Bounds::of(&pts)
+    };
+    let (b1, b2) = (bounds(&s, "s1"), bounds(&s, "s2"));
+    // The box is at +Y of the stock at A = 0; at 180 degrees it is at -Y.
+    assert!(b1.min[1] > 0.0, "{b1:?}");
+    assert!(b2.max[1] < 0.0, "{b2:?}");
+    let s = apply_to(&mut j, "s1", "index_angle", "90");
+    let b = bounds(&s, "s1");
+    // The +Y side goes up to +Z, the way the part's own +Y does.
+    assert!(b.min[2] > 0.0 && b.max[1] < 20.0, "{b:?}");
+    // A chuck is a drum behind the stock's start.
+    let s = apply_to(&mut j, "s1", "fixtures.add", "chuck");
+    let stock = s.scenes["s1"].stock.unwrap();
+    assert!(bounds(&s, "s1").min[0] < stock.min[0]);
+    // Undo takes them off again.
+    undo(&mut j);
+    undo(&mut j);
+    undo(&mut j);
+    assert_eq!(fixture_points(&j.snapshot.clone().unwrap(), "s1"), 0);
+    // A three_axis Setup draws none even if its file lists some.
+    let mut j = opened("block");
+    let s = j.snapshot.clone().unwrap();
+    let e = fluut_model::edit::Edit::set_setup_field(
+        "s1",
+        "fixtures",
+        Some("[{ kind = \"chuck\", diameter = 30, length = 10 }]"),
+    );
+    j.edit(JobEdit::Model(e));
+    let s2 = j.wait_snapshot().unwrap();
+    assert_eq!(fixture_points(&s2, "s1"), 0);
+    // The Setup says why, and offers no group for them.
+    let v = vm(&s2, "s1");
+    assert!(
+        v.diagnostics
+            .iter()
+            .any(|d| d.code == "setup.fixtures.ignored"),
+        "{:?}",
+        v.diagnostics
+    );
+    assert!(v.groups.iter().all(|g| g.id != "setup-fixtures"));
+    let _ = s;
+}
