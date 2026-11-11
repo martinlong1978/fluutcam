@@ -318,6 +318,20 @@ impl<'a> SurfaceQuery<'a> {
     }
 
     fn best_with(&self, x: f64, y: f64, opts: &DropOptions) -> Option<(&BodyQuery<'a>, Contact)> {
+        #[cfg(feature = "bench-stats")]
+        let t0 = std::time::Instant::now();
+        let r = self.best_untimed(x, y, opts);
+        #[cfg(feature = "bench-stats")]
+        stats::add(t0, x, y, r.as_ref().map(|(_, c)| c.tau + self.stock));
+        r
+    }
+
+    fn best_untimed(
+        &self,
+        x: f64,
+        y: f64,
+        opts: &DropOptions,
+    ) -> Option<(&BodyQuery<'a>, Contact)> {
         self.drops.fetch_add(1, Ordering::Relaxed);
         let mut best: Option<(&BodyQuery, Contact)> = None;
         let mut st = SolveStats::default();
@@ -489,6 +503,51 @@ fn segments_cross(a: Point2, b: Point2, c: Point2, d: Point2) -> bool {
     let (d1, d2) = (o(c, d, a), o(c, d, b));
     let (d3, d4) = (o(a, b, c), o(a, b, d));
     d1 * d2 < 0.0 && d3 * d4 < 0.0
+}
+
+/// Drop counts, times and points of every [`SurfaceQuery`], for
+/// benchmarks (feature `bench-stats`; not part of a build otherwise).
+#[cfg(feature = "bench-stats")]
+pub mod stats {
+    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    use std::time::Instant;
+
+    static COUNT: AtomicU64 = AtomicU64::new(0);
+    static NANOS: AtomicU64 = AtomicU64::new(0);
+    static RECORD: AtomicBool = AtomicBool::new(false);
+    /// `[x, y, tip]` of every drop while recording (tip −∞ when nothing is
+    /// under the tool), in call order.
+    static POINTS: Mutex<Vec<[f64; 3]>> = Mutex::new(Vec::new());
+
+    pub(super) fn add(t0: Instant, x: f64, y: f64, tip: Option<f64>) {
+        let ns = t0.elapsed().as_nanos() as u64;
+        COUNT.fetch_add(1, Ordering::Relaxed);
+        NANOS.fetch_add(ns, Ordering::Relaxed);
+        if RECORD.load(Ordering::Relaxed) {
+            let tip = tip.unwrap_or(f64::NEG_INFINITY);
+            POINTS.lock().expect("drop points").push([x, y, tip]);
+        }
+    }
+
+    /// Clears the counters and the points; `record` turns point recording
+    /// on or off.
+    pub fn reset(record: bool) {
+        COUNT.store(0, Ordering::Relaxed);
+        NANOS.store(0, Ordering::Relaxed);
+        RECORD.store(record, Ordering::Relaxed);
+        POINTS.lock().expect("drop points").clear();
+    }
+
+    /// Drops and the time spent in them (summed over threads), ns.
+    pub fn totals() -> (u64, u64) {
+        (COUNT.load(Ordering::Relaxed), NANOS.load(Ordering::Relaxed))
+    }
+
+    /// The recorded points, taken out.
+    pub fn take_points() -> Vec<[f64; 3]> {
+        std::mem::take(&mut *POINTS.lock().expect("drop points"))
+    }
 }
 
 #[cfg(test)]
