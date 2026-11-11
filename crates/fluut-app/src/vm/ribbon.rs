@@ -180,6 +180,7 @@ pub enum Command {
     Cancel,
     ImportTools,
     AddToolLibrary,
+    ImportPost,
     LibraryTools,
     LibraryMachines,
     LibraryPosts,
@@ -212,6 +213,7 @@ impl Command {
             Command::Cancel,
             Command::ImportTools,
             Command::AddToolLibrary,
+            Command::ImportPost,
             Command::LibraryTools,
             Command::LibraryMachines,
             Command::LibraryPosts,
@@ -271,6 +273,7 @@ impl Command {
             Command::Cancel => "job.cancel",
             Command::ImportTools => "library.import_tools",
             Command::AddToolLibrary => "library.add_tool_library",
+            Command::ImportPost => "library.import_post",
             Command::LibraryTools => "library.tools",
             Command::LibraryMachines => "library.machines",
             Command::LibraryPosts => "library.posts",
@@ -306,6 +309,7 @@ impl Command {
             Command::Cancel => "ribbon-cancel",
             Command::ImportTools => "ribbon-import-tools",
             Command::AddToolLibrary => "ribbon-add-tool-library",
+            Command::ImportPost => "ribbon-import-post",
             Command::LibraryTools => "ribbon-library-tools",
             Command::LibraryMachines => "ribbon-library-machines",
             Command::LibraryPosts => "ribbon-library-posts",
@@ -365,6 +369,7 @@ impl Command {
             Command::Cancel => "cancel",
             Command::ImportTools => "import-tools",
             Command::AddToolLibrary => "add-tool-library",
+            Command::ImportPost => "import-post",
             Command::LibraryTools => "library-tools",
             Command::LibraryMachines => "library-machines",
             Command::LibraryPosts => "library-posts",
@@ -644,6 +649,7 @@ impl RibbonVm {
                 vec![
                     C::ImportTools,
                     C::AddToolLibrary,
+                    C::ImportPost,
                     C::LibraryTools,
                     C::LibraryMachines,
                     C::LibraryPosts,
@@ -683,7 +689,10 @@ impl RibbonVm {
         let ready = self.open && !self.busy;
         c.wired()
             && match c {
-                Command::NewProject | Command::Open | Command::ImportTools => !self.busy,
+                Command::NewProject
+                | Command::Open
+                | Command::ImportTools
+                | Command::ImportPost => !self.busy,
                 Command::Save
                 | Command::SaveAs
                 | Command::ImportModel

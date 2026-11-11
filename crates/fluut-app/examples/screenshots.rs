@@ -328,11 +328,42 @@ const SHOTS: &[Shot] = &[
         },
     },
     Shot {
+        name: "import-post-result",
+        shows: "Import post: the result window with the post id, the counts, a warning with its code, and the offer to use the post",
+        crop: Some((350, 235, 580, 410)),
+        run: |r| {
+            r.app().ui.tool_import.close();
+            r.h.run_steps(3);
+            // The post goes into the open project's posts folder.
+            std::fs::create_dir_all("block/posts").expect("create posts folder");
+            let fixture = r
+                .samples
+                .join("../../../fluut-post-import/tests/fixtures/vectric/comma-inch.pp");
+            std::fs::copy(fixture, "shop-post.pp").expect("copy the Vectric sample");
+            r.ask(DialogKind::ImportPostSource, "shop-post.pp");
+            r.ask(
+                DialogKind::ImportPostTarget,
+                "block/posts/shop-post.post.toml",
+            );
+            r.click("LIBRARY");
+            r.click("Import post\u{2026}");
+            for _ in 0..4000 {
+                r.h.step();
+                if !r.app().ui.post_import.is_running() && !r.app().ui.post_import.awaiting_target()
+                {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            r.h.run_steps(4);
+        },
+    },
+    Shot {
         name: "rotary-project",
         shows: "A rotary Setup: a shaft turned about its axis, with a rotary finishing toolpath",
         crop: None,
         run: |r| {
-            r.app().ui.tool_import.close();
+            r.app().ui.post_import.close();
             r.open_sample("shaft");
             r.app().jobs.calculate(CalcTargets::All);
             r.settle();

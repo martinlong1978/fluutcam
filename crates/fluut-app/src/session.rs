@@ -24,6 +24,7 @@ use fluut_core::{JobReport, JobState, NodeId, PostOptions, Session, SetupFrame, 
 use fluut_core::{SimResult, SimSettings};
 use fluut_geom::Point3;
 use fluut_model::PValue;
+use fluut_model::library::DefKind;
 use fluut_model::project::SetupKind;
 use fluut_model::project::{DisplayUnit, Project, StockSpec};
 use fluut_model::setup::{ResolvedSetup, resolve_all};
@@ -63,6 +64,8 @@ pub struct Snapshot {
     pub tools: ToolStore,
     /// The machines a Setup can name.
     pub machines: Vec<MachineChoice>,
+    /// The posts Post can use: the built-in ones and the project's own.
+    pub posts: Vec<crate::posts::PostChoice>,
     /// Load findings and Setup frame errors.
     pub warnings: Vec<Diagnostic>,
     pub status: BTreeMap<String, ToolpathStatus>,
@@ -650,6 +653,10 @@ impl Worker {
                 st.session.reload_tool_libraries();
                 None
             }
+            Edit::ReloadDefinitions => {
+                st.session.reload_definitions();
+                None
+            }
         };
         self.snapshot();
     }
@@ -729,7 +736,8 @@ impl Worker {
             time: req.time.clone(),
             notes: String::new(),
         };
-        let store = fluut_post::builtin::builtin_store();
+        // Built-in posts, then the project's `posts/` (D06 section 4.1).
+        let store = st.session.library.mem_store(DefKind::Post);
         let output = match st.session.post(&req.post, &store, &opts) {
             Ok((output, _)) => output,
             Err(d) => return Outcome::Failed(d),
@@ -997,6 +1005,7 @@ impl State {
             project,
             tools: self.session.tools.clone(),
             machines: self.session.machine_choices(),
+            posts: crate::posts::library_choices(&self.session.library),
             warnings,
             status,
             diagnostics,

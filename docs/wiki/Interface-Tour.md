@@ -23,7 +23,7 @@ This page names every part of the FluutCAM window, so the other pages can say "t
 - **Toolpaths**: galleries of toolpath types (2D, Holes, 3D, Rotary, Utility) that suit the selected Setup's kind, then **Calculate selected** and **Calculate all**.
 - **Simulate**: **Simulate** and the playback buttons (play or pause, step back, step forward).
 - **Post**: **Post** and the list of posts.
-- **Library**: **Import tools…** turns a Fusion tool library into a FluutCAM one ([Import tools](Import-Tools)). **Add tool library…** lets the open project use a tool library file from any folder ([Tools](Tools)). Tools, Machines and Posts are greyed out ("Coming soon"): browsing and editing the libraries is not built yet.
+- **Library**: **Import tools…** turns a Fusion tool library into a FluutCAM one ([Import tools](Import-Tools)). **Add tool library…** lets the open project use a tool library file from any folder ([Tools](Tools)). **Import post…** turns a Vectric post processor (`.pp`) into a FluutCAM post, which you can then choose in the Post stage ([Import posts](Import-Posts)). Tools, Machines and Posts are greyed out ("Coming soon"): browsing and editing the libraries is not built yet.
 - **Edit** (on every stage): **Undo** and **Redo**.
 - **Job**: **Cancel**, available while a job runs.
 

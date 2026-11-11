@@ -13,6 +13,7 @@ mod guide;
 mod handles;
 mod icons;
 mod inspector;
+mod post_import;
 mod project;
 mod ribbon;
 mod simulation;
@@ -97,6 +98,8 @@ pub struct UiState {
     pub new_project: Option<(PathBuf, DisplayUnit)>,
     /// An Open or New waiting for the answer to "discard changes?".
     pub pending: Option<project::Pending>,
+    /// The Vectric post import (D10 §6.1).
+    pub post_import: crate::vm::post_import::PostImport,
     /// The tool library import (D16 §10.2).
     pub tool_import: crate::vm::tool_import::ToolImport,
     /// The browser's "Add tool library…" button was pressed; the frame
@@ -131,6 +134,7 @@ impl Default for UiState {
             pick: None,
             new_project: None,
             pending: None,
+            post_import: Default::default(),
             tool_import: Default::default(),
             add_tool_library: false,
             tool_lib_note: None,
@@ -284,6 +288,9 @@ impl FluutApp {
                 K::ImportToolsSource | K::ImportToolsTarget => {
                     tool_import::picked(ui.ctx(), &self.jobs, &mut self.ui, &mut self.dialogs, p)
                 }
+                K::ImportPostSource | K::ImportPostTarget => {
+                    post_import::picked(ui.ctx(), &self.jobs, &mut self.ui, &mut self.dialogs, p)
+                }
                 K::AddToolLibrary => tool_libs::picked(&mut self.jobs, &mut self.ui, p),
                 _ => project::picked(&mut self.jobs, &mut self.ui, p),
             }
@@ -292,6 +299,7 @@ impl FluutApp {
             tool_libs::ask(&self.jobs, &mut self.dialogs);
         }
         tool_import::tick(ui.ctx(), &mut self.ui, &self.dialogs);
+        post_import::tick(ui.ctx(), &mut self.ui, &self.dialogs);
         if self.bench.timing_frames() && !self.bench_ready && !self.jobs.is_busy() {
             // Time frames with the toolpaths on screen: calculate first, and
             // with `FLUUT_BENCH_SIM` simulate the first Setup too.
@@ -373,6 +381,7 @@ impl FluutApp {
         project::units_prompt(ui.ctx(), &mut self.jobs, &mut self.ui);
         project::discard_prompt(ui.ctx(), &mut self.jobs, &mut self.ui);
         tool_import::show(ui.ctx(), &mut self.jobs, &mut self.ui);
+        post_import::show(ui.ctx(), &mut self.jobs, &mut self.ui);
         guide::show(
             ui.ctx(),
             &mut self.jobs,

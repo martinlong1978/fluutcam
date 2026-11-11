@@ -1,6 +1,6 @@
 # UAT: Import posts
 
-Tests of `fluut posts import` (UAT-PPI-01 to 10). Part of the [user acceptance tests](UAT). Test files: you make them from the text below (they are hand-written, not from any product). Work in an empty folder with `fluut` on the path, and with a copy of the `plate` reference project for UAT-PPI-03. See [Import posts](Import-Posts).
+Tests of `fluut posts import` (UAT-PPI-01 to 10) and of **Import post…** in the window (UAT-PPI-11 to 16). Part of the [user acceptance tests](UAT). Test files: you make them from the text below (they are hand-written, not from any product). Work in an empty folder with `fluut` on the path, and with a copy of the `plate` reference project for UAT-PPI-03. See [Import posts](Import-Posts).
 
 If you have Vectric software, UAT-PPI-10 also uses one of its own `.pp` files and a G-code file it wrote with that post.
 
@@ -156,4 +156,66 @@ begin FOOTER
   2. Post a small job of yours with it.
   3. Compare the start, the end, a tool change and the number formats with the G-code Vectric wrote.
 - **Expected:** The import exits with 0 (or is refused with a reason from [Import posts](Import-Posts)). Each warning names something the page lists. The number formats, the line numbers and the program's start and end lines match Vectric's; FluutCAM's comment lines at the top and full axis words after a tool change are expected differences. Note anything else on the record sheet.
+- [ ] Pass
+
+## In the window
+
+UAT-PPI-11 to 16 use the **Import post…** command on the Library tab. They need the FluutCAM window, `router.pp` from above in an empty folder, and (for 12 to 16) a copy of the `plate` reference project with a `posts` folder beside `plate.fluut`. See [Import posts](Import-Posts).
+
+### UAT-PPI-11 Import a post in the window, without a project
+
+- **Preconditions:** FluutCAM is started and no project is open.
+- **Steps:**
+  1. Open the **Library** tab and click **Import post…**.
+  2. In the file dialog, check that only `.pp` files are offered, and choose `router.pp`.
+  3. In the Save dialog, check that the offered name is `router.post.toml`, and save it in the working folder.
+  4. Read the result window.
+- **Expected:** A brief **Importing router.pp…** window may show. The result window says ``Wrote post vectric/router to …router.post.toml.`` and lists `Post id: vectric/router`, `Post name: UAT router (mm)`, `Settings mapped`, `Blocks mapped: 11 of 11`, `Words written: 9` and `Warnings: 1`. Under **Warnings** there is one line, a **Warning** about `[TP_FILENAME]` with the code `[import.pp.placeholder]`. The window says to open a project to use the post, and has no **Use this post** button. There is no text box for a path anywhere. The file `router.post.toml` exists, the same as `fluut posts import` writes in UAT-PPI-01.
+- [ ] Pass
+
+### UAT-PPI-12 Use the post in the project
+
+- **Preconditions:** `plate.fluut` is open, with the `posts` folder beside it.
+- **Steps:**
+  1. Click **Import post…**, choose `router.pp`, and in the Save dialog check that it starts in the project's `posts` folder. Save as `router.post.toml` there.
+  2. In the result window, read the last paragraph and click **Use this post**.
+  3. Close the window. Open the **Post** stage and open the post list.
+  4. Click **Post** and look at the file name the dialog offers. Save it.
+- **Expected:** 2: the window says the post is in this project's posts folder, then ``Post now uses this post.`` (nothing in the project is changed: the title bar shows no unsaved changes). 3: the list shows `vectric/router` as the chosen post, below the four built-in posts. 4: the dialog offers `plate.tap`. The file starts like the output of UAT-PPI-03 and has CR LF line ends, with no restart of FluutCAM.
+- [ ] Pass
+
+### UAT-PPI-13 A post saved outside the posts folder
+
+- **Preconditions:** `plate.fluut` is open.
+- **Steps:**
+  1. Click **Import post…**, choose `router.pp`, and save the post in a folder that is not `posts` beside the project (for example the project folder itself).
+- **Expected:** The result window shows the counts, and then says the post is outside this project's posts folder, so FluutCAM does not find it. There is no **Use this post** button, and the Post stage's list does not show `vectric/router`. Moving the file into `posts` and opening the project again shows it in the list.
+- [ ] Pass
+
+### UAT-PPI-14 Cancel, overwrite and the source file
+
+- **Steps:**
+  1. Click **Import post…** and cancel the file dialog. Click it again, choose `router.pp` and cancel the Save dialog.
+  2. Click it again, choose `router.pp`, and in the Save dialog choose a `.post.toml` file that exists. Confirm replacing it.
+  3. Repeat step 2 but, in the Save dialog, choose `router.pp` itself and confirm replacing it.
+  4. Click it again, choose `router.pp`, and in the Save dialog type a name with no extension, such as `mine`.
+- **Expected:** 1: nothing happens and no file is written. 2: the result window shows the counts and the file is replaced by the converted post. 3: the window says ``Nothing was imported.`` with `[import.output.is_input]`, and `router.pp` is unchanged. 4: the file is saved as `mine.post.toml`.
+- [ ] Pass
+
+### UAT-PPI-15 Files that are refused
+
+- **Preconditions:** a file `shop.cps` (any text, for example one line) and `nounits.pp` from UAT-PPI-04.
+- **Steps:**
+  1. Click **Import post…** and choose `shop.cps`.
+  2. Click **Import post…**, choose `nounits.pp` and save it as `nounits.post.toml`.
+- **Expected:** 1: no Save dialog opens. The window says ``Nothing was imported.`` with an **Error** line, ``Autodesk .cps posts are programs; FluutCAM does not import them yet …`` and the code `[import.format.unsupported]`. 2: ``Nothing was imported.`` with an **Error** line and the code `[import.pp.units]`, and no `nounits.post.toml` is written. **Close** closes the window each time.
+- [ ] Pass
+
+### UAT-PPI-16 A base post, and the command waits for a running job
+
+- **Preconditions:** `router.pp` and `child.pp` from UAT-PPI-06 in one folder; `plate.fluut` open.
+- **Steps:**
+  1. Click **Import post…**, choose `child.pp` and save it in the `posts` folder.
+  2. In the **Toolpaths** stage click **Calculate all**, and at once open the Library tab and look at **Import post…**.
+- **Expected:** 1: the result window lists ``Base files merged: 1`` and the post id `vectric/child`. 2: while the calculation runs, **Import post…** is greyed out; it works again when the calculation has finished.
 - [ ] Pass

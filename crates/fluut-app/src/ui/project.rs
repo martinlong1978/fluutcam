@@ -26,6 +26,19 @@ fn dir_of(jobs: &Jobs) -> Option<PathBuf> {
         .and_then(|s| s.path.parent().map(PathBuf::from))
 }
 
+/// The posts Post offers: the open project's (built-in and its own), else
+/// the built-in ones.
+pub fn post_choices(jobs: &Jobs) -> Vec<crate::posts::PostChoice> {
+    jobs.snapshot
+        .as_ref()
+        .map_or_else(|| crate::posts::choices().to_vec(), |s| s.posts.clone())
+}
+
+/// The extension of the files post `id` writes.
+fn post_extension(jobs: &Jobs, id: &str) -> String {
+    crate::posts::extension_in(&post_choices(jobs), id)
+}
+
 /// The name a save dialog offers for `kind`.
 fn name_for(jobs: &Jobs, state: &UiState, kind: DialogKind) -> String {
     let project = || {
@@ -39,7 +52,7 @@ fn name_for(jobs: &Jobs, state: &UiState, kind: DialogKind) -> String {
                 .snapshot
                 .as_ref()
                 .and_then(|s| s.path.file_stem().map(|n| n.to_string_lossy().into_owned()));
-            let ext = crate::posts::extension(&state.post_id);
+            let ext = post_extension(jobs, &state.post_id);
             format!("{}.{ext}", stem.unwrap_or_else(|| "output".to_owned()))
         }
         _ => project(),
@@ -153,7 +166,7 @@ pub fn picked(jobs: &mut Jobs, state: &mut UiState, p: Picked) {
         (K::PostOutput, None) => {
             let mut output = p.path;
             if output.extension().is_none() {
-                output.set_extension(crate::posts::extension(&state.post_id));
+                output.set_extension(post_extension(jobs, &state.post_id));
             }
             let (date, time) = (state.clock)();
             jobs.post(PostRequest {

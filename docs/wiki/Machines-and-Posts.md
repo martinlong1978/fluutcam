@@ -27,7 +27,7 @@ What the machine is used for today: FluutCAM warns when a spindle speed or feed 
 | `fluut/grbl` | Grbl 1.1 | No tool changer (a tool change is a stop with a message), no drilling cycles (they are written out as moves), no controller cutter compensation. |
 | `fluut/linuxcnc-4x` | LinuxCNC with a rotary A axis along X | For rotary and indexed Setups. |
 
-The Post stage's list offers the four built-in posts above. The command line takes any post id, including your own. See [Post G-code](Post-G-code). Other controllers (Fanuc, Mach3 and so on) have no built-in post yet: write one that extends `fluut/gcode`, convert the Vectric post processor you already use ([Import posts](Import-Posts)), or ask for one.
+The Post stage's list offers the four built-in posts above and the posts in the `posts/` folder beside the open project (they appear when the project is opened, or at once after **Import post…** and **Use this post**). The command line takes any post id, including your own. See [Post G-code](Post-G-code). Other controllers (Fanuc, Mach3 and so on) have no built-in post yet: write one that extends `fluut/gcode`, convert the Vectric post processor you already use ([Import posts](Import-Posts)), or ask for one.
 
 ## Make your own
 
@@ -92,9 +92,9 @@ The built-in posts never change under you: a project names a post by major versi
 
 ## Not yet
 
-- Importing machines from other CAM programs. Vectric posts import with `fluut posts import` ([Import posts](Import-Posts)) and Fusion tool libraries with `fluut tools import` ([Import tools](Import-Tools)).
+- Importing machines from other CAM programs. Vectric posts import with **Import post…** or `fluut posts import` ([Import posts](Import-Posts)) and Fusion tool libraries with **Import tools…** or `fluut tools import` ([Import tools](Import-Tools)).
 - Making an imported post extend the closest built-in one (it is written as a standalone post).
-- Choosing a post of your own from the Post stage's list (use the command line).
+- Remembering the post you chose in the project: the Post stage's list is a choice for this window, and the project file does not store it.
 - A user folder of definitions shared between projects.
 - More built-in posts (Fanuc, Mach3, Marlin and so on).
 

@@ -205,6 +205,14 @@ standalone `fluut.post/1` post with `origin = "imported"`, checked by resolving,
 compiling it before it is returned (`import.pp.internal` if that fails). Rebasing (§6.3) is not
 built.
 
+**GUI entry (2026-11-11): built.** **Import post…** in the Library group of the ribbon: native
+open dialog (`.pp`), native save dialog (starting in the project's `posts/` folder), the import on
+a worker thread, a result window with the id, counts and every warning with its `import.*` code,
+and **Use this post**, which reloads the project's posts (`Session::reload_definitions`) and
+chooses the post in the Post stage. The Post stage now lists the open project's posts as well as
+the built-in ones, and the post job resolves from the project's library. Plan: GUI entry section of
+[2026-11-11-vectric-post-import](../plan/2026-11-11-vectric-post-import.md). UAT: UAT-PPI-11 to 16.
+
 Reading: `+` and `|` lines are comments (the first block is kept as a TOML comment); `KEY = value`
 (a later key replaces an earlier, `import.pp.setting_duplicate`); `VAR` (case-insensitive) with 4
 or 5 fields; `begin NAME` (case-insensitive); quoted lines, text after the closing quote other

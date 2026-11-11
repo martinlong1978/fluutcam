@@ -29,6 +29,10 @@ pub enum DialogKind {
     ImportToolsTarget,
     /// A tool library file (TOML) for the project to refer to.
     AddToolLibrary,
+    /// The Vectric post processor (`.pp`) to import.
+    ImportPostSource,
+    /// Where the imported post is written.
+    ImportPostTarget,
 }
 
 /// A path the user chose.
@@ -187,6 +191,12 @@ impl Dialogs {
             DialogKind::AddToolLibrary => d
                 .set_title(tr("dialog-tools-add-title"))
                 .add_filter(tr("dialog-filter-tools-library"), &["toml"]),
+            DialogKind::ImportPostSource => d
+                .set_title(tr("dialog-post-source-title"))
+                .add_filter(tr("dialog-filter-post-vectric"), &["pp"]),
+            DialogKind::ImportPostTarget => d
+                .set_title(tr("dialog-post-target-title"))
+                .add_filter(tr("dialog-filter-post-library"), &["toml"]),
         };
         let (tx, wake) = (self.tx.clone(), self.wake.clone());
         let spawned = std::thread::Builder::new()
@@ -197,11 +207,13 @@ impl Dialogs {
                         DialogKind::Open
                         | DialogKind::Import
                         | DialogKind::ImportToolsSource
-                        | DialogKind::AddToolLibrary => d.pick_file().await,
+                        | DialogKind::AddToolLibrary
+                        | DialogKind::ImportPostSource => d.pick_file().await,
                         DialogKind::New(_)
                         | DialogKind::SaveAs
                         | DialogKind::PostOutput
-                        | DialogKind::ImportToolsTarget => d.save_file().await,
+                        | DialogKind::ImportToolsTarget
+                        | DialogKind::ImportPostTarget => d.save_file().await,
                     }
                 });
                 let picked = handle.map(|h| Picked {

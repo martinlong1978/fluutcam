@@ -133,7 +133,7 @@ fn commands(ui: &mut egui::Ui, g: &GroupVm, p: &Palette) -> Vec<Command> {
 
 /// What Post acts on: the post. The output file is chosen in the dialog
 /// that Post opens.
-fn post_choice(ui: &mut egui::Ui, state: &mut UiState) {
+fn post_choice(ui: &mut egui::Ui, state: &mut UiState, posts: &[crate::posts::PostChoice]) {
     ui.allocate_ui(Vec2::new(POST_WIDTH, LARGE_HEIGHT), |ui| {
         ui.vertical(|ui| {
             ui.add_space(27.0);
@@ -141,7 +141,7 @@ fn post_choice(ui: &mut egui::Ui, state: &mut UiState) {
                 .selected_text(&state.post_id)
                 .width(POST_WIDTH)
                 .show_ui(ui, |ui| {
-                    for choice in crate::posts::choices() {
+                    for choice in posts {
                         ui.selectable_value(&mut state.post_id, choice.id.clone(), &choice.id);
                     }
                 })
@@ -151,7 +151,13 @@ fn post_choice(ui: &mut egui::Ui, state: &mut UiState) {
     });
 }
 
-fn group(ui: &mut egui::Ui, g: &GroupVm, state: &mut UiState, p: &Palette) -> Vec<Command> {
+fn group(
+    ui: &mut egui::Ui,
+    g: &GroupVm,
+    state: &mut UiState,
+    posts: &[crate::posts::PostChoice],
+    p: &Palette,
+) -> Vec<Command> {
     let mut clicked = Vec::new();
     group_frame(p).show(ui, |ui| {
         ui.vertical(|ui| {
@@ -162,7 +168,7 @@ fn group(ui: &mut egui::Ui, g: &GroupVm, state: &mut UiState, p: &Palette) -> Ve
                 clicked = commands(ui, g, p);
                 if g.id == GroupId::Output {
                     ui.add_space(6.0);
-                    post_choice(ui, state);
+                    post_choice(ui, state, posts);
                 }
             });
             let galley = ui.painter().layout_no_wrap(
@@ -290,6 +296,7 @@ pub(super) fn run(
         Command::Cancel => jobs.cancel(),
         Command::ImportTools => super::tool_import::ask(jobs, state, dialogs),
         Command::AddToolLibrary => super::tool_libs::ask(jobs, dialogs),
+        Command::ImportPost => super::post_import::ask(jobs, state, dialogs),
         _ => {}
     }
 }
@@ -343,6 +350,7 @@ pub fn show(ui: &mut egui::Ui, jobs: &mut Jobs, state: &mut UiState, dialogs: &m
         },
     );
     let p = Palette::get(state.dark);
+    let posts = super::project::post_choices(jobs);
     shortcuts(ui.ctx(), &vm, jobs, state, dialogs);
     stage_tabs(ui, state, p);
     ui.add_space(6.0);
@@ -354,7 +362,7 @@ pub fn show(ui: &mut egui::Ui, jobs: &mut Jobs, state: &mut UiState, dialogs: &m
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 6.0;
                 for g in &vm.groups {
-                    clicked.extend(group(ui, g, state, p));
+                    clicked.extend(group(ui, g, state, &posts, p));
                 }
             });
         });

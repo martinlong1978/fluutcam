@@ -8,7 +8,7 @@
 - `fluut-post` (layer 4): small engine extensions the conversion needs, none changing the built-in posts' golden output: the header sees the first toolpath's values; `[N]` is the line number; `[ZH]` is the highest safe Z; `output.substitute_values`; `[LBRACKET]`/`[RBRACKET]`; `state.moved`; `first_*` also after a feed change; a rotary post without `rotary_index` indexes with a rapid.
 - `fluut-post-import` (layer 5, now depends on `fluut-post`): `vectric::{import, import_with_base}` → standalone `fluut.post/1` text, `import.*` diagnostics, a report; the result is loaded and compiled before it is returned.
 - `fluut-cli`: `fluut posts import <file.pp> -o <post.toml> [--id] [--force]` in `posts_cmd.rs` (exit 0/1/2), `POST_BASE` read beside the input.
-- `fluut-app`: unchanged (GUI entry is a follow-up).
+- `fluut-app`: unchanged by tasks 1 to 6. The GUI entry (native file dialogs in the Library group) is built in the GUI entry section below.
 
 **Design:** [D10 §6.1, §9](../design/D10-post-engine.md); [CH-21](../design/challenges.md); [S 05 §5.3, §5.4, §5.6, §5.10.1](../spec/05-postprocessor-engine.md).
 
@@ -61,6 +61,20 @@ All earlier Global Constraints apply. In addition:
 
 - Comparison with G-code written by Vectric software (CH-21): the pair test is ready for `<post>.pp` + G-code files in a local folder; a byte comparison needs the same job posted by both programs.
 - Rebasing onto the closest built-in post (D10 §6.3): the result is standalone.
-- A GUI entry (native file dialogs in the Library group), as for tools: `fluut-app` is under work elsewhere.
+- A GUI entry (native file dialogs in the Library group), as for tools: built later the same day, see the GUI entry section below.
 - Posts refused today: inverse-time (G93) wrapped posts, speed-step spindles, script sections.
 - Values FluutCAM does not supply (file name, material size, tool and toolpath lists, toolpath notes, wrap diameter, laser power) and laser blocks.
+
+## GUI entry (2026-11-11)
+
+Branch `post-import-gui` (task fu-7). Design: [D10 section 6.1](../design/D10-post-engine.md). Prototype GUI work, so it mirrors the **Import tools...** flow ([2026-11-11-tool-import](2026-11-11-tool-import.md), GUI section) and the app's own view-model, dialog and job conventions (D13).
+
+- [x] **Step 1: ribbon.** `Command::ImportPost` (`library.import_post`, label "Import post...", new icon `import-post.svg` in the existing style) after **Add tool library...** in the Library group; enabled when no job runs; no project needed. No path text box (checked by a window test).
+- [x] **Step 2: dialogs.** `DialogKind::ImportPostSource` (filter `.pp`) and `ImportPostTarget` (Save, `.toml`), through the existing `Dialogs` so tests script them; the same overwrite rule as tool import (`confirms_overwrite`).
+- [x] **Step 3: import.** `vm::post_import`: a `.cps` gets the CLI's `import.format.unsupported` text, other extensions the CLI's other text, with no second dialog; the importer (`vectric::import_with_base`, `POST_BASE` read from beside the input, size cap) on its own worker thread; `create_new` unless the dialog confirmed replacing; never over its own input. The Save dialog offers `<name>.post.toml` and a name with no extension gets `.post.toml`; it starts in the project's `posts` folder if there is one, else in the project's folder.
+- [x] **Step 4: result.** A window with the post id and name, settings and blocks mapped, words written, base files, the warning count, and every warning with its severity and `import.*` code. A refusal shows "Nothing was imported." and the errors. A small "Importing..." window shows while the worker runs.
+- [x] **Step 5: use the post.** Before this, the Post stage listed the built-in posts only and the post job used the built-in store, so a project's own `posts/` posts were reachable from the command line only. Now: `Session::reload_definitions` (fluut-core, with `Library::remove_defs` and `load_defs_dir` in fluut-model) loads the project's `posts`, `machines` and `templates` again; `Edit::ReloadDefinitions` runs it on the worker (no undo step, project not changed); `Snapshot.posts` lists the library's posts that load as a post (built-in and the project's), the Post stage's list and the output file extension come from it, and the post job resolves the post from the open project's library (as `fluut post` does). **Use this post** is offered when the file is a `*.post.toml` directly in the project's `posts` folder: it reloads the definitions and chooses the post in the Post stage. For a post saved elsewhere the window says FluutCAM does not find it there. With no project it says to open one. The choice is a window setting (`UiState.post_id`), not saved in the project.
+- [x] **Step 6: tests.** 12 view-model tests and 12 window tests (scripted dialogs on the importer's hand-written fixtures `grbl-like.pp`, `comma-inch.pp` and others; no file from a Vectric install): happy path, warnings with their codes, cancel at each dialog, `.cps`, bad file, overwrite, never over the source, use in the project then Post with the imported post, a post outside `posts`, no project, disabled during a job, `POST_BASE`. Two fluut-core tests for `reload_definitions`. Ribbon and icon tests updated.
+- [x] **Step 7: docs.** `Import-Posts` (window steps first, command line second), `Machines-and-Posts`, `Post-G-code`, `Interface-Tour`, `Known-Limits`, `UAT-Posts-Import` (UAT-PPI-11 to 16), `UAT`, D10 section 6.1 status, screenshot `import-post-result.png` (`cargo xtask screenshots`, new picture only).
+
+**Not done:** the chosen post is not saved in the project (a machine's `post` field is not used by the window or the command line to choose); a `posts` folder shared between projects (the user definition layer exists in fluut-core but the app does not pass a user folder); making a post appear when it is saved by hand while the project is open (only **Use this post** reloads); a real-platform check of the system Save dialog's replace question (relied on, as for tools).

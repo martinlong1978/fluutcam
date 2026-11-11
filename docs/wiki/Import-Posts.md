@@ -2,13 +2,26 @@
 
 If your machine already runs G-code from Vectric software (VCarve, Aspire, Cut2D, Cut3D), you can turn its post processor, the `.pp` file, into a FluutCAM post with one command. This page says how, what carries over, and what to check before you cut.
 
-Importing is on the command line today; there is no window command yet (see [Known limits](Known-Limits)).
+You can import in the window or on the command line.
 
 ## Find the .pp file
 
 Vectric keeps its post processors in a `PostP` folder: on Windows, typically `C:\ProgramData\Vectric\<product>\<version>\PostP`, with some posts in vendor subfolders. Your machine's supplier may also have given you a `.pp` file. Use the one you post with today.
 
 Importing reads the file you give it and nothing else (and, if the file names a base post with `POST_BASE`, that base file in the same folder). It does not run anything from the file, and it does not use the network. Vectric's own post files belong to Vectric: FluutCAM does not ship them, you convert the ones you have.
+
+## Import in the window
+
+1. Open the **Library** tab of the ribbon and click **Import post…**. You do not need a project open.
+2. Your system's file dialog opens, showing `.pp` files. Choose the Vectric post processor. (A `.cps` file, which is a program from Autodesk, is answered with the error `import.format.unsupported` and nothing is written.)
+3. A second file dialog asks where to save the new post, as a `.post.toml` file. It offers the file's name with `.post.toml`, and starts in your project's `posts/` folder when the project has one (otherwise in the project's folder). FluutCAM finds a project's posts only in that folder, as `.post.toml` files, so save it there. If you choose a file that already exists, the dialog asks you to confirm replacing it; without that confirmation an existing file is never touched, and the import never replaces its own `.pp` file.
+4. The import runs in the background (an **Importing…** window shows while it works), then a window shows the result: the post id and name, the number of settings and blocks mapped, the words written, the number of base files merged, and every warning with its severity and its `import.` code. A refused file shows **Nothing was imported.** and the reasons.
+
+![The Import post result](images/import-post-result.png)
+
+**Using the new post.** With a project open, and the post saved in the project's `posts/` folder, the window offers **Use this post**. It makes FluutCAM read the project's posts again now, so the post is in the Post stage's list at once without opening the project again, and it chooses the post there. Click **Post** and the file dialog offers the file extension the post names. The choice is for this window only: it is not saved in the project, so choose the post again after a restart (or name it with `--post` on the command line). If you saved the post anywhere else, the window says that FluutCAM does not find it there and offers no button; save it in the `posts/` folder beside the project file. With no project open, the window says to open one first. If your project has no `posts/` folder yet, make one in the save dialog (the dialog's **New folder** button) before you save.
+
+If the `.pp` file names a base post with `POST_BASE`, that file is read from the same folder, as on the command line. Cancel either dialog and nothing happens. The post id is `vectric/` and the file's name, as on the command line; use the command line if you want another id.
 
 ## Import on the command line
 
@@ -33,7 +46,7 @@ Exit status 0 when the file was written, 1 when the post was refused (nothing is
 
 ## Use the new post
 
-Put the file in the `posts/` folder beside your project file ([Machines and posts](Machines-and-Posts)), then post with its id:
+Put the file in the `posts/` folder beside your project file ([Machines and posts](Machines-and-Posts)) (the window's save dialog starts there), then choose it in the Post stage's list or post with its id:
 
 ```
 fluut post my-part.fluut --post vectric/my-router-mm -o my-part.tap

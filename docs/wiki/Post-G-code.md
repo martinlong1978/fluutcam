@@ -5,7 +5,7 @@
 ## Post from the window
 
 1. Calculate first, or let **Post** do it: if a toolpath is out of date, FluutCAM calculates it before it posts.
-2. In the **Post** stage of the ribbon, choose a post from the list. It starts at `fluut/linuxcnc`. The list offers the built-in posts: `fluut/linuxcnc`, `fluut/linuxcnc-4x`, `fluut/grbl` and `fluut/gcode`.
+2. In the **Post** stage of the ribbon, choose a post from the list. It starts at `fluut/linuxcnc`. The list offers the built-in posts: `fluut/linuxcnc`, `fluut/linuxcnc-4x`, `fluut/grbl` and `fluut/gcode`, and then the posts in the `posts/` folder beside your project file ([Machines and posts](Machines-and-Posts), [Import posts](Import-Posts)).
 3. Click **Post**. A save dialog opens, in the project folder, with the name `<project>.<extension>` already typed (`my-part.ngc` for LinuxCNC; Grbl uses `.gcode`). Change the name or the folder if you want, and confirm. If you cancel the dialog, nothing is written.
 
 The status bar says "Wrote my-part.ngc".
