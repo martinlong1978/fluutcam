@@ -33,7 +33,18 @@ pub struct Hit {
     pub slope: f64,
     /// The contact is on a drive face, or on an edge or vertex of one.
     pub drive: bool,
+    /// Gradient of the tip height over the axis position at this point,
+    /// from the contact (the envelope theorem: `τ` rises towards the
+    /// contact, at the rate the contact's normal gives), each component
+    /// within [`GRAD_MAX`]. Exact at a smooth point of the CL surface; at a
+    /// crease it is one side's. Where the CL is a wall (a vertex, or an
+    /// edge across the rim of a flat tool, an overhang) it is
+    /// [`GRAD_MAX`] towards the contact.
+    pub grad: Vec2,
 }
+
+/// The largest gradient [`Hit::grad`] reports (a slope of 89.94°).
+pub const GRAD_MAX: f64 = 1e3;
 
 /// A drop with what a waterline needs.
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -171,10 +182,12 @@ impl<'a> SurfaceQuery<'a> {
     /// if nothing is under the tool.
     pub fn drop(&self, x: f64, y: f64) -> Option<Hit> {
         let (b, c) = self.best(x, y)?;
+        let (slope, grad) = self.slope_grad(b, x, y, &c);
         Some(Hit {
             tip: c.tau + self.stock,
-            slope: self.slope(b, x, y, &c),
+            slope,
             drive: self.is_drive(b, &c),
+            grad,
         })
     }
 
@@ -356,17 +369,42 @@ impl<'a> SurfaceQuery<'a> {
 
     /// Slope at contact `c` of the grown cutter with its axis at `(x, y)`.
     fn slope(&self, b: &BodyQuery, x: f64, y: f64, c: &Contact) -> f64 {
+        self.slope_grad(b, x, y, c).0
+    }
+
+    /// [`SurfaceQuery::slope`] and the gradient of `τ` ([`Hit::grad`]).
+    fn slope_grad(&self, b: &BodyQuery, x: f64, y: f64, c: &Contact) -> (f64, Vec2) {
         let cut = &self.cutter;
         let p = c.point;
-        let e = libm::hypot(p.x() - x, p.y() - y) - cut.flat_radius();
+        let (dx, dy) = (p.x() - x, p.y() - y);
+        let d = libm::hypot(dx, dy);
+        // `τ` rises towards the contact at `rate` (the Lagrange multiplier
+        // of the contact constraint), capped.
+        let along = |rate: f64| {
+            if d <= 1e-12 || rate.is_nan() || rate <= 0.0 {
+                return Vec2::new(0.0, 0.0);
+            }
+            let r = rate.min(GRAD_MAX);
+            Vec2::new(dx / d * r, dy / d * r)
+        };
+        // A slope `s` of the tool's lower surface: `τ` rises at `tan s`.
+        let tan = |s: f64| {
+            if s >= FRAC_PI_2 {
+                GRAD_MAX
+            } else {
+                libm::tan(s)
+            }
+        };
+        let e = d - cut.flat_radius();
         if cut.corner() > 0.0 {
             if e <= FLAT_EPS {
-                return 0.0;
+                return (0.0, Vec2::new(0.0, 0.0));
             }
-            return libm::asin((e / cut.corner()).clamp(0.0, 1.0));
+            let s = libm::asin((e / cut.corner()).clamp(0.0, 1.0));
+            return (s, along(tan(s)));
         }
         if e < -FLAT_EPS {
-            return 0.0;
+            return (0.0, Vec2::new(0.0, 0.0));
         }
         // On the rim of a flat tool: the face's own slope; for an edge, the
         // angle at which it rises (0 if it lies flat under the tool);
@@ -376,24 +414,39 @@ impl<'a> SurfaceQuery<'a> {
             ContactOn::Edge { edge, t } => {
                 let ed = &b.q.body.edges[edge as usize];
                 let Some(ci) = ed.curve else {
-                    return FRAC_PI_2;
+                    return (FRAC_PI_2, along(GRAD_MAX));
                 };
-                let d = b.q.body.curves[ci as usize].derivs(t, 1)[1];
-                let horiz = libm::hypot(d.x(), d.y());
-                return libm::atan2(d.z().abs(), horiz);
+                let dv = b.q.body.curves[ci as usize].derivs(t, 1)[1];
+                let horiz = libm::hypot(dv.x(), dv.y());
+                let s = libm::atan2(dv.z().abs(), horiz);
+                // The rim meets the edge where `z` rises along it as fast
+                // as the rim's distance grows: `τ` rises at `|z'|` over the
+                // rate at which the edge leaves the axis.
+                let out = if d > 1e-12 {
+                    (dv.x() * dx + dv.y() * dy).abs() / d
+                } else {
+                    0.0
+                };
+                let rate = if dv.z().abs() <= GRAD_MAX * out {
+                    dv.z().abs() / out
+                } else {
+                    GRAD_MAX
+                };
+                return (s, along(rate));
             }
-            ContactOn::Vertex(_) => return FRAC_PI_2,
+            ContactOn::Vertex(_) => return (FRAC_PI_2, along(GRAD_MAX)),
         };
         let f = &b.q.body.faces[face as usize];
         let Some(n) = b.q.body.surfaces[f.surface as usize].normal(u, v) else {
-            return FRAC_PI_2;
+            return (FRAC_PI_2, along(GRAD_MAX));
         };
         let nz = if f.same_sense {
             n.get().z()
         } else {
             -n.get().z()
         };
-        libm::acos(nz.clamp(-1.0, 1.0))
+        let s = libm::acos(nz.clamp(-1.0, 1.0));
+        (s, along(tan(s)))
     }
 
     /// An upper bound of the tip height that clears all geometry under the

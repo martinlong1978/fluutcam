@@ -19,13 +19,14 @@
 //! neighbours, and those a greedy chord merge over all of them leaves out.
 //! For `parallel`, `spiral` and `scallop`, the worst deviation of the cut
 //! chords from fresh drops at their quarter, middle and three-quarter
-//! points, and how many such points are off by more than the tolerance.
+//! points, and how many such points are off by more than the tolerance,
+//! along the tool's normal at the contact and along the CL surface's.
 //!
 //! `FB_MODELS=sculpted3,dome` and `FB_TYPES=parallel` pick models and types,
 //! `FB_TOOLS=ball` tools, `FB_STEPOVER` and `FB_TOL` the stepover and
 //! tolerance; `FB_SKIP=1` skips the `parallel` estimate (and the recording
 //! of drop points it needs), `FB_WORST=1` prints each new worst chord point
-//! off by more than the tolerance.
+//! off by more than the tolerance (CL normal), `FB_WORST=all` every one.
 
 use fluut_cam::cutter::Cutter;
 use fluut_cam::cutter::synth::{sculpted, tiled};
@@ -122,24 +123,56 @@ struct Case {
     result: Option<Generated>,
 }
 
-/// Worst deviation of the cut chords of `r` from fresh drops at their
-/// quarter, middle and three-quarter points, in mm: `(into the part,
-/// above it)`, each along the contact normal (`(τ − z)·cos β`), where `τ`
-/// is the drop raised to `bottom`. Chords shorter than `tol` in XY (steps
-/// down or up a wall) are within `tol` sideways of their real end drops
-/// and are left out, as are points of a level chord within `tol`
-/// sideways of where the tool clears a wall.
+/// Deviations of chord points from fresh drops, in mm: the worst into the
+/// part and above it, how many points are off by more than the tolerance
+/// and how many of those into the part.
+#[derive(Default)]
+struct Dev {
+    into: f64,
+    above: f64,
+    over: usize,
+    gouges: usize,
+}
+
+impl Dev {
+    fn add(&mut self, d: f64, tol: f64) {
+        if d.abs() > tol {
+            self.over += 1;
+        }
+        if d > tol {
+            self.gouges += 1;
+        }
+        self.into = self.into.max(d);
+        self.above = self.above.max(-d);
+    }
+}
+
+/// Deviation of the cut chords of `r` from fresh drops at their quarter,
+/// middle and three-quarter points, in mm, where `τ` is the drop raised to
+/// `bottom`, two ways: along the normal of the tool at the contact
+/// (`(τ − z)·cos β`, β the drop's slope; the measure of the adaptive
+/// sampling plan), and along the normal of the CL surface (`(τ − z) /
+/// √(1 + |∇τ|²)`, ∇τ the drop's gradient). The two agree except where a
+/// flat tool's rim touches an edge: the slope is the edge's own there, the
+/// CL much steeper. Chords shorter than `tol` in XY (steps down or up a
+/// wall) are within `tol` sideways of their real end drops and are left
+/// out, as are points of a level chord within `tol` sideways of where the
+/// tool clears a wall. Returns both, how deep the tool cuts into the part
+/// ([`depth`]: the gouge depth, up to the steps of its offsets; into the
+/// part only) and the number of points.
 fn chord_deviation(
     g: &SetupGeometry,
     tl: &Tool,
     r: &Generated,
     bottom: f64,
     tol: f64,
-) -> (f64, f64, usize, usize, usize) {
+) -> (Dev, Dev, Dev, usize) {
     let c = Cutter::new(tl.diameter, tl.corner_radius()).expect("cutter");
     let q = SurfaceQuery::new(g, &FaceSets::default(), c, 0.0).expect("query");
-    let (mut into, mut above): (f64, f64) = (0.0, 0.0);
-    let (mut over, mut gouges, mut points) = (0, 0, 0);
+    let offs = offsets(g, tl, tol);
+    let (mut tool_n, mut cl_n, mut depth_n) = (Dev::default(), Dev::default(), Dev::default());
+    let mut points = 0;
+    let worst = std::env::var("FB_WORST").ok();
     for s in r.result.segments() {
         if s.motion().is_none_or(|m| m.motion != Motion::Cut) {
             continue;
@@ -164,28 +197,71 @@ fn chord_deviation(
             if sideways {
                 continue;
             }
-            let (tau, slope) = match q.drop(x.x(), x.y()) {
-                Some(h) if h.tip >= bottom => (h.tip, h.slope),
-                _ => (bottom, 0.0),
+            let (tau, slope, grad) = match q.drop(x.x(), x.y()) {
+                Some(h) if h.tip >= bottom => (h.tip, h.slope, h.grad.length()),
+                _ => (bottom, 0.0, 0.0),
             };
             let d = (tau - x.z()) * libm::cos(slope);
-            if std::env::var_os("FB_WORST").is_some() && (d > into || -d > above) && d.abs() > tol {
-                println!(
-                    "      worst {d:.5} at {f} of {a:?}..{b:?}, tau {tau:.5} slope {slope:.3}"
-                );
+            let dn = (tau - x.z()) / libm::sqrt(1.0 + grad * grad);
+            match worst.as_deref() {
+                Some("all") if dn.abs() > tol => println!(
+                    "      miss {dn:.5} at {f} chord {} {} {} {} {} {}",
+                    a.x(),
+                    a.y(),
+                    a.z(),
+                    b.x(),
+                    b.y(),
+                    b.z()
+                ),
+                Some(_) if (dn > cl_n.into || -dn > cl_n.above) && dn.abs() > tol => println!(
+                    "      worst {dn:.5} (tool normal {d:.5}) at {f} of {a:?}..{b:?}, \
+                     tau {tau:.5} slope {slope:.3} gradient {grad:.3}"
+                ),
+                _ => {}
             }
             points += 1;
-            if d.abs() > tol {
-                over += 1;
+            tool_n.add(d, tol);
+            cl_n.add(dn, tol);
+            // How deep the tool cuts into the part (into the part only).
+            let up = tau - x.z();
+            let depth = if up > tol { depth(&offs, x, up) } else { up };
+            if worst.is_some() && depth > tol {
+                println!("      deep {depth:.5} at {f} of {a:?}..{b:?}, tau {tau:.5}");
             }
-            if d > tol {
-                gouges += 1;
-            }
-            into = into.max(d);
-            above = above.max(-d);
+            depth_n.add(depth, tol);
         }
     }
-    (into, above, over, gouges, points)
+    (tool_n, cl_n, depth_n, points)
+}
+
+/// Inward offsets of the tool by `s`, for [`depth`]: `(s, query)`.
+fn offsets<'a>(g: &'a SetupGeometry, tl: &Tool, tol: f64) -> Vec<(f64, SurfaceQuery<'a>)> {
+    let (r, c) = (0.5 * tl.diameter, tl.corner_radius());
+    [0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0]
+        .iter()
+        .filter_map(|k| {
+            let s = k * tol;
+            let cut = Cutter::new(2.0 * (r - s), (c - s).max(0.0))?;
+            Some((s, SurfaceQuery::new(g, &FaceSets::default(), cut, 0.0)?))
+        })
+        .collect()
+}
+
+/// How deep the tool with its tip at `x` cuts into the part, at most: the
+/// smallest `s` of `offs` for which the tool shrunk by `s` all round (its
+/// tip `s` higher) touches nothing, i.e. everything the tool overlaps is
+/// within `s` of its surface; `up` (the vertical lift that clears it) if
+/// that is smaller or no offset clears.
+fn depth(offs: &[(f64, SurfaceQuery)], x: fluut_geom::Point3, up: f64) -> f64 {
+    for (s, q) in offs {
+        if *s >= up {
+            break;
+        }
+        if q.drop(x.x(), x.y()).is_none_or(|h| h.tip <= x.z() + s) {
+            return *s;
+        }
+    }
+    up
 }
 
 fn run(input: &StrategyInput, threads: usize, record: bool) -> Option<Case> {
@@ -411,12 +487,24 @@ fn main() {
                 if matches!(*ty, "parallel" | "spiral" | "scallop")
                     && let Some(r) = &one.result
                 {
-                    let (into, above, over, gouges, points) =
-                        chord_deviation(&g, tool, r, bb.min.z(), tol);
+                    let (t, n, dp, points) = chord_deviation(&g, tool, r, bb.min.z(), tol);
                     line += &format!(
-                        "\n      chords at 1/4, 1/2, 3/4: worst {into:.5} mm into the part, \
-                         {above:.5} mm above it (normal); {over} of {points} points off by ({gouges} into the part) \
-                         more than the tolerance"
+                        "\n      chords at 1/4, 1/2, 3/4: worst {:.5} mm into the part, \
+                         {:.5} mm above it (normal); {} of {points} points off by ({} into the part) \
+                         more than the tolerance\n      CL normal: worst {:.5} mm into the part, \
+                         {:.5} mm above it; {} points off by ({} into the part) more than the \
+                         tolerance\n      depth into the part: worst {:.5} mm; {} points deeper than the \
+                         tolerance",
+                        t.into,
+                        t.above,
+                        t.over,
+                        t.gouges,
+                        n.into,
+                        n.above,
+                        n.over,
+                        n.gouges,
+                        dp.into,
+                        dp.gouges
                     );
                 }
                 if record {

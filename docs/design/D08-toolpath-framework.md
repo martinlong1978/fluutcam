@@ -135,6 +135,13 @@ sample(curve, t0, t1):
   test is `tol/4`, not `tol/2`, and the samples are merged within `tol/4`; the middle drop of an
   accepted chord is kept as a check the merge must hold (not a vertex); on a curved drive the check is the drop at the chord's own
   middle (both sides) plus the drive's sagitta.
+- *Crease checks (2026-11-11,* [crease checks](../plan/2026-11-11-crease-checks.md)*):* every drop
+  also gives the CL's gradient (from its contact), and a cut chord longer than `tol/4` is split when
+  the gradients at its ends and middle bound the CL's distance from it above `tol/2` (the tent of
+  the end tangents when the CL bends one way, half the larger tangent offset for an S of two
+  creases): the creases of flat and bull CLs that the middle drop cannot see. With the merge's
+  `tol/4`, the output is within `3/4·tol` of the CL wherever the CL between two drops bends one way
+  or is such an S; more creases between two drops, and drops that miss a contact, are not covered.
 
 ### 4.3 Direct emission [S 04 §4.3.1]
 
