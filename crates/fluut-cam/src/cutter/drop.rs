@@ -52,9 +52,16 @@ pub fn bound(b: &Aabb3, ax: Axis, c: &Cutter) -> f64 {
 /// [`bound`] over the sub-boxes of a B-spline patch or edge: the highest
 /// bound of any of them, which is at most the bound of the whole box.
 pub fn sub_bound(subs: &[SubBox], ax: Axis, c: &Cutter) -> f64 {
-    subs.iter()
-        .map(|b| cell_bound(b, ax, c))
-        .fold(f64::NEG_INFINITY, f64::max)
+    // A cell's bound is at most its top (`h ≥ 0` in the footprint), so a
+    // cell whose top does not beat the best so far cannot change the
+    // maximum and is skipped.
+    let mut best = f64::NEG_INFINITY;
+    for b in subs {
+        if f64::from(b.max_z) > best {
+            best = best.max(cell_bound(b, ax, c));
+        }
+    }
+    best
 }
 
 fn cell_bound(b: &SubBox, ax: Axis, c: &Cutter) -> f64 {
@@ -64,6 +71,10 @@ fn cell_bound(b: &SubBox, ax: Axis, c: &Cutter) -> f64 {
     let dy = (f64::from(b.min_y) - ax.y)
         .max(ax.y - f64::from(b.max_y))
         .max(0.0);
+    // `hypot` is at least the larger side: such a cell is out of reach.
+    if dx.max(dy) > c.radius() {
+        return f64::NEG_INFINITY;
+    }
     let d = libm::hypot(dx, dy);
     if d <= c.radius() {
         f64::from(b.max_z) - c.h(d)

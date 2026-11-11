@@ -772,22 +772,23 @@ fn same_point(a: (f64, f64), b: (f64, f64)) -> bool {
 }
 
 /// Newton on `S_xy(u, v) = (x, y)`: the surface point vertically above or
-/// below a target. The flag says whether it converged; otherwise the point
-/// is where Newton stopped (stuck on the parameter box: the target is off
-/// the face, or the start was at a spot where `S_xy` does not move).
+/// below a target. The flag says whether it converged (then with the
+/// point, the bits of `s.eval(u, v)`); otherwise `(u, v)` is where Newton
+/// stopped (stuck on the parameter box: the target is off the face, or the
+/// start was at a spot where `S_xy` does not move).
 fn vertical_project(
     s: &Surface,
     x: f64,
     y: f64,
     start: (f64, f64),
     bounds: UvBox,
-) -> Option<(f64, f64, bool)> {
+) -> Option<(f64, f64, Option<Point3>)> {
     let (mut u, mut v) = start;
     for _ in 0..12 {
         let (p, su, sv) = s.derivs1(u, v);
         let r = [x - p.x(), y - p.y()];
         if libm::hypot(r[0], r[1]) < 1e-6 {
-            return Some((u, v, true));
+            return Some((u, v, Some(p)));
         }
         let j = [[su.x(), sv.x()], [su.y(), sv.y()]];
         let step = solve2(j, r)?;
@@ -797,11 +798,11 @@ fn vertical_project(
         let k = (scale * 2.0 / len.max(1e-300)).min(1.0);
         let (nu, nv) = bounds.clamp(u + k * step[0], v + k * step[1]);
         if (su * (nu - u) + sv * (nv - v)).length() < 1e-9 {
-            return Some((u, v, false));
+            return Some((u, v, None));
         }
         (u, v) = (nu, nv);
     }
-    Some((u, v, false))
+    Some((u, v, None))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -871,8 +872,8 @@ fn numeric(
                 if let Some(p) = pv {
                     v += p * ((q.uv.v.at(0.5) - v) / p).round();
                 }
-                if let Some((u, v, true)) = vertical_project(s, tx, ty, (u, v), q.uv) {
-                    seeds.push((estimate(s.eval(u, v)), u, v));
+                if let Some((u, v, Some(p))) = vertical_project(s, tx, ty, (u, v), q.uv) {
+                    seeds.push((estimate(p), u, v));
                     break;
                 }
             }
@@ -882,8 +883,8 @@ fn numeric(
                 .iter()
                 .min_by(|a, b| a.0.distance(top).total_cmp(&b.0.distance(top)))
                 .map(|g| (g.1, g.2))?;
-            if let Some((u, v, true)) = vertical_project(s, tx, ty, start, q.uv) {
-                seeds.push((estimate(s.eval(u, v)), u, v));
+            if let Some((u, v, Some(p))) = vertical_project(s, tx, ty, start, q.uv) {
+                seeds.push((estimate(p), u, v));
             }
         }
     }
