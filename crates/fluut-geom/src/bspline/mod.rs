@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! B-spline and NURBS curves (D02 §3).
+//! B-spline and NURBS curves (D02 §3). Curves up to degree 7 keep their
+//! spans in Bézier form and evaluate from it (as surfaces do).
 
 pub mod basis;
 
@@ -38,6 +39,155 @@ pub struct BSplineCurve3 {
     poles: Vec<Point3>,
     weights: Option<Vec<f64>>,
     periodic: bool,
+    /// The spans in Bézier form (degrees below [`SMALL`] only).
+    bezier: Option<CurveBezier>,
+}
+
+/// Every span of a curve in Bézier form: an evaluation cache made from the
+/// poles and knots.
+#[derive(Clone, PartialEq, Debug)]
+struct CurveBezier {
+    /// Distinct knots in the domain: span `a` is `[brk[a], brk[a + 1]]`.
+    brk: Vec<f64>,
+    /// `1 / (brk[a + 1] - brk[a])`.
+    inv: Vec<f64>,
+    /// Homogeneous Bézier points `(w·P, w)`, `p + 1` per span.
+    pts: Vec<DVec4>,
+}
+
+impl CurveBezier {
+    fn new(c: &BSplineCurve3) -> CurveBezier {
+        let p = c.degree as usize;
+        let n = c.poles.len();
+        let mut brk = vec![c.knots[p]];
+        let mut pts = Vec::new();
+        let mut d = [DVec4::ZERO; SMALL];
+        for i in p..n {
+            let (lo, hi) = (c.knots[i], c.knots[i + 1]);
+            if hi <= lo {
+                continue;
+            }
+            brk.push(hi);
+            for j in 0..=p {
+                for (k, dk) in d.iter_mut().enumerate().take(p + 1) {
+                    let q = i - p + k;
+                    let w = c.weights.as_ref().map_or(1.0, |w| w[q]);
+                    *dk = (c.poles[q].0 * w).extend(w);
+                }
+                let args: SmallVec<[f64; SMALL]> =
+                    (0..p).map(|r| if r < p - j { lo } else { hi }).collect();
+                pts.push(blossom(&c.knots, p, i, &args, &mut d));
+            }
+        }
+        CurveBezier {
+            inv: brk.windows(2).map(|w| 1.0 / (w[1] - w[0])).collect(),
+            brk,
+            pts,
+        }
+    }
+
+    /// Homogeneous derivatives `A[k]` of the span holding `t`, `k <= n`.
+    fn homogeneous(&self, p: usize, t: f64, n: usize) -> [DVec4; 4] {
+        let (a, tl, ih) = span_local(&self.brk, &self.inv, t);
+        let b = bernstein_ders(p, tl, n);
+        let pts = &self.pts[a * (p + 1)..(a + 1) * (p + 1)];
+        let mut aw = [DVec4::ZERO; 4];
+        let mut scale = 1.0;
+        for (k, row) in b.iter().enumerate().take(n + 1) {
+            let mut acc = DVec4::ZERO;
+            for (q, &bi) in pts.iter().zip(row.iter()) {
+                acc += *q * bi;
+            }
+            aw[k] = if k > 0 { acc * scale } else { acc };
+            scale *= ih;
+        }
+        aw
+    }
+}
+
+/// The blossom of a B-spline at the arguments `args` (`p` of them), from
+/// the `p + 1` points `d` that affect span `span` (*The NURBS Book* §5.2:
+/// de Boor's algorithm with one argument per level). Bézier point `j` of
+/// the span is the blossom at `p - j` copies of its start and `j` of its
+/// end.
+pub(crate) fn blossom(
+    knots: &[f64],
+    p: usize,
+    span: usize,
+    args: &[f64],
+    d: &mut [DVec4],
+) -> DVec4 {
+    for (r, &t) in args.iter().enumerate().take(p) {
+        let r = r + 1;
+        for j in (r..=p).rev() {
+            let lo = knots[span + j - p];
+            let hi = knots[span + 1 + j - r];
+            let alpha = (t - lo) / (hi - lo);
+            d[j] = d[j - 1] * (1.0 - alpha) + d[j] * alpha;
+        }
+    }
+    d[p]
+}
+
+/// The span of `x` among the breaks `brk` (`x` clamped to them; a break
+/// starts its span), the local parameter in [0, 1] and `inv` of the span
+/// (1 / its length).
+#[inline(always)]
+pub(crate) fn span_local(brk: &[f64], inv: &[f64], x: f64) -> (usize, f64, f64) {
+    let m = brk.len() - 1;
+    let x = x.clamp(brk[0], brk[m]);
+    let a = brk[1..m].partition_point(|&k| k <= x);
+    let ih = inv[a];
+    // At most 1 (the end of the span) up to rounding.
+    (a, ((x - brk[a]) * ih).min(1.0), ih)
+}
+
+/// Bernstein basis of degree `p < SMALL` at `t` and its derivatives in `t`
+/// up to order `n <= 3`: `[k][i]` is the k-th derivative of `B_i`.
+fn bernstein_ders(p: usize, t: f64, n: usize) -> [[f64; SMALL]; 4] {
+    let s = 1.0 - t;
+    // low[k]: the basis of degree p - k.
+    let mut low = [[0.0f64; SMALL]; 4];
+    let mut b = [0.0f64; SMALL];
+    b[0] = 1.0;
+    for deg in 0..=p {
+        if deg > 0 {
+            let mut prev = 0.0;
+            for x in b.iter_mut().take(deg + 1) {
+                let cur = *x;
+                *x = s * cur + t * prev;
+                prev = cur;
+            }
+        }
+        if p - deg <= 3 {
+            low[p - deg] = b;
+        }
+    }
+    let mut out = [[0.0f64; SMALL]; 4];
+    out[0] = low[0];
+    // The k-th derivative of B_i is p!/(p - k)! times the sum over j of
+    // (-1)^(k - j) C(k, j) B_(i - j) at degree p - k.
+    const BINOM: [[f64; 4]; 4] = [
+        [1.0, 0.0, 0.0, 0.0],
+        [1.0, 1.0, 0.0, 0.0],
+        [1.0, 2.0, 1.0, 0.0],
+        [1.0, 3.0, 3.0, 1.0],
+    ];
+    let mut factor = 1.0;
+    for k in 1..=n.min(p) {
+        factor *= (p + 1 - k) as f64;
+        for i in 0..=p {
+            let mut acc = 0.0;
+            for j in 0..=k {
+                if j <= i && i - j <= p - k {
+                    let sign = if (k - j) % 2 == 0 { 1.0 } else { -1.0 };
+                    acc += sign * BINOM[k][j] * low[k][i - j];
+                }
+            }
+            out[k][i] = factor * acc;
+        }
+    }
+    out
 }
 
 impl BSplineCurve3 {
@@ -71,13 +221,20 @@ impl BSplineCurve3 {
         {
             return Err(BSplineError::BadWeights);
         }
-        Ok(BSplineCurve3 {
+        let mut c = BSplineCurve3 {
             degree,
             knots,
             poles,
             weights,
             periodic: false,
-        })
+            bezier: None,
+        };
+        c.bezier = c.make_bezier();
+        Ok(c)
+    }
+
+    fn make_bezier(&self) -> Option<CurveBezier> {
+        ((self.degree as usize) < SMALL).then(|| CurveBezier::new(self))
     }
 
     /// Marks the curve as periodic (closed with matching derivatives). The knot
@@ -136,22 +293,38 @@ impl BSplineCurve3 {
     /// from the origin). Rational curves use homogeneous coordinates and the
     /// quotient rule (A4.2). `t` outside the domain is clamped to it.
     pub fn derivs(&self, t: f64, n: usize) -> SmallVec<[Vec3; 4]> {
+        let n = n.min(3);
+        let aw = match &self.bezier {
+            Some(bz) => bz.homogeneous(self.degree as usize, t, n),
+            None => self.homogeneous_de_boor(t, n),
+        };
+        self.quotient(&aw, n)
+    }
+
+    /// [`Self::derivs`] by de Boor's algorithm (the only path above degree
+    /// 7).
+    #[cfg(test)]
+    fn derivs_de_boor(&self, t: f64, n: usize) -> SmallVec<[Vec3; 4]> {
+        let n = n.min(3);
+        let aw = self.homogeneous_de_boor(t, n);
+        self.quotient(&aw, n)
+    }
+
+    fn homogeneous_de_boor(&self, t: f64, n: usize) -> [DVec4; 4] {
         if (self.degree as usize) < SMALL {
-            self.derivs_n::<SMALL>(t, n)
+            self.homogeneous_n::<SMALL>(t, n)
         } else {
-            self.derivs_n::<{ MAX_DEGREE + 1 }>(t, n)
+            self.homogeneous_n::<{ MAX_DEGREE + 1 }>(t, n)
         }
     }
 
-    fn derivs_n<const N: usize>(&self, t: f64, n: usize) -> SmallVec<[Vec3; 4]> {
-        let n = n.min(3);
+    /// Homogeneous derivatives `(w·P, w)` up to order `n`.
+    fn homogeneous_n<const N: usize>(&self, t: f64, n: usize) -> [DVec4; 4] {
         let p = self.degree as usize;
         let last = self.poles.len() - 1;
         let t = self.domain().clamp(t);
         let span = find_span(last, p, t, &self.knots);
         let nders = ders_basis_funs_n::<N>(span, t, p, n, &self.knots);
-
-        // Homogeneous derivatives: (w·P, w).
         let mut aw = [DVec4::ZERO; 4];
         for (k, row) in nders.iter().enumerate().take(n + 1) {
             for (j, &b) in row.iter().enumerate().take(p + 1) {
@@ -160,7 +333,11 @@ impl BSplineCurve3 {
                 aw[k] += b * (self.poles[i].0 * w).extend(w);
             }
         }
+        aw
+    }
 
+    /// `[C, C', ...]` from the homogeneous derivatives (quotient rule, A4.2).
+    fn quotient(&self, aw: &[DVec4; 4], n: usize) -> SmallVec<[Vec3; 4]> {
         let mut out: SmallVec<[Vec3; 4]> = SmallVec::new();
         if self.weights.is_none() {
             for a in aw.iter().take(n + 1) {
@@ -189,10 +366,12 @@ impl BSplineCurve3 {
     /// The curve with `a` applied to its poles. Weights are unchanged (exact for
     /// affine maps).
     pub fn transformed(&self, a: &Affine) -> BSplineCurve3 {
-        BSplineCurve3 {
+        let mut c = BSplineCurve3 {
             poles: self.poles.iter().map(|&q| a.apply_point(q)).collect(),
             ..self.clone()
-        }
+        };
+        c.bezier = c.make_bezier();
+        c
     }
 }
 
@@ -345,6 +524,52 @@ mod tests {
                 "C'' at {t}"
             );
         }
+    }
+
+    #[test]
+    fn bezier_spans_match_de_boor() {
+        // Clamped, unclamped and with a double knot; degrees 1 to 5; with
+        // and without weights.
+        let cases: [(u8, Vec<f64>); 5] = [
+            (3, vec![0., 0., 0., 0., 1., 2., 3., 3., 3., 3.]),
+            (2, vec![0., 0., 0., 0.3, 0.3, 0.9, 2., 2., 2.]),
+            (3, vec![0., 1., 2., 3., 4., 5., 6., 7., 8.]),
+            (1, vec![0., 0., 1., 2.5, 3., 3.]),
+            (5, vec![0., 0., 0., 0., 0., 0., 0.4, 1., 1., 1., 1., 1., 1.]),
+        ];
+        let mut n = 0;
+        for (ci, (deg, k)) in cases.into_iter().enumerate() {
+            let np = k.len() - deg as usize - 1;
+            let poles: Vec<Point3> = (0..np)
+                .map(|i| {
+                    let f = i as f64 + ci as f64;
+                    p(f * 2.0, libm::sin(f) * 3.0, libm::cos(1.3 * f))
+                })
+                .collect();
+            let w: Vec<f64> = (0..np).map(|i| 0.6 + 0.3 * libm::sin(i as f64)).collect();
+            for weights in [None, Some(w)] {
+                let c = BSplineCurve3::new(deg, k.clone(), poles.clone(), weights).unwrap();
+                assert!(c.bezier.is_some());
+                let d = c.domain();
+                let mut ts: Vec<f64> = (0..=200)
+                    .map(|i| d.at(i as f64 / 200.0 * 1.2 - 0.1))
+                    .collect();
+                ts.extend(c.span_breaks());
+                for t in ts {
+                    let a = c.derivs(t, 3);
+                    let b = c.derivs_de_boor(t, 3);
+                    for (x, y) in a.iter().zip(&b) {
+                        assert!(
+                            (*x - *y).length() <= 1e-11 * (1.0 + y.length()),
+                            "case {ci} at {t}: {x:?} against {y:?}"
+                        );
+                        n += 1;
+                    }
+                    assert_eq!(c.eval(t), Point3(a[0].0));
+                }
+            }
+        }
+        assert!(n > 3000);
     }
 
     #[test]
