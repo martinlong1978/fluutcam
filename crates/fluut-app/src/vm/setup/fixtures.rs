@@ -48,11 +48,12 @@ pub(super) fn group(s: &Snapshot, r: &ResolvedSetup, unit: DisplayUnit) -> Group
     let list = &r.fixtures;
     let summary = match list.len() {
         0 => tr("fixtures-none"),
+        1 => tr("fixtures-one"),
         n => tr_args("fixtures-count", &[("n", &n.to_string())]),
     };
     let mut head = row(
         "fixtures".to_owned(),
-        tr("setup-fixtures"),
+        tr("fixtures-in-use"),
         RowWidget::ReadOnly,
         summary,
     );
@@ -64,6 +65,28 @@ pub(super) fn group(s: &Snapshot, r: &ResolvedSetup, unit: DisplayUnit) -> Group
             "fixtures.local".to_owned(),
             String::new(),
             tr("fixtures-local"),
+        ));
+    }
+    // Add and Remove all come first: the list below can be long.
+    rows.push(row(
+        "fixtures.add".to_owned(),
+        tr("fixtures-add"),
+        RowWidget::Choice(
+            std::iter::once((String::new(), tr("fixtures-add-prompt")))
+                .chain(
+                    Fixture::KINDS
+                        .into_iter()
+                        .map(|k| (k.to_owned(), tr(&format!("fixture-kind-{k}")))),
+                )
+                .collect(),
+        ),
+        String::new(),
+    ));
+    if !list.is_empty() {
+        rows.push(button(
+            "fixtures.clear".to_owned(),
+            String::new(),
+            tr("fixtures-clear"),
         ));
     }
     for (i, f) in list.iter().enumerate() {
@@ -125,30 +148,6 @@ pub(super) fn group(s: &Snapshot, r: &ResolvedSetup, unit: DisplayUnit) -> Group
                 }
             }
         }
-    }
-    rows.push(row(
-        "fixtures.add".to_owned(),
-        tr("fixtures-add"),
-        RowWidget::Choice(
-            std::iter::once((String::new(), tr("fixtures-add-prompt")))
-                .chain(Fixture::KINDS.into_iter().map(|k| {
-                    (
-                        k.to_owned(),
-                        tr_args(&format!("fixture-{k}"), &[("n", "")])
-                            .trim()
-                            .to_owned(),
-                    )
-                }))
-                .collect(),
-        ),
-        String::new(),
-    ));
-    if !list.is_empty() {
-        rows.push(button(
-            "fixtures.clear".to_owned(),
-            String::new(),
-            tr("fixtures-clear"),
-        ));
     }
     GroupVm {
         id: "setup-fixtures",

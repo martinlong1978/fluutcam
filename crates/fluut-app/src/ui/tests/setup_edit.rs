@@ -232,7 +232,7 @@ fn a_body_pick_draws_the_whole_model_and_hovers_in_the_viewport() {
 }
 
 /// Where `world` (in W) is on the screen of the harness.
-fn on_screen(h: &mut Harness<'static, State>, world: [f32; 3]) -> egui::Pos2 {
+pub(super) fn on_screen(h: &mut Harness<'static, State>, world: [f32; 3]) -> egui::Pos2 {
     let rect = h.get_by_label("3-D viewport").rect();
     let q = app(h)
         .view
@@ -245,7 +245,10 @@ fn on_screen(h: &mut Harness<'static, State>, world: [f32; 3]) -> egui::Pos2 {
     rect.min + egui::vec2(q.x, q.y)
 }
 
-fn mark(h: &mut Harness<'static, State>, kind: crate::vm::handles::HandleKind) -> egui::Pos2 {
+pub(super) fn mark(
+    h: &mut Harness<'static, State>,
+    kind: crate::vm::handles::HandleKind,
+) -> egui::Pos2 {
     app(h)
         .view
         .handle_marks
@@ -255,7 +258,7 @@ fn mark(h: &mut Harness<'static, State>, kind: crate::vm::handles::HandleKind) -
         .1
 }
 
-fn drag(h: &mut Harness<'static, State>, from: egui::Pos2, to: egui::Pos2) {
+pub(super) fn drag(h: &mut Harness<'static, State>, from: egui::Pos2, to: egui::Pos2) {
     h.hover_at(from);
     h.run_steps(2);
     h.drag_at(from);
