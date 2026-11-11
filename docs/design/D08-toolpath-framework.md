@@ -131,6 +131,10 @@ sample(curve, t0, t1):
 - `max_step` bounds sample spacing so features smaller than the spacing are not jumped over:
   `max_step = min(tool radius / 2, region feature size)`.
 - Points come out in curve order with exact first, last and transition points.
+- *As built (2026-11-11,* [adaptive sampling](../plan/2026-11-11-adaptive-sampling.md)*):* the chord
+  test is `tol/4`, not `tol/2`, and the samples are merged within `tol/4`; the middle drop of an
+  accepted chord is kept as a check the merge must hold (not a vertex); on a curved drive the check is the drop at the chord's own
+  middle (both sides) plus the drive's sagitta.
 
 ### 4.3 Direct emission [S 04 §4.3.1]
 

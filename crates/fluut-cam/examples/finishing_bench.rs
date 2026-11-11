@@ -17,19 +17,25 @@
 //! `parallel` an estimate of what adaptive sampling could skip: of the drops
 //! on each pass line, those within the tolerance of the chord between their
 //! neighbours, and those a greedy chord merge over all of them leaves out.
+//! For `parallel`, `spiral` and `scallop`, the worst deviation of the cut
+//! chords from fresh drops at their quarter, middle and three-quarter
+//! points, and how many such points are off by more than the tolerance.
 //!
 //! `FB_MODELS=sculpted3,dome` and `FB_TYPES=parallel` pick models and types,
 //! `FB_TOOLS=ball` tools, `FB_STEPOVER` and `FB_TOL` the stepover and
-//! tolerance.
+//! tolerance; `FB_SKIP=1` skips the `parallel` estimate (and the recording
+//! of drop points it needs), `FB_WORST=1` prints each new worst chord point
+//! off by more than the tolerance.
 
+use fluut_cam::cutter::Cutter;
 use fluut_cam::cutter::synth::{sculpted, tiled};
 use fluut_cam::geometry::{BodyGeom, SetupBody, SetupGeometry};
-use fluut_cam::surface::stats;
-use fluut_cam::{StrategyInput, calculate};
+use fluut_cam::surface::{FaceSets, SurfaceQuery, stats};
+use fluut_cam::{Generated, StrategyInput, calculate};
 use fluut_geom::{Affine, Surface};
 use fluut_model::project::{SetupKind, read};
 use fluut_model::resolve::HeightEnv;
-use fluut_model::tools::ToolLibrary;
+use fluut_model::tools::{Tool, ToolLibrary};
 use fluut_path::{Motion, Segment};
 use fluut_topo::BrepBody;
 use std::path::{Path, PathBuf};
@@ -113,6 +119,73 @@ struct Case {
     drop_secs: f64,
     cl: usize,
     points: Vec<[f64; 3]>,
+    result: Option<Generated>,
+}
+
+/// Worst deviation of the cut chords of `r` from fresh drops at their
+/// quarter, middle and three-quarter points, in mm: `(into the part,
+/// above it)`, each along the contact normal (`(τ − z)·cos β`), where `τ`
+/// is the drop raised to `bottom`. Chords shorter than `tol` in XY (steps
+/// down or up a wall) are within `tol` sideways of their real end drops
+/// and are left out, as are points of a level chord within `tol`
+/// sideways of where the tool clears a wall.
+fn chord_deviation(
+    g: &SetupGeometry,
+    tl: &Tool,
+    r: &Generated,
+    bottom: f64,
+    tol: f64,
+) -> (f64, f64, usize, usize, usize) {
+    let c = Cutter::new(tl.diameter, tl.corner_radius()).expect("cutter");
+    let q = SurfaceQuery::new(g, &FaceSets::default(), c, 0.0).expect("query");
+    let (mut into, mut above): (f64, f64) = (0.0, 0.0);
+    let (mut over, mut gouges, mut points) = (0, 0, 0);
+    for s in r.result.segments() {
+        if s.motion().is_none_or(|m| m.motion != Motion::Cut) {
+            continue;
+        }
+        let (Some(a), Some(b)) = (s.start(), s.end()) else {
+            continue;
+        };
+        let (a, b) = (a.xyz, b.xyz);
+        if libm::hypot(a.x() - b.x(), a.y() - b.y()) < tol {
+            continue;
+        }
+        // A level chord along a wall: the error is sideways (as in the
+        // gouge check of the strategy tests).
+        let level = (a.z() - b.z()).abs() < 1e-12;
+        for f in [0.25, 0.5, 0.75] {
+            let x = a.lerp(b, f);
+            let sideways = level
+                && q.probe(x.x(), x.y()).is_some_and(|pr| {
+                    let y = x - fluut_geom::Vec3::new(pr.toward.x(), pr.toward.y(), 0.0) * tol;
+                    q.drop(y.x(), y.y()).is_none_or(|h| h.tip <= x.z() + 1e-6)
+                });
+            if sideways {
+                continue;
+            }
+            let (tau, slope) = match q.drop(x.x(), x.y()) {
+                Some(h) if h.tip >= bottom => (h.tip, h.slope),
+                _ => (bottom, 0.0),
+            };
+            let d = (tau - x.z()) * libm::cos(slope);
+            if std::env::var_os("FB_WORST").is_some() && (d > into || -d > above) && d.abs() > tol {
+                println!(
+                    "      worst {d:.5} at {f} of {a:?}..{b:?}, tau {tau:.5} slope {slope:.3}"
+                );
+            }
+            points += 1;
+            if d.abs() > tol {
+                over += 1;
+            }
+            if d > tol {
+                gouges += 1;
+            }
+            into = into.max(d);
+            above = above.max(-d);
+        }
+    }
+    (into, above, over, gouges, points)
 }
 
 fn run(input: &StrategyInput, threads: usize, record: bool) -> Option<Case> {
@@ -140,6 +213,7 @@ fn run(input: &StrategyInput, threads: usize, record: bool) -> Option<Case> {
                 drop_secs: ns as f64 * 1e-9,
                 cl,
                 points,
+                result: Some(r),
             })
         }
         Err(e) => {
@@ -313,7 +387,7 @@ fn main() {
                     in_process: None,
                     rotary: None,
                 };
-                let record = *ty == "parallel";
+                let record = *ty == "parallel" && std::env::var_os("FB_SKIP").is_none();
                 let Some(one) = run(&input, 1, record) else {
                     continue;
                 };
@@ -334,6 +408,17 @@ fn main() {
                     many.drops as f64 / many.secs / all as f64,
                     one.cl,
                 );
+                if matches!(*ty, "parallel" | "spiral" | "scallop")
+                    && let Some(r) = &one.result
+                {
+                    let (into, above, over, gouges, points) =
+                        chord_deviation(&g, tool, r, bb.min.z(), tol);
+                    line += &format!(
+                        "\n      chords at 1/4, 1/2, 3/4: worst {into:.5} mm into the part, \
+                         {above:.5} mm above it (normal); {over} of {points} points off by ({gouges} into the part) \
+                         more than the tolerance"
+                    );
+                }
                 if record {
                     // Pass lines at 0°: the Y of the lines the passes sit on
                     // are the Y values that most drops share.
