@@ -500,36 +500,34 @@ where
             next.end,
             self.pos_equal_eps,
         ) {
-            LineLineIntr::NoIntersect | LineLineIntr::FalseIntersect { .. } => {
+            LineLineIntr::NoIntersect => {
+                // FluutCAM patch: `line_line_intr` takes lines within an angle of about
+                // `pos_equal_eps` for parallel, and then for collinear only when each end of one
+                // lies within `pos_equal_eps` of the other's line. Two long lines that meet at an
+                // angle below that are parallel but not collinear, `NoIntersect`, although they
+                // cross. Here they are the offsets of two lines at a source vertex where the
+                // boundary turns by a few micro-radians; their ends lie `|offset| · angle` apart,
+                // more than `pos_equal_eps` (or the join would be coincident), so the join became
+                // an invalid gap, the raw offset had no self-intersection there to cut it, and the
+                // whole closed offset was dropped. An inner join is not parallel (that is a
+                // degenerate join, `join_without_intersection`), so the exact crossing is used
+                // when it lies on both lines.
+                match Self::exact_line_line_params(current, next, self.pos_equal_eps) {
+                    Some((seg1_t, seg2_t)) => {
+                        Self::trimmed_line_line(current, next, seg1_t, seg2_t)
+                    }
+                    None => Self::line_connection_boundary(
+                        JoinClass::InvalidInnerGap,
+                        current.end,
+                        next.start,
+                    ),
+                }
+            }
+            LineLineIntr::FalseIntersect { .. } => {
                 Self::line_connection_boundary(JoinClass::InvalidInnerGap, current.end, next.start)
             }
             LineLineIntr::TrueIntersect { seg1_t, seg2_t } => {
-                // Clamp intersections accepted just past an endpoint.
-                let clamp_param = |param| {
-                    if param < T::zero() {
-                        T::zero()
-                    } else if param > T::one() {
-                        T::one()
-                    } else {
-                        param
-                    }
-                };
-                let current_param = clamp_param(seg1_t);
-                let next_param = clamp_param(seg2_t);
-
-                // Use the exact endpoint position when a parameter was clamped.
-                let point = if seg1_t < T::zero() {
-                    current.start
-                } else if seg1_t > T::one() {
-                    current.end
-                } else if seg2_t < T::zero() {
-                    next.start
-                } else if seg2_t > T::one() {
-                    next.end
-                } else {
-                    point_from_parametric(current.start, current.end, seg1_t)
-                };
-                Self::trimmed_boundary(point, current_param, next_param)
+                Self::trimmed_line_line(current, next, seg1_t, seg2_t)
             }
             LineLineIntr::Overlapping { .. } => {
                 // Prefer the current endpoint when it lies on the overlapping next span.
@@ -547,6 +545,68 @@ where
                 }
             }
         }
+    }
+
+    /// The parameters on `current` and `next` where their lines cross, or `None` when they are
+    /// exactly parallel or the crossing lies off either segment by more than `eps` (FluutCAM
+    /// patch, see `line_line_join`).
+    fn exact_line_line_params(
+        current: &RawOffsetLine<T>,
+        next: &RawOffsetLine<T>,
+        eps: T,
+    ) -> Option<(T, T)> {
+        let v = current.end - current.start;
+        let u = next.end - next.start;
+        let den = v.perp_dot(u);
+        if den == T::zero() {
+            return None;
+        }
+        let w = current.start - next.start;
+        let seg1_t = u.perp_dot(w) / den;
+        let seg2_t = v.perp_dot(w) / den;
+        let (v_len, u_len) = (v.length(), u.length());
+        if (seg1_t * v_len).fuzzy_in_range_eps(T::zero(), v_len, eps)
+            && (seg2_t * u_len).fuzzy_in_range_eps(T::zero(), u_len, eps)
+        {
+            Some((seg1_t, seg2_t))
+        } else {
+            None
+        }
+    }
+
+    /// The trimmed join at the crossing at `seg1_t` on `current` and `seg2_t` on `next`.
+    fn trimmed_line_line(
+        current: &RawOffsetLine<T>,
+        next: &RawOffsetLine<T>,
+        seg1_t: T,
+        seg2_t: T,
+    ) -> JoinBoundary<T> {
+        // Clamp intersections accepted just past an endpoint.
+        let clamp_param = |param| {
+            if param < T::zero() {
+                T::zero()
+            } else if param > T::one() {
+                T::one()
+            } else {
+                param
+            }
+        };
+        let current_param = clamp_param(seg1_t);
+        let next_param = clamp_param(seg2_t);
+
+        // Use the exact endpoint position when a parameter was clamped.
+        let point = if seg1_t < T::zero() {
+            current.start
+        } else if seg1_t > T::one() {
+            current.end
+        } else if seg2_t < T::zero() {
+            next.start
+        } else if seg2_t > T::one() {
+            next.end
+        } else {
+            point_from_parametric(current.start, current.end, seg1_t)
+        };
+        Self::trimmed_boundary(point, current_param, next_param)
     }
 
     #[inline]
