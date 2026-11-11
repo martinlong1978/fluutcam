@@ -239,6 +239,17 @@ drop per step) were measured and lose to the bisection on free-form parts: one r
 accepted chord costs 2 drops a chord whatever the sampler, and the bisection reuses every rejected
 middle as an end.
 
+**Crease checks (2026-11-11,** [plan](../plan/2026-11-11-crease-checks.md)**).** A flat or bull tool's
+CL has creases where the contact jumps, and two of them in one chord (the tool climbing onto a
+plateau) can cancel at its middle drop. The sampler now also checks a cut chord against the CL's
+gradients at its ends and middle (`Hit::grad`, from the contact) and splits it when they bound the
+CL's distance from it above `tol/2` (D08 §4.2). Quarter points off by more than the tolerance: none
+on the sculpted and analytic models (11 before), none with the ball and one into the part with the
+bull on the rough tiles (836 into the part before); the flat tool's worst cut depth on the tiles
+falls from 0.08-0.16 to 0.010-0.020 mm at 4 points, each a drop that misses a contact. 0-3 % more
+drops on free-form parts, none on analytic ones, 5-11 % on the tiles; output identical for any
+thread count; no golden G-code changed.
+
 ### 4.4 `contour` (waterline)
 
 ```

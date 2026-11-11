@@ -590,6 +590,8 @@ S2 cost model rather than D02 §8's estimate.
 
 **2026-11-11 (adaptive sampling).** Fewer drops per toolpath rather than faster drops: `spiral` takes 14-31 % fewer and `scallop` 13-23 % fewer (the chord on a curved drive is checked once, at its own middle), `parallel` the same; predicted step lengths do not beat the bisection when every chord keeps a real check drop ([plan](../plan/2026-11-11-adaptive-sampling.md)). The drop itself is unchanged.
 
+**2026-11-11 (crease checks).** The drop now also returns the CL's gradient from its contact (a `hypot` and a division; heights, slopes and solver unchanged), which lets the sampler see creases of flat and bull CLs without extra drops; the check costs 0-3 % more drops on free-form models and 5-11 % on the rough tiles ([plan](../plan/2026-11-11-crease-checks.md)). What it leaves on the tiles are drop misses: a drop at a chord end that misses a contact on the flat tool's rim which a nearby drop finds (4 points of 320 000, 0.010-0.020 mm deep). Those are this challenge's, not the sampler's.
+
 ### CH-26 Fusion tool-library JSON has no public schema
 
 **Raised in D16 §2.1. Status: deferred.** The JSON key names the importer reads are the
