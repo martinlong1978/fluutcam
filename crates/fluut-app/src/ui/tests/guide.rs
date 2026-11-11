@@ -161,7 +161,7 @@ fn closing_the_card_is_remembered_and_the_title_bar_reopens_it() {
         Updates::with(
             Settings::load_from(&path),
             Some(path.clone()),
-            std::sync::Arc::new(|| Err(fluut_core::update::UpdateError::NoKey)),
+            std::sync::Arc::new(|_| Err(fluut_core::update::UpdateError::NoKey)),
             crate::updates::now,
             std::sync::Arc::new(|| {}),
             false,

@@ -24,7 +24,7 @@ const USAGE: &str = "usage: cargo xtask <task>
   version
   package --platform <windows-x86_64|linux-x86_64|macos-universal> --bin-dir D --icons D --out D [--version V]
   checksums <dir>
-  manifest --dist D --base-url U --out F [--version V] [--date YYYY-MM-DD] [--channel C] [--previous F]
+  manifest --dist D --base-url U --out F [--version V] [--date YYYY-MM-DD] [--channel stable|beta] [--previous F]
   rustflags
   repro-check
   screenshots [<out-dir>]

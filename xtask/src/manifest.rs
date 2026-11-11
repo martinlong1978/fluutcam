@@ -21,7 +21,12 @@
 //! }
 //! ```
 //!
-//! Releases are newest first. The file is signed separately (minisign,
+//! Releases are newest first. There is one manifest per channel (D17 §3.2):
+//! `stable` lists releases without a pre-release suffix and is published as
+//! `releases.json`; `beta` lists every release, pre-releases included, and is
+//! published as `releases-beta.json`. A stable manifest never holds a
+//! pre-release: the app's stable channel would ignore it, but the file says
+//! what it means. The file is signed separately (minisign,
 //! `releases.json.minisig`); the app checks that signature and each
 //! download's SHA-256 before offering an update.
 
@@ -31,6 +36,14 @@ use std::cmp::Ordering;
 use std::path::Path;
 
 pub const FORMAT: &str = "fluut.releases/1";
+
+/// The channels a manifest can be for.
+pub const CHANNELS: &[&str] = &["stable", "beta"];
+
+/// A version with a pre-release suffix (`1.2.0-beta.1`).
+pub fn is_prerelease(version: &str) -> bool {
+    version.contains('-')
+}
 
 /// Artefact name suffixes, longest first so `tar.gz` wins over `gz`.
 const KINDS: &[&str] = &["tar.gz", "zip", "dmg", "msi", "AppImage"];
@@ -100,17 +113,58 @@ pub fn compare_versions(a: &str, b: &str) -> Ordering {
         (None, None) => Ordering::Equal,
         (None, Some(_)) => Ordering::Greater,
         (Some(_), None) => Ordering::Less,
-        (Some(x), Some(y)) => x.cmp(&y),
+        (Some(x), Some(y)) => compare_prerelease(&x, &y),
     })
+}
+
+/// Pre-release identifiers by semver 2.0 precedence: dot-separated, numbers
+/// compare as numbers and rank below text, and a shorter list ranks below a
+/// longer one it starts. So `beta.9` is below `beta.10`.
+fn compare_prerelease(a: &str, b: &str) -> Ordering {
+    let (mut a, mut b) = (a.split('.'), b.split('.'));
+    loop {
+        match (a.next(), b.next()) {
+            (None, None) => return Ordering::Equal,
+            (None, Some(_)) => return Ordering::Less,
+            (Some(_), None) => return Ordering::Greater,
+            (Some(x), Some(y)) => {
+                let o = match (x.parse::<u64>(), y.parse::<u64>()) {
+                    (Ok(m), Ok(n)) => m.cmp(&n),
+                    (Ok(_), Err(_)) => Ordering::Less,
+                    (Err(_), Ok(_)) => Ordering::Greater,
+                    (Err(_), Err(_)) => x.cmp(y),
+                };
+                if o != Ordering::Equal {
+                    return o;
+                }
+            }
+        }
+    }
 }
 
 /// The manifest with `new` added to the releases of `previous` (a release
 /// of the same version is replaced), newest first.
 pub fn manifest(channel: &str, previous: Option<&Value>, new: Value) -> Result<Value, String> {
+    if !CHANNELS.contains(&channel) {
+        return Err(format!("channel {channel} is not stable or beta"));
+    }
+    let pre = |r: &Value| is_prerelease(r["version"].as_str().unwrap_or(""));
+    if channel == "stable" && pre(&new) {
+        return Err(format!(
+            "version {} is a pre-release and does not belong in the stable manifest",
+            new["version"].as_str().unwrap_or("")
+        ));
+    }
     let mut releases: Vec<Value> = Vec::new();
     if let Some(prev) = previous {
         if prev["format"] != FORMAT {
             return Err(format!("previous manifest is not {FORMAT}"));
+        }
+        if prev["channel"] != channel {
+            return Err(format!(
+                "previous manifest is for channel {}, not {channel}",
+                prev["channel"]
+            ));
         }
         releases = prev["releases"].as_array().cloned().unwrap_or_default();
         releases.retain(|r| r["version"] != new["version"]);
@@ -259,7 +313,7 @@ mod tests {
 
     #[test]
     fn foreign_manifest_is_refused() {
-        let prev = json!({ "format": "other/1", "releases": [] });
+        let prev = json!({ "format": "other/1", "channel": "stable", "releases": [] });
         let r = release("1.0.0", "d", "https://x", &files()).unwrap();
         assert!(manifest("stable", Some(&prev), r).is_err());
     }
@@ -270,5 +324,74 @@ mod tests {
         assert_eq!(compare_versions("1.0.0", "1.0.0-rc.1"), Ordering::Greater);
         assert_eq!(compare_versions("1.0.0-rc.1", "1.0.0-rc.2"), Ordering::Less);
         assert_eq!(compare_versions("1.2.3", "1.2.3"), Ordering::Equal);
+    }
+
+    #[test]
+    fn prerelease_identifiers_compare_as_semver_says() {
+        assert_eq!(
+            compare_versions("1.0.0-beta.10", "1.0.0-beta.9"),
+            Ordering::Greater
+        );
+        assert_eq!(
+            compare_versions("1.0.0-beta.2", "1.0.0-beta.11"),
+            Ordering::Less
+        );
+        assert_eq!(
+            compare_versions("1.0.0-alpha", "1.0.0-alpha.1"),
+            Ordering::Less
+        );
+        assert_eq!(
+            compare_versions("1.0.0-alpha.1", "1.0.0-alpha.beta"),
+            Ordering::Less
+        );
+        assert_eq!(
+            compare_versions("1.0.0-rc.1", "1.0.0-beta.9"),
+            Ordering::Greater
+        );
+        assert_eq!(compare_versions("1.1.0-beta.1", "1.0.0"), Ordering::Greater);
+    }
+
+    #[test]
+    fn the_stable_manifest_refuses_a_pre_release() {
+        let r = release("1.0.0", "2026-11-01", "https://x", &files()).unwrap();
+        let mut pre = r.clone();
+        pre["version"] = json!("1.1.0-beta.1");
+        assert!(manifest("stable", None, pre).is_err());
+        assert!(manifest("stable", None, r).is_ok());
+    }
+
+    #[test]
+    fn the_beta_manifest_keeps_pre_releases_and_stable_releases_newest_first() {
+        let rel = |v: &str| {
+            let mut r = release("1.0.0", "2026-11-01", "https://x", &files()).unwrap();
+            r["version"] = json!(v);
+            r
+        };
+        let m0 = manifest("beta", None, rel("1.0.0")).unwrap();
+        let m1 = manifest("beta", Some(&m0), rel("1.1.0-beta.1")).unwrap();
+        let m2 = manifest("beta", Some(&m1), rel("1.1.0-beta.10")).unwrap();
+        let m3 = manifest("beta", Some(&m2), rel("1.1.0-beta.2")).unwrap();
+        assert_eq!(m3["channel"], "beta");
+        let v: Vec<_> = m3["releases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r["version"].as_str().unwrap().to_owned())
+            .collect();
+        assert_eq!(
+            v,
+            ["1.1.0-beta.10", "1.1.0-beta.2", "1.1.0-beta.1", "1.0.0"]
+        );
+        // Stable 1.1.0 outranks its own betas.
+        let m4 = manifest("beta", Some(&m3), rel("1.1.0")).unwrap();
+        assert_eq!(m4["releases"][0]["version"], "1.1.0");
+    }
+
+    #[test]
+    fn a_manifest_of_another_channel_is_not_a_base_and_unknown_channels_are_refused() {
+        let r = release("1.0.0", "2026-11-01", "https://x", &files()).unwrap();
+        let stable = manifest("stable", None, r.clone()).unwrap();
+        assert!(manifest("beta", Some(&stable), r.clone()).is_err());
+        assert!(manifest("nightly", None, r).is_err());
     }
 }

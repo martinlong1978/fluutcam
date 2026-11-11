@@ -12,7 +12,7 @@
 //! Like `session`, this module is where the app calls `fluut-core`.
 
 use fluut_core::settings::{Settings, UpdateSettings, settings_path};
-use fluut_core::update::{self, Offer, Outcome, UpdateError, UreqFetch};
+use fluut_core::update::{self, Channel, Offer, Outcome, UpdateError, UreqFetch};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
@@ -32,7 +32,7 @@ pub enum UpdateState {
 }
 
 /// How a check is done; tests give one that never uses the network.
-pub type Checker = Arc<dyn Fn() -> Result<Outcome, UpdateError> + Send + Sync>;
+pub type Checker = Arc<dyn Fn(Channel) -> Result<Outcome, UpdateError> + Send + Sync>;
 
 /// Unix time now, seconds.
 pub fn now() -> u64 {
@@ -75,7 +75,7 @@ impl Updates {
         Updates::with(
             Settings::default(),
             None,
-            Arc::new(|| Err(UpdateError::NoKey)),
+            Arc::new(|_| Err(UpdateError::NoKey)),
             now,
             Arc::new(|| {}),
             false,
@@ -87,7 +87,7 @@ impl Updates {
     pub fn load(wake: impl Fn() + Send + Sync + 'static) -> Updates {
         let path = settings_path();
         let settings = path.as_deref().map(Settings::load_from).unwrap_or_default();
-        let checker: Checker = Arc::new(|| update::check(&UreqFetch::default()));
+        let checker: Checker = Arc::new(|c| update::check(&UreqFetch::default(), c));
         Updates::with(settings, path, checker, now, Arc::new(wake), true)
     }
 
@@ -155,6 +155,23 @@ impl Updates {
         self.settings.update.auto_check
     }
 
+    /// The release channel as stored.
+    pub fn channel(&self) -> Channel {
+        self.settings.update.channel
+    }
+
+    /// Chooses the release channel. A result of the old channel is dropped,
+    /// because it says nothing about the new one.
+    pub fn set_channel(&mut self, channel: Channel) {
+        if self.settings.update.channel != channel {
+            self.settings.update.channel = channel;
+            if !self.is_checking() {
+                self.state = UpdateState::Idle;
+            }
+            self.save();
+        }
+    }
+
     /// The first-start question is due: active, a key in the build, and not
     /// answered yet.
     pub fn needs_prompt(&self) -> bool {
@@ -201,12 +218,13 @@ impl Updates {
         self.state = UpdateState::Checking;
         let (tx, rx) = channel();
         let checker = Arc::clone(&self.checker);
+        let channel = self.settings.update.channel;
         let wake = Arc::clone(&self.wake);
         let spawned = std::thread::Builder::new()
             .name("fluut-update".into())
             .spawn(move || {
                 // The UI may be gone by now.
-                let _ = tx.send(checker());
+                let _ = tx.send(checker(channel));
                 wake();
             });
         match spawned {

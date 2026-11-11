@@ -1,0 +1,61 @@
+# Beta channel list (design D17 §3.3).
+#
+# GitHub has no "latest release including pre-releases" address, so the app's
+# beta channel reads `releases-beta.json` from a rolling pre-release called
+# `update-channels`. When a person publishes a release (the draft that
+# release.yml made), this workflow copies that release's already signed
+# `releases-beta.json` and `releases-beta.json.minisig` there, byte for byte.
+# It holds no signing key and signs nothing; the app checks the signature.
+#
+# The rolling release is a pre-release and never "latest", so it does not
+# disturb releases/latest/download/releases.json (the stable list).
+#
+# Publish drafts in tag order: each beta list is the previous list plus its
+# own release, so a release published out of order would drop the newer ones.
+
+name: Update channels
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+# One copy at a time, so two quick publishes cannot interleave.
+concurrency:
+  group: update-channels
+
+jobs:
+  beta-list:
+    # Not for the rolling release itself.
+    if: ${{ github.event.release.tag_name != 'update-channels' }}
+    runs-on: ubuntu-22.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ github.event.release.tag_name }}
+    steps:
+      - name: Copy the signed beta list to the rolling release
+        run: |
+          mkdir work
+          cd work
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern releases-beta.json --pattern releases-beta.json.minisig
+          for f in releases-beta.json releases-beta.json.minisig; do
+            if [ ! -s "$f" ]; then
+              echo "::error::release $TAG has no $f"
+              exit 1
+            fi
+          done
+          # The list must hold the release just published.
+          if ! python3 -c 'import json, sys; sys.exit(0 if "'"${TAG#v}"'" in [r["version"] for r in json.load(open("releases-beta.json"))["releases"]] else 1)'; then
+            echo "::error::the beta list does not hold $TAG"
+            exit 1
+          fi
+          if ! gh release view update-channels --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release create update-channels --repo "$GITHUB_REPOSITORY" \
+              --prerelease --latest=false --title "Update channels" \
+              --notes "Rolling release that holds the signed list of releases read by the beta update channel. It is refreshed by a workflow each time a release is published. Do not download programs from here; use the numbered releases."
+          fi
+          gh release upload update-channels --repo "$GITHUB_REPOSITORY" --clobber \
+            releases-beta.json releases-beta.json.minisig

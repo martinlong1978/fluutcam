@@ -428,7 +428,7 @@ mod update_check {
     fn harness_with(result: Outcome) -> (Harness<'static, State>, Arc<AtomicUsize>) {
         let calls = Arc::new(AtomicUsize::new(0));
         let n = Arc::clone(&calls);
-        let checker: Checker = Arc::new(move || {
+        let checker: Checker = Arc::new(move |_| {
             n.fetch_add(1, Ordering::SeqCst);
             Ok(result.clone())
         });

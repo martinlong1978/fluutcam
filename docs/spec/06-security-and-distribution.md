@@ -30,6 +30,9 @@ Updates:
 - The app checks for updates over **HTTPS only**.
   The check is opt-in: the app asks on first start and the answer can be changed in settings.
   It sends no data beyond the request itself.
+- There are two release channels, `stable` (default) and `beta` (stable releases plus pre-releases),
+  each with its own signed list, chosen in settings; see [D17](../design/D17-telemetry-and-channels.md) §3.
+  Pre-release tags are `vX.Y.Z-beta.N` and `vX.Y.Z-rc.N`. Every channel is signed the same way.
 - The update manifest is signed (Ed25519, minisign). The app verifies the signature, with a public
   key compiled into the binary, before it reads the manifest. It never downloads or installs an
   update: it offers the version, the release notes and the download page, and the user downloads
@@ -58,7 +61,7 @@ CI verifies every signed artefact; a release with a failed signature check is no
 | Item | Decision |
 |---|---|
 | Crash reports | Opt-in, off by default. After a crash, the user is asked and can view the full report before sending. Reports contain no geometry or project data unless the user attaches it. |
-| Telemetry / usage analytics | **Still open.** If any is added it MUST be opt-in, documented, and viewable. |
+| Telemetry / usage analytics | **None in v1, pending the maintainer's decision** ([D17](../design/D17-telemetry-and-channels.md) §2). If any is added it MUST be opt-in, documented, and viewable, and it needs a design change first (D17 §2.4). Crash reports stay local in v1. |
 | Update check | Opt-in (asked on first start, "No" if the question is dismissed; stored in the user settings); sends nothing beyond the two requests for the signed release list and its signature (fixed User-Agent, no cookies). Opt-in so that the code-signing privacy statement holds: the program transfers nothing unless the user asks (`docs/CODE_SIGNING.md`). |
 | Network use | No other network access, except actions the user starts (e.g. opening online help). |
 
@@ -66,5 +69,4 @@ CI verifies every signed artefact; a release with a failed signature check is no
 
 | Item |
 |---|
-| Telemetry policy (6.4) |
-| Release channels (stable / beta) and update cadence |
+| The maintainer's decision on the telemetry policy (6.4): recommended none in v1, D17 §2. Release channels (6.2) are designed and built, D17 §3; the update cadence in D17 §3.7 is a suggestion for the maintainer |

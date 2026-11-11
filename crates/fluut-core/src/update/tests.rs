@@ -291,7 +291,11 @@ y/rUw2y8/hOUYjZU71eHp/Wo1KZ40fGy2VJEDl34XMJM+TX48Ss/17u3IvIfbVR1FkZZSNCisQbuQY+b
 const LINUX: &str = "linux-x86_64";
 
 fn chosen(m: &Manifest, running: &str, platform: &str) -> Option<String> {
-    choose(m, &ver(running), platform).map(|o| o.version)
+    choose(m, &ver(running), platform, Channel::Stable).map(|o| o.version)
+}
+
+fn chosen_beta(m: &Manifest, running: &str) -> Option<String> {
+    choose(m, &ver(running), LINUX, Channel::Beta).map(|o| o.version)
 }
 
 #[test]
@@ -325,21 +329,53 @@ fn a_stable_run_is_not_offered_a_pre_release() {
 }
 
 #[test]
-fn a_pre_release_run_is_offered_pre_releases_and_the_release_after_them() {
+fn a_stable_channel_never_offers_a_pre_release_even_to_a_pre_release_run() {
+    let m = parsed(&["1.0.0-rc.2", "1.0.0-rc.1"]);
+    assert_eq!(chosen(&m, "1.0.0-rc.1", LINUX), None);
+    // The release after the pre-releases is offered.
     let m = parsed(&["1.0.0", "1.0.0-rc.2", "1.0.0-rc.1"]);
     assert_eq!(chosen(&m, "1.0.0-rc.1", LINUX).as_deref(), Some("1.0.0"));
+}
+
+#[test]
+fn the_beta_channel_offers_pre_releases_and_the_release_after_them() {
+    let m = parsed(&["1.0.0", "1.0.0-rc.2", "1.0.0-rc.1"]);
+    assert_eq!(chosen_beta(&m, "1.0.0-rc.1").as_deref(), Some("1.0.0"));
     let m = parsed(&["1.0.0-rc.2", "1.0.0-rc.1"]);
+    assert_eq!(chosen_beta(&m, "1.0.0-rc.1").as_deref(), Some("1.0.0-rc.2"));
+    assert_eq!(chosen_beta(&m, "1.0.0-rc.2"), None);
+    // Numeric identifiers compare as numbers: beta.10 is after beta.9.
+    let m = parsed(&["1.0.0-beta.10", "1.0.0-beta.9"]);
     assert_eq!(
-        chosen(&m, "1.0.0-rc.1", LINUX).as_deref(),
-        Some("1.0.0-rc.2")
+        chosen_beta(&m, "1.0.0-beta.9").as_deref(),
+        Some("1.0.0-beta.10")
     );
-    assert_eq!(chosen(&m, "1.0.0-rc.2", LINUX), None);
-    // Numeric identifiers compare as numbers: rc.10 is after rc.9.
-    let m = parsed(&["1.0.0-rc.10"]);
-    assert_eq!(
-        chosen(&m, "1.0.0-rc.9", LINUX).as_deref(),
-        Some("1.0.0-rc.10")
-    );
+    // A stable user who switches to beta is offered the next beta of the
+    // coming version, and never an older beta than the release they run.
+    let m = parsed(&["1.1.0-beta.1", "1.0.0-beta.3", "1.0.0"]);
+    assert_eq!(chosen_beta(&m, "1.0.0").as_deref(), Some("1.1.0-beta.1"));
+    let m = parsed(&["1.0.0-beta.3", "1.0.0"]);
+    assert_eq!(chosen_beta(&m, "1.0.0"), None);
+}
+
+#[test]
+fn channel_names_round_trip_and_unknown_names_fall_back_to_stable() {
+    assert_eq!(Channel::default(), Channel::Stable);
+    for c in [Channel::Stable, Channel::Beta] {
+        assert_eq!(Channel::parse(c.name()), Some(c));
+    }
+    assert_eq!(Channel::parse("nightly"), None);
+    assert_eq!(Channel::parse("Beta"), None);
+}
+
+#[test]
+fn each_channel_has_its_own_https_pair_with_the_signature_next_to_the_list() {
+    for c in [Channel::Stable, Channel::Beta] {
+        assert!(c.manifest_url().starts_with("https://"));
+        assert_eq!(c.signature_url(), format!("{}.minisig", c.manifest_url()));
+    }
+    assert_ne!(Channel::Stable.manifest_url(), Channel::Beta.manifest_url());
+    assert_eq!(Channel::Stable.manifest_url(), MANIFEST_URL);
 }
 
 #[test]
@@ -356,7 +392,7 @@ fn only_releases_with_a_file_for_the_platform_count() {
         Some("1.0.0")
     );
     assert_eq!(chosen(&m, "0.9.0", "macos-universal"), None);
-    let o = choose(&m, &ver("0.9.0"), "windows-x86_64").unwrap();
+    let o = choose(&m, &ver("0.9.0"), "windows-x86_64", Channel::Stable).unwrap();
     assert_eq!(o.artefacts.len(), 1);
     assert_eq!(o.artefacts[0].kind, "zip");
 }
@@ -369,7 +405,7 @@ fn a_release_with_a_bad_version_is_skipped_not_fatal() {
 
 #[test]
 fn the_offer_links_are_built_here_not_taken_from_the_manifest() {
-    let o = choose(&parsed(&["1.2.3"]), &ver("1.0.0"), LINUX).unwrap();
+    let o = choose(&parsed(&["1.2.3"]), &ver("1.0.0"), LINUX, Channel::Stable).unwrap();
     assert_eq!(
         o.notes_url,
         "https://github.com/martinlong1978/fluutcam/releases/tag/v1.2.3"
@@ -382,7 +418,7 @@ fn the_offer_links_are_built_here_not_taken_from_the_manifest() {
 fn artefacts_that_are_not_https_are_left_out_of_the_offer() {
     let mut m = parsed(&["1.2.3"]);
     m.releases[0].artefacts[0].url = "http://example.org/x".into();
-    let o = choose(&m, &ver("1.0.0"), LINUX);
+    let o = choose(&m, &ver("1.0.0"), LINUX, Channel::Stable);
     assert!(o.unwrap().artefacts.is_empty());
 }
 
@@ -460,6 +496,37 @@ fn a_signed_manifest_for_another_channel_is_refused() {
     assert!(matches!(r, Err(UpdateError::BadManifest(_))));
 }
 
+fn beta_fake(k: &TestKey, channel: &str, versions: &[&str]) -> Fake {
+    let text = manifest_json(channel, versions);
+    Fake {
+        files: BTreeMap::from([
+            (BETA_MANIFEST_URL, Ok(text.clone().into_bytes())),
+            (BETA_SIGNATURE_URL, Ok(k.sign(text.as_bytes()).into_bytes())),
+        ]),
+        calls: Mutex::new(Vec::new()),
+    }
+}
+
+#[test]
+fn the_beta_check_fetches_the_beta_list_and_offers_a_pre_release() {
+    let k = TestKey::new(1);
+    let fake = beta_fake(&k, "beta", &["1.1.0-beta.1", "1.0.0"]);
+    let out = check_channel_with(&fake, &k.public_file(), "1.0.0", LINUX, Channel::Beta).unwrap();
+    let Outcome::Available(o) = out else {
+        panic!("expected an offer");
+    };
+    assert_eq!(o.version, "1.1.0-beta.1");
+    assert_eq!(fake.calls(), [BETA_MANIFEST_URL, BETA_SIGNATURE_URL]);
+}
+
+#[test]
+fn a_list_of_the_wrong_channel_is_refused() {
+    let k = TestKey::new(1);
+    let fake = beta_fake(&k, "stable", &["2.0.0"]);
+    let r = check_channel_with(&fake, &k.public_file(), "1.0.0", LINUX, Channel::Beta);
+    assert!(matches!(r, Err(UpdateError::BadManifest(_))));
+}
+
 #[test]
 fn a_failed_request_is_reported_and_stops_the_check() {
     let k = TestKey::new(1);
@@ -496,7 +563,7 @@ fn this_build_has_a_version_the_check_can_compare() {
     // The shipped build without a key reports it and does nothing.
     if !has_key() {
         let fake = Fake::serving(b"", "");
-        assert_eq!(check(&fake), Err(UpdateError::NoKey));
+        assert_eq!(check(&fake, Channel::Stable), Err(UpdateError::NoKey));
         assert!(fake.calls().is_empty());
     }
 }

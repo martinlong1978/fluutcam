@@ -17,7 +17,7 @@
 
 use minisign_verify::{PublicKey, Signature};
 use semver::Version;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::io::Read;
 use std::sync::{Arc, OnceLock};
@@ -25,14 +25,21 @@ use std::time::Duration;
 
 /// The manifest format this code reads.
 pub const FORMAT: &str = "fluut.releases/1";
-/// The only channel the app asks for.
-pub const CHANNEL: &str = "stable";
-/// Signed list of releases, written by `cargo xtask manifest`.
+/// Signed list of stable releases, written by `cargo xtask manifest`. It is
+/// an asset of the newest non-pre-release, which GitHub's `releases/latest`
+/// finds (D17 §3.3).
 pub const MANIFEST_URL: &str =
     "https://github.com/martinlong1978/fluutcam/releases/latest/download/releases.json";
 /// Its minisign signature.
 pub const SIGNATURE_URL: &str =
     "https://github.com/martinlong1978/fluutcam/releases/latest/download/releases.json.minisig";
+/// Signed list of every release, pre-releases included (D17 §3.3). GitHub has
+/// no "latest including pre-releases" address, so it is an asset of the
+/// rolling pre-release `update-channels`, which a workflow refreshes after
+/// each published release.
+pub const BETA_MANIFEST_URL: &str = "https://github.com/martinlong1978/fluutcam/releases/download/update-channels/releases-beta.json";
+/// Its minisign signature.
+pub const BETA_SIGNATURE_URL: &str = "https://github.com/martinlong1978/fluutcam/releases/download/update-channels/releases-beta.json.minisig";
 /// Where the user downloads a release.
 pub const DOWNLOAD_PAGE: &str = "https://github.com/martinlong1978/fluutcam/releases";
 /// Release notes of a version are on the page of its tag.
@@ -47,6 +54,64 @@ pub const USER_AGENT: &str = "FluutCAM-update-check";
 /// The compiled-in public key file. Until the maintainer puts a key there,
 /// the check reports [`UpdateError::NoKey`].
 pub const PUBLIC_KEY_FILE: &str = include_str!("../../../packaging/minisign.pub");
+
+/// Which releases the user wants to hear about (D17 §3).
+///
+/// `Stable` is the default: releases without a pre-release suffix. `Beta`
+/// adds the pre-releases (`1.2.0-beta.1`); once a stable release is newer
+/// than the running beta it is offered too, because the beta list holds
+/// every release. Both channels are signed with the same key.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Channel {
+    #[default]
+    Stable,
+    Beta,
+}
+
+impl Channel {
+    /// The name in the manifest, the settings file and on the command line.
+    pub fn name(self) -> &'static str {
+        match self {
+            Channel::Stable => "stable",
+            Channel::Beta => "beta",
+        }
+    }
+
+    /// `stable` or `beta`; anything else is `None`.
+    pub fn parse(s: &str) -> Option<Channel> {
+        match s {
+            "stable" => Some(Channel::Stable),
+            "beta" => Some(Channel::Beta),
+            _ => None,
+        }
+    }
+
+    /// Where this channel's signed list is.
+    pub fn manifest_url(self) -> &'static str {
+        match self {
+            Channel::Stable => MANIFEST_URL,
+            Channel::Beta => BETA_MANIFEST_URL,
+        }
+    }
+
+    /// Where its signature is.
+    pub fn signature_url(self) -> &'static str {
+        match self {
+            Channel::Stable => SIGNATURE_URL,
+            Channel::Beta => BETA_SIGNATURE_URL,
+        }
+    }
+}
+
+/// An unknown name in a settings file means the default: a damaged or newer
+/// settings file must not lose the rest of the settings.
+impl<'de> Deserialize<'de> for Channel {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Channel, D::Error> {
+        let s = String::deserialize(d)?;
+        Ok(Channel::parse(&s).unwrap_or_default())
+    }
+}
 
 /// Why a check did not give an answer.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
@@ -165,11 +230,17 @@ pub struct Offer {
 }
 
 /// The newest release newer than `running` that has a file for `platform`.
-/// Pre-releases are offered only to a running pre-release. Releases whose
-/// version is not semantic are skipped. Versions compare by semver
-/// precedence (build metadata does not count).
-pub fn choose(manifest: &Manifest, running: &Version, platform: &str) -> Option<Offer> {
-    let allow_pre = !running.pre.is_empty();
+/// Pre-releases are offered on the beta channel only, whatever the running
+/// version is. Releases whose version is not semantic are skipped. Versions
+/// compare by semver precedence (build metadata does not count), so
+/// `1.0.0-beta.2` is older than `1.0.0` and a beta of 1.1 is newer than 1.0.
+pub fn choose(
+    manifest: &Manifest,
+    running: &Version,
+    platform: &str,
+    channel: Channel,
+) -> Option<Offer> {
+    let allow_pre = channel == Channel::Beta;
     let mut best: Option<(Version, &Release)> = None;
     for r in &manifest.releases {
         let Ok(v) = Version::parse(&r.version) else {
@@ -225,38 +296,52 @@ pub fn check_with(
     running: &str,
     platform: &str,
 ) -> Result<Outcome, UpdateError> {
+    check_channel_with(fetch, key_file, running, platform, Channel::Stable)
+}
+
+/// [`check_with`] for a channel.
+pub fn check_channel_with(
+    fetch: &dyn Fetch,
+    key_file: &str,
+    running: &str,
+    platform: &str,
+    channel: Channel,
+) -> Result<Outcome, UpdateError> {
     let key = parse_key(key_file)?;
     let running = Version::parse(running)
         .map_err(|e| UpdateError::BadManifest(format!("running version {running}: {e}")))?;
     let manifest = fetch
-        .get(MANIFEST_URL, MAX_MANIFEST_BYTES)
+        .get(channel.manifest_url(), MAX_MANIFEST_BYTES)
         .map_err(UpdateError::Fetch)?;
     let signature = fetch
-        .get(SIGNATURE_URL, MAX_SIGNATURE_BYTES)
+        .get(channel.signature_url(), MAX_SIGNATURE_BYTES)
         .map_err(UpdateError::Fetch)?;
     let signature = String::from_utf8(signature)
         .map_err(|_| UpdateError::BadSignature("not text".to_owned()))?;
     verify_manifest(&manifest, &signature, &key)?;
     let m = parse_manifest(&manifest)?;
-    if m.channel != CHANNEL {
+    if m.channel != channel.name() {
         return Err(UpdateError::BadManifest(format!(
-            "channel {} is not {CHANNEL}",
-            m.channel
+            "channel {} is not {}",
+            m.channel,
+            channel.name()
         )));
     }
-    Ok(match choose(&m, &running, platform) {
+    Ok(match choose(&m, &running, platform, channel) {
         Some(o) => Outcome::Available(o),
         None => Outcome::UpToDate,
     })
 }
 
-/// The check for this build: the compiled-in key, version and platform.
-pub fn check(fetch: &dyn Fetch) -> Result<Outcome, UpdateError> {
-    check_with(
+/// The check for this build: the compiled-in key, version and platform, for
+/// the channel the user chose.
+pub fn check(fetch: &dyn Fetch, channel: Channel) -> Result<Outcome, UpdateError> {
+    check_channel_with(
         fetch,
         PUBLIC_KEY_FILE,
         crate::build_info::VERSION,
         &platform(),
+        channel,
     )
 }
 
