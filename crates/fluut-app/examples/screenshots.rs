@@ -302,10 +302,37 @@ const SHOTS: &[Shot] = &[
         },
     },
     Shot {
+        name: "import-tools-result",
+        shows: "Import tools: the result window with the counts, the warnings, and the offer to reload the project that holds the new library",
+        crop: Some((350, 100, 580, 680)),
+        run: |r| {
+            // The library goes into the open project's tools folder.
+            std::fs::create_dir_all("block/tools").expect("create tools folder");
+            let fixture = r
+                .samples
+                .join("../../../fluut-post-import/tests/fixtures/fusion-sample.json");
+            std::fs::copy(fixture, "shop-tools.json").expect("copy the Fusion sample");
+            r.ask(DialogKind::ImportToolsSource, "shop-tools.json");
+            r.ask(DialogKind::ImportToolsTarget, "block/tools/shop-tools.toml");
+            r.click("LIBRARY");
+            r.click("Import tools\u{2026}");
+            for _ in 0..4000 {
+                r.h.step();
+                if !r.app().ui.tool_import.is_running() && !r.app().ui.tool_import.awaiting_target()
+                {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            r.h.run_steps(4);
+        },
+    },
+    Shot {
         name: "rotary-project",
         shows: "A rotary Setup: a shaft turned about its axis, with a rotary finishing toolpath",
         crop: None,
         run: |r| {
+            r.app().ui.tool_import.close();
             r.open_sample("shaft");
             r.app().jobs.calculate(CalcTargets::All);
             r.settle();

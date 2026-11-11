@@ -23,6 +23,10 @@ pub enum DialogKind {
     Import,
     /// Where Post writes its first file.
     PostOutput,
+    /// The tool library file to import (Fusion JSON).
+    ImportToolsSource,
+    /// Where the imported tool library is written.
+    ImportToolsTarget,
 }
 
 /// A path the user chose.
@@ -49,6 +53,8 @@ pub struct Asked {
 /// Dialogs that answer at once from a list, so tests open no window.
 #[derive(Debug, Default)]
 struct Script {
+    /// Whether a save dialog counts as having confirmed an overwrite.
+    confirms_overwrite: bool,
     answers: Vec<(DialogKind, PathBuf)>,
     asked: Vec<Asked>,
 }
@@ -94,6 +100,21 @@ impl Dialogs {
     /// Whether the dialogs are scripted.
     pub fn is_scripted(&self) -> bool {
         self.script.is_some()
+    }
+
+    /// Whether a save dialog has already asked the user to confirm
+    /// replacing an existing file. The system dialogs do; scripted ones
+    /// say so only when told ([`Dialogs::script_confirms_overwrite`]).
+    pub fn confirms_overwrite(&self) -> bool {
+        self.script.as_ref().is_none_or(|s| s.confirms_overwrite)
+    }
+
+    /// Scripted dialogs: whether a chosen existing file counts as
+    /// confirmed for replacing.
+    pub fn script_confirms_overwrite(&mut self, yes: bool) {
+        if let Some(s) = self.script.as_mut() {
+            s.confirms_overwrite = yes;
+        }
     }
 
     /// Scripted dialogs: the next request of `kind` is answered with `path`.
@@ -154,6 +175,13 @@ impl Dialogs {
                 .set_title(tr("dialog-import-title"))
                 .add_filter(tr("dialog-filter-model"), &MODEL_EXTENSIONS),
             DialogKind::PostOutput => d.set_title(tr("dialog-post-title")),
+            DialogKind::ImportToolsSource => d
+                .set_title(tr("dialog-tools-source-title"))
+                .add_filter(tr("dialog-filter-tools-fusion"), &["json"])
+                .add_filter(tr("dialog-filter-tools-vectric"), &["vtdb"]),
+            DialogKind::ImportToolsTarget => d
+                .set_title(tr("dialog-tools-target-title"))
+                .add_filter(tr("dialog-filter-tools-library"), &["toml"]),
         };
         let (tx, wake) = (self.tx.clone(), self.wake.clone());
         let spawned = std::thread::Builder::new()
@@ -161,10 +189,13 @@ impl Dialogs {
             .spawn(move || {
                 let handle = pollster::block_on(async {
                     match kind {
-                        DialogKind::Open | DialogKind::Import => d.pick_file().await,
-                        DialogKind::New(_) | DialogKind::SaveAs | DialogKind::PostOutput => {
-                            d.save_file().await
+                        DialogKind::Open | DialogKind::Import | DialogKind::ImportToolsSource => {
+                            d.pick_file().await
                         }
+                        DialogKind::New(_)
+                        | DialogKind::SaveAs
+                        | DialogKind::PostOutput
+                        | DialogKind::ImportToolsTarget => d.save_file().await,
                     }
                 });
                 let picked = handle.map(|h| Picked {

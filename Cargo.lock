@@ -1509,6 +1509,7 @@ dependencies = [
  "fluut-model",
  "fluut-path",
  "fluut-post",
+ "fluut-post-import",
  "fluut-topo",
  "glam",
  "image",

@@ -1,6 +1,6 @@
 # UAT: Import tools
 
-Tests of `fluut tools import`. Part of the [user acceptance tests](UAT). Test files: you make them from the text below (they are hand-written, not from any product). Work in an empty folder with `fluut` on the path. See [Import tools](Import-Tools).
+Tests of **Import tools…** in the window (UAT-TLS-09 to 14) and of `fluut tools import` (UAT-TLS-01 to 08). Part of the [user acceptance tests](UAT). Test files: you make them from the text below (they are hand-written, not from any product). Work in an empty folder with `fluut` on the path. The window tests use `shop.json` too, and the `block` reference project. See [Import tools](Import-Tools).
 
 **File to make, `shop.json`:**
 
@@ -85,4 +85,62 @@ Tests of `fluut tools import`. Part of the [user acceptance tests](UAT). Test fi
   2. Run `fluut tools export`.
   3. Run `fluut --help`.
 - **Expected:** Steps 1 and 2: a message and the usage lines, exit status 2. Step 3: the usage includes the `fluut tools import` line.
+- [ ] Pass
+
+---
+
+## In the window
+
+### UAT-TLS-09 Import with the dialogs
+
+- **Preconditions:** `shop.json` made; the window open, with no project.
+- **Steps:**
+  1. Open the **Library** tab. Check that no field for typing a path is on the ribbon.
+  2. Click **Import tools…**. In the first dialog choose `shop.json`.
+  3. In the second dialog check the offered name, and save as `shop-gui.toml`.
+- **Expected:** Step 1: **Import tools…** is enabled (Tools, Machines and Posts are greyed out). Step 3: the name offered is `shop.toml`. Then a window **Import tools** says `Wrote 2 of 3 tools to` the path, `Library id: fusion/shop`, `Tools read: 3`, `Tools written: 2`, `Tools skipped: 1`, and a count of source keys not used. The warnings include `import.tool.unsupported_type` for tool 3 "Dovetail". It says to open a project to use the library. The file exists and has the same text as in UAT-TLS-02.
+- [ ] Pass
+
+### UAT-TLS-10 Cancel
+
+- **Steps:**
+  1. Click **Import tools…** and cancel the first dialog.
+  2. Click it again, choose `shop.json`, and cancel the second dialog.
+- **Expected:** After each, no window opens, nothing is written, and **Import tools…** can be used again.
+- [ ] Pass
+
+### UAT-TLS-11 Overwrite
+
+- **Preconditions:** UAT-TLS-09 done.
+- **Steps:**
+  1. Import `shop.json` again and choose `shop-gui.toml` in the second dialog.
+  2. If the system dialog asks to replace the file, answer **No**, then choose a new name instead.
+  3. Repeat step 1 and answer **Yes** to replacing.
+- **Expected:** The system dialog asks before replacing. With **Yes**, the file is replaced and the result window shows the counts again. A file is never replaced without that question.
+- [ ] Pass
+
+### UAT-TLS-12 A Vectric file and a bad file
+
+- **Steps:**
+  1. Make a text file `tools.vtdb`. Click **Import tools…** and choose it.
+  2. Make `bad.json` containing `{ nope`. Import it and choose `bad.toml` in the second dialog.
+- **Expected:** Step 1: no second dialog; the window says `Nothing was imported.` with the error `import.format.unsupported`. Step 2: `Nothing was imported.` with an error `import.file.invalid`, and no `bad.toml`.
+- [ ] Pass
+
+### UAT-TLS-13 Use the library in the project
+
+- **Preconditions:** a copy of the `block` project, open.
+- **Steps:**
+  1. Import `shop.json`. The second dialog should start in the project's `tools` folder; save as `shop.toml` there.
+  2. In the result window click **Reload project to use it**.
+  3. Select a toolpath, open the inspector's Tool tab and open the tool dropdown.
+- **Expected:** Step 1: the result window says the library is in the project's tools folder. Step 2: the project reloads. Step 3: the dropdown lists the tools of `fusion/shop` (`t1-6-mm-flat`, `t2-1-4-in-ball`).
+- [ ] Pass
+
+### UAT-TLS-14 A library outside the project
+
+- **Preconditions:** a project open.
+- **Steps:**
+  1. Import `shop.json` and save the library in a folder that is not the project's `tools` folder.
+- **Expected:** The result window says that a project cannot refer to a library in another folder yet. There is no reload button.
 - [ ] Pass

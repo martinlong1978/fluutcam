@@ -16,6 +16,7 @@ mod inspector;
 mod project;
 mod ribbon;
 mod simulation;
+mod tool_import;
 mod updates;
 mod viewport;
 
@@ -95,6 +96,8 @@ pub struct UiState {
     pub new_project: Option<(PathBuf, DisplayUnit)>,
     /// An Open or New waiting for the answer to "discard changes?".
     pub pending: Option<project::Pending>,
+    /// The tool library import (D16 §10.2).
+    pub tool_import: crate::vm::tool_import::ToolImport,
     /// The "Getting started" card.
     pub guide: GuideState,
 }
@@ -122,6 +125,7 @@ impl Default for UiState {
             pick: None,
             new_project: None,
             pending: None,
+            tool_import: Default::default(),
             guide: GuideState::default(),
         }
     }
@@ -267,8 +271,15 @@ impl FluutApp {
         self.ui.guide.observe(self.jobs.last.as_ref());
         self.keep_pick(ui.ctx());
         if let Some(p) = self.dialogs.poll() {
-            project::picked(&mut self.jobs, &mut self.ui, p);
+            use crate::dialogs::DialogKind as K;
+            match p.kind {
+                K::ImportToolsSource | K::ImportToolsTarget => {
+                    tool_import::picked(ui.ctx(), &self.jobs, &mut self.ui, &mut self.dialogs, p)
+                }
+                _ => project::picked(&mut self.jobs, &mut self.ui, p),
+            }
         }
+        tool_import::tick(ui.ctx(), &mut self.ui, &self.dialogs);
         if self.bench.timing_frames() && !self.bench_ready && !self.jobs.is_busy() {
             // Time frames with the toolpaths on screen: calculate first, and
             // with `FLUUT_BENCH_SIM` simulate the first Setup too.
@@ -349,6 +360,7 @@ impl FluutApp {
             });
         project::units_prompt(ui.ctx(), &mut self.jobs, &mut self.ui);
         project::discard_prompt(ui.ctx(), &mut self.jobs, &mut self.ui);
+        tool_import::show(ui.ctx(), &mut self.jobs, &mut self.ui);
         guide::show(
             ui.ctx(),
             &mut self.jobs,

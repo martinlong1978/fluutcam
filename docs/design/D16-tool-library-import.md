@@ -337,20 +337,55 @@ the usual `warning code: message` form, and one summary line to the output strea
 commands with `--tools`.
 
 The command is a thin wrapper over `fluut_post_import::fusion::import(bytes, &ImportOptions)`,
-which returns the library text, the warnings and the report. The GUI calls the same function.
+which returns the library text, the warnings and the report. The GUI calls the same function (§10.2).
 
-### 10.2 GUI (designed, not built)
+### 10.2 GUI (built 2026-11-11)
 
-The ribbon's **Library** group has a **Tools** button, greyed out until the library browser
-exists (Known limits). When it is built, its menu gets **Import tools...**. The command opens
-the system's **native file dialog** (S 08, the same helper as **Import model**), filtered to
-`.json` (later `.vtdb`). **There is no text box for a path anywhere in the ribbon.** After
-the dialog, a second native **Save** dialog asks where to put the library (default: the
-project's `tools/` folder), then a modal summary lists the counts and the warnings with their
-codes. The import runs on a worker thread, because 32 MiB can take a moment, and the main thread
-only shows the result. The menu entry is not added in this change: the Library commands are
-greyed out, an enabled lone entry would be the first item of an unbuilt menu, and `fluut-app` is
-under work by another change.
+The ribbon's **Library** group has an **Import tools...** command, first in the group, enabled
+when no job runs (a project is not needed). The Tools, Machines and Posts buttons beside it stay
+greyed out until the library browser exists (Known limits), so the entry is a command of its own
+and not an item of the unbuilt **Tools** menu. The command opens the system's **native file
+dialog** (S 08, the `Dialogs` helper of **Import model**, kind `ImportToolsSource`) with filters
+for `.json` and `.vtdb`. **There is no text box for a path anywhere in the ribbon.** A `.vtdb`
+(or any other extension) is answered at once in the result window with
+`import.format.unsupported`, and no second dialog opens. Otherwise a second native **Save**
+dialog (`ImportToolsTarget`) asks where to put the library, offering the input's name with
+`.toml` and starting in the project's `tools/` folder (else the project's folder). `.toml` is
+added to a name without an extension.
+
+The import runs on its own worker thread (`vm::tool_import`): it reads the file with the same
+32 MiB cap as the CLI, calls `fluut_post_import::fusion::import` with the id `fusion/<slug of
+the file stem>` and the stem as name (the same defaults as the CLI), and writes the file. The
+frame polls the worker and repaints while it runs; a small window says so. The result window
+shows the library id, the counts (read, written, skipped, source keys not used with a
+collapsible list) and every warning with its code and severity, or, when nothing was written,
+`Nothing was imported.` and the errors.
+
+**Writing rules.** An import always makes a new file. The app cannot see the system dialog's own
+"replace?" question, so it relies on it: a real Save dialog asks before it returns an existing
+file, and the import then replaces it. Scripted dialogs (tests) do not confirm unless told to
+(`Dialogs::script_confirms_overwrite`); an existing target that was not confirmed is refused with
+`import.output.exists`, and the file is created with `create_new` so a file that appears
+meanwhile is not replaced either. The library can never replace its own source
+(`import.output.is_input`). A failed import writes nothing. Cancelling either dialog does nothing.
+
+**Using the library.** A project does not name its tool libraries: the session loads
+`<project folder>/tools/*.toml` when the project is opened, and `--tools` adds files on the
+command line (`Library::load_tools_file`). There is no operation that adds a library to an open
+session and no project field that points at a library file. So the result window offers, when
+the new file is directly in the open project's `tools/` folder, **Reload project to use it**,
+which opens the project again through the existing Open path (it asks first about unsaved
+changes). For a library saved elsewhere, or with no project open, it says how to use it
+instead. A project reference to a library in another folder (and a live "add library" edit) is
+not built; it needs a design of its own (a `tool_libraries` field in the project format, S 02).
+Known limits say so.
+
+Tests: view-model tests in `vm/tool_import/tests.rs` (the importer on the fixture, counts text,
+overwrite, own source, `.vtdb` and other formats, bad JSON, missing file, unwritable target,
+the phases) and window tests with scripted dialogs in `ui/tests/tool_import.rs` (happy path,
+cancel at each dialog, `.vtdb`, bad JSON, overwrite with and without the dialog's confirmation,
+reload with the library in the project's `tools/` folder, a library elsewhere, the command
+disabled while a job runs). UAT: UAT-TLS-09 to 14. Screenshot: `import-tools-result.png`.
 
 ## 11. Layering
 

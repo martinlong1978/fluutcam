@@ -35,6 +35,7 @@ ribbon-simulate = Simulate
 ribbon-step-back = Step back
 ribbon-play-pause = Play or pause
 ribbon-step-forward = Step forward
+ribbon-import-tools = Import tools…
 ribbon-library-tools = Tools
 ribbon-library-machines = Machines
 ribbon-library-posts = Posts

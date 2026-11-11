@@ -18,6 +18,7 @@ fluut-i18n.workspace = true
 fluut-model.workspace = true
 fluut-path.workspace = true
 fluut-post.workspace = true
+fluut-post-import.workspace = true
 fluut-topo.workspace = true
 glam = { workspace = true, features = ["bytemuck"] }
 bytemuck = { version = "1", features = ["derive"] }

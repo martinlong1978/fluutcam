@@ -73,6 +73,7 @@ fn ids_are_pinned_and_unique() {
         (Command::StepForward, "simulation.step_forward"),
         (Command::Post, "post.all"),
         (Command::Cancel, "job.cancel"),
+        (Command::ImportTools, "library.import_tools"),
         (Command::LibraryTools, "library.tools"),
         (Command::LibraryMachines, "library.machines"),
         (Command::LibraryPosts, "library.posts"),
@@ -151,6 +152,7 @@ fn stages_hold_their_commands() {
     assert_eq!(
         ids(&vm(&j, Stage::Library)),
         [
+            "library.import_tools",
             "library.tools",
             "library.machines",
             "library.posts",

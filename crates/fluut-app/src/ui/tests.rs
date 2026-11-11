@@ -14,6 +14,7 @@ use std::time::Duration;
 mod editing;
 mod guide;
 mod setup_edit;
+mod tool_import;
 
 /// The app is built on the first frame, from the harness's context.
 type State = Option<FluutApp>;
@@ -237,7 +238,7 @@ fn each_stage_renders_its_commands_in_both_themes() {
             &["Simulate", "Play or pause", "Step back", "Step forward"],
         ),
         ("POST", &["Post"]),
-        ("LIBRARY", &["Tools", "Machines", "Posts"]),
+        ("LIBRARY", &["Import tools…", "Tools", "Machines", "Posts"]),
     ];
     let mut h = harness();
     h.step();
@@ -288,18 +289,19 @@ fn commands_that_need_a_project_are_disabled_without_one() {
     for l in ["New 3-axis Setup", "New Rotary Setup", "Stock", "Work zero"] {
         assert!(!enabled(&h, l), "{l}");
     }
-    // Only the Library has no operations yet.
+    // The library browser is not built yet; the import needs no project.
     stage(&mut h, "LIBRARY");
     for l in ["Tools", "Machines", "Posts"] {
         assert!(!enabled(&h, l), "{l}");
     }
+    assert!(enabled(&h, "Import tools…"));
 }
 
 #[test]
 fn the_ribbon_has_no_path_fields() {
     let mut h = harness();
     h.run_steps(2);
-    for st in ["MODEL", "POST"] {
+    for st in ["MODEL", "POST", "LIBRARY"] {
         stage(&mut h, st);
         assert!(
             h.query_all_by_role(egui::accesskit::Role::TextInput)

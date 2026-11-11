@@ -13,6 +13,7 @@ pub mod playback;
 pub mod ribbon;
 pub mod setup;
 pub mod status;
+pub mod tool_import;
 pub mod tree;
 pub mod visible;
 

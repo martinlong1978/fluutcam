@@ -7,7 +7,7 @@
 **Architecture:**
 - `fluut-post-import` (new crate, layer 5, depends on `fluut-model` and `serde_json`): `fusion::import(bytes, &ImportOptions) -> Result<ImportResult, Vec<Diagnostic>>`, `limits`, a TOML writer. Static and bounded; no code is run.
 - `fluut-cli`: `fluut tools import <file> -o <library.toml> [--id] [--name] [--force]` in `tools_cmd.rs`.
-- `fluut-app`: unchanged. The GUI entry (native file dialogs under the greyed **Library** button) is designed in D16 §10.2 and not built.
+- `fluut-app`: unchanged by tasks 1 to 4. The GUI entry (native file dialogs in the Library group) is built in the GUI section below (D16 §10.2).
 
 **Tech Stack:** as M7. No new dependencies (`serde_json` was already in the workspace).
 
@@ -51,7 +51,20 @@ All earlier Global Constraints apply. In addition:
 
 ## Not done
 
-- The GUI **Import tools...** entry (D16 §10.2).
 - Vectric `.vtdb` (D16 §7.3: needs the table and column names from a user's own file).
 - Verification against a real Fusion file (CH-26): the key table is from public structure and the documented `tool` properties, not an official schema.
 - A tool-by-tool merge into an existing library.
+
+## GUI entry (2026-11-11)
+
+Branch `tool-import-gui`. Design: [D16 §10.2](../design/D16-tool-library-import.md). Prototype GUI work, so it follows the app's own view-model, dialog and job conventions (D13).
+
+- [x] **Step 1: ribbon.** `Command::ImportTools` (`library.import_tools`, label "Import tools...", new icon `import-tools.svg` in the existing style) first in the Library group; enabled when no job runs. `fluut-app` depends on `fluut-post-import` (layer 5, allowed by `check-layers`). No path text box (checked by a window test).
+- [x] **Step 2: dialogs.** Two new `DialogKind`s, `ImportToolsSource` (filters `.json` and `.vtdb`) and `ImportToolsTarget` (Save, `.toml`), through the existing `Dialogs` so tests script them. `Dialogs::confirms_overwrite` is true for the system dialogs and false for scripted ones unless `script_confirms_overwrite(true)`.
+- [x] **Step 3: import.** `vm::tool_import`: format check (`.vtdb` and other extensions give `import.format.unsupported`, no second dialog), the importer on its own worker thread (not the project job system: it changes no document and must not block Cancel or Save), `create_new` unless the dialog confirmed replacing, never over its own input.
+- [x] **Step 4: result.** A window with the library id, counts (read, written, skipped, keys not used), a list of the unused keys and every warning with its code. Errors: `Nothing was imported.` and the errors.
+- [x] **Step 5: use in the project.** The project model has no reference to a tool library: libraries load from `<project>/tools/*.toml` when the project is opened. So: a library saved there gets **Reload project to use it** (the existing Open path, with its unsaved-changes question); otherwise the window says it cannot be used by a project yet. Recorded in Known limits.
+- [x] **Step 6: tests.** 11 view-model tests, 9 window tests (scripted dialogs on `fusion-sample.json`: happy path, cancel at each dialog, `.vtdb`, bad JSON, overwrite, reload, library elsewhere, disabled during a job); ribbon and icon tests updated.
+- [x] **Step 7: docs.** `Import-Tools` (window steps first, command line second), `UAT-Tools` (UAT-TLS-09 to 14), `Known-Limits`, `Interface-Tour`, `Tools`, `UAT`, D16 §10.2, screenshot `import-tools-result.png` (`cargo xtask screenshots`, new picture only).
+
+**Not done:** a project field that names a tool library file (so a library outside `tools/` could be used, and a live "add library" without reload); import of `.vtdb`; the tool library browser. A real-platform check of the system Save dialog's replace question (it is relied on, not observed).
