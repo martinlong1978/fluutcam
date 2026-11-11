@@ -3,7 +3,8 @@
 //! `fluutcam [project.fluut]`: the FluutCAM desktop application.
 //!
 //! `FLUUT_BENCH=<frames>` and `FLUUT_STARTUP=1` measure frame time and
-//! startup (see `fluut_app::bench`).
+//! startup (see `fluut_app::bench`); `FLUUT_BENCH_SIM=1` simulates the first
+//! Setup and `FLUUT_NO_VSYNC=1` presents without vsync for those runs.
 
 use eframe::egui;
 use fluut_app::updates::Updates;
@@ -15,7 +16,7 @@ fn main() -> eframe::Result {
     let t0 = Instant::now();
     crash_reports();
     let open = std::env::args_os().nth(1).map(PathBuf::from);
-    let options = eframe::NativeOptions {
+    let mut options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title(text::tr("app-title"))
             .with_app_id("fluutcam")
@@ -23,6 +24,9 @@ fn main() -> eframe::Result {
             .with_icon(brand::icon_data()),
         ..Default::default()
     };
+    if fluut_app::bench::no_vsync() {
+        options.wgpu_options.surface.present_mode = wgpu::PresentMode::AutoNoVsync;
+    }
     eframe::run_native(
         "fluutcam",
         options,

@@ -151,6 +151,8 @@ the pass preview updates live [S 08 §8.4].
 | Pick latency | ≤ 1 frame |
 | Cold start to interactive | ≤ 2 s |
 
+Measured on a Radeon Pro W5700 (Vulkan, Windows 11, release build; [GPU frame times](../plan/2026-11-11-gpu-frame-times.md)): the renderer alone at 1280 × 800 with 2 M toolpath segments on a 31 k-triangle model takes 1.0 ms p50 / 1.2 ms p95; a 1 M-segment result takes 28 ms to build (on the worker) and 21 ms to upload; a pick takes 1.3 ms; startup to the second frame is about 0.5 s with vsync. The 50 k-face case is not measured (the reference models have 8–31 k triangles).
+
 ## 6. Widget layer (`egui`)
 
 `egui` with `egui_dock`, through `eframe` on `wgpu` (OQ-09; [S4 report](../plan/spikes/s4-ui-toolkit.md)).
