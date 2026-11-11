@@ -12,6 +12,8 @@ use crate::session::Snapshot;
 use crate::vm::handles::{
     HandleKind, dragged_value, handles, nearest_target, value_edit, zero_edit, zero_targets,
 };
+
+mod dial;
 use crate::vm::inspector::num_text;
 use eframe::egui::{self, Pos2, Rect, Sense, Stroke, Vec2};
 use fluut_model::FieldKind;
@@ -38,6 +40,7 @@ fn id_of(kind: HandleKind) -> usize {
         HandleKind::Size(i) => i + 4,
         HandleKind::Radius => 7,
         HandleKind::Length => 8,
+        HandleKind::Dial => 9,
     }
 }
 
@@ -71,6 +74,10 @@ pub fn overlay(
             continue;
         };
         vs.handle_marks.push((h.kind, at));
+        if h.kind == HandleKind::Dial {
+            dial::overlay(ui, jobs, vs, snap, setup, rect, &h);
+            continue;
+        }
         let mine = vs
             .handle_drag
             .as_ref()

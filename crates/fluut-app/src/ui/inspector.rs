@@ -115,6 +115,11 @@ fn setup_row(
                 let help = tr("inspector-entry-help");
                 commit = entry(ui, state, &path, &r.value, *unit, label.id, &help);
             }
+            RowWidget::Action => {
+                if ui.button(&r.value).clicked() {
+                    commit = Some("true".to_owned());
+                }
+            }
             RowWidget::Check => {
                 let mut on = r.value == "true";
                 if ui.checkbox(&mut on, &r.label).changed() {
