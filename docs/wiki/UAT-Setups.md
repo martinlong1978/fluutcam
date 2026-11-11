@@ -312,7 +312,7 @@ Tests of adding and editing Setups and basing one on another. Part of the [user 
 - **Steps:**
   1. Change **Type** under **Stock** to "Block, fixed size".
   2. Click **Pick** in the **Bodies** group.
-- **Expected:** With a fixed-size block, the ring and three orange squares show (see UAT-SET-37). Pick mode hides every handle. Esc brings them back. For a rotary Setup the ring snaps to the two ends of the stock on the axis, and the stock has a radius and a length square (see UAT-SET-38).
+- **Expected:** With a fixed-size block, the ring and three orange squares show (see UAT-SET-37). Pick mode hides every handle. Esc brings them back. For a rotary Setup the ring snaps to the two ends of the stock on the axis, and the stock has a radius and a length square (see UAT-SET-38). An indexed Setup also draws the index angle ring and its pointer (see UAT-SET-49).
 - [ ] Pass
 
 ### UAT-SET-34 A chuck raises the turn
@@ -411,4 +411,94 @@ Tests of adding and editing Setups and basing one on another. Part of the [user 
   3. Look at the stock outline in the viewport.
   4. Click **Pick** beside the body list and click a curve of the other body.
 - **Expected:** After step 2 the row below shows the body POCKET (a body the Setup does not machine). The stock outline is a cylinder centred on the rotary axis, as long as the POCKET drawing along the axis and as wide as its farthest point from the axis (the bounding cylinder of the body). The Setup shows no error. After step 4 the stock body is the other one. Changing the kind of the Setup to Indexed gives a block the size of the body instead.
+- [ ] Pass
+
+### UAT-SET-44 Add, edit and remove fixtures in the inspector
+
+- **Preconditions:** A copy of `flipside` (two indexed Setups) open, and Setup `s1` ("Top") selected. Scroll the inspector to **Fixtures** after **Clearance**. **In use** says "None".
+- **Steps:**
+  1. Open the **Add** list and choose Chuck. Look at the viewport.
+  2. Type `75` in **Diameter** under "Chuck 1" and press Enter.
+  3. Choose Tailstock, then Clamp, in **Add**.
+  4. Type `0` in the chuck's **Length** and press Enter.
+  5. Click **Remove** beside "Chuck 1".
+  6. Click **Remove all fixtures**.
+  7. Click **Undo** until the list is back to the start.
+- **Expected:** After step 1 **In use** says "1 fixture", "Chuck 1" shows **Diameter** and **Length**, and a blue drum outline appears against the start of the stock (its low X end). After step 2 the drum is 75 mm wide. After step 3 "Tailstock 2" shows **Diameter**, **Length** and an empty **Tip diameter** (a cylinder at the end of the stock) and "Clamp 3" shows **Min X** to **Max Z** (a box beside the stock); **In use** says "3 fixtures". Step 4 is refused with "Must be above 0." under the row and nothing changes. After step 5 the list is Tailstock 1 and Clamp 2 (the numbers follow the order). After step 6 **In use** says "None". Each of steps 1, 2, 3 (twice), 5 and 6 is one undo step; step 7 takes them back one at a time and a saved file has no `fixtures` line at the end.
+- [ ] Pass
+
+### UAT-SET-45 Fixture entries are checked
+
+- **Preconditions:** As UAT-SET-44, with a Tailstock and a Clamp added.
+- **Steps:**
+  1. Type `-2` in the tailstock's **Tip diameter** and press Enter. Then type `0` and press Enter. Then clear the field and press Enter.
+  2. Type `0` in the tailstock's **Diameter** and press Enter.
+  3. Type a number in the clamp's **Max Y** that is below its **Min Y**, and press Enter.
+  4. Type `abc` in **Min X** and press Enter.
+- **Expected:** Step 1: `-2` is refused with "Must not be negative."; `0` is taken (a cone that ends in a point); an empty field is a plain cylinder again. Step 2 is refused with "Must be above 0.". Step 3 is refused with "Each maximum must be above its minimum.". Step 4 is refused and names the text. A refused entry changes nothing, and adds no undo step.
+- [ ] Pass
+
+### UAT-SET-46 Inherited fixtures
+
+- **Preconditions:** `flipside` open. Add a chuck and a tailstock to Setup `s1` ("Top"). Select Setup `s2` ("Bottom", based on `s1`).
+- **Steps:**
+  1. Look at **Fixtures** for `s2`.
+  2. Type a new **Length** for the chuck and press Enter.
+  3. Click **Reset to inherited** under **In use**.
+  4. Click **Remove all fixtures**.
+  5. Click **Reset to inherited** again, then **Make a local copy**.
+  6. Select `s1` and look at **Fixtures**.
+- **Expected:** Step 1: **In use** says "2 fixtures" with "Inherited from Top", the two fixtures are listed, and the viewport draws them. Step 2 gives `s2` its own list with the new length; "Inherited from" goes and **Reset to inherited** shows. Step 3 brings back the parent's list and "Inherited from Top". Step 4 makes `s2` have no fixtures (**In use** says "None", the viewport shows none) while `s1` keeps its two. After step 5 the list is `s2`'s own copy, equal to `s1`'s, and **Make a local copy** is gone. `s1` has no "Inherited from" line and no **Make a local copy**.
+- [ ] Pass
+
+### UAT-SET-47 No Fixtures group in a 3-axis Setup
+
+- **Preconditions:** A copy of `block`. Close the project in FluutCAM. In a text editor add `fixtures = [{ kind = "chuck", diameter = 50, length = 20 }]` to the Setup, and open the project.
+- **Steps:**
+  1. Select the Setup and look through the inspector.
+  2. Look at the viewport.
+- **Expected:** The inspector has no **Fixtures** group and no **Add** list; the Setup shows the warning that fixtures turn with the rotary axis and a 3-axis Setup has none (`setup.fixtures.ignored`). The viewport draws no fixture. Changing **Kind** to Indexed or Rotary (with a machine that has a rotary axis) shows the group, and the chuck.
+- [ ] Pass
+
+### UAT-SET-48 Fixtures follow the index angle in the viewport
+
+- **Preconditions:** `flipside` open, Setup `s1` selected, with a clamp added (UAT-SET-44).
+- **Steps:**
+  1. Note where the clamp box is, then set **Index angle** to `90`.
+  2. Set it to `180`, then select `s2`.
+- **Expected:** The clamp starts on the +Y side of the stock (at A = 0). At 90 degrees it has turned up to the +Z side, the way the part turned. At 180 degrees it is on the -Y side. `s2` (its angle is 180 degrees, based on `s1`) shows it on the -Y side as well. The chuck and tailstock do not move: they turn about their own axis.
+- [ ] Pass
+
+### UAT-SET-49 Drag the index angle dial
+
+- **Preconditions:** `flipside` open, Setup `s1` (index angle 0) selected, the viewport showing the part from above at an angle. The ring round the rotary axis with its marks 0, 90, 180 and 270 is drawn at the start of the stock, and the orange pointer is at the 0 mark.
+- **Steps:**
+  1. Drag the pointer along the ring to the 90 mark and let go. Look at **Index angle**.
+  2. Click **Undo**.
+  3. Drag the pointer to about a quarter of the way between the 0 and 90 marks, watching the number beside the pointer. Let go.
+  4. Click **Undo**. Drag the pointer past the 180 mark to about 200 degrees and let go.
+  5. Click **Undo**. Drag the pointer a little way and back to where it started, and let go.
+- **Expected:** While you drag, the pointer follows the cursor round the ring and the angle shows beside it; the part does not turn yet. After step 1 **Index angle** is 90, the part has turned (its +Z side now faces -Y) and the pointer is at the 90 mark. Step 2 returns it to 0 in one undo step. After step 3 the angle is 22.5 rounded to 20 or 25 degrees (a step of 5). After step 4 the angle is about 200, not a negative number. After step 5 nothing changes and there is no new undo step.
+- [ ] Pass
+
+### UAT-SET-50 The dial snaps, from any view
+
+- **Preconditions:** As UAT-SET-49.
+- **Steps:**
+  1. Drag the pointer to near the 180 mark, a little short of it (within 2 degrees), holding Alt, and let go.
+  2. Click **Undo**. Drag to about 47 degrees holding Shift, and let go.
+  3. Click **Undo**. Orbit the view to look along the rotary axis, and drag the pointer to 270 degrees.
+  4. Click **Undo**. Orbit the view so you look at the ring edge on (a line), and drag the pointer along the line.
+- **Expected:** Step 1 gives exactly 180 although Alt turns the steps off (the pointer is near a quarter). Step 2 gives 47 (steps of 1 degree). Step 3 gives 270; the pointer follows the cursor as you look straight at the ring. In step 4 the pointer moves up and down the line with the cursor, on one side of the axis at a time, and does not jump to the other side when the cursor crosses the middle of the line; the angle it gives is always a multiple of 5. Each drag is one undo step.
+- [ ] Pass
+
+### UAT-SET-51 The dial for a relative angle and its absence elsewhere
+
+- **Preconditions:** A copy of `flipside`. Close the project in FluutCAM. In a text editor change `s2`'s `index_angle` line to `index_angle = { mode = "relative", value = 90 }`, and open the project.
+- **Steps:**
+  1. Select `s2`. Note **Index angle** and where the pointer is.
+  2. Drag the pointer to the 270 mark and let go.
+  3. Save the project and look at the `index_angle` line of `s2` in a text editor.
+  4. Select `s1` (index angle 0), then a Setup of a 3-axis project and one of a rotary project.
+- **Expected:** Step 1: **Index angle** shows 90 and the pointer is at the 90 mark (the angle after adding the parent's 0). After step 2 the pointer is at 270, and the saved line is `index_angle = { mode = "relative", value = -90 }` (270 relative to the parent's 0, written in the range -180 to 180). In step 4 the 3-axis and the rotary Setups draw no ring and no pointer.
 - [ ] Pass

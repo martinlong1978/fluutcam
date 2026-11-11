@@ -32,7 +32,8 @@ Select a Setup in the Browser and use its inspector. The lists offer only choice
 - **Work zero.** A 3-axis Setup offers the four top corners, the centre of the top, the four bottom corners, and a point on the model. A rotary or indexed Setup offers the left end, the right end, or a position along the axis.
 - **Inherited values.** A value that a based-on Setup takes from its parent shows "Inherited from" and the parent's name. Edit it to make it the Setup's own. **Reset to inherited** takes the parent's value back.
 
-- **Handles.** Drag the work zero, the block margins or size, and a cylinder's radius and length on the model. The work zero also snaps to the model's vertices and the centres of its arcs and circles. See [Add a Setup](Add-a-Setup).
+- **Fixtures.** A rotary or indexed Setup has a **Fixtures** group: add a chuck, a tailstock or a clamp, and edit or remove each one. See [Fixtures](#fixtures) below.
+- **Handles.** Drag the work zero, the block margins or size, a cylinder's radius and length, and the index angle of an indexed Setup on the model. The work zero also snaps to the model's vertices and the centres of its arcs and circles. See [Add a Setup](Add-a-Setup).
 
 Lengths follow the project unit. Each change is one undo step.
 
@@ -98,7 +99,23 @@ Rotary and indexed zeros always lie on the rotary axis in Y and Z. Putting the z
 
 ## Fixtures
 
-A rotary or indexed Setup can list the **fixtures that turn with the part**, so that the tool rises high enough before the part turns. There is no field for them in the window yet: write them in the project file (or set `fixtures` from a script). Sizes are in millimetres. The X positions are in the Setup's work frame, where X runs along the rotary axis from the work zero.
+A rotary or indexed Setup can list the **fixtures that turn with the part**, so that the tool rises high enough before the part turns. Add them in the **Fixtures** group of the inspector (a 3-axis Setup does not show the group), or write them in the project file or set `fixtures` from a script. The X positions are in the Setup's work frame, where X runs along the rotary axis from the work zero.
+
+![The Fixtures group, the fixtures drawn as wire frames and the index angle dial](images/setup-fixtures.png)
+
+**In the window.** The group starts with **In use** (how many fixtures, and where the list comes from), the **Add** list (Chuck, Tailstock, Clamp) and **Remove all fixtures**. Below come the fixtures in order, each with a **Remove** button and its fields, in the project unit:
+
+- Chuck: **Diameter** and **Length**.
+- Tailstock: **Diameter**, **Length** and **Tip diameter** (leave it empty for a plain cylinder).
+- Clamp: **Min X**, **Min Y**, **Min Z** and **Max X**, **Max Y**, **Max Z**, the two corners of the box at A = 0.
+
+A new fixture starts with a size that fits the stock and does not touch it: a chuck three times the stock's radius wide and 40 % of its length long, a tailstock the stock's radius wide, and a clamp beside the stock on the +Y side. Change the numbers to match your fixture. An entry is checked as the project file is: sizes must be above 0, the tip diameter must not be negative, and each maximum of a clamp must be above its minimum; a refused entry shows the reason under the row and changes nothing. Each add, remove and edit is one undo step.
+
+The list is inherited as a whole. In a Setup based on another that has no list of its own, **In use** says "Inherited from" and the parent's name and shows the parent's fixtures. Editing any of them, or clicking **Make a local copy**, gives the Setup its own copy; **Remove all fixtures** gives it an empty list, which overrides the parent's. **Reset to inherited** takes the parent's list back.
+
+The viewport draws the fixtures of the selected Setup as blue wire frames in the Setup's frame, at its index angle: a drum for a chuck, a cylinder or cone for a tailstock, and a box for a clamp, which turns with the part. They are drawings for orientation, not solids; you cannot pick them.
+
+**In the file.** Sizes are in millimetres.
 
 ```toml
 fixtures = [
@@ -117,6 +134,8 @@ The tool rises to the largest distance from the axis of the stock, the part and 
 ## Index angle
 
 An indexed Setup turns the part to an angle and locks it: `index_angle = { mode = "absolute", value = 180 }`. A `relative` angle adds to the parent Setup's angle: `{ mode = "relative", value = 90 }`. At the start of the Setup the program turns the A axis, after lifting the tool clear of the stock.
+
+In the window, type the angle in **Index angle**, or drag the **dial** on the model: a ring round the rotary axis at the start of the stock, with an orange pointer where the part's own +Z direction is. Drag the pointer round the ring and the angle follows your cursor, in steps of 5 degrees; hold Shift for steps of 1 degree, or Alt for no steps. Near 0, 90, 180 and 270 degrees the pointer always takes the exact angle. Nothing changes until you let go, and then the change is one undo step. For a relative angle the dial shows and sets the resulting angle, and writes it relative to the parent's. See [Add a Setup](Add-a-Setup).
 
 ## Based on another Setup
 

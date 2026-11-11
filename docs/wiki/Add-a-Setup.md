@@ -130,11 +130,17 @@ Select a Setup and the viewport draws handles on it. Drag one and let go. Nothin
 - **Block size.** The same three squares on a block of a fixed size change **Size X**, **Size Y** and **Size Z**. The block is centred on the model in X and Y, so dragging the +X or +Y square 3 mm grows the size by 6 mm (both sides move); the top square changes the height by what you drag.
 - **Cylinder stock.** In a rotary or indexed Setup with cylinder stock, a square on top of the cylinder changes the **Radius**, and a square at its right end changes the **Length**. The cylinder is centred on the model, so both ends move: dragging the end 4 mm changes the length by 8 mm.
 
+- **Index angle dial.** An indexed Setup also draws a ring round the rotary axis, at the start of the stock, with marks at 0, 90, 180 and 270 degrees and an orange round pointer. The pointer sits where the part's own +Z direction is after the turn, so it moves the way the part does. Drag the pointer round the ring: it follows the cursor, found where the ring's plane lies under the pointer, so it works from any viewing angle. When you look along the plane and the ring is a line, it follows the nearest point of the ring on the screen instead, and keeps to the side you were on. The angle snaps to steps of 5 degrees; hold Shift for 1 degree, or Alt to turn freely. In every mode it takes 0, 90, 180 and 270 exactly when within 2 degrees. The angle shows beside the pointer. Let go and **Index angle** changes in one undo step; a drag that ends where it began changes nothing.
+
 Handles hide while you pick on the model.
+
+## Fixtures
+
+A rotary or indexed Setup has a **Fixtures** group in the inspector, after **Clearance**: **Add** a chuck, a tailstock or a clamp, edit their sizes, and **Remove** one or all. The viewport draws them as blue wire frames. See [Setups, stock and zero](Setups-Stock-and-Zero#fixtures).
 
 ## What you cannot do in the window yet
 
-Not yet: a dial for the index angle. See [Known limits](Known-Limits).
+Not yet: shaded solid fixtures, picking a fixture on the model, or dragging one with a handle. See [Known limits](Known-Limits).
 
 ## Next
 

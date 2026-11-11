@@ -84,7 +84,7 @@ Direct-manipulation controls in the viewport, shown only when relevant to the se
 | Stock (block) | Face handles drag margins; dimensions shown live |
 | Stock (cylinder) | Radius and length handles along the rotary axis |
 | Work zero | Triad gizmo; snaps to stock corners/centres, vertices, arc centres (03 §3.9.3); Y/Z locked to the rotary axis in rotary and indexed Setups |
-| Rotary axis / index angle | Ring dial around the rotary axis; drag or type an angle; snap to 15° and to face normals |
+| Rotary axis / index angle | Ring dial around the rotary axis of an indexed Setup; drag or type an angle; snaps to 5° steps (Shift 1°, Alt free) and to 0, 90, 180 and 270°; face normals not yet |
 | Drive / check faces | Click faces to add; selection chips appear in the inspector; hover highlights face, edge or body by filter |
 | Boundary | Drag curve vertices or offset handle |
 | Contour tabs | Drag tab markers along the contour; add with click (04 §4.13.7) |
