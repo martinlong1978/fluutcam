@@ -1,0 +1,81 @@
+{
+  "data": [
+    {
+      "type": "flat end mill",
+      "description": "6 mm flat",
+      "unit": "millimeters",
+      "vendor": "Example Tools",
+      "guid": "00000000-0000-0000-0000-000000000001",
+      "geometry": { "DC": 6, "LCF": 22, "OAL": 60, "SFDM": 6, "NOF": 2, "RE": 0 },
+      "post-process": { "number": 1, "diameter-offset": 1, "length-offset": 1 },
+      "holder": {
+        "unit": "millimeters",
+        "segments": [
+          { "height": 10, "lower-diameter": 20, "upper-diameter": 30 },
+          { "height": 30, "lower-diameter": 30, "upper-diameter": 30 }
+        ]
+      },
+      "start-values": {
+        "presets": [
+          { "name": "MDF", "n": 18000, "v_f": 2000, "v_f_plunge": 600, "stepover": 2.4, "stepdown": 3, "f_z": 0.05 },
+          { "name": "Aluminium", "n": 9000, "v_f": 800 }
+        ]
+      }
+    },
+    {
+      "type": "ball end mill",
+      "description": "1/4 in ball",
+      "unit": "inches",
+      "geometry": { "DC": 0.25, "LCF": 0.75, "OAL": 2.5, "SFDM": 0.25 },
+      "post-process": { "number": 2 },
+      "start-values": { "presets": [ { "name": "Plastic", "n": 12000, "v_f": 40 } ] }
+    },
+    {
+      "type": "bull nose end mill",
+      "description": "Bull 10",
+      "unit": "millimeters",
+      "geometry": { "DC": 10, "RE": 1, "OAL": 70 },
+      "post-process": { "number": 3 }
+    },
+    {
+      "type": "chamfer mill",
+      "description": "60 degree V",
+      "unit": "millimeters",
+      "geometry": { "DC": 12, "TA": 30, "tip-diameter": 0.2, "OAL": 45 },
+      "post-process": { "number": 4 }
+    },
+    {
+      "type": "drill",
+      "description": "5 mm drill",
+      "unit": "millimeters",
+      "geometry": { "DC": 5, "SIG": 135, "OAL": 80 },
+      "post-process": { "number": 5 }
+    },
+    {
+      "type": "tap right hand",
+      "description": "M6 tap",
+      "unit": "millimeters",
+      "geometry": { "DC": 6, "TP": 1, "OAL": 60 },
+      "post-process": { "number": 6 }
+    },
+    {
+      "type": "holder",
+      "description": "A holder entry",
+      "unit": "millimeters"
+    },
+    {
+      "type": "flat end mill",
+      "description": "no diameter",
+      "unit": "millimeters",
+      "geometry": {}
+    },
+    {
+      "type": "flat end mill",
+      "description": "6 mm flat",
+      "unit": "millimeters",
+      "geometry": { "DC": 6 },
+      "post-process": { "number": 1 }
+    }
+  ],
+  "version": 22
+}

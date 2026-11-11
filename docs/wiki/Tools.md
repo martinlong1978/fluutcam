@@ -75,6 +75,10 @@ Then open the project. The tool appears in the **Tool** list of a toolpath's Too
 
 The command-line programs also take extra tool files with `--tools <file>`, loaded after the project's `tools/` folder. See [Command line](Command-Line).
 
+## Import from Fusion
+
+A Fusion tool library can be converted with `fluut tools import`. See [Import tools](Import-Tools).
+
 ## Not yet
 
 - Editing the tool library in the window, and picking a tool for a toolpath there.
