@@ -115,9 +115,7 @@ continuous = true
 fn freeform_is_the_same_on_any_thread_count() {
     let g = freeform();
     for (kind, groups) in types() {
-        for tool in ["b6"] {
-            same_on_all_threads(&g, &tp(kind, tool, &groups), &format!("{kind} {tool}"));
-        }
+        same_on_all_threads(&g, &tp(kind, "b6", &groups), &format!("{kind} b6"));
     }
 }
 
