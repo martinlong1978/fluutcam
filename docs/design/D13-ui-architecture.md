@@ -134,7 +134,7 @@ Each handle is an object with `hit_test`, `drag(start, current) -> Edit`, and `r
 |---|---|
 | Stock face handle | `SetSetupField(stock margins)` |
 | Work zero triad | `SetSetupField(zero)` with snapping to stock points, vertices, arc centres |
-| Rotary dial | `SetSetupField(index_angle)`; snaps 15° and face normals |
+| Rotary dial | `SetSetupField(index_angle)`; snaps 5° (Shift 1°, Alt free) and the quarters; face normals not yet |
 | Tab marker | `SetToolpathParam(tabs)` |
 | Lead-in handle | `SetToolpathParam(entry point)` |
 | Boundary vertex / offset | `SetToolpathParam(boundary)` |

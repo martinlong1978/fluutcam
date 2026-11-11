@@ -14,6 +14,7 @@
 use fluut_cam::drive::is_horizontal_plane;
 use fluut_cam::geometry::{BodyGeom, SetupGeometry, edge_id, face_id};
 use fluut_geom::{Aabb3, Curve3, Point2, Point3, Surface};
+use fluut_model::project::Fixture;
 use fluut_path::{Motion, Segment, ToolpathResult, linearize};
 use fluut_topo::BrepBody;
 use fluut_topo::trim::{loop_polyline, winding};
@@ -101,7 +102,7 @@ impl Bounds {
         self
     }
 
-    fn of(points: &[[f32; 3]]) -> Bounds {
+    pub(crate) fn of(points: &[[f32; 3]]) -> Bounds {
         let mut b = Bounds::EMPTY;
         for p in points {
             b.add(*p);
@@ -310,6 +311,96 @@ impl SetupScene {
         s.bounds = (!b.is_empty()).then_some(b);
         s
     }
+}
+
+/// The tag of the lines of fixtures in [`SetupScene::edges`].
+pub const FIXTURE_TAG: u32 = 3;
+/// Segments of a circle of a chuck or tailstock.
+const FIXTURE_SEGMENTS: usize = 48;
+/// Lines along a chuck or tailstock, between the circles.
+const FIXTURE_RIBS: usize = 8;
+
+impl SetupScene {
+    /// Adds the wire frames of a rotary or indexed Setup's `fixtures` in W:
+    /// a chuck at the start of the stock (`stock_x.0`), a tailstock at its
+    /// end, and each clamp as its box turned by the index angle `deg`, the
+    /// way the part is. They are not pickable and not in the bounds.
+    pub fn add_fixtures(&mut self, fixtures: &[Fixture], stock_x: (f64, f64), deg: f64) {
+        self.edges
+            .points
+            .extend(fixture_lines(fixtures, stock_x, deg).points);
+        self.edges.tag.resize(self.edges.points.len(), FIXTURE_TAG);
+    }
+}
+
+/// The line list (pairs of points) of the fixtures; see
+/// [`SetupScene::add_fixtures`].
+pub fn fixture_lines(fixtures: &[Fixture], stock_x: (f64, f64), deg: f64) -> Lines {
+    let mut out = Lines::default();
+    let revolved = |out: &mut Lines, x: (f64, f64), r: (f64, f64)| {
+        let ring = |x: f64, r: f64, k: usize| {
+            let a = k as f64 * std::f64::consts::TAU / FIXTURE_SEGMENTS as f64;
+            [
+                x as f32,
+                (r * libm::cos(a)) as f32,
+                (r * libm::sin(a)) as f32,
+            ]
+        };
+        for k in 0..FIXTURE_SEGMENTS {
+            out.push(ring(x.0, r.0, k), ring(x.0, r.0, k + 1), FIXTURE_TAG);
+            out.push(ring(x.1, r.1, k), ring(x.1, r.1, k + 1), FIXTURE_TAG);
+        }
+        for k in 0..FIXTURE_RIBS {
+            let k = k * FIXTURE_SEGMENTS / FIXTURE_RIBS;
+            out.push(ring(x.0, r.0, k), ring(x.1, r.1, k), FIXTURE_TAG);
+        }
+    };
+    for f in fixtures {
+        match f {
+            Fixture::Chuck { diameter, length } => {
+                let r = 0.5 * diameter.v;
+                revolved(&mut out, (stock_x.0 - length.v, stock_x.0), (r, r));
+            }
+            Fixture::Tailstock {
+                diameter,
+                length,
+                tip_diameter,
+            } => {
+                let r = 0.5 * diameter.v;
+                let tip = tip_diameter.map_or(r, |t| 0.5 * t.v);
+                revolved(&mut out, (stock_x.1, stock_x.1 + length.v), (tip, r));
+            }
+            Fixture::Clamp { min, max } => {
+                let (sn, cs) = fluut_cam::stock::sin_cos_deg(deg);
+                let corner = |i: usize| {
+                    let p = |a: usize| if i >> a & 1 == 0 { min[a].v } else { max[a].v };
+                    let (y, z) = (p(1), p(2));
+                    [
+                        p(0) as f32,
+                        (cs * y - sn * z) as f32,
+                        (sn * y + cs * z) as f32,
+                    ]
+                };
+                for (a, b) in [
+                    (0, 1),
+                    (2, 3),
+                    (4, 5),
+                    (6, 7),
+                    (0, 2),
+                    (1, 3),
+                    (4, 6),
+                    (5, 7),
+                    (0, 4),
+                    (1, 5),
+                    (2, 6),
+                    (3, 7),
+                ] {
+                    out.push(corner(a), corner(b), FIXTURE_TAG);
+                }
+            }
+        }
+    }
+    out
 }
 
 /// The vertices and circle or arc centres of the exact bodies of `g`, in
@@ -677,5 +768,52 @@ mod tests {
         assert_eq!(s.edge_ids.len(), 7);
         assert_eq!(s.edges.ranges.len(), 7);
         assert_eq!(s.edges.segment_count(), 6);
+    }
+
+    #[test]
+    fn fixtures_are_wire_frames_in_the_setup_frame() {
+        use fluut_model::params::Num;
+        let n = Num::float;
+        let list = [
+            Fixture::Chuck {
+                diameter: n(40.0),
+                length: n(30.0),
+            },
+            Fixture::Tailstock {
+                diameter: n(20.0),
+                length: n(15.0),
+                tip_diameter: Some(n(4.0)),
+            },
+            Fixture::Clamp {
+                min: [n(10.0), n(20.0), n(-5.0)],
+                max: [n(20.0), n(30.0), n(5.0)],
+            },
+        ];
+        let l = fixture_lines(&list, (0.0, 100.0), 0.0);
+        let per_revolved = FIXTURE_SEGMENTS * 2 + FIXTURE_RIBS;
+        assert_eq!(l.segment_count(), 2 * per_revolved + 12);
+        assert!(l.tag.iter().all(|t| *t == FIXTURE_TAG));
+        let b = Bounds::of(&l.points);
+        // The chuck reaches from -30 to 0 in X, the tailstock from 100 to
+        // 115, the clamp 10 to 20; nothing is wider than the chuck.
+        assert_eq!((b.min[0], b.max[0]), (-30.0, 115.0));
+        assert!((b.max[1] - 30.0).abs() < 1e-4 && (b.min[1] + 20.0).abs() < 1e-4);
+        // The tailstock narrows to its tip at the stock.
+        let near_stock: Vec<&[f32; 3]> = l.points.iter().filter(|p| p[0] == 100.0).collect();
+        let r = near_stock
+            .iter()
+            .map(|p| p[1].hypot(p[2]))
+            .fold(0.0f32, f32::max);
+        assert!((r - 2.0).abs() < 1e-4, "{r}");
+        // The clamp turns with the index angle: 90 degrees takes its
+        // y 20..30 to z -30..-20 (and z -5..5 to y 5..-5).
+        let l = fixture_lines(&list[2..], (0.0, 100.0), 90.0);
+        let b = Bounds::of(&l.points);
+        assert!((b.min[1] + 5.0).abs() < 1e-4 && (b.max[1] - 5.0).abs() < 1e-4);
+        assert!((b.min[2] - 20.0).abs() < 1e-4 && (b.max[2] - 30.0).abs() < 1e-4);
+        let mut s = SetupScene::default();
+        s.add_fixtures(&list, (0.0, 100.0), 0.0);
+        assert_eq!(s.edges.points.len(), s.edges.tag.len());
+        assert!(s.bounds.is_none(), "fixtures stay out of the bounds");
     }
 }

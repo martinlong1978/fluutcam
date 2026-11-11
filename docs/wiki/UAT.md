@@ -37,7 +37,7 @@ The tests use the ribbon: click the stage tab (Model, Setup, Toolpaths, Simulate
 | [Getting started card](UAT-Guide) | UAT-GDE | The first-project card: its seven steps, ticks that follow the project, type and tool choice, closing and reopening |
 | [Project files](UAT-Project-Files) | UAT-PRJ | New (with the unit question), open, save, save as, unsaved changes, undo and redo, the unit badge, bad project files, tool library references (UAT-PRJ-19 and 20) |
 | [Import](UAT-Import) | UAT-IMP | STEP, DXF, SVG and STL files, copying, units, bad files, no project |
-| [Setups](UAT-Setups) | UAT-SET | 3-axis, rotary, indexed, based on another, editing, inherited values, kind, bodies, body stock, orientation, scale and mirror, handles and snapping, failures |
+| [Setups](UAT-Setups) | UAT-SET | 3-axis, rotary, indexed, based on another, editing, inherited values, kind, bodies, body stock, orientation, scale and mirror, handles and snapping, fixtures, the index angle dial, failures |
 | [Toolpaths](UAT-Toolpaths) | UAT-TP | Adding, editing, tool and heights, picking on the model, Browser actions, defaults, out-of-date marks, errors and warnings, cancel |
 | [Simulation](UAT-Simulation) | UAT-SIM | Simulate, playback, colours, findings, failures |
 | [Post](UAT-Post) | UAT-PST | The three posts, the output file, the G-code, failures |

@@ -36,6 +36,8 @@ pub enum RowWidget {
     },
     /// A check box; the value is `true` or `false`.
     Check,
+    /// A button captioned with the value; a click is the entry `true`.
+    Action,
     ReadOnly,
 }
 
@@ -442,15 +444,23 @@ impl SetupVm {
         SetupVm {
             id: r.id.clone(),
             title: data(&r.name),
-            groups: vec![
-                general_group(s, r),
-                bodies_group(s, r),
-                orientation_group(s, r),
-                stock_group(s, r, unit),
-                zero_group(s, r, unit),
-                clearance_group(s, r, unit),
-                geometry_group(s, r),
-            ],
+            groups: {
+                let mut groups = vec![
+                    general_group(s, r),
+                    bodies_group(s, r),
+                    orientation_group(s, r),
+                    stock_group(s, r, unit),
+                    zero_group(s, r, unit),
+                    clearance_group(s, r, unit),
+                ];
+                // A three_axis Setup has nothing that turns (the model
+                // warns `setup.fixtures.ignored` for a list it has).
+                if r.kind.is_rotary() {
+                    groups.push(fixtures::group(s, r, unit));
+                }
+                groups.push(geometry_group(s, r));
+                groups
+            },
             info: vec![(tr("setup-toolpaths"), toolpaths.to_string())],
             diagnostics: r.diagnostics.iter().map(DiagVm::of).collect(),
         }
@@ -1010,6 +1020,7 @@ pub fn setup_edit(snap: &Snapshot, setup: &str, key: &str, text: &str) -> Result
                 None => Err(NO_FIELD.to_owned()),
             };
         }
+        "fixtures" => return fixtures::edit(snap, &r, key, text, &length),
         "scale" | "mirror" => return scale_mirror_edit(&r, key, text, &|| eval(FieldKind::Count)),
         "orientation" => {
             let role = match key {
@@ -1175,6 +1186,8 @@ fn kind_edit(snap: &Snapshot, r: &ResolvedSetup, text: &str) -> Result<Edit, Str
 pub fn reset_edit(setup: &str, field: &str) -> Edit {
     Edit::set_setup_field(setup, field, None)
 }
+
+mod fixtures;
 
 #[cfg(test)]
 mod tests;

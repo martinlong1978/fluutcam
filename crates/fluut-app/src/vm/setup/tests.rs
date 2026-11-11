@@ -630,3 +630,283 @@ fn different_scale_factors_are_shown_and_explained() {
         s.warnings
     );
 }
+
+fn fixtures_of(s: &Snapshot, id: &str) -> Option<Vec<fluut_model::project::Fixture>> {
+    s.project.setup(id).unwrap().fixtures.clone()
+}
+
+fn apply_to(j: &mut Jobs, id: &str, key: &str, text: &str) -> Arc<Snapshot> {
+    let s = j.snapshot.clone().unwrap();
+    j.edit(JobEdit::Model(setup_edit(&s, id, key, text).unwrap()));
+    j.wait_snapshot().unwrap()
+}
+
+#[test]
+fn a_three_axis_setup_has_no_fixtures_group() {
+    let j = opened("block");
+    let s = j.snapshot.clone().unwrap();
+    assert!(vm(&s, "s1").groups.iter().all(|g| g.id != "setup-fixtures"));
+    assert!(setup_edit(&s, "s1", "fixtures.add", "chuck").is_err());
+}
+
+#[test]
+fn a_rotary_setup_lists_adds_edits_and_removes_fixtures() {
+    use fluut_model::project::Fixture;
+    let mut j = opened("shaft");
+    let s = j.snapshot.clone().unwrap();
+    let id = s.project.setups[0].id.clone();
+    let v = vm(&s, &id);
+    let g = v.groups.iter().find(|g| g.id == "setup-fixtures").unwrap();
+    assert_eq!(g.rows[0].key, "fixtures");
+    assert_eq!(g.rows[0].value, "None");
+    assert_eq!(g.rows[0].origin, OriginVm::default());
+    let RowWidget::Choice(add) = &v.row("fixtures.add").unwrap().widget else {
+        panic!()
+    };
+    let kinds: Vec<&str> = add.iter().map(|(k, _)| k.as_str()).collect();
+    assert_eq!(kinds, ["", "chuck", "tailstock", "clamp"]);
+    // Nothing to remove yet.
+    assert!(v.row("fixtures.clear").is_none());
+    let before = s.clone();
+    let mut now = s;
+    for kind in ["chuck", "tailstock", "clamp"] {
+        now = apply_to(&mut j, &id, "fixtures.add", kind);
+    }
+    let list = fixtures_of(&now, &id).unwrap();
+    assert_eq!(
+        list.iter().map(Fixture::kind).collect::<Vec<_>>(),
+        ["chuck", "tailstock", "clamp"]
+    );
+    // The clamp lies beside the stock, so a rotary Setup's clearance
+    // cylinder (radius 25) is inside it: the model says so.
+    assert!(
+        now.warnings
+            .iter()
+            .any(|w| w.code == "setup.clearance.index_unsafe"),
+        "{:?}",
+        now.warnings
+    );
+    let v = vm(&now, &id);
+    assert_eq!(v.row("fixtures").unwrap().value, "3 fixtures");
+    assert_eq!(v.row("fixtures.0.remove").unwrap().label, "Chuck 1");
+    assert_eq!(v.row("fixtures.1.remove").unwrap().label, "Tailstock 2");
+    assert_eq!(v.row("fixtures.2.remove").unwrap().label, "Clamp 3");
+    assert_eq!(v.row("fixtures.1.tip_diameter").unwrap().value, "");
+    assert!(v.row("fixtures.2.max.2").is_some());
+    assert!(v.row("fixtures.clear").is_some());
+    // Fields.
+    now = apply_to(&mut j, &id, "fixtures.0.diameter", "120");
+    let Fixture::Chuck { diameter, .. } = &fixtures_of(&now, &id).unwrap()[0] else {
+        panic!()
+    };
+    assert_eq!(diameter.v, 120.0);
+    now = apply_to(&mut j, &id, "fixtures.1.tip_diameter", "8");
+    assert_eq!(
+        vm(&now, &id).row("fixtures.1.tip_diameter").unwrap().value,
+        "8"
+    );
+    now = apply_to(&mut j, &id, "fixtures.1.tip_diameter", "");
+    assert_eq!(
+        vm(&now, &id).row("fixtures.1.tip_diameter").unwrap().value,
+        ""
+    );
+    now = apply_to(&mut j, &id, "fixtures.2.max.1", "90");
+    let Fixture::Clamp { max, .. } = &fixtures_of(&now, &id).unwrap()[2] else {
+        panic!()
+    };
+    assert_eq!(max[1].v, 90.0);
+    // Remove one, then all; with nothing left the field is gone.
+    now = apply_to(&mut j, &id, "fixtures.1.remove", "true");
+    assert_eq!(
+        fixtures_of(&now, &id)
+            .unwrap()
+            .iter()
+            .map(Fixture::kind)
+            .collect::<Vec<_>>(),
+        ["chuck", "clamp"]
+    );
+    now = apply_to(&mut j, &id, "fixtures.clear", "true");
+    assert_eq!(fixtures_of(&now, &id), None);
+    assert_eq!(
+        now.project.setup(&id).unwrap(),
+        before.project.setup(&id).unwrap()
+    );
+    // Every edit was one step: nine undos reach the start.
+    for _ in 0..9 {
+        undo(&mut j);
+    }
+    assert_eq!(j.snapshot.clone().unwrap().project, before.project);
+}
+
+#[test]
+fn fixture_entries_follow_the_rules_of_the_project_file() {
+    let mut j = opened("shaft");
+    let id = j.snapshot.as_ref().unwrap().project.setups[0].id.clone();
+    for kind in ["chuck", "tailstock", "clamp"] {
+        apply_to(&mut j, &id, "fixtures.add", kind);
+    }
+    let s = j.snapshot.clone().unwrap();
+    let bad = |key: &str, text: &str| setup_edit(&s, &id, key, text).unwrap_err();
+    assert_eq!(bad("fixtures.0.diameter", "0"), "Must be above 0.");
+    assert_eq!(bad("fixtures.0.length", "-3"), "Must be above 0.");
+    assert_eq!(bad("fixtures.1.diameter", "0"), "Must be above 0.");
+    assert_eq!(
+        bad("fixtures.1.tip_diameter", "-1"),
+        "Must not be negative."
+    );
+    assert!(bad("fixtures.0.diameter", "abc").contains("abc"));
+    // A clamp's maximum stays above its minimum on every axis.
+    assert_eq!(
+        bad("fixtures.2.min.1", "500"),
+        "Each maximum must be above its minimum."
+    );
+    assert_eq!(
+        bad("fixtures.2.max.0", "-500"),
+        "Each maximum must be above its minimum."
+    );
+    // A point tip is allowed.
+    assert!(setup_edit(&s, &id, "fixtures.1.tip_diameter", "0").is_ok());
+    // Keys that are not fields.
+    for k in [
+        "fixtures.9.remove",
+        "fixtures.0.tip_diameter",
+        "fixtures.0.colour",
+        "fixtures.2.min.3",
+        "fixtures.x.length",
+        "fixtures.0",
+    ] {
+        assert_eq!(setup_edit(&s, &id, k, "1").unwrap_err(), NO_FIELD, "{k}");
+    }
+    assert_eq!(
+        setup_edit(&s, &id, "fixtures.add", "vise").unwrap_err(),
+        NO_FIELD
+    );
+    // A refused entry changed nothing.
+    assert_eq!(j.snapshot.clone().unwrap().project, s.project);
+}
+
+#[test]
+fn a_based_on_setup_shows_inherited_fixtures_and_replaces_or_resets_them() {
+    use fluut_model::project::Fixture;
+    let mut j = opened("flipside");
+    let base = j.snapshot.clone().unwrap();
+    // The parent has two fixtures; the child has none of its own.
+    apply_to(&mut j, "s1", "fixtures.add", "chuck");
+    let s = apply_to(&mut j, "s1", "fixtures.add", "tailstock");
+    assert_eq!(fixtures_of(&s, "s2"), None);
+    let v = vm(&s, "s2");
+    let head = v.row("fixtures").unwrap();
+    assert_eq!(head.value, "2 fixtures");
+    assert_eq!(head.origin.inherited.as_deref(), Some("Inherited from Top"));
+    assert_eq!(head.origin.reset, None);
+    assert!(v.row("fixtures.local").is_some());
+    // The parent shows no origin.
+    let p = vm(&s, "s1");
+    assert_eq!(p.row("fixtures").unwrap().origin, OriginVm::default());
+    assert!(p.row("fixtures.local").is_none());
+    // Editing a field of the inherited list writes the whole list to the
+    // child, with the change, and leaves the parent alone.
+    let s = apply_to(&mut j, "s2", "fixtures.0.length", "33");
+    let own = fixtures_of(&s, "s2").unwrap();
+    assert_eq!(own.len(), 2);
+    let Fixture::Chuck { length, .. } = &own[0] else {
+        panic!()
+    };
+    assert_eq!(length.v, 33.0);
+    let Fixture::Chuck { length, .. } = &fixtures_of(&s, "s1").unwrap()[0] else {
+        panic!()
+    };
+    assert_ne!(length.v, 33.0);
+    let head = vm(&s, "s2").row("fixtures").unwrap().origin.clone();
+    assert_eq!(head.inherited, None);
+    assert_eq!(head.reset, Some("fixtures"));
+    // Reset to inherited drops the child's list.
+    j.edit(JobEdit::Model(reset_edit("s2", "fixtures")));
+    let s = j.wait_snapshot().unwrap();
+    assert_eq!(fixtures_of(&s, "s2"), None);
+    // "Remove all" on the child overrides the parent's list with none.
+    let s = apply_to(&mut j, "s2", "fixtures.clear", "true");
+    assert_eq!(fixtures_of(&s, "s2"), Some(Vec::new()));
+    assert_eq!(vm(&s, "s2").row("fixtures").unwrap().value, "None");
+    assert_eq!(fixtures_of(&s, "s1").unwrap().len(), 2);
+    // A local copy is the same list, written to the child.
+    j.edit(JobEdit::Model(reset_edit("s2", "fixtures")));
+    j.wait_snapshot().unwrap();
+    let s = apply_to(&mut j, "s2", "fixtures.local", "true");
+    assert_eq!(fixtures_of(&s, "s2"), fixtures_of(&s, "s1"));
+    // All of it undoes to the start.
+    for _ in 0..7 {
+        undo(&mut j);
+    }
+    assert_eq!(j.snapshot.clone().unwrap().project, base.project);
+}
+
+fn fixture_points(s: &Snapshot, id: &str) -> usize {
+    let e = &s.scenes[id].edges;
+    e.tag
+        .iter()
+        .filter(|t| **t == crate::scene::FIXTURE_TAG)
+        .count()
+        / 2
+}
+
+#[test]
+fn fixtures_are_drawn_in_the_scene_and_follow_the_index_angle() {
+    let mut j = opened("flipside");
+    let s = j.snapshot.clone().unwrap();
+    assert_eq!(fixture_points(&s, "s1"), 0);
+    let s = apply_to(&mut j, "s1", "fixtures.add", "clamp");
+    // A clamp is a box of twelve lines; the child inherits and shows it.
+    assert_eq!(fixture_points(&s, "s1"), 12);
+    assert_eq!(fixture_points(&s, "s2"), 12);
+    let bounds = |s: &Snapshot, id: &str| {
+        let e = &s.scenes[id].edges;
+        let pts: Vec<[f32; 3]> = e
+            .points
+            .iter()
+            .zip(&e.tag)
+            .filter(|(_, t)| **t == crate::scene::FIXTURE_TAG)
+            .map(|(p, _)| *p)
+            .collect();
+        crate::scene::Bounds::of(&pts)
+    };
+    let (b1, b2) = (bounds(&s, "s1"), bounds(&s, "s2"));
+    // The box is at +Y of the stock at A = 0; at 180 degrees it is at -Y.
+    assert!(b1.min[1] > 0.0, "{b1:?}");
+    assert!(b2.max[1] < 0.0, "{b2:?}");
+    let s = apply_to(&mut j, "s1", "index_angle", "90");
+    let b = bounds(&s, "s1");
+    // The +Y side goes up to +Z, the way the part's own +Y does.
+    assert!(b.min[2] > 0.0 && b.max[1] < 20.0, "{b:?}");
+    // A chuck is a drum behind the stock's start.
+    let s = apply_to(&mut j, "s1", "fixtures.add", "chuck");
+    let stock = s.scenes["s1"].stock.unwrap();
+    assert!(bounds(&s, "s1").min[0] < stock.min[0]);
+    // Undo takes them off again.
+    undo(&mut j);
+    undo(&mut j);
+    undo(&mut j);
+    assert_eq!(fixture_points(&j.snapshot.clone().unwrap(), "s1"), 0);
+    // A three_axis Setup draws none even if its file lists some.
+    let mut j = opened("block");
+    let s = j.snapshot.clone().unwrap();
+    let e = fluut_model::edit::Edit::set_setup_field(
+        "s1",
+        "fixtures",
+        Some("[{ kind = \"chuck\", diameter = 30, length = 10 }]"),
+    );
+    j.edit(JobEdit::Model(e));
+    let s2 = j.wait_snapshot().unwrap();
+    assert_eq!(fixture_points(&s2, "s1"), 0);
+    // The Setup says why, and offers no group for them.
+    let v = vm(&s2, "s1");
+    assert!(
+        v.diagnostics
+            .iter()
+            .any(|d| d.code == "setup.fixtures.ignored"),
+        "{:?}",
+        v.diagnostics
+    );
+    assert!(v.groups.iter().all(|g| g.id != "setup-fixtures"));
+    let _ = s;
+}
