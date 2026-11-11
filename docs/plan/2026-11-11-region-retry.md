@@ -29,7 +29,9 @@ No retry was added; both growths now succeed at the first attempt.
 
 ## Results
 
-RESULTS
+- Both fixtures pass at the first attempt of `try_offset`, checked against the point oracle at every step; all region tests pass.
+- No golden G-code file changed; the determinism test is unchanged and passes; `cargo test --workspace` passes after merging `main` (fluut-cam 357, the rest 1 036, one GPU-only test ignored as before).
+- Fuzz: `region` target, release, lenient, `-fork=6 -ignore_crashes=1`, 488 s from an empty corpus on Windows (no ASan): 1 290 772 executions, no finding (no failure after the retries, no crash, no timeout, no vertex blow-up).
 
 ## Open issues
 
