@@ -15,7 +15,7 @@ Tests of the `fluut` program. Part of the [user acceptance tests](UAT). Test fil
 
 - **Steps:**
   1. Run `fluut --help`.
-- **Expected:** The usage lines for `calc`, `sim`, `post`, `run`, `tools import` and `update-check`. Exit status 0.
+- **Expected:** The usage lines for `calc`, `sim`, `post`, `run`, `tools import`, `posts import` and `update-check`. Exit status 0.
 - [ ] Pass
 
 ### UAT-CLI-03 Calculate

@@ -13,6 +13,7 @@
 - [Calculate and simulate](Calculate-and-Simulate)
 - [Post G-code](Post-G-code)
 - [Import tools](Import-Tools)
+- [Import posts](Import-Posts)
 - [Save, undo and recover](Save-Undo-Recover)
 
 **Reference**

@@ -278,7 +278,7 @@ details and fidelity rules are in [05 §5.10](05-postprocessor-engine.md).
 
 | Product | Kind | File | Approach |
 |---|---|---|---|
-| Vectric (VCarve, Aspire, Cut2D, Cut3D) | post | `.pp` (declarative text) | full static conversion |
+| Vectric (VCarve, Aspire, Cut2D, Cut3D) | post | `.pp` (declarative text) | full static conversion (built: `fluut posts import`) |
 | DeskProto | post, machine, cutter | `.ppr`, `.mch`, `.ctr` (INI) | full static conversion |
 | Autodesk Fusion, HSMWorks, Inventor CAM | post | `.cps` (JavaScript) | sandboxed execution, after v1 **[DECIDED — OQ-13]** |
 | SheetCAM | post | `.scpost` (Lua) | not planned (OQ-13) |

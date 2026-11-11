@@ -43,6 +43,7 @@ The tests use the ribbon: click the stage tab (Model, Setup, Toolpaths, Simulate
 | [Post](UAT-Post) | UAT-PST | The three posts, the output file, the G-code, failures |
 | [Command line](UAT-CLI) | UAT-CLI | `fluut calc`, `sim`, `post`, `run`, exit codes, errors |
 | [Settings and updates](UAT-Settings) | UAT-STG | The Settings window: release channel, update check, saved choices |
+| [Import posts](UAT-Posts-Import) | UAT-PPI | `fluut posts import` of a Vectric post (UAT-PPI-01 to 10): result, posting with it, refusals, base posts, overwrite, ids, wrapped rotary output, a real Vectric post |
 | [Import tools](UAT-Tools) | UAT-TLS | Import of a Fusion tool library, in the window (UAT-TLS-09 to 14) and with `fluut tools import` (UAT-TLS-01 to 08): result, overwrite, ids, bad files, bad arguments |
 | [Install (Flatpak)](UAT-Install) | UAT-INS | Installing, running, file dialogs and uninstalling the Linux Flatpak |
 
