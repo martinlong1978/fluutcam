@@ -252,6 +252,7 @@ The message in your window may fill in numbers and names where this page shows `
 | `model.project.warning` | warning |  | A file could not be read, or the project and its model disagree. The message names the file. |
 | `model.reimport.apply` | error | geometry `…`: … | A file could not be read, or the project and its model disagree. The message names the file. |
 | `model.reimport.unmatched` | warning | `…` (… of `…`) is not in the new …; the selection is kept | A file could not be read, or the project and its model disagree. The message names the file. |
+| `model.tools.` | warning |  | A file could not be read, or the project and its model disagree. The message names the file. |
 | `model.tools.load` | error |  | A file could not be read, or the project and its model disagree. The message names the file. |
 | `model.tools.warning` | warning | …: … | A file could not be read, or the project and its model disagree. The message names the file. |
 

@@ -35,7 +35,7 @@ The tests use the ribbon: click the stage tab (Model, Setup, Toolpaths, Simulate
 | Page | Prefix | Covers |
 |---|---|---|
 | [Getting started card](UAT-Guide) | UAT-GDE | The first-project card: its seven steps, ticks that follow the project, type and tool choice, closing and reopening |
-| [Project files](UAT-Project-Files) | UAT-PRJ | New (with the unit question), open, save, save as, unsaved changes, undo and redo, the unit badge, bad project files |
+| [Project files](UAT-Project-Files) | UAT-PRJ | New (with the unit question), open, save, save as, unsaved changes, undo and redo, the unit badge, bad project files, tool library references (UAT-PRJ-19 and 20) |
 | [Import](UAT-Import) | UAT-IMP | STEP, DXF, SVG and STL files, copying, units, bad files, no project |
 | [Setups](UAT-Setups) | UAT-SET | 3-axis, rotary, indexed, based on another, editing, inherited values, kind, bodies, body stock, orientation, scale and mirror, handles and snapping, failures |
 | [Toolpaths](UAT-Toolpaths) | UAT-TP | Adding, editing, tool and heights, picking on the model, Browser actions, defaults, out-of-date marks, errors and warnings, cancel |
@@ -43,7 +43,7 @@ The tests use the ribbon: click the stage tab (Model, Setup, Toolpaths, Simulate
 | [Post](UAT-Post) | UAT-PST | The three posts, the output file, the G-code, failures |
 | [Command line](UAT-CLI) | UAT-CLI | `fluut calc`, `sim`, `post`, `run`, exit codes, errors |
 | [Settings and updates](UAT-Settings) | UAT-STG | The Settings window: release channel, update check, saved choices |
-| [Import tools](UAT-Tools) | UAT-TLS | Import of a Fusion tool library, in the window (UAT-TLS-09 to 14) and with `fluut tools import` (UAT-TLS-01 to 08): result, overwrite, ids, bad files, bad arguments |
+| [Import tools](UAT-Tools) | UAT-TLS | Import of a Fusion tool library, in the window (UAT-TLS-09 to 16, including using a library in a project) and with `fluut tools import` (UAT-TLS-01 to 08), and a project's library references on the command line (UAT-TLS-17): result, overwrite, ids, bad files, bad arguments |
 | [Install (Flatpak)](UAT-Install) | UAT-INS | Installing, running, file dialogs and uninstalling the Linux Flatpak |
 
 ## Record sheet

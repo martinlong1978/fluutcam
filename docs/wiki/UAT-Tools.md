@@ -127,20 +127,52 @@ Tests of **Import tools…** in the window (UAT-TLS-09 to 14) and of `fluut tool
 - **Expected:** Step 1: no second dialog; the window says `Nothing was imported.` with the error `import.format.unsupported`. Step 2: `Nothing was imported.` with an error `import.file.invalid`, and no `bad.toml`.
 - [ ] Pass
 
-### UAT-TLS-13 Use the library in the project
+### UAT-TLS-13 Use the library from the project's tools folder
 
 - **Preconditions:** a copy of the `block` project, open.
 - **Steps:**
   1. Import `shop.json`. The second dialog should start in the project's `tools` folder; save as `shop.toml` there.
-  2. In the result window click **Reload project to use it**.
+  2. In the result window click **Use in this project**.
   3. Select a toolpath, open the inspector's Tool tab and open the tool dropdown.
-- **Expected:** Step 1: the result window says the library is in the project's tools folder. Step 2: the project reloads. Step 3: the dropdown lists the tools of `fusion/shop` (`t1-6-mm-flat`, `t2-1-4-in-ball`).
+- **Expected:** Step 1: the result window says the library is in the project's tools folder. Step 2: the window says "This project now uses the library." The project is not reloaded and no `*` appears in the title bar. Step 3: the dropdown lists the tools of `fusion/shop` (`t1-6-mm-flat`, `t2-1-4-in-ball`).
 - [ ] Pass
 
-### UAT-TLS-14 A library outside the project
+### UAT-TLS-14 Use a library from another folder
 
-- **Preconditions:** a project open.
+- **Preconditions:** a copy of the `block` project, open and saved. A folder `shared` beside the project's folder.
 - **Steps:**
-  1. Import `shop.json` and save the library in a folder that is not the project's `tools` folder.
-- **Expected:** The result window says that a project cannot refer to a library in another folder yet. There is no reload button.
+  1. Import `shop.json` and save the library as `shared/shop.toml`.
+  2. In the result window click **Use in this project**.
+  3. Look at the browser, under **Tool libraries**, and at the title bar.
+  4. Open the tool dropdown of a toolpath.
+  5. Press **Ctrl+Z**.
+- **Expected:** Step 2: "This project now uses the library." Step 3: the list shows `shop.toml`; the title bar shows `*`. Step 4: the dropdown lists the tools of `fusion/shop`. Step 5: the library leaves the list and the dropdown, and the `*` goes away.
+- [ ] Pass
+
+### UAT-TLS-15 Add and remove a tool library
+
+- **Preconditions:** UAT-TLS-14 done, then undone (the project has no references). The library file `shared/shop.toml` still exists.
+- **Steps:**
+  1. On the Library tab click **Add tool library…**. Choose `shared/shop.toml`.
+  2. Click **Add tool library…** again and choose the same file.
+  3. Click **Remove** beside the library in the browser.
+  4. Press **Ctrl+Z**.
+- **Expected:** Step 1: the file dialog starts in the project's folder; the library is listed and loaded. Step 2: the list does not change; a note says the project already lists that library. Step 3: the library leaves the list and the dropdown. Step 4: it comes back. Every change is one undo step. There is no text box for a path anywhere.
+- [ ] Pass
+
+### UAT-TLS-16 A library with no project
+
+- **Steps:**
+  1. Start FluutCAM with no project. Click **Import tools…** and import `shop.json`.
+- **Expected:** The result window says to open a project to use the library, and has no **Use in this project** button. **Add tool library…** on the Library tab is greyed out.
+- [ ] Pass
+
+### UAT-TLS-17 The command line uses the project's libraries
+
+- **Preconditions:** the `block` project copied to a folder, its library `tools/shop.toml` moved to a sibling folder `shared/shop.toml`, and the line `tool_libraries = ["../shared/shop.toml"]` added after `units` in `block.fluut` (also change the first line to `format = "fluut.project/1.1"`).
+- **Steps:**
+  1. Run `fluut calc block.fluut`.
+  2. Change the line to `["../shared/gone.toml"]` and run `fluut calc block.fluut` again.
+  3. Restore the line and run `fluut calc block.fluut --tools extra.toml`, where `extra.toml` is a library with the id `shop` and a different tool.
+- **Expected:** Step 1: three toolpaths calculated. Step 2: a warning `project.tools.missing` naming `gone.toml`, and the toolpaths report that the tool `shop#flat-6` is missing. Step 3: the library from `--tools` replaces the referenced one, so the toolpaths lose their tool as in step 2.
 - [ ] Pass
