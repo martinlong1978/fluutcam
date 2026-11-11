@@ -29,8 +29,8 @@ cargo xtask check-layers
 ## Download
 
 Releases are on the [releases page](https://github.com/martinlong1978/fluutcam/releases).
-Windows: an MSI installer (per user) or a zip. macOS: a disk image. Linux: an AppImage or a
-tarball. [Installing](docs/install.md) covers each platform, including how to open the
+Windows: an MSI installer (per user) or a zip. macOS: a disk image. Linux: an AppImage, a Flatpak
+bundle or a tarball. [Installing](docs/install.md) covers each platform, including how to open the
 unnotarised macOS app and how to uninstall.
 
 ### Code signing policy

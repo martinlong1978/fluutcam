@@ -39,9 +39,22 @@ Apple has not notarised FluutCAM, so macOS asks once ([why](https://github.com/m
 - For the command-line program, start the AppImage through a link named `fluut`: `ln -s fluutcam-<version>-linux-x86_64.AppImage fluut`.
 - The AppImage does not update itself. Download a newer one.
 
+**Flatpak.** Download `fluutcam-<version>-linux-x86_64.flatpak`. You need [Flatpak](https://flatpak.org/setup/) with the Flathub remote, which supplies the runtime.
+
+```
+flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+flatpak install --user fluutcam-<version>-linux-x86_64.flatpak
+flatpak run io.github.martinlong1978.FluutCAM
+```
+
+- FluutCAM also appears in the application menu. For the command-line program run `flatpak run --command=fluut io.github.martinlong1978.FluutCAM --version`.
+- The sandbox gives FluutCAM a display and the GPU, and nothing else: **no network** and no access to your files except the ones you choose in the file dialogs. The update check therefore cannot run; install a newer `.flatpak` instead.
+- A project that refers to a model file beside it needs that folder opened too. Grant it once with `flatpak override --user --filesystem=~/path/to/folder io.github.martinlong1978.FluutCAM`, or use the AppImage or tarball.
+- The Flatpak is not on Flathub yet.
+
 **Tarball.** Unpack `fluutcam-<version>-linux-x86_64.tar.gz` (glibc 2.35 or later) and run `bin/fluutcam` or `bin/fluut`. For a menu entry, copy `share/applications` and `share/icons` from the archive into `~/.local/share`.
 
-**Uninstall.** Delete the AppImage (and the menu entry, if a tool added one). For the tarball, delete the unpacked folder and any `.desktop` file and icons you copied. To remove settings and crash reports too, delete `~/.local/share/fluutcam` (or `$XDG_DATA_HOME/fluutcam`).
+**Uninstall.** For the Flatpak run `flatpak uninstall --user io.github.martinlong1978.FluutCAM`; add `--delete-data` to remove its settings and crash reports too (they are in `~/.var/app/io.github.martinlong1978.FluutCAM/`, the settings under `data/fluutcam`). Delete the AppImage (and the menu entry, if a tool added one). For the tarball, delete the unpacked folder and any `.desktop` file and icons you copied. To remove the settings and crash reports of the AppImage or tarball too, delete `~/.local/share/fluutcam` (or `$XDG_DATA_HOME/fluutcam`).
 
 FluutCAM changes no system settings and installs nothing outside the folders above.
 

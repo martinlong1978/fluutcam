@@ -22,7 +22,8 @@
 # The Windows installer (MSI) is built from the SIGNED executables in its own
 # job, then submitted to SignPath a second time (its own artifact
 # configuration), so the executables inside it and the MSI itself are signed.
-# The Linux AppImage is built from the tarball with a pinned appimagetool.
+# The Linux AppImage is built from the tarball with a pinned appimagetool, and
+# the Flatpak bundle from the same tarball with flatpak-builder (unsigned).
 
 name: Release
 
@@ -376,8 +377,51 @@ jobs:
           path: dist/
           if-no-files-found: error
 
+  # The Flatpak is made from the Linux tarball, in the flatpak-builder
+  # container, with the freedesktop 24.08 runtime (packaging/flatpak). It packs
+  # the prebuilt binaries; Flathub's build from source is a follow-up (plan
+  # docs/plan/2026-11-11-flatpak.md). The bundle is a single file, unsigned
+  # (the minisign, checksum and attestation steps of `release` cover it).
+  package-flatpak:
+    needs: [check, package-portable]
+    runs-on: ubuntu-22.04
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-24.08
+      options: --privileged
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+      APP_ID: io.github.martinlong1978.FluutCAM
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-portable
+          path: in
+      - name: Validate the launcher and the metainfo
+        run: SUDO= packaging/flatpak/validate.sh
+      - name: Stage the inputs
+        run: packaging/flatpak/build-flatpak.sh "in/fluutcam-$VERSION-linux-x86_64.tar.gz" "$VERSION" work/flatpak
+      - name: Build the bundle
+        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: fluutcam.flatpak
+          manifest-path: work/flatpak/io.github.martinlong1978.FluutCAM.yml
+          branch: stable
+          cache: false
+          upload-artifact: false
+      - name: Smoke test
+        run: packaging/flatpak/smoke-test.sh fluutcam.flatpak "$APP_ID"
+      - run: |
+          mkdir dist
+          mv fluutcam.flatpak "dist/fluutcam-$VERSION-linux-x86_64.flatpak"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-flatpak
+          path: dist/
+          if-no-files-found: error
+
   release:
-    needs: [check, package-portable, package-macos, package-msi, package-appimage]
+    needs: [check, package-portable, package-macos, package-msi, package-appimage, package-flatpak]
     runs-on: ubuntu-22.04
     permissions:
       contents: write

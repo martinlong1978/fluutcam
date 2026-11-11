@@ -19,7 +19,7 @@ open source and permissive. `egui` is MIT/Apache and was chosen (OQ-09).
 |---|---|---|
 | Windows | MSI installer (and portable zip) | Authenticode through the SignPath Foundation open-source programme, verified in CI after signing |
 | macOS | DMG, universal binary (arm64 + x86_64) | Ad hoc only: no Developer ID and no notarisation, because Apple has no free programme for open-source projects (decided 2026-11-01). Users open the app once with right-click → Open |
-| Linux | AppImage and Flatpak | Flathub signing for Flatpak; AppImage and tarball rely on the attestation |
+| Linux | AppImage and Flatpak | Flathub signing for Flathub installs; the Flatpak bundle, AppImage and tarball rely on the attestation |
 
 Every release file also gets a GitHub build provenance attestation (Sigstore), and the
 checksums are signed with minisign. The public signing rules, team roles and privacy statement

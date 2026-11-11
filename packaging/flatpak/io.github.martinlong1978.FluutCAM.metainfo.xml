@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
+<component type="desktop-application">
+  <id>io.github.martinlong1978.FluutCAM</id>
+  <name>FluutCAM</name>
+  <summary>Open-source CAM for CNC milling</summary>
+  <developer id="io.github.martinlong1978">
+    <name>Martin Long</name>
+  </developer>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT OR Apache-2.0</project_license>
+  <description>
+    <p>
+      FluutCAM turns a 3-D or 2-D model into G-code for a CNC mill. Import a STEP, DXF, SVG or
+      STL model, describe the stock and the work zero in a Setup, add toolpaths, check them in the
+      simulation and post G-code for your machine.
+    </p>
+    <p>
+      It supports 3-axis, rotary and indexed Setups, 2-D and 3-D toolpath types, and a command
+      line program, fluut, for batch work. FluutCAM has no account, no telemetry and no
+      advertising. Your files stay on your computer.
+    </p>
+    <p>
+      This Flatpak has no network access and no file access beyond the files you choose in the
+      file dialogs.
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.martinlong1978.FluutCAM.desktop</launchable>
+  <provides>
+    <binary>fluutcam</binary>
+    <binary>fluut</binary>
+  </provides>
+  <screenshots>
+    <screenshot type="default">
+      <caption>A project with its toolpaths</caption>
+      <image type="source">https://raw.githubusercontent.com/martinlong1978/fluutcam/main/docs/wiki/images/reference-project.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>The Toolpaths ribbon</caption>
+      <image type="source">https://raw.githubusercontent.com/martinlong1978/fluutcam/main/docs/wiki/images/ribbon-toolpaths.png</image>
+    </screenshot>
+  </screenshots>
+  <url type="homepage">https://github.com/martinlong1978/fluutcam</url>
+  <url type="bugtracker">https://github.com/martinlong1978/fluutcam/issues</url>
+  <url type="help">https://github.com/martinlong1978/fluutcam/blob/main/docs/install.md</url>
+  <url type="vcs-browser">https://github.com/martinlong1978/fluutcam</url>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.1.0" date="2026-11-11">
+      <description>
+        <p>First release.</p>
+      </description>
+    </release>
+  </releases>
+</component>
