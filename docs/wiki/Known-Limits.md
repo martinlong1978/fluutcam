@@ -9,8 +9,10 @@ If something you need is not here and does not work, [tell us](https://github.co
 The window is a first version. The ribbon drives everything the window can do. These are not yet in the window:
 
 - **More than a first job in the Getting started card.** The card adds a 3-axis Setup and one toolpath of a type you choose; rotary and indexed Setups, more toolpaths and picking faces for a 2-D type are done with the ribbon and the inspector. Its last step is ticked when G-code is written in this session; it does not look at files on disk.
-- **Some Setup controls.** A Setup has no controls for scale and mirror, and the window leaves them as they are. A rotary or indexed Setup cannot use a body as the stock. A block given by size has only the work zero handle, and so does cylinder stock.
-- **Handles and snapping.** There are no handles for a cylinder's radius and length, and no dial for the index angle. The work zero snaps to the corners and top centre of the stock (or its ends on the axis), not to vertices or arc centres.
+- **A dial for the index angle.** The index angle is typed in the inspector; there is no ring to drag on the model.
+- **A factor per axis.** The window sets one scale factor for every axis. A STEP solid or a drawing with arcs cannot take different factors per axis (the Setup says so).
+- **A rotary body stock is round.** A body as the stock of a rotary Setup is its bounding cylinder about the axis, not its true shape, so a square bar gives round stock that holds it.
+- **Snapping on meshes.** The work zero snaps to the vertices and arc centres of STEP and DXF/SVG models, not to the corners of STL triangles.
 - **Picking whole bodies.** A click on the model toggles a whole body, but the pointer lights up only the face or curve under it, not the whole body.
 - **Picking in a box.** You click one entity at a time. After an edge, the inspector offers its closed loop.
 - **A post that is not built in.** The Post stage's list has the built-in posts (`fluut/linuxcnc`, `fluut/grbl`, `fluut/gcode`, `fluut/linuxcnc-4x`) and not those of your project's `posts/` folder. A rotary Setup does not choose `fluut/linuxcnc-4x` by itself: pick it in the list.
