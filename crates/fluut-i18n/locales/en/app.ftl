@@ -36,6 +36,7 @@ ribbon-step-back = Step back
 ribbon-play-pause = Play or pause
 ribbon-step-forward = Step forward
 ribbon-import-tools = Import tools…
+ribbon-add-tool-library = Add tool library…
 ribbon-library-tools = Tools
 ribbon-library-machines = Machines
 ribbon-library-posts = Posts
@@ -104,6 +105,15 @@ sim-finding-flute = Cuts above the flute length: { $name }, segment { $segment }
 
 # Browser
 browser-model = Model
+browser-tool-libraries = Tool libraries
+browser-tool-libraries-none = No libraries listed.
+browser-tool-library-add = Add library…
+browser-tool-library-remove = Remove
+browser-tool-library-missing = The file was not found, so its tools are not available.
+browser-tool-library-rejected = Not used: a reference must be a plain file path.
+browser-tool-library-broken = The file could not be read as a tool library.
+browser-tool-library-listed = This project already lists that library.
+browser-tool-library-refused = Not added: { $reason }
 browser-body = Body { $id }
 browser-empty = Open a project to see its Setups and toolpaths.
 status-not-calculated = Not calculated

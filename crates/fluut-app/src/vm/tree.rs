@@ -4,11 +4,13 @@
 //! the model's bodies.
 
 use super::Selection;
+use super::tool_libs::{self, ToolLibRow};
 use crate::jobs::{JobKind, Running};
 use crate::session::{Snapshot, ToolpathStatus};
 use crate::text::{data, tr, tr_args};
 use fluut_model::PValue;
 use fluut_model::edit::{Edit, apply};
+use std::path::Path;
 
 /// Status icon of a toolpath row (S 08 §8.6). Each has its own shape, so
 /// colour is not the only signal.
@@ -67,6 +69,8 @@ pub struct TreeVm {
     pub setups: Vec<SetupRow>,
     /// Body labels under "Model".
     pub bodies: Vec<String>,
+    /// The tool libraries the project refers to (D06 §7.2.1).
+    pub tool_libraries: Vec<ToolLibRow>,
     /// Shown instead of the tree when no project is open.
     pub empty: Option<String>,
 }
@@ -132,9 +136,11 @@ impl TreeVm {
                 _ => tr_args("browser-body", &[("id", &b.id)]),
             })
             .collect();
+        let dir = s.path.parent().map(Path::to_path_buf).unwrap_or_default();
         TreeVm {
             setups,
             bodies,
+            tool_libraries: tool_libs::rows(&s.project, &dir, &s.warnings),
             empty: None,
         }
     }

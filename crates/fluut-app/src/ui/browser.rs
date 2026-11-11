@@ -2,12 +2,13 @@
 
 //! The browser (S 08 §8.2): Setups and toolpaths with status icons.
 
-use super::{UiState, status_colour};
+use super::{UiState, status_colour, tool_libs};
 use crate::brand::{self, Palette, c};
 use crate::jobs::{Edit, Jobs};
 use crate::session::Snapshot;
 use crate::text::tr;
 use crate::vm::Selection;
+use crate::vm::tool_libs::ToolLibRow;
 use crate::vm::tree::{
     RowStatus, TreeVm, delete_edit, drop_edit, enable_edit, name_of, rename_edit, step_edit,
 };
@@ -268,5 +269,54 @@ pub fn show(ui: &mut egui::Ui, jobs: &mut Jobs, state: &mut UiState) {
                     ui.label(b);
                 }
             });
+        tool_libraries(ui, jobs, state, &vm.tool_libraries, p);
     });
+}
+
+/// The tool libraries the project refers to: one row each with the file
+/// name (the path as written on hover), why it is unavailable if it is,
+/// and Remove; then the button that opens the native file dialog.
+fn tool_libraries(
+    ui: &mut egui::Ui,
+    jobs: &mut Jobs,
+    state: &mut UiState,
+    rows: &[ToolLibRow],
+    p: &Palette,
+) {
+    egui::CollapsingHeader::new(tr("browser-tool-libraries"))
+        .default_open(true)
+        .show(ui, |ui| {
+            if rows.is_empty() {
+                ui.label(
+                    egui::RichText::new(tr("browser-tool-libraries-none")).color(c(p.weak_text)),
+                );
+            }
+            let mut remove = None;
+            for (i, r) in rows.iter().enumerate() {
+                ui.horizontal(|ui| {
+                    if r.problem.is_some() {
+                        status_icon(ui, RowStatus::Warning, &tr("status-warning"));
+                    }
+                    let label = ui.label(&r.name).on_hover_text(&r.reference);
+                    if let Some(why) = &r.problem {
+                        label.on_hover_text(why);
+                    }
+                    if ui.small_button(tr("browser-tool-library-remove")).clicked() {
+                        remove = Some(i);
+                    }
+                });
+                if let Some(why) = &r.problem {
+                    ui.label(egui::RichText::new(why).color(c(p.weak_text)).small());
+                }
+            }
+            if let Some(i) = remove {
+                tool_libs::remove(jobs, state, i);
+            }
+            if ui.button(tr("browser-tool-library-add")).clicked() {
+                state.add_tool_library = true;
+            }
+            if let Some(note) = &state.tool_lib_note {
+                ui.label(egui::RichText::new(note).color(c(p.weak_text)).small());
+            }
+        });
 }

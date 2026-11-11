@@ -406,6 +406,18 @@ pub fn tool_ref_for(dir: &Path, file: &Path) -> String {
     slashed(&rel)
 }
 
+/// Whether reference `r` of a project in `dir` names the file `file`
+/// (purely lexical, as [`tool_ref_for`]).
+pub fn names_tool_file(dir: &Path, r: &str, file: &Path) -> bool {
+    let a = normal(&absolute(&resolve_tool_ref(dir, r)));
+    let b = normal(&absolute(file));
+    if cfg!(windows) {
+        a.to_string_lossy().to_lowercase() == b.to_string_lossy().to_lowercase()
+    } else {
+        a == b
+    }
+}
+
 fn absolute(p: &Path) -> PathBuf {
     std::path::absolute(p).unwrap_or_else(|_| p.to_path_buf())
 }

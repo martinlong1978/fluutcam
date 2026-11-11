@@ -15,6 +15,7 @@ mod editing;
 mod guide;
 mod setup_edit;
 mod tool_import;
+mod tool_libs;
 
 /// The app is built on the first frame, from the harness's context.
 type State = Option<FluutApp>;
