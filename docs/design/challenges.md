@@ -474,6 +474,41 @@ public `.pp` files and, if possible, output samples produced by Vectric itself.
 
 **Resolution (2026-10-31).** Product owner will supply Vectric `.pp` files with matching G-code output; the importer is verified against them (D10 §9).
 
+**Corpus finding and decision (2026-11-11).** The importer was run over the 547 `.pp` files of a
+local Vectric Aspire 10.5 install (not in the repository). Forms seen, by shape: width 1 with 0
+to 6 decimals and `.` (by far the most common); `+`, width 1, `,`, 3 or 4 decimals; `+`, width 1,
+`.`; width 1 with `,`; a zero-led width with no decimals (two to six digits, on line and tool
+numbers); a one-digit width wider than the number (space padding, one text-output post); a
+two-digit width the number always fills; no width at all. No other flag was seen. Decided
+reading, a C `printf` `%[+][0][width].[decimals]f` with the separator spelled out:
+
+- `+`: every value carries a sign (`sign = "always"`).
+- A width written with a leading `0` and more digits: pad with zeros to the width, which counts
+  the separator, the decimals and the `+` (so `pad_width = width − decimals − 1 − plus`; with no
+  decimals, no separator). A negative value is one character longer than `printf` would make it
+  (FluutCAM does not count the `-`); only line and tool numbers use zero padding in the corpus.
+- Any other width: no effect when the number always fills it; wider is space padding in
+  `printf`, not written by FluutCAM, warned (`import.pp.var_format`).
+- The separator, `.` or `,`, becomes `output.decimal_char` (the most common one among words with
+  decimals; mixed separators are warned).
+- Decimals are always written: `trailing_zeros = true`, `leading_zero = true`.
+
+Other findings: placeholder names occur in more than one case (`[Radius]`/`[RADIUS]`), so names
+match case-insensitively; `[nn]` character codes appear in lines and settings (`[91]`/`[93]` for
+literal brackets around names); many posts write F only in `FIRST_FEED_MOVE`, so `first_*` blocks
+now also start again when the feed changes (S 05 §5.4.1); headers set up the first tool, so the
+header sees the first toolpath's values and `TOOLCHANGE`/`NEW_SEGMENT` skip the first toolpath;
+`SUBSTITUTE` pairs are meant for names inside comments (`output.substitute_values`).
+
+**Still needs Vectric-made outputs** (`<post>.pp` with G-code Vectric wrote from it; the test
+`vectric_output_pairs` reads them from `FLUUT_VECTRIC_PAIRS_DIR`): rounding of exact ties
+(`printf` rounds the binary value, FluutCAM the shortest decimal half away from zero); whether a
+value that rounds to zero is written `-0.000`; whether `SUBSTITUTE` applies to user text only;
+when `FIRST_*`, `INITIAL_RAPID_MOVE` and `NEW_SEGMENT` fire (first toolpath, after a tool change,
+after a feed change); the default line ending; the header's `[F]`; space-padded widths. A byte
+comparison needs the same job posted by both programs; the pair test compares number formats and
+line endings until then.
+
 ### CH-22 Simulation memory and speed at fine resolution
 
 **Problem.** Tri-dexel memory grows with the square of resolution per family. Large stock at

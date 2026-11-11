@@ -6,10 +6,12 @@
 //! Everything here reads untrusted files (spec 01 §1.7). The importers are
 //! static: they parse data, never run it, and stop at the limits in
 //! [`limits`]. This release imports Autodesk Fusion tool-library JSON
-//! ([`fusion`]). Vectric `.vtdb` is designed (D16 §7) and not built.
+//! ([`fusion`]) and Vectric `.pp` post processors ([`vectric`]). Vectric
+//! `.vtdb` is designed (D16 §7) and not built.
 
 pub mod fusion;
 mod toml_out;
+pub mod vectric;
 
 use fluut_model::Diagnostic;
 use std::collections::BTreeMap;
@@ -32,6 +34,16 @@ pub mod limits {
     pub const MAX_FEED_MM_MIN: f64 = 1_000_000.0;
     /// Largest spindle speed accepted, rev/min.
     pub const MAX_RPM: f64 = 1_000_000.0;
+    /// Largest post processor read, bytes (D10 §6.1).
+    pub const MAX_POST_BYTES: u64 = 1024 * 1024;
+    /// Most lines in one post processor file.
+    pub const MAX_POST_LINES: usize = 50_000;
+    /// Most template lines in one block.
+    pub const MAX_BLOCK_LINES: usize = 2_000;
+    /// Most `VAR` lines in one post processor.
+    pub const MAX_POST_VARS: usize = 1_000;
+    /// Most `POST_BASE` levels followed.
+    pub const MAX_POST_BASE_DEPTH: usize = 4;
 }
 
 /// What the user chose for the new library.

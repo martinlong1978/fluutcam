@@ -8,6 +8,7 @@
 //! fluut post <project> --post <id> -o <file> [--tools <file>]... [--date <d>] [--time <t>]
 //! fluut run <script> [<project>] [--tools <file>]... [--date <d>] [--time <t>] [-- <args>...]
 //! fluut tools import <file> -o <library.toml> [--id <id>] [--name <text>] [--force]
+//! fluut posts import <file.pp> -o <post.toml> [--id <id>] [--force]
 //! fluut update-check [--channel stable|beta]
 //! ```
 //!
@@ -30,6 +31,7 @@
 //! Exit status: 0 on success, 1 when a diagnostic is an error, 2 on bad
 //! arguments.
 
+mod posts_cmd;
 mod tools_cmd;
 
 use fluut_core::settings::{Settings, settings_path};
@@ -46,6 +48,7 @@ const USAGE: &str = "usage:
   fluut post <project> --post <id> -o <file> [--tools <file>]... [--date <yyyy-mm-dd>] [--time <hh:mm:ss>]
   fluut run <script> [<project>] [--tools <file>]... [--date <yyyy-mm-dd>] [--time <hh:mm:ss>] [-- <args>...]
   fluut tools import <file> -o <library.toml> [--id <library id>] [--name <text>] [--force]
+  fluut posts import <file.pp> -o <post.toml> [--id <post id>] [--force]
   fluut update-check [--channel stable|beta]";
 
 #[derive(Debug, Default)]
@@ -150,6 +153,16 @@ fn main() -> ExitCode {
                     "fluut: {e}
 {USAGE}"
                 );
+                ExitCode::from(2)
+            }
+        };
+    }
+    if args.peek().map(String::as_str) == Some("posts") {
+        args.next();
+        return match posts_cmd::parse(args) {
+            Ok(p) => posts_cmd::run(&p),
+            Err(e) => {
+                eprintln!("fluut: {e}\n{USAGE}");
                 ExitCode::from(2)
             }
         };

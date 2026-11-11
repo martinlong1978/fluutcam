@@ -1,0 +1,165 @@
+# Imported from a Vectric post processor (fluut posts import).
+# Review it before use: imported posts are marked origin = "imported".
+#
+# The source file's opening comment:
+#    Hand-written test post for FluutCAM's Vectric importer; not a vendor
+#    file. An imaginary controller in inches that wants a decimal comma, a
+#    sign on every coordinate, zero-padded line and tool numbers, semicolon
+#    comments, radius arcs and a two-step first rapid.
+format  = "fluut.post/1"
+id      = "test/comma-inch"
+version = "1.0"
+name    = "FluutCAM test, comma decimals (inch)"
+origin  = "imported"
+
+[output]
+units = "inch"
+decimal_char = ","
+extension = "cnc"
+line_ending = "crlf"
+comment_start = ";"
+comment_end = ""
+
+[line_numbering]
+enabled = false   # `[N]` in the lines numbers them
+start = 1
+increment = 1
+maximum = 9999
+
+[words.F]
+prefix = "F"
+when = "changed"
+decimals = 1
+trailing_zeros = true
+leading_zero = true
+
+[words.N]
+prefix = "N"
+when = "always"
+decimals = 0
+trailing_zeros = true
+leading_zero = true
+pad_width = 4
+
+[words.R]
+placeholder = "Radius"
+prefix = "R"
+when = "always"
+decimals = 4
+trailing_zeros = true
+leading_zero = true
+
+[words.S]
+prefix = "S"
+when = "always"
+decimals = 0
+trailing_zeros = true
+leading_zero = true
+
+[words.T]
+prefix = "T"
+when = "always"
+decimals = 0
+trailing_zeros = true
+leading_zero = true
+pad_width = 2
+
+[words.X]
+prefix = "X"
+when = "changed"
+decimals = 4
+trailing_zeros = true
+leading_zero = true
+sign = "always"
+
+[words.Y]
+prefix = "Y"
+when = "changed"
+decimals = 4
+trailing_zeros = true
+leading_zero = true
+sign = "always"
+
+[words.Z]
+prefix = "Z"
+when = "changed"
+decimals = 4
+trailing_zeros = true
+leading_zero = true
+sign = "always"
+
+[arcs]
+enabled = true
+planes = ["XY"]
+centre_mode = "r"
+max_sweep_deg = 90
+
+[helix]
+enabled = false
+planes = ["XY"]
+
+[cycles]
+enabled = false
+
+[blocks.arc_ccw]
+lines = [
+  "[N]G3 [X] [Y] [Radius]",
+]
+
+[blocks.arc_cw]
+lines = [
+  "[N]G2 [X] [Y] [Radius]",
+]
+
+[blocks.feed]
+lines = [
+  "[N]G1 [X] [Y] [Z]",
+]
+
+[blocks.first_arc_ccw]
+lines = [
+  "[N]G3 [X] [Y] [Radius] [F]",
+]
+
+[blocks.first_arc_cw]
+lines = [
+  "[N]G2 [X] [Y] [Radius] [F]",
+]
+
+[blocks.first_feed]
+lines = [
+  "[N]G1 [X] [Y] [Z] [F]",
+]
+
+[blocks.first_rapid]
+lines = [
+  { when = "!state.moved", line = "[N]G0 [X] [Y]" },
+  { when = "!state.moved", line = "[N]G0 [Z]" },
+  { when = "state.moved", line = "[N]G0 [X] [Y] [Z]" },
+]
+
+[blocks.footer]
+lines = [
+  "[N]M5",
+  "[N]M2",
+]
+
+[blocks.header]
+lines = [
+  "[N];[TOOLNAME]",
+  "[N]G20 G90",
+  "[N][T] M6",
+  "[N][S] M3",
+]
+
+[blocks.rapid]
+lines = [
+  "[N]G0 [X] [Y] [Z]",
+]
+
+[blocks.tool_change]
+lines = [
+  { when = "!state.first_tool", line = "[N]M5" },
+  { when = "!state.first_tool", line = "[N][T] M6" },
+  { when = "!state.first_tool", line = "[N][S] M3" },
+]

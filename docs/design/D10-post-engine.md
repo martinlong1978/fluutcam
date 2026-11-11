@@ -64,7 +64,8 @@ tool.number: Number, tool.name: String, tool.diameter: Number, …
 machine.tool_changer: String, machine.has_rotary: Bool, …
 setup.kind: String, setup.index_a: Number, setup.work_offset: String, …
 toolpath.type: String, toolpath.name: String, …
-state.coolant: String, state.spindle_on: Bool, state.rotary_clamped: Bool, …
+state.coolant: String, state.spindle_on: Bool, state.rotary_clamped: Bool,
+state.first_tool: Bool, state.moved: Bool (a motion line has been written), …
 ```
 
 Unknown paths, type mismatches and functions with wrong arity fail at compile time
@@ -197,6 +198,75 @@ DECIMAL_PLACES`, e.g. `1.4`, `+.3`, `0.1`) maps to `sign`, `pad_width`, `decimal
 `decimals`. Vectric `FIRST_*` blocks map to `first_*` events. Unsupported settings and blocks are
 listed in the import report. See CH-21 for format-field details to verify.
 
+**Status (2026-11-11): built.** `fluut_post_import::vectric::{import, import_with_base}` and
+`fluut posts import <file.pp> -o <post.toml> [--id] [--force]`; plan
+[2026-11-11-vectric-post-import](../plan/2026-11-11-vectric-post-import.md). The output is a
+standalone `fluut.post/1` post with `origin = "imported"`, checked by resolving, loading and
+compiling it before it is returned (`import.pp.internal` if that fails). Rebasing (§6.3) is not
+built.
+
+Reading: `+` and `|` lines are comments (the first block is kept as a TOML comment); `KEY = value`
+(a later key replaces an earlier, `import.pp.setting_duplicate`); `VAR` (case-insensitive) with 4
+or 5 fields; `begin NAME` (case-insensitive); quoted lines, text after the closing quote other
+than a `+` comment is reported; any other line, such as a bare `%`, is reported
+(`import.pp.unknown_line`). UTF-8 with or without BOM, else Latin-1 with `import.file.encoding`.
+A `SCRIPT` section is refused (`import.pp.script`). Limits: 1 MiB, 50 000 lines, 2 000 lines per
+block, 1 000 `VAR`s, 4 `POST_BASE` levels; base names must be plain file names and acyclic; the
+caller supplies the bytes (the CLI reads beside the input). Child settings, words (by output
+name) and blocks replace the base's.
+
+Words: key = output name (`VO`) in FluutCAM spelling (names match case-insensitively, as
+Vectric's own posts write both `[Radius]` and `[RADIUS]`); `WO` `A` → `always`, `C` → `changed`,
+anything else → `always` with `import.pp.var_format`; `CS` → `prefix` (`[nn]` codes expanded);
+`VF` per CH-21 with `trailing_zeros = true`, `leading_zero = true`; `MX` → `scale`. Words whose
+output name the engine supplies no value for are not written; their uses are reported where the
+blocks use them.
+
+Blocks:
+
+| Vectric | FluutCAM |
+|---|---|
+| `HEADER`, `FOOTER` | `header` (sees the first toolpath's values, S 05 §5.4.2), `footer` |
+| `TOOLCHANGE`, `NEW_SEGMENT` | `tool_change`, `toolpath_start`, every line `when = "!state.first_tool"` (the header sets up the first toolpath) |
+| `RAPID_MOVE`, `FEED_MOVE`, `PLUNGE_MOVE`, `RETRACT_MOVE`, `FIRST_*` of each | `rapid`, `feed`, `plunge`, `retract`, `first_*`; no `RAPID_MOVE` → the feed lines; no `FEED_MOVE` → `FIRST_FEED_MOVE`, else refused (`import.pp.block_missing`) |
+| `INITIAL_RAPID_MOVE` | `first_rapid`: its lines with `when = "!state.moved"`, then the first-rapid (or rapid) lines with `when = "state.moved"` |
+| `CW_ARC_MOVE`, `CCW_ARC_MOVE`, `FIRST_*` | `arc_cw`, `arc_ccw`, `first_*`; `arcs.planes = ["XY"]`; `[IA] [JA]` → `centre_mode = "ijk_absolute"`; `[Radius]` → `centre_mode = "r"`, `max_sweep_deg = 90`, word key `R` with `placeholder = "Radius"`; a block with no centre the engine supplies → arcs off (`import.pp.arcs_linearized`) |
+| `CW/CCW_HELICAL_ARC_MOVE`, `FIRST_*` | `helix_*`; the `…_PLUNGE_MOVE` variants stand in when the plain ones are missing, else they are reported (`import.pp.block_fallback`) |
+| `DWELL_MOVE`, `FEED_RATE_CHANGE`, `SPINDLE_ON`, `CUTTER_COMP_*` | `dwell`, `feed_change`, `spindle_on`, `cutter_comp_*` |
+| `JET_TOOL_*`, anything else | left out, `import.pp.block_unsupported` |
+| (wrapped posts) | `rotary` = the first-feed (or feed) lines |
+
+Lines: `[nn]` → the character (`[` written as `[LBRACKET]`; CR and LF split the line; other
+control characters dropped, `import.pp.control_char`); `[POST_NAME]` → the name (with the
+`SUBSTITUTE` pairs applied); placeholders the engine supplies kept; others removed together with
+the letters written directly before them, as the emitter does for an absent value
+(`import.pp.placeholder`); a comment made only of such placeholders, or a line left empty, is
+dropped (`import.pp.line_dropped`). `[XMIN]`…`[ZMAX]` are toolpath extents
+(`import.pp.placeholder_approx`). Lines are trimmed (`import.pp.whitespace`). A wrapped post
+(`ROTARY_WRAP_X/Y = [-]A|B`) gets a rotary word (format of the wrapped axis word, prefix the
+letter, `scale = -1` for `-`) written after `[X]` or `[Y]` in motion blocks, `rotary.enabled`,
+`feed.rotary_method = "linear_only"` (`import.pp.rotary_wrap`).
+
+Output settings: `comment_start`/`comment_end` from the post's own comment lines (`( … )`, `;` or
+`'`); a post with none that does not look like G-code is warned (`import.pp.comment_syntax`),
+because the provenance block (S 05 §5.9) is written in that style. No `LINE_ENDING` → CR LF.
+`cycles.enabled = false` (Vectric posts have no cycle blocks; cycles are expanded).
+
+Refused (no file): `import.file.invalid` (NUL bytes; no `POST_NAME` and no blocks),
+`import.limit.*`, `import.pp.script`, `import.pp.units` (missing or not MM/INCHES),
+`import.pp.inverse_time`, `import.pp.spindle_range`, `import.pp.rotary_wrap` (both axes, or no
+axis letter), `import.pp.post_base`, `import.pp.block_missing`, `import.pp.internal`. The CLI adds
+`import.format.unsupported`, `import.post.bad_id`, `import.output.exists`,
+`import.output.unwritable`, `import.file.unreadable`.
+
+Corpus run (2026-11-11, the 547 `.pp` files of a local Vectric Aspire 10.5 install, which stay on
+the maintainer's computer): 187 converted without a warning, 339 with warnings, 21 refused (8
+`spindle_range`, 6 `inverse_time`, 3 `script`, 2 `rotary_wrap`, 2 `block_missing`); every
+converted post posted the reference suite. Warnings by files: `placeholder` 250, `line_dropped`
+156, `setting_ignored` 111, `whitespace` 106, `unknown_line` 72 (mostly a bare `%`),
+`comment_syntax` 45, `block_fallback` 41, `rotary_wrap` 32, `placeholder_approx` 26,
+`block_unsupported` 24, `var_missing` 7, `file.encoding` 7, others under 5.
+
 ### 6.2 DeskProto `.ppr`, `.mch`, `.ctr`
 
 INI reader; `.ppr` → native post, `.mch` → machine definition, `.ctr` → tool. Field mapping is
@@ -240,7 +310,15 @@ setup changes with index moves and clamps; values exercising rounding (…5 at t
 
 - Golden files for every built-in post × reference suite (text compare).
 - Vectric import: corpus of public `.pp` files; each converted post must emit the same G-code as
-  a hand-checked expectation for a subset, and must load without errors for all.
+  a hand-checked expectation for a subset, and must load without errors for all. Built
+  (2026-11-11): unit tests per value-format form; hand-written fixtures posted on the reference
+  suite, with golden files, whose tool positions must contain, in order, every endpoint of the
+  built-in post of the same family (`fluut/grbl`, `fluut/linuxcnc`, `fluut/gcode`,
+  `fluut/linuxcnc-4x`, with the fixture's arc and helix settings and cycles expanded), and the
+  same tools and spindle speeds; a corpus test over `FLUUT_VECTRIC_PP_DIR` (counts and codes
+  only); a pair test over `FLUUT_VECTRIC_PAIRS_DIR` (`<post>.pp` beside G-code Vectric wrote
+  with it) comparing number formats per address letter and line endings. Both env tests are
+  skipped when unset.
 - Arc correction property test: random arcs, random decimals; emitted arcs satisfy the radius
   check or are linearized.
 - Expression fuzzing: random expressions never crash the compiler; type errors are reported.
@@ -248,4 +326,5 @@ setup changes with index moves and clamps; values exercising rounding (…5 at t
 ## 10. Challenges
 
 - CH-20 Cutter-compensation events (resolved: added to spec).
-- CH-21 Vectric value-format semantics (resolved: owner supplies Vectric sample outputs).
+- CH-21 Vectric value-format semantics (resolved: owner supplies Vectric sample outputs;
+  reading decided and corpus-checked 2026-11-11, outputs still to compare).

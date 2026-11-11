@@ -1,0 +1,121 @@
+# Imported from a Vectric post processor (fluut posts import).
+# Review it before use: imported posts are marked origin = "imported".
+#
+# The source file's opening comment:
+#    Hand-written test post for FluutCAM's Vectric importer; not a vendor
+#    file. Wrapped output: Y is wrapped round a rotary axis along X, written
+#    as A with the sign reversed.
+format  = "fluut.post/1"
+id      = "test/wrap-y"
+version = "1.0"
+name    = "FluutCAM test, wrapped Y to A (mm)"
+origin  = "imported"
+
+[output]
+units = "mm"
+decimal_char = "."
+extension = "nc"
+line_ending = "lf"
+comment_start = "("
+comment_end = ")"
+
+[words.A]
+prefix = "A"
+when = "changed"
+decimals = 3
+trailing_zeros = true
+leading_zero = true
+scale = -1.0
+
+[words.F]
+prefix = "F"
+when = "changed"
+decimals = 1
+trailing_zeros = true
+leading_zero = true
+
+[words.S]
+prefix = "S"
+when = "always"
+decimals = 0
+trailing_zeros = true
+leading_zero = true
+
+[words.X]
+prefix = "X"
+when = "changed"
+decimals = 3
+trailing_zeros = true
+leading_zero = true
+
+[words.Y]
+prefix = "Y"
+when = "changed"
+decimals = 3
+trailing_zeros = true
+leading_zero = true
+
+[words.Z]
+prefix = "Z"
+when = "changed"
+decimals = 3
+trailing_zeros = true
+leading_zero = true
+
+[arcs]
+enabled = false
+planes = ["XY"]
+centre_mode = "ijk_incremental"
+
+[helix]
+enabled = false
+planes = ["XY"]
+
+[cycles]
+enabled = false
+
+[rotary]
+enabled = true
+
+[feed]
+rotary_method = "linear_only"
+
+[blocks.feed]
+lines = [
+  "G1 [X] [Y] [A] [Z]",
+]
+
+[blocks.first_feed]
+lines = [
+  "G1 [X] [Y] [A] [Z] [F]",
+]
+
+[blocks.footer]
+lines = [
+  "M5",
+  "M30",
+]
+
+[blocks.header]
+lines = [
+  "G21 G90 G17",
+  "T[T] M6",
+  "M3 [S]",
+]
+
+[blocks.rapid]
+lines = [
+  "G0 [X] [Y] [A] [Z]",
+]
+
+[blocks.rotary]
+lines = [
+  "G1 [X] [Y] [A] [Z] [F]",
+]
+
+[blocks.tool_change]
+lines = [
+  { when = "!state.first_tool", line = "M5" },
+  { when = "!state.first_tool", line = "T[T] M6" },
+  { when = "!state.first_tool", line = "M3 [S]" },
+]

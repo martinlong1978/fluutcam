@@ -136,7 +136,10 @@ pad_width   = 0
 ```
 
 Global number settings: `output.decimal_char`, `output.line_ending`
-(Vectric `LINE_ENDING`), `output.substitute` (Vectric `SUBSTITUTE`).
+(Vectric `LINE_ENDING`), `output.substitute` (replacements in every output line),
+`output.substitute_values` (replacements only in user text put into a line: tool, toolpath,
+Setup and machine names and the file notes; Vectric `SUBSTITUTE`, which keeps such a name from
+ending a comment early).
 
 ### 5.3.1 Modal state
 
@@ -179,8 +182,9 @@ its group changes. This generalizes Vectric's `FIRST_*` block pairs.
 | `comment` | setup/toolpath/tool comments | — |
 
 `first_*` variants (e.g. `first_feed`) MAY be defined. They fire for the first move of a type
-after a different motion. Most posts do not need them, because modal tracking (§5.3.1) handles
-the common case.
+after a different motion, and again when the feed changes (so a post that writes F only in its
+`first_*` blocks, as many Vectric posts do, never runs on at a stale feed). Most posts do not need
+them, because modal tracking (§5.3.1) handles the common case.
 
 ### 5.4.2 Placeholders
 
@@ -190,7 +194,19 @@ Placeholder names follow Vectric so imported posts keep working: `[X] [Y] [Z] [A
 `[DATE] [TIME]`, `[TOOLPATH_NAME]`, `[FILE_NOTES]`, `[FI]` (inverse time), `[Radius]`.
 
 Additions: `[K]`, `[KA]` (third arc centre word for XZ/YZ arcs), `[R]`, `[PLANE]` (G17/G18/G19),
-`[MACHINE_NAME]`, `[SETUP_NAME]`, `[WORK_OFFSET]`, `[INDEX_A]`, `[INDEX_B]`, `[POST_ID]`, `[FLUUT_VERSION]`.
+`[MACHINE_NAME]`, `[SETUP_NAME]`, `[WORK_OFFSET]`, `[INDEX_A]`, `[INDEX_B]`, `[POST_ID]`, `[FLUUT_VERSION]`,
+`[LBRACKET]`, `[RBRACKET]` (literal `[` and `]`).
+
+Values as in Vectric:
+
+- `header` sees the values of the program's first Setup and first toolpath that moves (tool,
+  spindle speed, feeds, names), so a post can set up the first tool there.
+- `[N]` is the program's line number: it starts at `line_numbering.start`, advances by
+  `increment` on each line that contains `[N]`, and restarts after `maximum`. It does not count as
+  a word when a line of suppressed words is dropped (D10 §3.1). It is independent of
+  `line_numbering.enabled`, which numbers every line by itself.
+- `[XH] [YH] [ZH]` are X0, Y0 and the highest safe Z of the program's toolpaths, never the work
+  zero, so a rapid to the home position stays clear.
 
 ### 5.4.3 Conditional lines
 
@@ -307,6 +323,9 @@ only once a motion line has been written: the program's first turn assumes the m
 clear, as its first rapid does. A post that wants a machine-coordinate retract as well can add it
 to `rotary_index`.
 
+A rotary post without a `rotary_index` block indexes with a `rapid` of the rotary axes alone (as
+the turn retract fires `rapid` with only `[Z]`), so an indexed Setup is never cut at the old angle.
+
 ## 5.7 Rotary feed
 
 | Method | Output | Computation |
@@ -354,21 +373,26 @@ features (by name), approximations made, and verification result.
 
 ### 5.10.1 Vectric `.pp`
 
-Declarative. Full static conversion.
+Declarative. Full static conversion. Built (2026-11-11): `fluut_post_import::vectric`,
+`fluut posts import`; mapping details, value-format reading and codes in D10 §6.1.
 
 | Vectric | Native |
 |---|---|
-| `POST_NAME`, `FILE_EXTENSION`, `UNITS` | `name`, `output.extension`, `output.units` |
-| `LINE_ENDING`, `SUBSTITUTE` | `output.line_ending`, `output.substitute` |
-| `LINE_NUMBER_START/INCREMENT/MAXIMUM` | `line_numbering.*` |
-| `VAR NAME = [VO\|WO\|CS\|VF\|MX]` | `words.<VO>` (`when`, `prefix`, format → `decimals`/`sign`/`pad_width`, `scale`) |
+| `POST_NAME`, `FILE_EXTENSION`, `UNITS` | `name`, `output.extension`, `output.units`; no or unknown `UNITS` is refused |
+| `LINE_ENDING`, `SUBSTITUTE` | `output.line_ending`, `output.substitute_values` |
+| `LINE_NUMBER_START/INCREMENT/MAXIMUM` | `line_numbering.*`, used by `[N]` (§5.4.2) |
+| `VAR NAME = [VO\|WO\|CS\|VF\|MX]` | `words.<VO>` (`when`, `prefix`, format → `decimals`/`sign`/`pad_width`/`trailing_zeros`, `scale`; CH-21) |
 | `begin <BLOCK>` + quoted lines | `blocks.<event>` per §5.4.1 table; `+` comments dropped |
 | `MIN_ARC_RADIUS`, `MAX_ARC_RADIUS` | `arcs.min_radius`, `arcs.max_radius` |
-| `MAXIMUM_ROTATION`, `INVERSE_TIME_MODE` | `rotary.max_angle_per_line`, `feed.rotary_method` |
-| `ROTARY_WRAP_X/Y` | rotary axis letter + `parallel_to` (FluutCAM machines true rotary, 04 §4.7) |
-| `MAXIMUM_LENGTH`, `TAPE_SPLITTING` | `output.max_segment_length`, `output.max_file_size` |
-| `POST_BASE` (legacy) | `extends`, if the base file is imported too |
-| `DIRECT_OUTPUT`, `PRINT_DIRECT`, drill-bank blocks, `JET_TOOL_*` | reported unsupported **[OPEN]** |
+| `MAXIMUM_ROTATION` | `rotary.max_angle_per_line` |
+| `INVERSE_TIME_MODE = YES` | refused: such posts write G93 from their own blocks, and the engine switches G93 itself |
+| `ROTARY_WRAP_X/Y` | the rotary word written after the wrapped axis word, `feed.rotary_method = "linear_only"`, with a warning (FluutCAM machines true rotary, 04 §4.7) |
+| `MAXIMUM_LENGTH` | `output.max_segment_length` |
+| `TAPE_SPLITTING` | reported, not mapped (Vectric splits by line count, FluutCAM by bytes) |
+| `POST_BASE` (legacy) | the base file is read and merged; the result is standalone |
+| `SPINDLE_SPEED_RANGE` | refused (speed steps instead of a speed) |
+| `DIRECT_OUTPUT`, `PRINT_DIRECT`, `LASER_SUPPORT`, `RAPID_PLUNGE_TO_STARTZ`, `JET_TOOL_*` blocks | reported unsupported |
+| script sections | refused: nothing is run |
 
 **Rebasing.** After converting, the importer SHOULD find the closest built-in dialect and offer a
 minimal layer that `extends` it and holds only the differences. The rebased post is accepted

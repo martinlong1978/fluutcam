@@ -7,6 +7,11 @@
 //! `[words.*]` entry and suppressed when `when = "changed"` and unchanged;
 //! built-in placeholders use the default format.
 //!
+//! The header sees the values of the program's first Setup and toolpath
+//! (tool, spindle speed, feeds, names), so a post can write the first tool
+//! there; `[N]` is the program's line number; `[ZH]` is the highest safe Z of
+//! the program, never the work zero (spec 05 §5.4.2).
+//!
 //! Safety rule: after any non-motion block writes a line (tool change, setup
 //! start, …), the emitter forgets the last emitted axis words and motion code.
 //! Such blocks may move the machine (e.g. `G53 G0 Z0`), so the next move
@@ -33,6 +38,16 @@ const PECK_GAP: f64 = 0.5;
 
 /// Words forgotten after a non-motion block (see module docs).
 const POSITION_WORDS: [&str; 8] = ["X", "Y", "Z", "A", "B", "I", "J", "K"];
+
+/// Text values typed by the user, which `output.substitute_values` applies
+/// to.
+const USER_TEXT: [&str; 5] = [
+    "TOOLNAME",
+    "TOOLPATH_NAME",
+    "SETUP_NAME",
+    "MACHINE_NAME",
+    "FILE_NOTES",
+];
 
 /// One output line that came from a segment (D10 §4.7), for the Post-tab
 /// preview.
@@ -195,9 +210,19 @@ impl<'a> Emitter<'a> {
                 self.base.insert(k, Val::Num(v * self.unit));
             }
         }
-        for (k, v) in [("XH", 0.0), ("YH", 0.0), ("ZH", 0.0)] {
+        // Home: X0 Y0 at the highest safe Z, so a post that rapids to
+        // `[ZH]` never goes down to the work zero.
+        let home_z = j
+            .setups
+            .iter()
+            .flat_map(|s| &s.toolpaths)
+            .map(|t| t.safe_z)
+            .fold(0.0_f64, f64::max);
+        for (k, v) in [("XH", 0.0), ("YH", 0.0), ("ZH", home_z * self.unit)] {
             self.base.insert(k, Val::Num(v));
         }
+        self.base.insert("LBRACKET", text("["));
+        self.base.insert("RBRACKET", text("]"));
         let cx = &mut self.cx;
         cx.insert("machine.name".into(), Value::Str(j.machine.name.clone()));
         cx.insert(
@@ -230,10 +255,28 @@ impl<'a> Emitter<'a> {
             "state.rotary_clamped".into(),
             Value::Bool(self.rotary_clamped),
         );
+        cx.insert("state.moved".into(), Value::Bool(self.moved));
+    }
+
+    /// Values of the first Setup and toolpath that moves, for the header.
+    fn preload_first_toolpath(&mut self) {
+        let job = self.job;
+        let first = job.setups.iter().enumerate().find_map(|(si, s)| {
+            s.toolpaths
+                .iter()
+                .enumerate()
+                .find(|(_, t)| t.result.segments().any(|g| g.start().is_some()))
+                .map(|(ti, t)| (si, s, ti, t))
+        });
+        if let Some((si, s, ti, tp)) = first {
+            self.setup_values(si, s);
+            self.toolpath_values(ti, tp);
+        }
     }
 
     fn run(&mut self) -> Result<(), EmitError> {
         self.provenance();
+        self.preload_first_toolpath();
         self.block("header");
         for (si, setup) in self.job.setups.iter().enumerate() {
             self.setup_values(si, setup);
@@ -303,7 +346,21 @@ impl<'a> Emitter<'a> {
                 if self.rotary_clamped {
                     self.block("rotary_unclamp");
                 }
-                self.block("rotary_index");
+                if self.has("rotary_index") {
+                    self.block("rotary_index");
+                } else if self.cp.post.rotary.enabled {
+                    // No index block: turn with a rapid of the rotary axes
+                    // alone, so the Setup is never cut at the old angle.
+                    self.event.clear();
+                    for (k, v) in [("A", s.index_a), ("B", s.index_b)] {
+                        if let Some(v) = v {
+                            self.event.insert(k, Val::Num(v));
+                        }
+                    }
+                    self.render("rapid", true);
+                    self.prev_event = Some("rapid".to_owned());
+                    self.event.clear();
+                }
                 self.rotary_clamped = self.has("rotary_clamp");
                 self.block("rotary_clamp");
             }
@@ -968,9 +1025,11 @@ impl<'a> Emitter<'a> {
         if let Some(bb) = b.b {
             self.event.insert("B", Val::Num(bb));
         }
+        let mut feed_changed = false;
         if let Some(f) = feed {
             self.event.insert("F", Val::Num(f * u));
             if self.feed != Some(f) {
+                feed_changed = true;
                 self.feed = Some(f);
                 self.update_state_cx();
                 if self.has("feed_change") {
@@ -978,8 +1037,14 @@ impl<'a> Emitter<'a> {
                 }
             }
         }
+        self.cx
+            .insert("state.moved".into(), Value::Bool(self.moved));
+        // `first_*` starts a run of one motion type, and starts it again
+        // when the feed changes: a post that writes F only there (Vectric
+        // style) then never runs on at a stale feed.
         let first = format!("first_{event}");
-        let name = if self.prev_event.as_deref() != Some(event) && self.has(&first) {
+        let starts_run = self.prev_event.as_deref() != Some(event) || feed_changed;
+        let name = if starts_run && self.has(&first) {
             first
         } else {
             event.to_owned()
@@ -1020,6 +1085,14 @@ impl<'a> Emitter<'a> {
             {
                 continue;
             }
+            // `[N]` is the line number; it does not count as a word below.
+            let numbered_here = l
+                .toks
+                .iter()
+                .any(|t| matches!(t, Tok::Word(k) | Tok::Placeholder(k) if k == "N"));
+            if numbered_here {
+                self.event.insert("N", Val::Num(self.line_no as f64));
+            }
             let mut text = String::new();
             let mut lit = String::new();
             let mut words = 0;
@@ -1032,7 +1105,8 @@ impl<'a> Emitter<'a> {
                         lit.push_str(s);
                     }
                     Tok::Word(key) => {
-                        words += 1;
+                        let counts = key != "N";
+                        words += usize::from(counts);
                         let over = self.dec_override.get(key.as_str()).map(|&d| WordFmt {
                             decimals: d,
                             ..post.words[key].clone()
@@ -1045,14 +1119,14 @@ impl<'a> Emitter<'a> {
                         };
                         let s = match v {
                             Val::Num(n) => format!("{}{}", f.prefix, format_number(*n, f, dc)),
-                            Val::Text(s) => format!("{}{}", f.prefix, s),
+                            Val::Text(s) => format!("{}{}", f.prefix, self.user_text(key, s)),
                         };
                         if f.when == When::Changed && self.last_word.get(key) == Some(&s) {
                             strip_attached(&mut text);
                             strip_attached(&mut lit);
                             continue;
                         }
-                        shown += 1;
+                        shown += usize::from(counts);
                         let rounded = match v {
                             Val::Num(n) => Some(round_dec(n * f.scale, f.decimals) / f.scale),
                             Val::Text(_) => None,
@@ -1060,17 +1134,20 @@ impl<'a> Emitter<'a> {
                         changed.push((key.clone(), s.clone(), rounded));
                         text.push_str(&s);
                     }
-                    Tok::Placeholder(p) => match self.value(p) {
-                        Some(Val::Num(n)) => {
-                            shown += 1;
-                            text.push_str(&format_number(*n, &default_fmt, dc));
+                    Tok::Placeholder(p) => {
+                        let counts = p != "N";
+                        match self.value(p) {
+                            Some(Val::Num(n)) => {
+                                shown += usize::from(counts);
+                                text.push_str(&format_number(*n, &default_fmt, dc));
+                            }
+                            Some(Val::Text(s)) => {
+                                shown += 1;
+                                text.push_str(&self.user_text(p, s));
+                            }
+                            None => {}
                         }
-                        Some(Val::Text(s)) => {
-                            shown += 1;
-                            text.push_str(s);
-                        }
-                        None => {}
-                    },
+                    }
                 }
             }
             // D10 §3.1: drop a line whose words are all suppressed and whose
@@ -1104,10 +1181,33 @@ impl<'a> Emitter<'a> {
             for (from, to) in &post.output.substitute {
                 text = text.replace(from.as_str(), to);
             }
-            self.push_line(text, is_motion, true);
+            self.push_line(text, is_motion, !numbered_here);
+            if numbered_here {
+                self.next_line_number();
+            }
             written += 1;
         }
+        self.event.remove("N");
         written
+    }
+
+    /// `s` with `output.substitute_values` applied when `name` is user text.
+    fn user_text(&self, name: &str, s: &str) -> String {
+        let mut s = s.to_owned();
+        if USER_TEXT.contains(&name) {
+            for (from, to) in &self.cp.post.output.substitute_values {
+                s = s.replace(from.as_str(), to);
+            }
+        }
+        s
+    }
+
+    fn next_line_number(&mut self) {
+        let ln = &self.cp.post.line_numbering;
+        self.line_no += ln.increment;
+        if self.line_no > ln.maximum {
+            self.line_no = ln.start;
+        }
     }
 
     /// Appends a line: line number (if enabled and `numbered`), line map
@@ -1117,10 +1217,7 @@ impl<'a> Emitter<'a> {
         let ln = &self.cp.post.line_numbering;
         if numbered && ln.enabled && !text.starts_with('%') {
             text = format!("{}{} {}", ln.prefix, self.line_no, text);
-            self.line_no += ln.increment;
-            if self.line_no > ln.maximum {
-                self.line_no = ln.start;
-            }
+            self.next_line_number();
         }
         if is_motion && let Some((setup, toolpath, pass, segment)) = self.at {
             self.line_map.push(LineMapEntry {

@@ -42,7 +42,8 @@ Small thing you may notice: some error messages, such as a bad STEP file, show i
 - **Two files with the same body ids** (two DXF files, each with a `b-1`) cannot be in one project. The second import is refused.
 - DXF and SVG import gives curves. You pick them for a 2-D toolpath in pick mode.
 - Re-importing a changed model file is a script function (`model.reimport`), not a window command.
-- Importing from other CAM programs' files (posts, tools, machines) is not available.
+- **Vectric posts** (`.pp`) import on the command line only (`fluut posts import`, [Import posts](Import-Posts)); there is no window command yet. The conversion follows the documented format and has not yet been compared with G-code written by Vectric software from the same post, so check the first program from an imported post. Posts with inverse-time feeds (`INVERSE_TIME_MODE`), spindle speed steps (`SPINDLE_SPEED_RANGE`), scripts, or no units are refused. Laser blocks, and placeholders FluutCAM has no value for (file name, material size, tool lists), are left out with a warning. Wider-than-number field widths (space padding) are not written, and lines are trimmed. An imported post is standalone: it does not extend a built-in post.
+- Importing machines from other CAM programs is not available. Tools import from Fusion and posts from Vectric (above).
 
 ## Setups
 

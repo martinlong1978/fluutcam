@@ -62,8 +62,12 @@ pub struct Output {
     pub units: Units,
     pub line_ending: LineEnding,
     pub decimal_char: String,
-    /// Text replacements applied to every output line (Vectric `SUBSTITUTE`).
+    /// Text replacements applied to every output line.
     pub substitute: BTreeMap<String, String>,
+    /// Text replacements applied only to user text put into a line: tool,
+    /// toolpath, Setup and machine names and the file notes (Vectric
+    /// `SUBSTITUTE`, which keeps such names from breaking a comment).
+    pub substitute_values: BTreeMap<String, String>,
     /// Bytes per file before splitting; 0 = no split.
     pub max_file_size: u64,
     /// Longest line move before splitting, mm; 0 = no limit.
@@ -80,6 +84,7 @@ impl Default for Output {
             line_ending: LineEnding::Lf,
             decimal_char: ".".into(),
             substitute: BTreeMap::new(),
+            substitute_values: BTreeMap::new(),
             max_file_size: 0,
             max_segment_length: 0.0,
             comment_start: "(".into(),

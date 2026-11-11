@@ -15,7 +15,7 @@ mod tests;
 
 /// Built-in placeholders (spec 05 §5.4.2, D10 §5), used when no word of the
 /// same name is defined.
-pub const PLACEHOLDERS: [&str; 52] = [
+pub const PLACEHOLDERS: [&str; 54] = [
     "X",
     "Y",
     "Z",
@@ -68,6 +68,8 @@ pub const PLACEHOLDERS: [&str; 52] = [
     "CYCLE_F",
     "COMMENT",
     "DWELL",
+    "LBRACKET",
+    "RBRACKET",
 ];
 
 #[derive(Clone, PartialEq, Debug)]

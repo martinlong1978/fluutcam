@@ -8,6 +8,7 @@ fluut sim <project> [--tools <file>]... [--error <mm>]
 fluut post <project> --post <id> -o <file> [--tools <file>]... [--date <yyyy-mm-dd>] [--time <hh:mm:ss>]
 fluut run <script> [<project>] [--tools <file>]... [--date <yyyy-mm-dd>] [--time <hh:mm:ss>] [-- <args>...]
 fluut tools import <file> -o <library.toml> [--id <library id>] [--name <text>] [--force]
+fluut posts import <file.pp> -o <post.toml> [--id <post id>] [--force]
 fluut update-check [--channel stable|beta]
 fluut --version
 fluut --help
@@ -88,6 +89,10 @@ Loads an extra tool library, after the project's own `tools/` folder and after t
 ## `fluut tools import`
 
 Converts a Fusion tool library (`.json`) to a FluutCAM tool library file. It writes a new file and refuses to replace one unless you give `--force`. It prints a warning for every tool or value it changed or left out. Exit status 0 when the file was written, 1 for an error, 2 for a wrong command line. See [Import tools](Import-Tools).
+
+## `fluut posts import`
+
+Converts a Vectric post processor (`.pp`) to a FluutCAM post file. A base post named by `POST_BASE` is read from the same folder. It writes a new file and refuses to replace one unless you give `--force`. It prints a warning for everything it changed or left out, and refuses (with an error, writing nothing) a post whose conversion would write wrong G-code. The default id is `vectric/` and the file's name. Exit status 0 when the file was written, 1 for an error, 2 for a wrong command line. Put the file in the project's `posts/` folder and post with `--post <id>`. See [Import posts](Import-Posts).
 
 ## `fluut update-check`
 

@@ -1,0 +1,189 @@
+# Imported from a Vectric post processor (fluut posts import).
+# Review it before use: imported posts are marked origin = "imported".
+#
+# The source file's opening comment:
+#    Hand-written test post for FluutCAM's Vectric importer; not a vendor
+#    file. A LinuxCNC-like mill: line numbers, four decimals, plunge and
+#    dwell blocks, an automatic tool change with a length offset, and
+#    parentheses in names kept out of comments. The feed word has no prefix:
+#    the lines write the F.
+format  = "fluut.post/1"
+id      = "test/linuxcnc-like"
+version = "1.0"
+name    = "FluutCAM test, LinuxCNC-like (mm)"
+origin  = "imported"
+
+[output]
+units = "mm"
+decimal_char = "."
+extension = "ngc"
+line_ending = "crlf"
+substitute_values = { "(" = "[", ")" = "]" }
+comment_start = "("
+comment_end = ")"
+
+[line_numbering]
+enabled = false   # `[N]` in the lines numbers them
+start = 100
+increment = 5
+maximum = 99995
+
+[words.DWELL]
+prefix = "P"
+when = "always"
+decimals = 2
+trailing_zeros = true
+leading_zero = true
+
+[words.F]
+prefix = ""
+when = "changed"
+decimals = 1
+trailing_zeros = true
+leading_zero = true
+
+[words.I]
+prefix = "I"
+when = "always"
+decimals = 4
+trailing_zeros = true
+leading_zero = true
+
+[words.J]
+prefix = "J"
+when = "always"
+decimals = 4
+trailing_zeros = true
+leading_zero = true
+
+[words.N]
+prefix = "N"
+when = "always"
+decimals = 0
+trailing_zeros = true
+leading_zero = true
+
+[words.S]
+prefix = "S"
+when = "always"
+decimals = 0
+trailing_zeros = true
+leading_zero = true
+
+[words.SAFEZ]
+prefix = "Z"
+when = "always"
+decimals = 4
+trailing_zeros = true
+leading_zero = true
+
+[words.X]
+prefix = "X"
+when = "changed"
+decimals = 4
+trailing_zeros = true
+leading_zero = true
+
+[words.Y]
+prefix = "Y"
+when = "changed"
+decimals = 4
+trailing_zeros = true
+leading_zero = true
+
+[words.Z]
+prefix = "Z"
+when = "changed"
+decimals = 4
+trailing_zeros = true
+leading_zero = true
+
+[arcs]
+enabled = true
+planes = ["XY"]
+centre_mode = "ijk_incremental"
+
+[helix]
+enabled = false
+planes = ["XY"]
+
+[cycles]
+enabled = false
+
+[blocks.arc_ccw]
+lines = [
+  "[N] G3 [X] [Y] [I] [J]",
+]
+
+[blocks.arc_cw]
+lines = [
+  "[N] G2 [X] [Y] [I] [J]",
+]
+
+[blocks.dwell]
+lines = [
+  "[N] G4 [DWELL]",
+]
+
+[blocks.feed]
+lines = [
+  "[N] G1 [X] [Y] [Z]",
+]
+
+[blocks.first_arc_ccw]
+lines = [
+  "[N] G3 [X] [Y] [I] [J] F[F]",
+]
+
+[blocks.first_arc_cw]
+lines = [
+  "[N] G2 [X] [Y] [I] [J] F[F]",
+]
+
+[blocks.first_feed]
+lines = [
+  "[N] G1 [X] [Y] [Z] F[F]",
+]
+
+[blocks.footer]
+lines = [
+  "[N] M5",
+  "[N] M30",
+  "%",
+]
+
+[blocks.header]
+lines = [
+  "%",
+  "[N] (Post: FluutCAM test, LinuxCNC-like [LBRACKET]mm])",
+  "[N] (First tool: [TOOLNAME])",
+  "[N] G17 G21 G40 G49 G90 G94",
+  "[N] G64 P0.01",
+  "[N] T[T] M6",
+  "[N] G43 H[T]",
+  "[N] [S] M3",
+  "[N] G0 [SAFEZ]",
+]
+
+[blocks.plunge]
+lines = [
+  "[N] G1 [X] [Y] [Z] F[F]",
+]
+
+[blocks.rapid]
+lines = [
+  "[N] G0 [X] [Y] [Z]",
+]
+
+[blocks.tool_change]
+lines = [
+  { when = "!state.first_tool", line = "[N] M5" },
+  { when = "!state.first_tool", line = "[N] T[T] M6" },
+  { when = "!state.first_tool", line = "[N] G43 H[T]" },
+]
+
+[blocks.toolpath_start]
+lines = [
+  { when = "!state.first_tool", line = "[N] ([TOOLPATH_NAME])" },
+  { when = "!state.first_tool", line = "[N] [S] M3" },
+]
