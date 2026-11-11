@@ -430,6 +430,9 @@ pub struct Sample {
     pub cut: bool,
     /// Slope of the contact (0 where nothing is under the tool).
     pub slope: f64,
+    /// The middle drop of an accepted chord: the output must stay within
+    /// `tol/4` of it, but it is not a vertex of the output.
+    pub check: bool,
 }
 
 /// CL points along drive curves: drops, classification and adaptive
@@ -470,7 +473,13 @@ impl Sampler<'_> {
 
     fn sample(&self, d: &impl Drive, t: f64) -> Sample {
         let (z, cut, slope) = self.cl_slope(d.at(t));
-        Sample { t, z, cut, slope }
+        Sample {
+            t,
+            z,
+            cut,
+            slope,
+            check: false,
+        }
     }
 
     /// Samples of `d` over `[t0, t1]` in order: chords within `tol/4` of
@@ -516,9 +525,10 @@ impl Sampler<'_> {
     ///
     /// The output is the first sample, then for each accepted chord, left
     /// to right, its middle drop on the drive (when one was taken) and its
-    /// end: the middle drop is a real drop within `tol/4` of the chord, so
-    /// it is not thrown away, and the merge of [`Sampler::cut_runs`] then
-    /// keeps every drop on the drive within `tol/4` of the output.
+    /// end. The middle drop is flagged [`Sample::check`]: the merge of
+    /// [`Sampler::cut_runs`] keeps the output within `tol/4` of it too (it
+    /// was thrown away), but never makes it a vertex, so no output chord
+    /// is longer than without it.
     fn samples_on(&self, d: &impl Drive, t0: f64, t1: f64) -> Vec<Sample> {
         let a = self.sample(d, t0);
         let b = self.sample(d, t1);
@@ -554,7 +564,7 @@ impl Sampler<'_> {
         for n in nodes {
             match n {
                 Node::Done(m, b) => {
-                    out.extend(m);
+                    out.extend(m.map(|m| Sample { check: true, ..m }));
                     out.push(b);
                 }
                 Node::Open(_, b, _) => out.push(b),
@@ -656,7 +666,8 @@ impl Sampler<'_> {
     }
 
     /// The cut stretches of `d` over `[t0, t1]` as CL polylines, collinear
-    /// points merged within `tol/4`. Uncut gaps shorter than `tol` are
+    /// points merged within `tol/4` of every drop (ends and middle checks,
+    /// [`merge_checked`]). Uncut gaps shorter than `tol` are
     /// bridged along the CL (rounding at a limit), and stretches shorter
     /// than `tol` are dropped.
     pub fn cut_runs(&self, d: &impl Drive, t0: f64, t1: f64) -> Vec<Vec<Point3>> {
@@ -669,12 +680,12 @@ impl Sampler<'_> {
         let mut steepest: f64 = 0.0;
         let pt = |s: &Sample| {
             let p = d.at(s.t);
-            Point3::new(p.x(), p.y(), s.z)
+            (Point3::new(p.x(), p.y(), s.z), s.check)
         };
         let mut runs = Vec::new();
-        let mut cur: Vec<Point3> = Vec::new();
+        let mut cur: Vec<(Point3, bool)> = Vec::new();
         let mut last_cut = f64::NEG_INFINITY;
-        let mut gap: Vec<Point3> = Vec::new();
+        let mut gap: Vec<(Point3, bool)> = Vec::new();
         for s in self.samples(d, t0, t1) {
             if s.cut {
                 steepest = steepest.max(s.slope);
@@ -694,15 +705,20 @@ impl Sampler<'_> {
             runs.push(cur);
         }
         // A closed run (a loop drive cut all round) starts where it ends.
-        let closed = |r: &Vec<Point3>| {
-            let (a, b) = (r[0], r[r.len() - 1]);
+        let closed = |r: &Vec<(Point3, bool)>| {
+            let (a, b) = (r[0].0, r[r.len() - 1].0);
             libm::hypot(a.x() - b.x(), a.y() - b.y()) < 1e-9
-                && r.windows(2).map(|w| (w[1] - w[0]).length()).sum::<f64>() > self.tol
+                && r.windows(2)
+                    .map(|w| (w[1].0 - w[0].0).length())
+                    .sum::<f64>()
+                    > self.tol
         };
         let runs = runs
             .into_iter()
-            .filter(|r| r.len() >= 2 && ((r[r.len() - 1] - r[0]).length() > self.tol || closed(r)))
-            .map(|r| merge(r, 0.25 * self.tol))
+            .filter(|r| {
+                r.len() >= 2 && ((r[r.len() - 1].0 - r[0].0).length() > self.tol || closed(r))
+            })
+            .map(|r| merge_checked(&r, 0.25 * self.tol))
             .collect();
         (runs, steepest)
     }
@@ -722,18 +738,50 @@ impl Sampler<'_> {
         if !s.iter().all(|x| x.cut) {
             return None;
         }
-        let mut pts: Vec<Point3> = s
+        let mut pts: Vec<(Point3, bool)> = s
             .iter()
             .map(|x| {
                 let p = pa + u * x.t;
-                Point3::new(p.x(), p.y(), x.z)
+                (Point3::new(p.x(), p.y(), x.z), x.check)
             })
             .collect();
         let k = pts.len() - 1;
-        pts[0] = a;
-        pts[k] = b;
-        Some(merge(pts, 0.25 * self.tol))
+        pts[0] = (a, false);
+        pts[k] = (b, false);
+        Some(merge_checked(&pts, 0.25 * self.tol))
     }
+}
+
+/// As [`merge`], for points flagged `true` that are checks only: the
+/// output keeps within `tol` of them but never has them as vertices (so
+/// it has no longer chords than without them). The ends are kept.
+pub fn merge_checked(pts: &[(Point3, bool)], tol: f64) -> Vec<Point3> {
+    let n = pts.len();
+    if n <= 2 {
+        return pts.iter().map(|p| p.0).collect();
+    }
+    // The next vertex after `i` (the last point always is one).
+    let next = |i: usize| {
+        (i + 1..n)
+            .find(|&k| !pts[k].1 || k == n - 1)
+            .unwrap_or(n - 1)
+    };
+    let mut out = vec![pts[0].0];
+    let mut i = 0;
+    while i < n - 1 {
+        let mut j = next(i);
+        while j < n - 1 {
+            let nj = next(j);
+            if (i + 1..nj).all(|k| dist_to_seg(pts[k].0, pts[i].0, pts[nj].0) <= tol) {
+                j = nj;
+            } else {
+                break;
+            }
+        }
+        out.push(pts[j].0);
+        i = j;
+    }
+    out
 }
 
 /// Drops points that lie within `tol` of the chord between their kept

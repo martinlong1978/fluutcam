@@ -135,11 +135,11 @@ fn chord_deviation(
     r: &Generated,
     bottom: f64,
     tol: f64,
-) -> (f64, f64, usize, usize) {
+) -> (f64, f64, usize, usize, usize) {
     let c = Cutter::new(tl.diameter, tl.corner_radius()).expect("cutter");
     let q = SurfaceQuery::new(g, &FaceSets::default(), c, 0.0).expect("query");
     let (mut into, mut above): (f64, f64) = (0.0, 0.0);
-    let (mut over, mut points) = (0, 0);
+    let (mut over, mut gouges, mut points) = (0, 0, 0);
     for s in r.result.segments() {
         if s.motion().is_none_or(|m| m.motion != Motion::Cut) {
             continue;
@@ -178,11 +178,14 @@ fn chord_deviation(
             if d.abs() > tol {
                 over += 1;
             }
+            if d > tol {
+                gouges += 1;
+            }
             into = into.max(d);
             above = above.max(-d);
         }
     }
-    (into, above, over, points)
+    (into, above, over, gouges, points)
 }
 
 fn run(input: &StrategyInput, threads: usize, record: bool) -> Option<Case> {
@@ -408,10 +411,11 @@ fn main() {
                 if matches!(*ty, "parallel" | "spiral" | "scallop")
                     && let Some(r) = &one.result
                 {
-                    let (into, above, over, points) = chord_deviation(&g, tool, r, bb.min.z(), tol);
+                    let (into, above, over, gouges, points) =
+                        chord_deviation(&g, tool, r, bb.min.z(), tol);
                     line += &format!(
                         "\n      chords at 1/4, 1/2, 3/4: worst {into:.5} mm into the part, \
-                         {above:.5} mm above it (normal); {over} of {points} points off by \
+                         {above:.5} mm above it (normal); {over} of {points} points off by ({gouges} into the part) \
                          more than the tolerance"
                     );
                 }
