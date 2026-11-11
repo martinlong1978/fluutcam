@@ -7,6 +7,7 @@
 //! fluut sim <project> [--tools <file>]... [--error <mm>]
 //! fluut post <project> --post <id> -o <file> [--tools <file>]... [--date <d>] [--time <t>]
 //! fluut run <script> [<project>] [--tools <file>]... [--date <d>] [--time <t>] [-- <args>...]
+//! fluut tools import <file> -o <library.toml> [--id <id>] [--name <text>] [--force]
 //! fluut update-check
 //! ```
 //!
@@ -27,6 +28,8 @@
 //! Exit status: 0 on success, 1 when a diagnostic is an error, 2 on bad
 //! arguments.
 
+mod tools_cmd;
+
 use fluut_core::update::{self, Outcome, UpdateError};
 use fluut_core::{JobReport, JobState, PostOptions, Session, Targets};
 use fluut_model::{Diagnostic, Severity};
@@ -39,6 +42,7 @@ const USAGE: &str = "usage:
   fluut sim <project> [--tools <file>]... [--error <mm>]
   fluut post <project> --post <id> -o <file> [--tools <file>]... [--date <yyyy-mm-dd>] [--time <hh:mm:ss>]
   fluut run <script> [<project>] [--tools <file>]... [--date <yyyy-mm-dd>] [--time <hh:mm:ss>] [-- <args>...]
+  fluut tools import <file> -o <library.toml> [--id <library id>] [--name <text>] [--force]
   fluut update-check";
 
 #[derive(Debug, Default)]
@@ -121,6 +125,19 @@ fn main() -> ExitCode {
         let check = || update::check(&update::UreqFetch::default());
         let code = update_check(args, check, &mut std::io::stdout(), &mut std::io::stderr());
         return ExitCode::from(code);
+    }
+    if args.peek().map(String::as_str) == Some("tools") {
+        args.next();
+        return match tools_cmd::parse(args) {
+            Ok(t) => tools_cmd::run(&t),
+            Err(e) => {
+                eprintln!(
+                    "fluut: {e}
+{USAGE}"
+                );
+                ExitCode::from(2)
+            }
+        };
     }
     if args.peek().map(String::as_str) == Some("run") {
         args.next();

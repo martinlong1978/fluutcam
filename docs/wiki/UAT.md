@@ -42,6 +42,7 @@ The tests use the ribbon: click the stage tab (Model, Setup, Toolpaths, Simulate
 | [Simulation](UAT-Simulation) | UAT-SIM | Simulate, playback, colours, findings, failures |
 | [Post](UAT-Post) | UAT-PST | The three posts, the output file, the G-code, failures |
 | [Command line](UAT-CLI) | UAT-CLI | `fluut calc`, `sim`, `post`, `run`, exit codes, errors |
+| [Import tools](UAT-Tools) | UAT-TLS | `fluut tools import` of a Fusion tool library: result, overwrite, ids, bad files, bad arguments |
 | [Install (Flatpak)](UAT-Install) | UAT-INS | Installing, running, file dialogs and uninstalling the Linux Flatpak |
 
 ## Record sheet

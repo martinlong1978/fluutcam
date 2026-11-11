@@ -1544,6 +1544,7 @@ dependencies = [
  "fluut-model",
  "fluut-path",
  "fluut-post",
+ "fluut-post-import",
  "fluut-script",
  "winresource",
 ]
@@ -1675,6 +1676,14 @@ dependencies = [
  "sha2",
  "thiserror 2.0.21",
  "toml",
+]
+
+[[package]]
+name = "fluut-post-import"
+version = "0.1.0"
+dependencies = [
+ "fluut-model",
+ "serde_json",
 ]
 
 [[package]]

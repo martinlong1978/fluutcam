@@ -21,6 +21,7 @@ This wiki is the user guide. It is written for a hobbyist or small-shop machinis
 - [Add a toolpath](Add-a-Toolpath)
 - [Calculate and simulate](Calculate-and-Simulate)
 - [Post G-code](Post-G-code)
+- [Import tools](Import-Tools) (from a Fusion tool library)
 - [Save, undo and recover](Save-Undo-Recover)
 
 ## Reference

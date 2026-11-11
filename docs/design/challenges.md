@@ -33,6 +33,9 @@ Problems found during detailed design. Each has a status:
 | CH-22 | Simulation memory and speed at fine resolution | D11 §2 | deferred |
 | CH-23 | Live pass preview cost while dragging | D13 §5.3 | deferred |
 | CH-24 | Mirror transforms: face sense and p-curves | D02 §1, D03 §2 | resolved |
+| CH-26 | Fusion tool-library JSON has no public schema | D16 §2.1 | deferred |
+| CH-27 | Vectric `.vtdb` table layout is not public | D16 §7.3 | deferred |
+| CH-28 | Fusion preset names versus FluutCAM materials | D16 §3.3 | deferred |
 
 ## End-of-pass review (2026-10-31)
 
@@ -547,3 +550,25 @@ S2 cost model rather than D02 §8's estimate.
 **S2 (2026-11-01).** The drop never calls B-spline closest point in its inner loop: seeds come from vertical projection (2-D Newton), so CH-25's 99 µs does not set the drop cost. A B-spline patch solve costs 40 µs, and a dense free-form model needs about 5 per drop, giving 210–320 µs median against D07 §8's 20 µs. Warm starts from the previous drop and tighter patch bounds come first ([S2 report](../plan/spikes/s2-cutter-queries.md) §2, §5). Closest point itself remains as measured in M1. **2026-11-04:** patch and edge sub-boxes with re-queueing cut the drop to 103-337 us median on free-form models (from 170-680), 1.3-3.6 patch solves per drop plus re-solves of suspect patches beside face boundaries (which keep it free of misses against the full scan); warm starts measured no effect and were not kept ([plan](../plan/2026-11-04-drop-bspline-speed.md)).
 
 **2026-11-11.** B-spline surfaces and curves (degree up to 7) evaluate from Bézier forms cached at construction: `derivs` 350 to 77 ns, first order 48 ns (target 250). Patch boxes and the patches' 8 x 8 sub-boxes now come from Bézier points (proven, much tighter). B-spline closest point takes 1.8 µs on the D02 §8 bench query (was 99 µs in M1, 62 µs on today's machine): **the 5 µs target is met.** The drop on free-form models is 3.4 to 6.2 times faster (25-66 µs median, a patch solve 10 µs instead of 30-40); it is still 1.2 to 3.3 times the 20 µs target ([plan](../plan/2026-11-11-bspline-speed.md)). Open: the flat-bottom Newton (flat and bull tools) and the re-solves of suspect patches.
+
+### CH-26 Fusion tool-library JSON has no public schema
+
+**Raised in D16 §2.1. Status: deferred.** The JSON key names the importer reads are the
+abbreviations of Autodesk's documented post-processor `tool` properties, seen in public
+discussions of exported files, but no official schema for the file could be fetched. The
+importer reads only a listed set of keys, checks every value, reports the rest, and skips tool
+types it cannot map. Revisit when a user supplies a real file (hand-reduced into a fixture) or
+Autodesk publishes the schema.
+
+### CH-27 Vectric `.vtdb` table layout is not public
+
+**Raised in D16 §7.3. Status: deferred.** SQLite is public, the layout of Vectric's tool tables
+is not, and proprietary samples must not be used. The container reader is designed (own
+read-only reader, no `rusqlite`), the mapping is blocked until a user lists the table and
+column names of their own file.
+
+### CH-28 Fusion preset names versus FluutCAM materials
+
+**Raised in D16 §3.3. Status: deferred.** Fusion presets are free names with a material query;
+FluutCAM's presets are keyed by a material name that a Setup selects. The importer keeps the
+preset name as the material. A later Library UI may map names to canonical materials.
