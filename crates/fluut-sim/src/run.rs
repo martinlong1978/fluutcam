@@ -510,6 +510,25 @@ impl Simulation {
         sim::cut_chords(d, &self.chords[r], None, &|_| false);
     }
 
+    /// The chord counts at the starts of up to `k` moves before chord `n`,
+    /// latest first, stopping at `floor` (a step back by move from `n`
+    /// lands on them in turn).
+    pub(crate) fn move_starts(&self, n: usize, k: usize, floor: usize) -> Vec<usize> {
+        let mut out = Vec::new();
+        let mut at = n.min(self.chords.len());
+        while out.len() < k && at > floor {
+            let start = self.unit(at - 1, Step::Move).start;
+            if start >= at {
+                break;
+            }
+            at = start;
+            if at > floor {
+                out.push(at);
+            }
+        }
+        out
+    }
+
     /// The chords of the move or pass that chord `i` belongs to.
     fn unit(&self, i: usize, unit: Step) -> std::ops::Range<usize> {
         let c = &self.chords[i];

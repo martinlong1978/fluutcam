@@ -21,6 +21,7 @@ Project
    ├─ zero               work-coordinate origin on model or stock            (§3.9.3)
    ├─ workOffset         G54 … (controller work offset)
    ├─ region, clearance  machining box / clearance plane or cylinder
+   ├─ fixtures           chuck, tailstock, clamps that turn with A           (§3.9.8)
    └─ Toolpath[]         ordered                                            
       ├─ type            fixed at creation, e.g. optimised_load_3d, parallel     
       ├─ parameters      common groups + the type's own group (§3.10)      
@@ -354,14 +355,15 @@ angle, then the clamp code if the machine defines one (05 §5.4.1). At the end, 
 **Turn clearance.** A turn swings the stock's corners above a clearance plane. Before A turns at
 a Setup start (an indexed Setup, or a rotary one after another Setup), once the tool has moved,
 the post raises it to the **turn clearance**: the largest distance from the rotary axis of the
-stock, the bodies and the fixtures that turn with A (none are modelled yet; fixture bodies
-imported with the model are bodies), plus the clearance offset (the plane's `offset`, else 10 mm), the larger of
+stock, the bodies and the fixtures that turn with A (§3.9.8; fixture bodies imported with the
+model are bodies), plus the clearance offset (the plane's `offset`, else 10 mm), the larger of
 the Setup's and the previous Setup's (05 §5.6, D08 §7). The user sets no radius. The machine's
 `travel.z` limits the spindle gauge line (02 §2.3), so with the tool in the spindle (the tool
 of the last toolpath before the Setup) the gauge line is at the turn clearance + the tool's
 gauge length; above `travel.z[1] − centre.z` of the rotary axis it is an error,
 `setup.clearance.index_travel`, which gives the tip's Z and the gauge line's. A tool with no
-`overall_length` has a gauge length of 0. In a
+`overall_length` has a gauge length of 0, and the user gets the warning `cam.tool.length_missing`
+(once per tool and calculation; also for a holder, which starts at the overall length). In a
 `rotary` Setup A turns on rapids at the clearance cylinder, so a clearance cylinder not larger than
 the stock and the bodies' radius is an error, `setup.clearance.index_unsafe`.
 
@@ -407,6 +409,34 @@ Setup 3  "Flat at 90°"    basedOn = 2, indexAngle = relative +90
 Setups 2 and 3 set one or two fields each. The post output is: Setup 1 rotary moves; then
 `A0` + clamp, Setup 2 cuts; then unclamp, `A90`, clamp, Setup 3 cuts. All three use the same work
 offset. The project file form is in 02 §2.1.
+
+### 3.9.8 Fixtures
+
+A `rotary` or `indexed` Setup may list the **fixtures that turn with A**: `fixtures = [ ... ]`.
+Positions are in the Setup's work frame W (X along the rotary axis, the zero on the axis), sizes
+in mm. The list is inherited as a whole (§3.9.4); an empty list says "none".
+
+| Kind | Keys | Shape |
+|---|---|---|
+| `chuck` | `diameter`, `length` | a cylinder about the axis against the stock's start face (its lowest X), reaching `length` outward |
+| `tailstock` | `diameter`, `length`, optional `tip_diameter` | a cylinder, or a cone, about the axis against the stock's end face (its highest X); `diameter` is the width at the far end, `tip_diameter` (default `diameter`) the width at the stock |
+| `clamp` | `min`, `max` | a box between two corners in W at A = 0; in an indexed Setup it turns with the index angle |
+
+A fixture fixed to the table, outside the rotary, does not turn and is not listed here. A
+`three_axis` Setup has no fixtures; the list is ignored with the warning `setup.fixtures.ignored`.
+
+**Turn radius.** The turn radius is the larger of the stock and bodies radius and the radius
+(largest distance from the axis) of every fixture **over the X range the tool visits**: the stock's
+X range widened at both ends by the largest cutter radius of the Setup's toolpaths. A fixture
+outside that range is never near the tool and does not raise the turn. A fixture within the range
+but smaller than the part changes nothing. A fixture that only touches the stock's end face is not
+in the range of a tool that stays within the stock.
+
+**Simulation.** In an indexed Setup `Session::simulate` checks the tool against the fixtures,
+reporting `sim.fixture` (an error on the toolpath) where the cutter, a wider shank, or the holder
+(a vertical cylinder from the overall length up) meets one. The check samples the ends of every
+segment and lines every millimetre, and takes a box as its bounding box and the tool as a
+cylinder, so it errs towards a hit. Rotary Setups are not simulated.
 
 ## 3.10 Toolpath types and parameters
 

@@ -10,8 +10,8 @@
 use crate::diag::Diagnostic;
 use crate::params::Num;
 use crate::project::{
-    AngleMode, AxisDir, AxisPick, AxisX, ClearanceSpec, GeometrySel, Orientation, Project, Region,
-    Setup, SetupKind, StockSpec, ZeroSpec,
+    AngleMode, AxisDir, AxisPick, AxisX, ClearanceSpec, Fixture, GeometrySel, Orientation, Project,
+    Region, Setup, SetupKind, StockSpec, ZeroSpec,
 };
 use std::collections::BTreeMap;
 
@@ -25,7 +25,7 @@ pub enum FieldOrigin {
 }
 
 /// The inheritable fields, in file order.
-pub const INHERITED_FIELDS: [&str; 11] = [
+pub const INHERITED_FIELDS: [&str; 12] = [
     "kind",
     "machine",
     "material",
@@ -37,6 +37,7 @@ pub const INHERITED_FIELDS: [&str; 11] = [
     "zero",
     "region",
     "clearance",
+    "fixtures",
 ];
 
 /// A Setup with every field concrete.
@@ -62,6 +63,8 @@ pub struct ResolvedSetup {
     pub region: Option<Region>,
     /// `None` only for a rotary or indexed root without a clearance.
     pub clearance: Option<ClearanceSpec>,
+    /// Fixtures that turn with A (empty when none are given).
+    pub fixtures: Vec<Fixture>,
     pub origins: BTreeMap<&'static str, FieldOrigin>,
     /// Rule findings that do not stop resolution (`from_previous`, kinds).
     pub diagnostics: Vec<Diagnostic>,
@@ -93,6 +96,7 @@ impl ResolvedSetup {
         s.zero = Some(self.zero.clone());
         s.region = self.region.clone();
         s.clearance = self.clearance.clone();
+        s.fixtures = (!self.fixtures.is_empty()).then(|| self.fixtures.clone());
         s
     }
 }
@@ -250,6 +254,10 @@ fn merge(s: &Setup, parent: Option<&ResolvedSetup>) -> ResolvedSetup {
             (kind == SetupKind::ThreeAxis).then_some(ClearanceSpec::Plane { offset: None })
         });
 
+    let fixtures = pk
+        .take("fixtures", &s.fixtures, |p| Some(p.fixtures.clone()))
+        .unwrap_or_default();
+
     // Index angle (spec 03 §3.9.5): an inherited angle is the parent's
     // resolved angle; a local relative angle adds to it (0 under a rotary
     // parent).
@@ -297,6 +305,7 @@ fn merge(s: &Setup, parent: Option<&ResolvedSetup>) -> ResolvedSetup {
         zero,
         region,
         clearance,
+        fixtures,
         origins: pk.origins,
         diagnostics: Vec::new(),
     };
@@ -345,6 +354,18 @@ fn check(r: &ResolvedSetup, parent: Option<&ResolvedSetup>) -> Vec<Diagnostic> {
                 format!("Setup `{}`: a three_axis zero needs a `method`", r.id),
             )
             .at("zero"),
+        );
+    }
+    if !r.kind.is_rotary() && !r.fixtures.is_empty() {
+        out.push(
+            Diagnostic::warning(
+                "setup.fixtures.ignored",
+                format!(
+                    "Setup `{}`: fixtures turn with the rotary axis; a three_axis Setup has none, so they are ignored",
+                    r.id
+                ),
+            )
+            .at("fixtures"),
         );
     }
     if r.stock.is_none() {

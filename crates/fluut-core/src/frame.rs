@@ -9,6 +9,7 @@
 //! an `indexed` Setup about X. The frame is built from the resolved Setup, so inherited
 //! fields count (D06 §2).
 
+use crate::fixture::{self, FixtureShape};
 use fluut_cam::RotaryInfo;
 use fluut_cam::geometry::{EdgeRef, SetupBody, SetupGeometry};
 use fluut_cam::stock::{LayeredStock, sin_cos_deg};
@@ -39,12 +40,19 @@ pub struct SetupFrame {
     pub clearance: f64,
     /// Rotary and indexed Setups: the largest distance from the rotary
     /// axis of the stock, the bodies and the fixtures that turn with A
-    /// (none are modelled yet). Everything that turns with A lies within
-    /// it, at any moment (spec 03 §3.9.5).
+    /// within the stock's X range. Everything that turns with A lies within
+    /// it, at any moment (spec 03 §3.9.5). A tool that reaches beyond the
+    /// stock's ends sees more fixtures: see [`SetupFrame::turn_radius_reaching`].
     pub turn_radius: Option<f64>,
     /// The turn radius + the clearance offset: the Z in W the tool rises
     /// to before A turns.
     pub turn_clearance: Option<f64>,
+    /// The Setup's fixtures that turn with A, in W (spec 03 §3.9.8).
+    pub fixtures: Vec<FixtureShape>,
+    /// The turn radius without fixtures.
+    turn_base: Option<f64>,
+    /// The clearance offset added to the turn radius.
+    turn_offset: f64,
     /// Rotary data of a `rotary` Setup.
     pub rotary: Option<RotaryFrame>,
     /// Data of an `indexed` Setup.
@@ -313,9 +321,37 @@ impl SetupFrame {
             model,
             turn_radius: None,
             turn_clearance: None,
+            fixtures: Vec::new(),
+            turn_base: None,
+            turn_offset: 0.0,
             rotary: None,
             index: None,
         })
+    }
+
+    /// The turn radius when the tool reaches `reach` mm beyond the stock's
+    /// ends in X: the stock and the part, and the fixtures that turn with
+    /// A and lie within that X range (a fixture beyond it is never near
+    /// the tool). `None` for a `three_axis` Setup.
+    pub fn turn_radius_reaching(&self, reach: f64) -> Option<f64> {
+        let base = self.turn_base?;
+        let (lo, hi) = (self.stock.min.x() - reach, self.stock.max.x() + reach);
+        Some(fixture::radius_within(&self.fixtures, lo, hi).map_or(base, |f| base.max(f)))
+    }
+
+    /// The turn clearance when the tool reaches `reach` mm beyond the
+    /// stock's ends: [`SetupFrame::turn_radius_reaching`] + the clearance
+    /// offset.
+    pub fn turn_clearance_reaching(&self, reach: f64) -> Option<f64> {
+        self.turn_radius_reaching(reach)
+            .map(|r| r + self.turn_offset)
+    }
+
+    /// The first fixture that a tool with a cutter of radius `tool_r` and
+    /// its tip at `tip` in W meets, if any.
+    pub fn fixture_hit(&self, tip: Point3, tool_r: f64) -> Option<&FixtureShape> {
+        let p = [tip.x(), tip.y(), tip.z()];
+        self.fixtures.iter().find(|f| f.hit_by(p, tool_r))
     }
 
     /// The Setup stock as in-process stock, before any toolpath (D08 §7):
@@ -465,15 +501,14 @@ fn box_radius(b: &Aabb3) -> f64 {
     (y * y + z * z).sqrt()
 }
 
-/// Hook for fixtures that turn with A (a chuck, a tailstock centre, clamps
-/// on the rotary table): the largest distance of any of them from the
-/// rotary axis, which the turn radius must include. The project model has
-/// no fixture model yet, so this is `None`. Fixture bodies imported with
-/// the model are Setup bodies and already count in the turn radius.
-/// Fixtures fixed to the table outside the rotary do not turn and do not
-/// belong here.
-fn turning_fixture_radius(_s: &ResolvedSetup) -> Option<f64> {
-    None
+/// The Setup's fixtures in W for a stock spanning `stock_x`, turned by the
+/// index angle `index_deg` (0 for a rotary Setup). Fixtures fixed to the
+/// table outside the rotary do not turn and do not belong here.
+fn fixture_shapes(s: &ResolvedSetup, stock_x: (f64, f64), index_deg: f64) -> Vec<FixtureShape> {
+    s.fixtures
+        .iter()
+        .map(|f| FixtureShape::of(f, stock_x, index_deg))
+        .collect()
 }
 
 /// The Setup's clearance offset: the plane's, else the default.
@@ -581,8 +616,12 @@ fn rotary_frame(
         Some(c) => radius + c.plane_offset().unwrap_or(ClearanceSpec::DEFAULT_OFFSET),
         None => radius + ClearanceSpec::DEFAULT_OFFSET,
     };
+    let (x0, x1) = (x0 - zx, x1 - zx);
+    // Fixtures turning with A sweep the same cylinder between Setups.
+    let fixtures = fixture_shapes(s, (x0, x1), 0.0);
+    let base = radius.max(model_r.1);
+    let turn = fixture::radius_within(&fixtures, x0, x1).map_or(base, |f| base.max(f));
     // A turns on the rapids at the clearance cylinder (spec 03 §3.9.2).
-    let turn = radius.max(model_r.1);
     if clearance <= turn {
         return Err(Diagnostic::error(
             "setup.clearance.index_unsafe",
@@ -594,9 +633,6 @@ fn rotary_frame(
         )
         .at("clearance"));
     }
-    // Fixtures turning with A sweep the same cylinder between Setups.
-    let turn = turning_fixture_radius(s).map_or(turn, |f| turn.max(f));
-    let (x0, x1) = (x0 - zx, x1 - zx);
     Ok(SetupFrame {
         to_work,
         geometry,
@@ -608,6 +644,9 @@ fn rotary_frame(
         clearance,
         turn_radius: Some(turn),
         turn_clearance: Some(turn + clearance_offset(s)),
+        fixtures,
+        turn_base: Some(base),
+        turn_offset: clearance_offset(s),
         rotary: Some(RotaryFrame {
             stock_radius: radius,
             stock_x: (x0, x1),
@@ -693,7 +732,10 @@ fn indexed_frame(
     let turn_radius = cylinder
         .unwrap_or_else(|| box_radius(&at_zero))
         .max(box_radius(mb));
-    let turn_radius = turning_fixture_radius(s).map_or(turn_radius, |f| turn_radius.max(f));
+    let fixtures = fixture_shapes(s, (stock.min.x(), stock.max.x()), s.index_angle);
+    let base = turn_radius;
+    let turn_radius = fixture::radius_within(&fixtures, stock.min.x(), stock.max.x())
+        .map_or(base, |f| base.max(f));
     Ok(SetupFrame {
         to_work,
         geometry,
@@ -702,6 +744,9 @@ fn indexed_frame(
         clearance,
         turn_radius: Some(turn_radius),
         turn_clearance: Some(turn_radius + clearance_offset(s)),
+        fixtures,
+        turn_base: Some(base),
+        turn_offset: clearance_offset(s),
         rotary: None,
         index: Some(IndexFrame {
             angle: s.index_angle,

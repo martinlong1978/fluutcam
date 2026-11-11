@@ -183,6 +183,7 @@ The message in your window may fill in numbers and names where this page shows `
 | `cam.spiral.centre_outside` | warning | the centre is outside the region: the inner turns are linked over | The calculation found something while working out the path. The message says what; the path was still made unless the kind is error. Rule: `centre` is outside the region (the inner turns are linked over) |
 | `cam.steep_and_shallow.empty` | warning | no part of the region is cut: check the threshold, heights and boundary | The calculation found something while working out the path. The message says what; the path was still made unless the kind is error. |
 | `cam.stock.missing` | error | 3-D roughing needs the Setup stock | A 3-D roughing toolpath needs stock. Check the Setup's stock. |
+| `cam.tool.length_missing` | warning | tool `…` has no overall length: … | The tool has no overall length, so FluutCAM cannot place its holder or know how high the spindle sits when the part turns: it checks the tool tip only. Enter the overall length (from the tip to where the holder starts) in the tool library. |
 | `cam.trace.below_stock` | warning | the path goes below the stock bottom | The calculation found something while working out the path. The message says what; the path was still made unless the kind is error. Rule: in `curve` mode, the path goes below `stock_bottom` |
 | `cam.trace.offset_empty` | warning | a chain vanishes under the side offset … mm | The calculation found something while working out the path. The message says what; the path was still made unless the kind is error. Rule: a closed chain vanishes under a negative `side_offset` |
 | `cam.type.unavailable` | error | internal error, the toolpath is invalid: … | This is a fault in FluutCAM, not in your project. Please report it (see Troubleshooting). |
@@ -199,6 +200,7 @@ The message in your window may fill in numbers and names where this page shows `
 | `setup.clearance.index_travel` | error | Setup `…`: A turns with the tool tip at Z …, clear of the stock         and the part, and …; the machine's Z travel ends at Z … | The machine's Z travel is too short to clear the stock when it turns. Use a smaller stock, a shorter tool, or a machine definition with the right travel. |
 | `setup.clearance.index_unsafe` | error | Setup `…`: the clearance cylinder (radius …) must lie outside the stock and the part (radius …) | The clearance cylinder of a rotary Setup must be larger than the stock. Increase its radius. |
 | `setup.clearance.unsupported` | error | Setup `…`: a three_axis Setup needs a clearance plane | A Setup is incomplete or inconsistent. Select the Setup and check its kind, stock, work zero and bodies. |
+| `setup.fixtures.ignored` | warning | Setup `…`: fixtures turn with the rotary axis; a three_axis Setup has none, so they are ignored | Fixtures turn with the rotary axis, and a 3-axis Setup has none. Remove the fixtures from this Setup, or make it a rotary or indexed Setup. |
 | `setup.geometry.empty` | error | Setup `…` has no bodies to machine | The Setup has no bodies to machine. Import a model first, then add the Setup. |
 | `setup.geometry.missing` | error | Setup `…`: body `…` is not in the model | A Setup is incomplete or inconsistent. Select the Setup and check its kind, stock, work zero and bodies. |
 | `setup.geometry.scale` | error | Setup `…`: every scale factor must be a non-zero number | A Setup is incomplete or inconsistent. Select the Setup and check its kind, stock, work zero and bodies. |
@@ -259,6 +261,7 @@ The message in your window may fill in numbers and names where this page shows `
 |---|---|---|---|
 | `sim.cancelled` | error | the simulation was cancelled | The simulation could not run or found a problem in the program. The message says what. |
 | `sim.findings.dropped` | warning | … more findings not listed | The simulation could not run or found a problem in the program. The message says what. |
+| `sim.fixture` | error | the tool meets the … at (…, …, …), segment … | The tool meets a chuck, tailstock or clamp that turns with the part. Move the toolpath, shorten the tool or its holder, or correct the fixture's size or position in the Setup. |
 | `sim.index_turn` | error | the stock turns … mm into the tool, at (…, …, …) from `…`, before Setup `…` | When the stock turns for this Setup, material reaches the tool where the previous toolpath left it. Check the stock and the order of the Setups. |
 | `sim.result.missing` | error | calculate first: … | Calculate the toolpaths first, then simulate. |
 | `sim.setup.missing` | error | Setup `…` is not in the project | The simulation could not run or found a problem in the program. The message says what. |

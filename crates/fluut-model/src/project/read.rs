@@ -37,7 +37,7 @@ fn err<T>(msg: impl Into<String>) -> R<T> {
 }
 
 /// Setup keys in canonical (file) order.
-pub(crate) const SETUP_KEYS: [&str; 14] = [
+pub(crate) const SETUP_KEYS: [&str; 15] = [
     "id",
     "name",
     "based_on",
@@ -52,6 +52,7 @@ pub(crate) const SETUP_KEYS: [&str; 14] = [
     "zero",
     "region",
     "clearance",
+    "fixtures",
 ];
 
 /// Toolpath item keys, before the parameter groups (D15 §2.1).
@@ -367,6 +368,7 @@ impl<'a> Cx<'a> {
                 "zero" => s.zero = None,
                 "region" => s.region = None,
                 "clearance" => s.clearance = None,
+                "fixtures" => s.fixtures = None,
                 _ => return err(format!("`{}` is not a Setup field", self.key(k))),
             }
             return Ok(());
@@ -395,6 +397,7 @@ impl<'a> Cx<'a> {
                 });
             }
             "clearance" => s.clearance = Some(self.clearance(self.table_of(k, v)?)?),
+            "fixtures" => s.fixtures = Some(self.fixtures(v)?),
             _ => return err(format!("`{}` is not a Setup field", self.key(k))),
         }
         Ok(())
@@ -584,6 +587,68 @@ impl<'a> Cx<'a> {
                 ));
             }
         })
+    }
+
+    /// `fixtures = [{ kind = "chuck", diameter = 100, length = 50 }, ...]`.
+    fn fixtures(&mut self, v: &Value) -> R<Vec<Fixture>> {
+        let Value::Array(items) = v else {
+            return self.bad("fixtures", "an array of fixtures", v);
+        };
+        let mut out = Vec::new();
+        for (i, item) in items.iter().enumerate() {
+            let Value::Table(t) = item else {
+                return err(format!(
+                    "`{}`: fixture {i} must be a table",
+                    self.key("fixtures")
+                ));
+            };
+            let mut cx = self.at(&format!("fixtures[{i}]"));
+            let kind = cx.req_str(t, "kind")?;
+            cx.one_of("kind", &kind, &Fixture::KINDS)?;
+            let positive = |cx: &Cx, k: &str, n: Num| -> R<Num> {
+                if n.v > 0.0 {
+                    Ok(n)
+                } else {
+                    err(format!("`{}` must be above 0", cx.key(k)))
+                }
+            };
+            out.push(match kind.as_str() {
+                "chuck" => {
+                    cx.unknown(t, &["kind", "diameter", "length"]);
+                    Fixture::Chuck {
+                        diameter: positive(&cx, "diameter", cx.req_num(t, "diameter")?)?,
+                        length: positive(&cx, "length", cx.req_num(t, "length")?)?,
+                    }
+                }
+                "tailstock" => {
+                    cx.unknown(t, &["kind", "diameter", "length", "tip_diameter"]);
+                    let tip = cx.opt_num(t, "tip_diameter")?;
+                    if let Some(n) = tip
+                        && n.v < 0.0
+                    {
+                        return err(format!("`{}` must not be below 0", cx.key("tip_diameter")));
+                    }
+                    Fixture::Tailstock {
+                        diameter: positive(&cx, "diameter", cx.req_num(t, "diameter")?)?,
+                        length: positive(&cx, "length", cx.req_num(t, "length")?)?,
+                        tip_diameter: tip,
+                    }
+                }
+                _ => {
+                    cx.unknown(t, &["kind", "min", "max"]);
+                    let min = cx.num3(t.get("min"), "min")?;
+                    let max = cx.num3(t.get("max"), "max")?;
+                    if (0..3).any(|a| max[a].v <= min[a].v) {
+                        return err(format!(
+                            "`{}`: every coordinate of `max` must be above `min`",
+                            cx.key("max")
+                        ));
+                    }
+                    Fixture::Clamp { min, max }
+                }
+            });
+        }
+        Ok(out)
     }
 
     fn clearance(&mut self, c: &Table) -> R<ClearanceSpec> {

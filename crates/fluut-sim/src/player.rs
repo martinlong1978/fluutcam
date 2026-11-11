@@ -195,6 +195,10 @@ pub const MAX_STRIDE: usize = 4096;
 const FINE: usize = 6;
 /// The adaptive stride before any cut has been timed.
 const FIRST_STRIDE: usize = 32;
+/// Moves before a seek's target that get a snapshot at their start.
+const MOVES: usize = 32;
+/// A seek back past this many moves is a jump rather than a step.
+const JUMP_MOVES: usize = 6;
 /// Default bytes the snapshots of one player may hold.
 pub const DEFAULT_BUDGET: usize = 64 << 20;
 
@@ -273,7 +277,7 @@ impl Snapshots {
                 };
                 (std::cmp::Reverse(rank), k)
             });
-            let goal = budget / 2;
+            let goal = budget / 4 * 3;
             let mut est = self.bytes;
             for k in keys {
                 if est <= goal {
@@ -311,11 +315,105 @@ impl Snapshots {
 pub struct Player {
     n: usize,
     mesh: MeshTiles,
+    keep: Keeper,
+}
+
+/// What cutting leaves behind: the snapshots and the measured speed.
+#[derive(Clone, Debug)]
+struct Keeper {
     limits: Limits,
     snaps: Snapshots,
     last_cut: usize,
     /// Seconds per chord measured on recent cuts; 0 before the first.
     rate: f64,
+}
+
+impl Keeper {
+    fn new(limits: Limits) -> Keeper {
+        Keeper {
+            limits,
+            snaps: Snapshots::default(),
+            last_cut: 0,
+            rate: 0.0,
+        }
+    }
+
+    /// Chords between snapshots now.
+    fn stride(&self) -> usize {
+        match self.limits.stride {
+            0 if self.rate > 0.0 => {
+                ((TARGET_SECS / self.rate) as usize).clamp(MIN_STRIDE, MAX_STRIDE)
+            }
+            0 => FIRST_STRIDE,
+            k => k,
+        }
+    }
+
+    /// The move starts to keep snapshots at, from those before chord `n`
+    /// (latest first): not closer than a quarter stride to each other, so
+    /// the short moves of a finely chorded path do not each cost a snapshot,
+    /// while a step back by move cuts a quarter stride more than its own
+    /// length at most (chords differ in cost, so the stride is only a guide).
+    fn thin(&self, moves: Vec<usize>, n: usize) -> Vec<usize> {
+        let stride = (self.stride() / 4).max(1);
+        let mut last = n;
+        moves
+            .into_iter()
+            .filter(|&m| {
+                let keep = last - m >= stride;
+                if keep {
+                    last = m;
+                }
+                keep
+            })
+            .collect()
+    }
+
+    /// Cuts `d`, the stock after `at` chords, on to `n`, leaving snapshots
+    /// at every stride in the last [`FINE`] strides, at the start of that
+    /// zone, and at the `moves`.
+    fn advance(
+        &mut self,
+        sim: &Simulation,
+        d: &mut TriDexel,
+        mut at: usize,
+        n: usize,
+        moves: &[usize],
+    ) {
+        // The stride is fixed for this cut, so the stops line up.
+        let stride = self.stride();
+        let fine = n.saturating_sub(FINE * stride).div_ceil(stride) * stride;
+        while at < n {
+            // The next place to keep a snapshot: every stride in the fine
+            // zone before `n`; before it, the start of the fine zone; and
+            // the start of each move before `n`.
+            let stop = if at >= fine {
+                (at / stride + 1) * stride
+            } else {
+                fine
+            };
+            let next_move = moves.iter().rev().copied().find(|&m| m > at);
+            let to = stop.min(n).min(next_move.unwrap_or(usize::MAX));
+            // Only the pieces of the fine zone give the speed of small cuts.
+            let timed = self.limits.stride == 0 && at >= fine && to - at >= MIN_STRIDE;
+            let t = timed.then(std::time::Instant::now);
+            sim.cut(d, at..to);
+            if let Some(t) = t {
+                // Quick to follow a faster rate, slow to follow a slower
+                // one: copying tiles for the snapshots is not the cut.
+                let r = t.elapsed().as_secs_f64() / (to - at) as f64;
+                self.rate = if self.rate == 0.0 || r < self.rate {
+                    r
+                } else {
+                    0.9 * self.rate + 0.1 * r
+                };
+            }
+            at = to;
+            if (at == stop && at.is_multiple_of(stride)) || moves.contains(&at) {
+                self.snaps.insert(sim, at, d, self.limits, n);
+            }
+        }
+    }
 }
 
 impl Player {
@@ -327,16 +425,16 @@ impl Player {
     /// As [`Player::new`], with the snapshot stride and budget given.
     pub fn with_limits(sim: &Simulation, n: usize, limits: Limits) -> Player {
         let n = n.min(sim.chords.len());
-        let d = sim.stock_after(n);
+        // Cut on from the checkpoint like a jump, leaving snapshots for the
+        // steps back from `n`.
+        let mut keep = Keeper::new(limits);
+        let mut moves = keep.thin(sim.move_starts(n, MOVES * 8, 0), n);
+        moves.truncate(MOVES);
+        let (from, cp) = sim.checkpoint_at(moves.last().copied().unwrap_or(n));
+        let mut d = cp.clone();
+        keep.advance(sim, &mut d, from, n, &moves);
         let mesh = MeshTiles::new(&d, &SimPaint::new(sim, &d, n));
-        Player {
-            n,
-            mesh,
-            limits,
-            snaps: Snapshots::default(),
-            last_cut: 0,
-            rate: 0.0,
-        }
+        Player { n, mesh, keep }
     }
 
     /// Moves to the stock after `n` chords of `sim`, the simulation this
@@ -349,50 +447,52 @@ impl Player {
     /// set difference, so the stock is the same whichever it starts from.
     pub fn seek(&mut self, sim: &Simulation, n: usize) -> Vec<usize> {
         let n = n.min(sim.chords.len());
-        let (cp, cd) = sim.checkpoint_at(n);
-        let mut base = (cp, cd);
-        if let Some((&k, (s, _))) = self.snaps.map.range(..=n).next_back()
-            && k > base.0
-        {
-            base = (k, s);
-        }
-        if self.n <= n && self.n >= base.0 {
-            base = (self.n, self.mesh.stock());
+        // The nearest snapshot or checkpoint at or before `m`.
+        let below = |m: usize| {
+            let (cp, cd) = sim.checkpoint_at(m);
+            match self.keep.snaps.map.range(..=m).next_back() {
+                Some((&k, (s, _))) if k > cp => (k, s),
+                _ => (cp, cd),
+            }
+        };
+        let mut base = below(n);
+        // Where a step back by move will land: the starts of the moves
+        // before `n`.
+        let mut moves = self.keep.thin(sim.move_starts(n, MOVES * 8, 0), n);
+        moves.truncate(MOVES);
+        // A jump back, past the last few moves before the stock shown.
+        let jump = sim
+            .move_starts(self.n, JUMP_MOVES, 0)
+            .last()
+            .is_some_and(|&m| n < m);
+        if jump {
+            // A scrub back is likely to go on by steps. Keep the last moves
+            // before `n` covered, starting lower if too few are.
+            let missing = |m: &&usize| {
+                !self.keep.snaps.map.contains_key(*m) && sim.checkpoint_at(**m).0 != **m
+            };
+            let lacking: Vec<usize> = moves.iter().filter(missing).copied().collect();
+            if lacking.len() > moves.len() / 2
+                && let Some(&lowest) = lacking.last()
+                && below(lowest).0 < base.0
+            {
+                base = below(lowest);
+            }
         }
         let mut at = base.0;
         let mut d = base.1.clone();
-        self.last_cut = n - at;
-        // The stride is fixed for this seek, so the stops line up.
-        let stride = self.stride();
-        let fine = n.saturating_sub(FINE * stride).div_ceil(stride) * stride;
-        while at < n {
-            // The next place to keep a snapshot: every stride in the fine
-            // zone before `n`; before it, the start of the fine zone.
-            let stop = if at >= fine {
-                (at / stride + 1) * stride
-            } else {
-                fine
-            };
-            let to = stop.min(n);
-            // Only the pieces of the fine zone give the speed of small cuts.
-            let timed = self.limits.stride == 0 && at >= fine && to - at >= MIN_STRIDE;
-            let t = timed.then(std::time::Instant::now);
-            sim.cut(&mut d, at..to);
-            if let Some(t) = t {
-                // Quick to follow a faster rate, slow to follow a slower
-                // one: copying tiles for the snapshots is not the cut.
-                let r = t.elapsed().as_secs_f64() / (to - at) as f64;
-                self.rate = if self.rate == 0.0 || r < self.rate {
-                    r
-                } else {
-                    0.9 * self.rate + 0.1 * r
-                };
-            }
-            at = to;
-            if at == stop && at % stride == 0 {
-                self.snaps.insert(sim, at, &d, self.limits, n);
+        if self.n <= n && self.n >= at {
+            at = self.n;
+            d = self.mesh.stock().clone();
+            // The stock shown is where a step back from `n` will want to
+            // land, and keeping it costs nothing: its tiles are shared.
+            if self.n < n {
+                self.keep.snaps.insert(sim, self.n, &d, self.keep.limits, n);
             }
         }
+        moves.retain(|&m| m > at);
+        self.keep.last_cut = n - at;
+        self.keep.advance(sim, &mut d, at, n, &moves);
         let changed = self.mesh.update(&d, &SimPaint::new(sim, &d, n));
         self.n = n;
         changed
@@ -400,24 +500,18 @@ impl Player {
 
     /// Chords between snapshots now.
     pub fn stride(&self) -> usize {
-        match self.limits.stride {
-            0 if self.rate > 0.0 => {
-                ((TARGET_SECS / self.rate) as usize).clamp(MIN_STRIDE, MAX_STRIDE)
-            }
-            0 => FIRST_STRIDE,
-            k => k,
-        }
+        self.keep.stride()
     }
 
     /// Chords the last [`Player::seek`] cut.
     pub fn last_cut(&self) -> usize {
-        self.last_cut
+        self.keep.last_cut
     }
 
     /// Bytes the snapshots hold, at most (tiles shared with each other or
     /// with the simulation's checkpoints are not counted again).
     pub fn snapshot_bytes(&self) -> usize {
-        self.snaps.bytes
+        self.keep.snaps.bytes
     }
 
     /// Chords cut in the stock shown.

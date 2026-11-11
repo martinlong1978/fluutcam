@@ -586,6 +586,7 @@ impl Session {
         let (start, mut notes) = self.carried_sim_stock(&rs, settings, monitor)?;
         let mut missing = Vec::new();
         let mut inputs = Vec::new();
+        let mut warned: Vec<String> = Vec::new();
         // `manual_nc` has no tool and no motion (D15b §7).
         for t in s
             .toolpaths
@@ -602,6 +603,15 @@ impl Session {
                     format!("toolpath `{}`: the tool has no usable size", t.id),
                 ));
             };
+            // The holder starts at the overall length: without it the
+            // holder is not simulated. Once per tool.
+            if tool.holder.is_some()
+                && tool.gauge_length().is_none()
+                && !warned.iter().any(|w| w == t.tool_ref())
+            {
+                warned.push(t.tool_ref().to_owned());
+                notes.push(length_warning(tool, &[], true).on(&t.id));
+            }
             inputs.push((
                 t.id.clone(),
                 r,
@@ -651,6 +661,11 @@ impl Session {
                 Some((id, ..)) => d.on(id),
                 None => d,
             });
+        }
+        for (id, r, a, _) in &inputs {
+            if let Some(d) = fixture_finding(&fr, r, a) {
+                notes.push(d.on(id));
+            }
         }
         let part = DropPart::new(&fr.geometry);
         let sim =
@@ -994,7 +1009,58 @@ impl Session {
                 finals.insert(s.id.clone(), st);
             }
         }
+        self.add_length_warnings(&mut reports);
         reports
+    }
+
+    /// The warning `cam.tool.length_missing`, once per tool, on the first report
+    /// of a toolpath that uses a tool with no overall length whose length a
+    /// check needs: the Z travel check before an A turn (the tool in the
+    /// spindle), and the holder, which starts at the overall length.
+    fn add_length_warnings(&self, reports: &mut [JobReport]) {
+        let used = || {
+            self.project
+                .setups
+                .iter()
+                .flat_map(|s| s.toolpaths.iter())
+                .filter(|t| {
+                    t.is_enabled() && t.kind() != fluut_model::params::ToolpathTypeId::ManualNc
+                })
+        };
+        let lacks = |r: &str| {
+            self.tools
+                .get(r)
+                .is_some_and(|t| t.gauge_length().is_none())
+        };
+        if !used().any(|t| lacks(t.tool_ref())) {
+            return;
+        }
+        // Tool reference -> the Setups whose turn clearance needs it, and
+        // whether its holder needs it.
+        let mut need: BTreeMap<String, (Vec<String>, bool)> = BTreeMap::new();
+        for t in used() {
+            let r = t.tool_ref();
+            if lacks(r) && self.tools.get(r).is_some_and(|t| t.holder.is_some()) {
+                need.entry(r.to_owned()).or_default().1 = true;
+            }
+        }
+        for (setup, tool) in self.turn_heights().2 {
+            need.entry(tool).or_default().0.push(setup);
+        }
+        for (tref, (setups, holder)) in need {
+            let Some(tool) = self.tools.get(&tref) else {
+                continue;
+            };
+            let Some(t) =
+                used().find(|t| t.tool_ref() == tref && reports.iter().any(|r| r.toolpath == t.id))
+            else {
+                continue;
+            };
+            let d = length_warning(tool, &setups, holder).on(&t.id);
+            if let Some(rep) = reports.iter_mut().find(|r| r.toolpath == t.id) {
+                rep.diagnostics.push(d);
+            }
+        }
     }
 
     /// Calculates what is stale, then posts every enabled toolpath with the
@@ -1126,7 +1192,7 @@ impl Session {
             .filter(|d| d.severity == Severity::Error)
             .cloned()
             .collect();
-        let (turns, travel) = self.turn_heights();
+        let (turns, travel, _) = self.turn_heights();
         let errors: Vec<Diagnostic> = errors
             .into_iter()
             .chain(
@@ -1166,10 +1232,21 @@ impl Session {
     /// clearance of the Setup and of the Setup before it, since the work on
     /// the table is one of the two. Also `(setup, error)` for each height
     /// whose spindle gauge line is above the machine's Z travel
-    /// (`setup.clearance.index_travel`).
-    fn turn_heights(&self) -> (Vec<Option<f64>>, Vec<(String, Diagnostic)>) {
+    /// (`setup.clearance.index_travel`), and `(setup, tool)` for each height
+    /// that was checked against that travel for a tool with no overall
+    /// length (`cam.tool.length_missing`). A Setup's own height counts the
+    /// fixtures within the X range its tools reach (`Session::tool_reach`).
+    #[allow(clippy::type_complexity)]
+    fn turn_heights(
+        &self,
+    ) -> (
+        Vec<Option<f64>>,
+        Vec<(String, Diagnostic)>,
+        Vec<(String, String)>,
+    ) {
         let mut heights = Vec::new();
         let mut errors = Vec::new();
+        let mut unmeasured = Vec::new();
         let mut prev: Option<Option<f64>> = None;
         for (si, r) in resolve_all(&self.project).into_iter().enumerate() {
             let Ok(r) = r else {
@@ -1180,7 +1257,7 @@ impl Session {
                 .setup_bodies(&r)
                 .and_then(|b| SetupFrame::new(&r, b))
                 .ok()
-                .and_then(|f| f.turn_clearance);
+                .and_then(|f| f.turn_clearance_reaching(self.tool_reach(si)));
             let turns = match r.kind {
                 SetupKind::Indexed => true,
                 SetupKind::Rotary => prev.is_some(),
@@ -1199,18 +1276,43 @@ impl Session {
                 continue;
             };
             if let (Some([_, top]), Some(axis)) = (m.fields.travel.z, m.fields.axis.rotary.first())
-                && let Some(d) = travel_error(&r.id, h, self.spindle_tool(si), top - axis.centre[2])
             {
-                errors.push((r.id.clone(), d));
+                let tool = self.spindle_tool(si);
+                if let (Some(t), Some(tref)) = (tool, self.spindle_tool_ref(si))
+                    && t.gauge_length().is_none()
+                {
+                    unmeasured.push((r.id.clone(), tref.to_owned()));
+                }
+                if let Some(d) = travel_error(&r.id, h, tool, top - axis.centre[2]) {
+                    errors.push((r.id.clone(), d));
+                }
             }
         }
-        (heights, errors)
+        (heights, errors, unmeasured)
+    }
+
+    /// How far beyond the ends of the stock in X the tools of Setup `si`
+    /// reach: the largest cutter radius among its enabled toolpaths. A
+    /// fixture within that range of the stock can be met by the tool.
+    fn tool_reach(&self, si: usize) -> f64 {
+        self.project.setups[si]
+            .toolpaths
+            .iter()
+            .filter(|t| t.is_enabled() && t.kind() != fluut_model::params::ToolpathTypeId::ManualNc)
+            .filter_map(|t| self.tools.get(t.tool_ref()))
+            .map(|t| t.radius())
+            .fold(0.0, f64::max)
     }
 
     /// The tool in the spindle when A turns at the start of Setup `si`: the
     /// tool of the last enabled toolpath of the nearest earlier Setup that
     /// has one. The turn comes before the Setup's first tool change.
     fn spindle_tool(&self, si: usize) -> Option<&fluut_model::tools::Tool> {
+        self.spindle_tool_ref(si).and_then(|r| self.tools.get(r))
+    }
+
+    /// The tool reference of [`Session::spindle_tool`].
+    fn spindle_tool_ref(&self, si: usize) -> Option<&str> {
         self.project.setups[..si].iter().rev().find_map(|s| {
             s.toolpaths
                 .iter()
@@ -1218,7 +1320,7 @@ impl Session {
                 .find(|t| {
                     t.is_enabled() && t.kind() != fluut_model::params::ToolpathTypeId::ManualNc
                 })
-                .and_then(|t| self.tools.get(t.tool_ref()))
+                .map(|t| t.tool_ref())
         })
     }
 
@@ -1540,6 +1642,88 @@ fn travel_error(
         )
         .at("clearance"),
     )
+}
+
+/// The warning `cam.tool.length_missing` for `tool`, which has no overall
+/// length, when the turn clearance before A turns at `setups` is checked
+/// against the Z travel and/or when its holder (`holder`) is to be checked.
+fn length_warning(tool: &fluut_model::tools::Tool, setups: &[String], holder: bool) -> Diagnostic {
+    let mut needs = Vec::new();
+    if !setups.is_empty() {
+        let names: Vec<String> = setups.iter().map(|s| format!("`{s}`")).collect();
+        needs.push(format!(
+            "the retract before A turns at Setup {} is checked against the machine's Z travel at the tool tip only, so a long tool can still pass it and reach the top of the travel",
+            names.join(", ")
+        ));
+    }
+    if holder {
+        needs.push(
+            "its holder starts at the overall length, so the simulation cannot place it and does not check it"
+                .to_owned(),
+        );
+    }
+    Diagnostic::warning(
+        "cam.tool.length_missing",
+        format!(
+            "tool `{}` has no overall length: {}",
+            tool.id,
+            needs.join("; ")
+        ),
+    )
+}
+
+/// The error `sim.fixture` for the first place where the tool of `a`,
+/// moving as `result` says, meets a fixture of `fr` that turns with A.
+/// Checked at the ends of every segment, and along lines every millimetre;
+/// the tool is its cutter (and a wider shank) from the tip up, and the
+/// holder from the overall length up, each a vertical cylinder, so the check
+/// errs towards a hit. Arcs and helices are checked at their ends only.
+fn fixture_finding(
+    fr: &SetupFrame,
+    result: &ToolpathResult,
+    a: &fluut_sim::Assembly,
+) -> Option<Diagnostic> {
+    if fr.fixtures.is_empty() {
+        return None;
+    }
+    let cutter = a.tool.radius.max(a.shank.unwrap_or(0.0));
+    let at = |p: fluut_geom::Point3| {
+        let hit =
+            |r: f64, up: f64| fr.fixture_hit(fluut_geom::Point3::new(p.x(), p.y(), p.z() + up), r);
+        hit(cutter, 0.0).or_else(|| a.holder.and_then(|(r, from, _)| hit(r, from)))
+    };
+    let report = |n: usize, p: fluut_geom::Point3, f: &crate::fixture::FixtureShape| {
+        Diagnostic::error(
+            "sim.fixture",
+            format!(
+                "the tool meets the {} at ({:.3}, {:.3}, {:.3}), segment {n}",
+                f.kind(),
+                p.x(),
+                p.y(),
+                p.z()
+            ),
+        )
+    };
+    for (n, seg) in result.segments().enumerate() {
+        let (Some(from), Some(to)) = (seg.start(), seg.end()) else {
+            continue;
+        };
+        let (p, q) = (from.xyz, to.xyz);
+        let straight = matches!(seg, fluut_path::Segment::Line { .. });
+        let steps = if straight {
+            (p.distance(q) / 1.0).ceil() as usize
+        } else {
+            1
+        };
+        for i in 0..=steps.max(1) {
+            let t = i as f64 / steps.max(1) as f64;
+            let x = p + (q - p) * t;
+            if let Some(f) = at(x) {
+                return Some(report(n, x, f));
+            }
+        }
+    }
+    None
 }
 
 /// The spec 05 §5.5 name of a post cycle.

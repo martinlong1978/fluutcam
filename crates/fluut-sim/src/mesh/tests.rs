@@ -307,3 +307,125 @@ fn a_wall_shaved_between_rays() {
         same_as_new(&t, &d);
     }
 }
+
+/// FNV-1a over the bits of every block, for pinning the mesh.
+fn bits(t: &MeshTiles) -> u64 {
+    let mut h = 0xcbf2_9ce4_8422_2325u64;
+    let mut eat = |x: u32| {
+        for b in x.to_le_bytes() {
+            h = (h ^ u64::from(b)).wrapping_mul(0x100_0000_01b3);
+        }
+    };
+    for b in t.blocks() {
+        eat(b.positions.len() as u32);
+        for p in b.positions.iter().chain(&b.normals) {
+            p.iter().for_each(|c| eat(c.to_bits()));
+        }
+        b.tags.iter().for_each(|&x| eat(x));
+        b.indices.iter().for_each(|&x| eat(x));
+    }
+    h
+}
+
+/// A paint that depends on the column only, with all classes and toolpaths.
+struct Banded;
+
+impl Paint for Banded {
+    fn column(&self, i: usize, j: usize) -> Column {
+        Column {
+            class: ((i / 3 + j / 5) % 4) as u8,
+            toolpath: (!(i + j).is_multiple_of(7)).then_some((i / 11 + j / 13) as u16),
+        }
+    }
+}
+
+/// Cuts in all directions at several resolutions.
+fn scene(res: f64) -> Vec<TriDexel> {
+    let s = wide();
+    let moves = [
+        ((-2.0, 5.0, 4.0), (42.0, 7.0, 3.0)),
+        ((10.0, -2.0, 5.0), (12.0, 32.0, 2.5)),
+        ((30.0, 25.0, 1.0), (31.0, 25.5, 1.0)),
+        ((0.0, 30.0, 4.5), (40.0, 0.0, 4.0)),
+        ((20.0, 15.0, 7.0), (20.0, 15.0, -1.0)),
+    ];
+    let mut stocks = vec![TriDexel::new(&s, res)];
+    for &(a, b) in &moves {
+        let mut d = stocks.last().unwrap().clone();
+        slot(&mut d, s, Tool::ball(1.5), a, b);
+        stocks.push(d);
+    }
+    stocks
+}
+
+/// The mesh bits are fixed: a faster build must give exactly these meshes
+/// (hashes taken from the build before the speed plan, D11 §10).
+#[test]
+fn mesh_bits_are_pinned() {
+    let got: Vec<u64> = [0.3, 0.25]
+        .into_iter()
+        .flat_map(|res| {
+            scene(res).into_iter().flat_map(|d| {
+                [
+                    bits(&MeshTiles::new(&d, &NoPaint)),
+                    bits(&MeshTiles::new(&d, &Banded)),
+                ]
+            })
+        })
+        .collect();
+    assert_eq!(got, PINNED, "{got:#x?}");
+}
+
+const PINNED: [u64; 24] = [
+    0xe8561ddbcaeafbdc,
+    0x793b329b6b977a52,
+    0x35a23cdba0b0b230,
+    0x305ce2bfeab9baae,
+    0x9b4d75e8be23aef1,
+    0x5cc9f9629cddd749,
+    0xd5cdb70c02f468f2,
+    0x6097703d58d602c8,
+    0xa54f0cbe6b30b5ab,
+    0xa69d34e4325c8fb1,
+    0x8d508f97dd023780,
+    0xadc7839d5f0ad5c6,
+    0xd181d26c6a0b159a,
+    0x876b6d212007ede7,
+    0x6cd9bb029eae4d98,
+    0x04ebc4e5a9a5e95e,
+    0x39b83110173960dc,
+    0x841684b75f76b2c0,
+    0x2114f202f04d85ac,
+    0x66104ee72ed39439,
+    0xc12595b3929fab24,
+    0xa0bb7f33b5a5fa44,
+    0xd7e336e312ddd079,
+    0x263c6d1cb886a4fc,
+];
+
+/// Random update sequences over the stocks of a scene, in either order, with
+/// a paint, equal a fresh mesh bit for bit after every update.
+#[test]
+fn random_updates_equal_a_fresh_mesh() {
+    let stocks = scene(0.3);
+    let mut state = 99u64;
+    let mut next = |n: usize| {
+        state = state
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        (state >> 33) as usize % n
+    };
+    let mut t = MeshTiles::new(&stocks[0], &Banded);
+    for _ in 0..40 {
+        let k = next(stocks.len());
+        t.update(&stocks[k], &Banded);
+        assert_eq!(bits(&t), bits(&MeshTiles::new(&stocks[k], &Banded)), "{k}");
+        for (a, b) in t
+            .blocks()
+            .iter()
+            .zip(MeshTiles::new(&stocks[k], &Banded).blocks())
+        {
+            assert!(**a == **b);
+        }
+    }
+}
