@@ -143,6 +143,15 @@ jobs:
   # that builds from source, offline, with the crates of cargo-sources.json,
   # with its `git` source replaced by this checkout. Slow (a full release
   # build in the sandbox), so it runs only here. Nothing is published.
+  # cargo-sources.json must match Cargo.lock (the Flathub build is offline).
+  # Runs on the plain runner: the Flatpak container has no Python modules or
+  # package manager for flatpak-cargo-generator. ci.yml runs the same check.
+  cargo-sources:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: packaging/flatpak/update-cargo-sources.sh --check
+
   flathub-source:
     runs-on: ubuntu-22.04
     timeout-minutes: 150
@@ -156,10 +165,6 @@ jobs:
       - uses: actions/checkout@v4
       - name: Validate the launcher and the metainfo
         run: SUDO= packaging/flatpak/validate.sh
-      - name: Check cargo-sources.json against Cargo.lock
-        run: |
-          dnf install -y python3-aiohttp python3-pyyaml python3-tomlkit
-          packaging/flatpak/update-cargo-sources.sh --check
       - name: Lint the manifest
         run: |
           flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
