@@ -169,8 +169,11 @@ jobs:
         run: |
           flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
           flatpak install --user -y --noninteractive flathub org.flatpak.Builder
+          # The linter makes a .flatpak-builder state dir in the working
+          # directory, which the sandbox cannot do in the checkout.
+          ws="$PWD"; cd "$(mktemp -d)"
           flatpak run --command=flatpak-builder-lint org.flatpak.Builder manifest \
-            packaging/flatpak/io.github.martinlong1978.FluutCAM.flathub.yml
+            "$ws/packaging/flatpak/io.github.martinlong1978.FluutCAM.flathub.yml"
       - name: Stage the source build
         run: packaging/flatpak/stage-source-build.sh work/flathub
       - name: Build from source (offline)
