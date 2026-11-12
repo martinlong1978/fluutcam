@@ -179,32 +179,21 @@ jobs:
           cp packaging/flatpak/cargo-sources.json "$d/"
           cd "$d"
           flatpak run --command=flatpak-builder-lint org.flatpak.Builder manifest "$APP_ID.yml"
-      # The build uses Flathub's own builder (org.flatpak.Builder), as the
-      # Flathub docs do, so the composed AppStream (mirrored screenshot and
-      # icon URLs) matches what the repository linter expects. It runs in the
-      # sandbox, so it works in a root-owned directory (see above).
       - name: Stage the source build
-        run: packaging/flatpak/stage-source-build.sh /srv/flathub-build/src
+        run: packaging/flatpak/stage-source-build.sh work/flathub
       - name: Build from source (offline)
-        working-directory: /srv/flathub-build
         run: |
-          # The sandboxed builder needs a machine-id (the container has none),
-          # and installs nothing itself: the SDK comes from the host flatpak.
-          [ -s /etc/machine-id ] || python3 -c 'import uuid; print(uuid.uuid4().hex)' > /etc/machine-id
-          flatpak install --user -y --noninteractive flathub \
-            org.freedesktop.Platform//26.08 org.freedesktop.Sdk//26.08 \
-            org.freedesktop.Sdk.Extension.rust-stable//26.08
-          flatpak run org.flatpak.Builder --user --disable-rofiles-fuse --force-clean \
-            --default-branch=stable --repo=repo \
+          flatpak-builder --user --disable-rofiles-fuse --force-clean \
+            --install-deps-from=flathub --default-branch=stable --repo=repo \
             --mirror-screenshots-url=https://dl.flathub.org/media/ \
-            build src/io.github.martinlong1978.FluutCAM.yml
+            build work/flathub/io.github.martinlong1978.FluutCAM.yml
       - name: Show the composed AppStream media URLs
-        working-directory: /srv/flathub-build
-        run: zcat build/files/share/app-info/xmls/*.xml.gz | grep -E "<image|<icon|media_baseurl" || true
+        run: |
+          ls -R build/files/share/app-info | head -40
+          zcat build/files/share/app-info/xmls/*.xml.gz | grep -nE "image|icon|media_baseurl" || true
       - name: Lint the repository
-        working-directory: /srv/flathub-build
         run: flatpak run --command=flatpak-builder-lint org.flatpak.Builder repo repo
       - name: Bundle
-        run: flatpak build-bundle /srv/flathub-build/repo fluutcam.flatpak "$APP_ID" stable
+        run: flatpak build-bundle repo fluutcam.flatpak "$APP_ID" stable
       - name: Smoke test
         run: packaging/flatpak/smoke-test.sh fluutcam.flatpak "$APP_ID"
