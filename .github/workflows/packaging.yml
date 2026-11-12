@@ -185,6 +185,7 @@ jobs:
         run: |
           flatpak-builder --user --disable-rofiles-fuse --force-clean \
             --install-deps-from=flathub --default-branch=stable --repo=repo \
+            --mirror-screenshots-url=https://dl.flathub.org/media \
             build work/flathub/io.github.martinlong1978.FluutCAM.yml
       - name: Lint the repository
         run: flatpak run --command=flatpak-builder-lint org.flatpak.Builder repo repo
