@@ -719,3 +719,37 @@ fn contacts_beside_a_face_boundary_are_not_missed() {
         );
     }
 }
+
+/// Drops on the rough tiles that missed a contact before the climbs of
+/// the drop-misses plan: a flat tool's rim on a nearly level spot beside a
+/// bump's top just outside the footprint (four chord ends of the finishing
+/// bench), the rim on a face beside its corner, and a bull-nose's corner
+/// just outside its flat beside a bump's top. Each drop must reach the
+/// brute-force reference.
+#[test]
+fn tiles_rim_and_corner_contacts() {
+    let body = tiled(8, true);
+    let g = QueryGeometry::new(&body, &BuildOptions::default());
+    let flat = Cutter::flat(6.0).unwrap();
+    let bull = Cutter::new(6.0, 1.0).unwrap();
+    let cases = [
+        (flat, 32.26786365234263, 59.42595777017104),
+        (flat, 69.90231388034083, 50.066774875282064),
+        (flat, 12.213812205111996, 79.19874875353938),
+        (flat, 33.90060941171048, 59.13640862192875),
+        (flat, 49.7146763373046, 68.75708905731656),
+        (bull, 43.285517305406515, 8.040800317618928),
+        (bull, 68.42528399473194, 50.44182495342554),
+    ];
+    for (c, x, y) in cases {
+        let mut st = SolveStats::default();
+        let got = drop(&g, &c, x, y, &DropOptions::default(), &mut st).expect("contact");
+        assert_real(&g, &c, Axis { x, y }, &got);
+        let want = reference(&g, &c, Axis { x, y }, DENSE).expect("reference");
+        assert!(
+            got.tau >= want - 1e-7,
+            "miss at ({x}, {y}) {c:?}: {} < {want}",
+            got.tau
+        );
+    }
+}

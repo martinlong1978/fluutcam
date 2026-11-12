@@ -58,7 +58,6 @@ Small thing you may notice: some error messages, such as a bad STEP file, show i
 - **Finishing toolpaths do not remove material from the stock** that later toolpaths see. A second finishing toolpath sees the stock as the roughing left it.
 - **Results are not saved.** FluutCAM does not keep calculated paths with the project yet. Open a project and calculate again.
 - **Rare failures in thin or touching 2-D shapes.** Very thin features, or shapes that touch along an edge, can make a 2-D region calculation fail. It then reports `cam.region.offset_failed` or `cam.region.boolean_failed` instead of producing a wrong path. Try a slightly different stepover or tolerance, and report the project.
-- **3-D finishing with a flat end mill on rough, many-faced models** can, very rarely, cut a few hundredths of a millimetre more than the tolerance where the tool's edge only just touches a face (in tests, 4 points in 320 000, at most 0.02 mm at a tolerance of 0.01 mm). Ball and bull nose tools, and smooth models, stay within the tolerance in the same tests.
 - Most of the 22 toolpath types are tested on small reference parts. Treat a toolpath type you have not used before with care, and simulate it.
 
 ## Simulating

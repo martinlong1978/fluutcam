@@ -5,7 +5,7 @@
 
 use super::geom::{Prim, QueryGeometry, SUB_GRID, SubBox};
 use super::profile::Cutter;
-use super::solve::{self, Axis, Contact, Seeding, SolveStats};
+use super::solve::{self, Axis, Contact, ContactOn, Seeding, SolveStats};
 use fluut_geom::{Aabb3, UvBox};
 
 /// Options of a drop query.
@@ -119,6 +119,29 @@ fn rescue_starts(subs: &[SubBox], uv: UvBox, ax: Axis, c: &Cutter, floor: f64) -
         .into_iter()
         .take(RESCUE_STARTS)
         .map(|(_, k)| {
+            let (i, j) = (k / n, k % n);
+            (
+                uv.u.at((i as f64 + 0.5) / n as f64),
+                uv.v.at((j as f64 + 0.5) / n as f64),
+            )
+        })
+        .collect()
+}
+
+/// The parameters of the centres of the cells of patch `uv` whose XY box
+/// holds `p`.
+fn cells_at(subs: &[SubBox], uv: UvBox, p: fluut_geom::Point3) -> Vec<(f64, f64)> {
+    let n = SUB_GRID;
+    let e = 1e-9;
+    subs.iter()
+        .enumerate()
+        .filter(|(_, b)| {
+            p.x() >= f64::from(b.min_x) - e
+                && p.x() <= f64::from(b.max_x) + e
+                && p.y() >= f64::from(b.min_y) - e
+                && p.y() <= f64::from(b.max_y) + e
+        })
+        .map(|(k, _)| {
             let (i, j) = (k / n, k % n);
             (
                 uv.u.at((i as f64 + 0.5) / n as f64),
@@ -253,6 +276,36 @@ pub fn drop(
                 && best.is_none_or(|b| r.tau > b.tau)
             {
                 best = Some(r);
+            }
+        }
+    }
+    // A flat tool whose best contact is an edge or vertex on its rim: the
+    // faces beside it may hold a higher point of the rim close by, which
+    // their patches' own Newton runs missed (the contact map fails beside
+    // the face's boundary as beside a nearly level spot; see
+    // `solve::rim_ascent`). The rim is climbed on every patch solved from
+    // the centres of its cells over the contact.
+    if c.corner() == 0.0
+        && let Some(b) = best
+        && !matches!(b.on, ContactOn::Face { .. })
+        && ax.lateral(b.point) >= c.radius() * (1.0 - 1e-9)
+        && b.tau < opts.ceiling
+    {
+        for &(i, _) in &patches {
+            let Prim::Face { face, uv } = g.prims[i as usize] else {
+                continue;
+            };
+            for start in cells_at(g.sub_boxes(i), uv, b.point) {
+                let (r, t) = solve::face_climb_from(g, face, ax, c, &[start], stats);
+                if t > r.map_or(f64::NEG_INFINITY, |r| r.tau) {
+                    trimmed.push((face, t));
+                }
+                if let Some(r) = r
+                    && r.tau > opts.floor
+                    && best.is_none_or(|b| r.tau > b.tau)
+                {
+                    best = Some(r);
+                }
             }
         }
     }
