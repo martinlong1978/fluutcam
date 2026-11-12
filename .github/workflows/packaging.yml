@@ -170,8 +170,10 @@ jobs:
           flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
           flatpak install --user -y --noninteractive flathub org.flatpak.Builder
           # The linter makes a .flatpak-builder state dir in the working
-          # directory, which the sandbox cannot do in the checkout.
-          ws="$PWD"; cd "$(mktemp -d)"
+          # directory. Inside the sandbox, root cannot write to the checkout
+          # or $HOME (both belong to the runner user), and /tmp is private,
+          # so use a root-owned directory the sandbox can see.
+          ws="$PWD"; mkdir -p /srv/flathub-lint; cd /srv/flathub-lint
           flatpak run --command=flatpak-builder-lint org.flatpak.Builder manifest \
             "$ws/packaging/flatpak/io.github.martinlong1978.FluutCAM.flathub.yml"
       - name: Stage the source build
