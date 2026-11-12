@@ -4,7 +4,8 @@
 # (the same files as the AppImage). It is built by build-flatpak.sh, which
 # unpacks the tarball into ./payload next to this file first. Flathub needs a
 # build from source with vendored crates; that is a stated follow-up
-# (docs/plan/2026-11-11-flatpak.md), so this manifest is not the Flathub one.
+# (docs/plan/2026-11-11-flatpak.md), so this manifest is not the Flathub one:
+# that is io.github.martinlong1978.FluutCAM.flathub.yml (see FLATHUB.md).
 app-id: io.github.martinlong1978.FluutCAM
 runtime: org.freedesktop.Platform
 runtime-version: "24.08"
