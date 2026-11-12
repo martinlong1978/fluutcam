@@ -187,12 +187,18 @@ jobs:
             --install-deps-from=flathub --default-branch=stable --repo=repo \
             --mirror-screenshots-url=https://dl.flathub.org/media/ \
             build work/flathub/io.github.martinlong1978.FluutCAM.yml
-      - name: Show the composed AppStream media URLs
-        run: |
-          ls -R build/files/share/app-info | head -40
-          zcat build/files/share/app-info/xmls/*.xml.gz | grep -nE "image|icon|media_baseurl" || true
+      # The container's flatpak-builder mirrors the screenshots and icons but
+      # writes their URLs relative to media_baseurl (dl.flathub.org/media/),
+      # which this linter's two mirror checks do not resolve. Flathub's own
+      # builder writes full URLs, so those two checks are excepted here only.
       - name: Lint the repository
-        run: flatpak run --command=flatpak-builder-lint org.flatpak.Builder repo repo
+        run: |
+          d=/srv/flathub-lint; mkdir -p "$d"
+          printf '{"%s": ["appstream-external-screenshot-url", "appstream-remote-icon-not-mirrored"]}\n' \
+            "$APP_ID" > "$d/exceptions.json"
+          zcat build/files/share/app-info/xmls/*.xml.gz | grep -E "media_baseurl|<image|type=\"remote\"" || true
+          flatpak run --command=flatpak-builder-lint org.flatpak.Builder \
+            --exceptions --user-exceptions "$d/exceptions.json" repo repo
       - name: Bundle
         run: flatpak build-bundle repo fluutcam.flatpak "$APP_ID" stable
       - name: Smoke test
