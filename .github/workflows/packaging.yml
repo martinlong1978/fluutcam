@@ -188,8 +188,14 @@ jobs:
       - name: Build from source (offline)
         working-directory: /srv/flathub-build
         run: |
+          # The sandboxed builder needs a machine-id (the container has none),
+          # and installs nothing itself: the SDK comes from the host flatpak.
+          [ -s /etc/machine-id ] || python3 -c 'import uuid; print(uuid.uuid4().hex)' > /etc/machine-id
+          flatpak install --user -y --noninteractive flathub \
+            org.freedesktop.Platform//26.08 org.freedesktop.Sdk//26.08 \
+            org.freedesktop.Sdk.Extension.rust-stable//26.08
           flatpak run org.flatpak.Builder --user --disable-rofiles-fuse --force-clean \
-            --install-deps-from=flathub --default-branch=stable --repo=repo \
+            --default-branch=stable --repo=repo \
             --mirror-screenshots-url=https://dl.flathub.org/media/ \
             build src/io.github.martinlong1978.FluutCAM.yml
       - name: Show the composed AppStream media URLs
