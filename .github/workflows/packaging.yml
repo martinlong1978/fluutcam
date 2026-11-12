@@ -157,7 +157,9 @@ jobs:
       - name: Validate the launcher and the metainfo
         run: SUDO= packaging/flatpak/validate.sh
       - name: Check cargo-sources.json against Cargo.lock
-        run: packaging/flatpak/update-cargo-sources.sh --check
+        run: |
+          dnf install -y python3-aiohttp python3-pyyaml python3-tomlkit
+          packaging/flatpak/update-cargo-sources.sh --check
       - name: Lint the manifest
         run: |
           flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo

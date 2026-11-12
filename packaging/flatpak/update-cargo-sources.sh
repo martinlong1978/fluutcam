@@ -44,12 +44,23 @@ if ! { [ -f "$gen" ] && echo "$GENERATOR_SHA256  $gen" | sha256sum -c --status -
     || { echo "flatpak-cargo-generator.py does not match the pinned SHA-256" >&2; exit 1; }
 fi
 
-if [ ! -d "$work/venv" ]; then
-  python3 -m venv "$work/venv" 2>/dev/null || python -m venv "$work/venv"
+# Use a system Python that already has the generator's modules (the Flatpak CI
+# container installs them with dnf); otherwise make a virtualenv with pip.
+deps='import aiohttp, tomlkit, yaml'
+py=""
+for cand in python3 python; do
+  if command -v "$cand" >/dev/null 2>&1 && "$cand" -I -c "$deps" 2>/dev/null; then
+    py="$(command -v "$cand")"; break
+  fi
+done
+if [ -z "$py" ]; then
+  if [ ! -d "$work/venv" ]; then
+    python3 -m venv "$work/venv" || python -m venv "$work/venv"
+  fi
   py="$work/venv/bin/python"; [ -x "$py" ] || py="$work/venv/Scripts/python"
-  "$py" -m pip install -q "aiohttp>=3.9.5,<4" "PyYAML>=6.0.2,<7" "tomlkit>=0.13.3,<1.0"
+  "$py" -I -c "$deps" 2>/dev/null     || "$py" -m pip install -q "aiohttp>=3.9.5,<4" "PyYAML>=6.0.2,<7" "tomlkit>=0.13.3,<1.0"
+  "$py" -I -c "$deps"
 fi
-py="$work/venv/bin/python"; [ -x "$py" ] || py="$work/venv/Scripts/python"
 
 out="$work/cargo-sources.json"
 "$py" -I "$gen" "$root/Cargo.lock" -o "$out"
