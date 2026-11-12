@@ -158,10 +158,27 @@ impl SimPaint<'_> {
         let res = d.res;
         let (fx, fy) = ((p.x - d.origin.x) / res, (p.y - d.origin.y) / res);
         let (ci, cj) = (fx.floor() as i64, fy.floor() as i64);
-        let mut near = REACH as f64 * res;
-        for j in (cj - REACH).max(0)..=(cj + REACH).min(g.nv as i64 - 1) {
+        // The bound starts at `REACH` ray spacings and only falls, so a
+        // tolerance of that or more is never cleared.
+        let reach = REACH as f64 * res;
+        if reach.is_nan() || part.tol.is_nan() || reach <= part.tol {
+            return false;
+        }
+        // A column's bound is at least its sideways gap, so only a column
+        // within the tolerance sideways of `p` can bring it down to the
+        // tolerance. With the tolerance under `REACH` ray spacings those
+        // are the columns within `tol / res` of `p`, and one more on each
+        // side for rounding: one to four columns, not the 25 around `p`.
+        // The others cannot change the answer.
+        let m = part.tol / res;
+        let span = |f: f64, c: i64, n: usize| {
+            let lo = ((f - 1.0 - m).floor() as i64 - 1).max(c - REACH).max(0);
+            let hi = ((f + m).ceil() as i64 + 1).min(c + REACH).min(n as i64 - 1);
+            lo..=hi
+        };
+        for j in span(fy, cj, g.nv) {
             let dy = ((j as f64 - fy).max(fy - (j + 1) as f64)).max(0.0) * res;
-            for i in (ci - REACH).max(0)..=(ci + REACH).min(g.nu as i64 - 1) {
+            for i in span(fx, ci, g.nu) {
                 let h = part.top[j as usize * g.nu + i as usize];
                 if h.is_nan() {
                     continue;
@@ -169,13 +186,12 @@ impl SimPaint<'_> {
                 let dx = ((i as f64 - fx).max(fx - (i + 1) as f64)).max(0.0) * res;
                 // A lower bound of the sideways distance, √(dx² + dy²).
                 let sideways = dx.max(dy);
-                near = near.min((p.z - f64::from(h)).max(sideways));
-                if near <= part.tol {
+                if (p.z - f64::from(h)).max(sideways) <= part.tol {
                     return false;
                 }
             }
         }
-        near > part.tol
+        true
     }
 }
 
