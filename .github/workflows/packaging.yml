@@ -173,9 +173,12 @@ jobs:
           # directory. Inside the sandbox, root cannot write to the checkout
           # or $HOME (both belong to the runner user), and /tmp is private,
           # so use a root-owned directory the sandbox can see.
-          ws="$PWD"; mkdir -p /srv/flathub-lint; cd /srv/flathub-lint
-          flatpak run --command=flatpak-builder-lint org.flatpak.Builder manifest \
-            "$ws/packaging/flatpak/io.github.martinlong1978.FluutCAM.flathub.yml"
+          # Flathub names the file after the app ID, so lint a copy so named.
+          d=/srv/flathub-lint; mkdir -p "$d"
+          cp packaging/flatpak/io.github.martinlong1978.FluutCAM.flathub.yml "$d/$APP_ID.yml"
+          cp packaging/flatpak/cargo-sources.json "$d/"
+          cd "$d"
+          flatpak run --command=flatpak-builder-lint org.flatpak.Builder manifest "$APP_ID.yml"
       - name: Stage the source build
         run: packaging/flatpak/stage-source-build.sh work/flathub
       - name: Build from source (offline)
