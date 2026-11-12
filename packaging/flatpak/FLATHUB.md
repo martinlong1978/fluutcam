@@ -91,9 +91,11 @@ Follow <https://docs.flathub.org/docs/for-app-authors/submission>:
 ## Notes
 
 - The Rust compiler is the SDK extension's, not `rust-toolchain.toml` (there is no
-  rustup in the sandbox). The extension tracks the latest stable release; the
-  workspace needs 1.99 or later (`rust-version`). If the extension were older than
-  that, the build fails with cargo's message.
+  rustup in the sandbox). The extension follows stable releases but can be one
+  behind: on 26.08 it is 1.98, while the pinned toolchain is 1.99.1. So
+  `rust-version` is 1.98, and the `msrv` CI job checks the workspace with 1.98.
+  Raise both only when the extension has the newer release, or the build fails
+  with cargo's message.
 - The build runs the `icons` command of `xtask` (`cargo run -p xtask -- icons icons`)
   to render the hicolor icons from `assets/`, as the tarball build does.
 - Flatpak-builder fetches the crates from `static.crates.io` with the SHA-256 from

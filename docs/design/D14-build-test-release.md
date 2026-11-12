@@ -49,7 +49,10 @@ Every source file carries `SPDX-License-Identifier: MIT OR Apache-2.0`.
 
 Pull requests run lint + test + determinism; nightly runs everything. Tests run with
 `cargo test`, not `nextest`. The determinism, bench, fuzz and ui jobs are not set up yet.
-There is no MSRV job: `rust-version` equals the pinned toolchain.
+`rust-version` is the oldest Rust that builds the workspace, not the pinned toolchain: the
+Flathub source build uses the `rust-stable` SDK extension of its runtime, which can be a
+release behind (26.08 ships 1.98 while the pin is 1.99.1). The `msrv` job checks the
+workspace with that version; raise both together, and only when the extension has caught up.
 
 ## 4. Test data
 
