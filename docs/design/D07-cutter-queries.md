@@ -228,6 +228,8 @@ reference. Exact edge geometry near the boundary (or p-curves, M4) removes this.
 edge curve lies off its face (a model gap, S1 §1), the highest face point near the boundary
 can be above the edge, and the drop misses by up to the gap (2.8e-5 mm seen).
 
+**Drop misses (2026-11-12,** [plan](../plan/2026-11-12-drop-misses.md)**).** Where a B-spline face is nearly level at a contact on a flat tool's rim, or on a bull-nose's corner just beyond its flat (beside a bump whose top is just outside), the contact map's `(R − r)·∂n̂_xy` grows as `κ/|∇z|` and Newton fails from every start. Two climbs cover it: `rim_ascent` follows the curve `d = R` on the face (Newton on `d = R`, then Newton steps for `z` along the curve with the Lagrangian's Hessian) and `tip_ascent` climbs `z − h(d)`, smooth across the flat's edge. They start from a stationary point of the flat-bottom Newton beyond the flat (the bump's top), and, for a flat tool whose best contact is an edge or vertex on its rim, from the patch cells over that contact. Like every solver here they return real face points only.
+
 ### 4.4 Triangles (mesh bodies)
 
 Classic drop-cutter cases: triangle plane (closed form per tool), three edges (§4.2 line cases),
