@@ -1,0 +1,67 @@
+# Flatpak manifest for FLATHUB: builds FluutCAM from source, offline
+# (design D14 §5.2; plan docs/plan/2026-11-11-flatpak.md, "Flathub source build").
+#
+# Flathub builds every app from source with the network off, so the crates are
+# vendored: cargo-sources.json lists them (checksums from Cargo.lock) and is
+# made by update-cargo-sources.sh; CI fails when it is out of date.
+#
+# The other manifest here (io.github.martinlong1978.FluutCAM.yml) repackages the
+# prebuilt release binaries into our own .flatpak bundle and is NOT for Flathub.
+# This one is submitted to Flathub as io.github.martinlong1978.FluutCAM.yml
+# (see FLATHUB.md); CI builds it as a dry run with the git source replaced by
+# the checkout (stage-source-build.sh).
+app-id: io.github.martinlong1978.FluutCAM
+runtime: org.freedesktop.Platform
+runtime-version: "26.08"
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: fluutcam
+
+# Same sandbox as the binary manifest: as few permissions as possible.
+# - Wayland, with X11 as the fallback (and `ipc` that X11 shared memory needs);
+# - DRI, the GPU (wgpu: Vulkan or OpenGL);
+# - no filesystem access (the file dialogs go through the xdg portal);
+# - no network: a Flatpak is updated by Flatpak, never by the app (PRIVACY.md).
+finish-args:
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --share=ipc
+  - --device=dri
+
+modules:
+  - name: fluutcam
+    buildsystem: simple
+    build-options:
+      append-path: /usr/lib/sdk/rust-stable/bin
+      env:
+        # cargo-sources.json puts the vendored crates and cargo's `config`
+        # in <build dir>/cargo.
+        CARGO_HOME: /run/build/fluutcam/cargo
+        CARGO_NET_OFFLINE: "true"
+    build-commands:
+      - cargo --offline build --release --locked -p fluut-app -p fluut-cli
+      # The hicolor icons are rendered from assets/ (never committed).
+      - cargo --offline run --release --locked -q -p xtask -- icons icons
+      - install -Dm755 target/release/fluutcam /app/bin/fluutcam
+      - install -Dm755 target/release/fluut /app/bin/fluut
+      - install -Dm644 -t /app/share/licenses/${FLATPAK_ID} LICENSE-APACHE LICENSE-MIT
+      - install -Dm644 packaging/flatpak/io.github.martinlong1978.FluutCAM.desktop /app/share/applications/${FLATPAK_ID}.desktop
+      - install -Dm644 packaging/flatpak/io.github.martinlong1978.FluutCAM.metainfo.xml /app/share/metainfo/${FLATPAK_ID}.metainfo.xml
+      - |
+        for s in 16 24 32 48 64 128 256 512; do
+          install -Dm644 icons/linux/hicolor/${s}x${s}/apps/fluutcam.png \
+            /app/share/icons/hicolor/${s}x${s}/apps/${FLATPAK_ID}.png
+        done
+    sources:
+      # BEGIN release-source (stage-source-build.sh replaces these lines in CI)
+      # Pin: the release tag and the commit it points to. The tag must be one
+      # that contains packaging/flatpak/ and a metainfo <release> for it, and
+      # cargo-sources.json must be regenerated from that commit's Cargo.lock.
+      # The values below are placeholders until the first Flathub release.
+      - type: git
+        url: https://github.com/martinlong1978/fluutcam.git
+        tag: v0.0.0-REPLACE-WITH-RELEASE-TAG
+        commit: "0000000000000000000000000000000000000000"
+      # END release-source
+      - cargo-sources.json

@@ -103,7 +103,7 @@ jobs:
     needs: flatpak-input
     runs-on: ubuntu-22.04
     container:
-      image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-24.08
+      image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-26.08
       # flatpak-builder needs bubblewrap, which needs these.
       options: --privileged
     env:
@@ -138,3 +138,68 @@ jobs:
           path: dist/*.flatpak
           retention-days: 3
           if-no-files-found: error
+
+  # Dry run of the FLATHUB build (packaging/flatpak/FLATHUB.md): the manifest
+  # that builds from source, offline, with the crates of cargo-sources.json,
+  # with its `git` source replaced by this checkout. Slow (a full release
+  # build in the sandbox), so it runs only here. Nothing is published.
+  # cargo-sources.json must match Cargo.lock (the Flathub build is offline).
+  # Runs on the plain runner: the Flatpak container has no Python modules or
+  # package manager for flatpak-cargo-generator. ci.yml runs the same check.
+  cargo-sources:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: packaging/flatpak/update-cargo-sources.sh --check
+
+  flathub-source:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 150
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-26.08
+      # flatpak-builder needs bubblewrap, which needs these.
+      options: --privileged
+    env:
+      APP_ID: io.github.martinlong1978.FluutCAM
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate the launcher and the metainfo
+        run: SUDO= packaging/flatpak/validate.sh
+      - name: Lint the manifest
+        run: |
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user -y --noninteractive flathub org.flatpak.Builder
+          # The linter makes a .flatpak-builder state dir in the working
+          # directory. Inside the sandbox, root cannot write to the checkout
+          # or $HOME (both belong to the runner user), and /tmp is private,
+          # so use a root-owned directory the sandbox can see.
+          # Flathub names the file after the app ID, so lint a copy so named.
+          d=/srv/flathub-lint; mkdir -p "$d"
+          cp packaging/flatpak/io.github.martinlong1978.FluutCAM.flathub.yml "$d/$APP_ID.yml"
+          cp packaging/flatpak/cargo-sources.json "$d/"
+          cd "$d"
+          flatpak run --command=flatpak-builder-lint org.flatpak.Builder manifest "$APP_ID.yml"
+      - name: Stage the source build
+        run: packaging/flatpak/stage-source-build.sh work/flathub
+      - name: Build from source (offline)
+        run: |
+          flatpak-builder --user --disable-rofiles-fuse --force-clean \
+            --install-deps-from=flathub --default-branch=stable --repo=repo \
+            --mirror-screenshots-url=https://dl.flathub.org/media/ \
+            build work/flathub/io.github.martinlong1978.FluutCAM.yml
+      # The container's flatpak-builder mirrors the screenshots and icons but
+      # writes their URLs relative to media_baseurl (dl.flathub.org/media/),
+      # which this linter's two mirror checks do not resolve. Flathub's own
+      # builder writes full URLs, so those two checks are excepted here only.
+      - name: Lint the repository
+        run: |
+          d=/srv/flathub-lint; mkdir -p "$d"
+          printf '{"%s": ["appstream-external-screenshot-url", "appstream-remote-icon-not-mirrored"]}\n' \
+            "$APP_ID" > "$d/exceptions.json"
+          zcat build/files/share/app-info/xmls/*.xml.gz | grep -E "media_baseurl|<image|type=\"remote\"" || true
+          flatpak run --command=flatpak-builder-lint org.flatpak.Builder \
+            --exceptions --user-exceptions "$d/exceptions.json" repo repo
+      - name: Bundle
+        run: flatpak build-bundle repo fluutcam.flatpak "$APP_ID" stable
+      - name: Smoke test
+        run: packaging/flatpak/smoke-test.sh fluutcam.flatpak "$APP_ID"

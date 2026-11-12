@@ -49,7 +49,10 @@ Every source file carries `SPDX-License-Identifier: MIT OR Apache-2.0`.
 
 Pull requests run lint + test + determinism; nightly runs everything. Tests run with
 `cargo test`, not `nextest`. The determinism, bench, fuzz and ui jobs are not set up yet.
-There is no MSRV job: `rust-version` equals the pinned toolchain.
+`rust-version` is the oldest Rust that builds the workspace, not the pinned toolchain: the
+Flathub source build uses the `rust-stable` SDK extension of its runtime, which can be a
+release behind (26.08 ships 1.98 while the pin is 1.99.1). The `msrv` job checks the
+workspace with that version; raise both together, and only when the extension has caught up.
 
 ## 4. Test data
 
@@ -80,7 +83,7 @@ workspace version differ.
 |---|---|---|
 | Windows | MSI + portable zip | WiX v5 (`wix` .NET tool, hand-written source); Authenticode signing through SignPath |
 | macOS | universal DMG | `lipo`; ad-hoc `codesign` |
-| Linux | tarball, AppImage, Flatpak | `appimagetool` (pinned by version and SHA-256); `flatpak-builder` in the `flathub-infra/flatpak-github-actions` container (freedesktop 24.08), Flathub manifest later. AppImages are not GPG-signed; the minisign, checksum and attestation steps cover them |
+| Linux | tarball, AppImage, Flatpak | `appimagetool` (pinned by version and SHA-256); `flatpak-builder` in the `flathub-infra/flatpak-github-actions` container (freedesktop 26.08), a second, from-source manifest for Flathub. AppImages are not GPG-signed; the minisign, checksum and attestation steps cover them |
 
 Built so far (`.github/workflows/release.yml`, `cargo xtask package`):
 
@@ -90,7 +93,7 @@ Built so far (`.github/workflows/release.yml`, `cargo xtask package`):
 | Windows x86-64 | `fluutcam-<v>-windows-x86_64.msi` | Per-user installer built by `packaging/wix/build-msi.ps1` from the signed executables; Start menu shortcut, licences, optional `PATH` entry (`ADDTOPATH=1`). Stable UpgradeCode, so a newer MSI replaces an older one. Signed itself by a second SignPath request. Uninstall leaves `%LOCALAPPDATA%\FluutCAM` alone |
 | Linux x86-64 | `fluutcam-<v>-linux-x86_64.tar.gz` | `bin/`, `.desktop` file, hicolor icons, licences, built on Ubuntu 22.04 (glibc 2.35) |
 | Linux x86-64 | `fluutcam-<v>-linux-x86_64.AppImage` | Made from the tarball by `packaging/appimage/build-appimage.sh` with appimagetool 1.9.1 and type2 runtime 20251108 (pinned; `fetch-tools.sh` checks their SHA-256). No zsync update information |
-| Linux x86-64 | `fluutcam-<v>-linux-x86_64.flatpak` | Single-file bundle (`flatpak build-bundle`) of app `io.github.martinlong1978.FluutCAM`, made from the tarball's prebuilt binaries by `packaging/flatpak/` on the freedesktop 24.08 runtime. Permissions: Wayland, X11 fallback, DRI; no network, no filesystem (file dialogs go through the portal). Not signed by us (no Flatpak GPG key); minisign, checksums and attestation cover the file. Not in `releases.json` (kind `flatpak` unknown to `cargo xtask manifest`; Flatpak updates itself). Flathub needs a build from source with vendored crates: follow-up |
+| Linux x86-64 | `fluutcam-<v>-linux-x86_64.flatpak` | Single-file bundle (`flatpak build-bundle`) of app `io.github.martinlong1978.FluutCAM`, made from the tarball's prebuilt binaries by `packaging/flatpak/` on the freedesktop 24.08 runtime. Permissions: Wayland, X11 fallback, DRI; no network, no filesystem (file dialogs go through the portal). Not signed by us (no Flatpak GPG key); minisign, checksums and attestation cover the file. Not in `releases.json` (kind `flatpak` unknown to `cargo xtask manifest`; Flatpak updates itself). Flathub needs a build from source with vendored crates: a second manifest, `io.github.martinlong1978.FluutCAM.flathub.yml` (rust-stable SDK extension, `git` source pinned to a release tag and commit, `cargo-sources.json` made from `Cargo.lock` by `update-cargo-sources.sh`; same permissions), dry-run in CI and submitted to Flathub by the maintainer (`packaging/flatpak/FLATHUB.md`). The bundle above is not built from it |
 | macOS | `fluutcam-<v>-macos-universal.dmg`, `…-macos-universal-cli.tar.gz` | `lipo` of the arm64 and x86-64 builds in `FluutCAM.app`; ad-hoc signing (no Developer ID, by decision) |
 
 The MSI, the AppImage and the Flatpak bundle are not byte-reproducible (MSI time stamps and identifiers; squashfs and the runtime are not compared). The archives are written by `cargo xtask package` (sorted entries, fixed time stamp, no
@@ -144,7 +147,7 @@ user asks, which is why the update check is opt-in [S 06 §6.4].
 
 CI verifies every signature after signing; a failed check stops the release [S 06 §6.2].
 
-`.github/workflows/packaging.yml` is a dry run: on pull requests that touch `packaging/`, `xtask/` or the workflows (and on demand) it builds the MSI, the AppImage and the Flatpak bundle unsigned and uploads them as short-lived artefacts. It uses no secret and publishes nothing.
+`.github/workflows/packaging.yml` is a dry run: on pull requests that touch `packaging/`, `xtask/` or the workflows (and on demand) it builds the MSI, the AppImage and the Flatpak bundle unsigned and uploads them as short-lived artefacts; its `flathub-source` job also builds the Flathub (from source, offline) manifest, lints it and smoke-tests the result, and uploads nothing. `ci.yml` fails when `packaging/flatpak/cargo-sources.json` is out of date with `Cargo.lock`. It uses no secret and publishes nothing.
 
 ### 5.3 Update manifest
 

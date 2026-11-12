@@ -50,6 +50,25 @@ jobs:
       - run: cargo xtask wiki-reference --check
       - uses: EmbarkStudios/cargo-deny-action@v2
 
+  # The Flathub manifest vendors the crates from cargo-sources.json, made from
+  # Cargo.lock. A change to Cargo.lock without regenerating it fails here, not
+  # on the Flathub builders (packaging/flatpak/FLATHUB.md).
+  flatpak-sources:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: packaging/flatpak/update-cargo-sources.sh --check
+
+  # rust-version (Cargo.toml) is the oldest Rust that builds the workspace:
+  # the Flathub builders use the rust-stable SDK extension, which can lag the
+  # pinned toolchain (D14 section 3). Keep the version here equal to it.
+  msrv:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install 1.98.0 --profile minimal
+      - run: cargo +1.98.0 check --workspace --all-targets --locked
+
   test:
     strategy:
       fail-fast: false
