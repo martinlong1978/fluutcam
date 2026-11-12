@@ -68,6 +68,9 @@ pub struct SolveStats {
     /// Patches solved only because another patch of their face may have
     /// missed a contact (see `drop`).
     pub rescues: u64,
+    /// Cells of B-spline patches climbed for a flat tool's rim or a
+    /// bull-nose tool's corner (see `drop`).
+    pub climbs: u64,
 }
 
 /// The tool axis: a vertical line through `(x, y)`.
@@ -782,6 +785,299 @@ fn newton_flat(
     None
 }
 
+/// A climb stops where the quadratic model predicts less rise than this
+/// (mm): far below the solver tolerance, about the rounding of `z`.
+const GAIN_MIN: f64 = 1e-13;
+
+/// The point of the face on the rim of a flat tool (`d = R`) nearest
+/// `start` along the parameter gradient of `d`: Newton on `d = R`, `None`
+/// if it leaves `bounds` or stalls.
+fn onto_rim(
+    s: &Surface,
+    ax: Axis,
+    rad: f64,
+    start: (f64, f64),
+    bounds: UvBox,
+) -> Option<(f64, f64)> {
+    let (mut u, mut v) = start;
+    let mut last = f64::INFINITY;
+    for _ in 0..30 {
+        let (p, su, sv) = s.derivs1(u, v);
+        let w = [p.x() - ax.x, p.y() - ax.y];
+        let d = libm::hypot(w[0], w[1]);
+        if d < 1e-300 {
+            return None;
+        }
+        let e = rad - d;
+        if e.abs() <= 1e-11 * rad {
+            return Some((u, v));
+        }
+        // Newton converges fast here; a residual that does not halve means
+        // the curve is not near.
+        if e.abs() > 0.5 * last {
+            break;
+        }
+        last = e.abs();
+        let gu = (w[0] * su.x() + w[1] * su.y()) / d;
+        let gv = (w[0] * sv.x() + w[1] * sv.y()) / d;
+        let g2 = gu * gu + gv * gv;
+        if g2 < 1e-300 || !g2.is_finite() {
+            return None;
+        }
+        let (nu, nv) = bounds.clamp(u + e * gu / g2, v + e * gv / g2);
+        if same_point((nu, nv), (u, v)) {
+            return None;
+        }
+        (u, v) = (nu, nv);
+    }
+    None
+}
+
+/// A flat tool's rim on a face: a local maximum of `z` on the curve `d =
+/// R` of the face (the rim circle on the surface), climbing from `start`.
+/// The contact map ([`newton_contact`]) has the same solutions, but its
+/// `R·n̂_xy` term turns as fast as `κ / |∇z|` where the face is nearly
+/// level at the rim (beside a bump whose top is just outside the
+/// footprint), and from a start a cell away it fails there. Here the
+/// curve is followed directly: each step is a Newton step for `z` along
+/// the curve's tangent (the Hessian of the Lagrangian `z − λ·d`), at most
+/// a tenth of the radius, halved until `z` rises after projecting back
+/// onto the curve. Every point it returns is on the rim inside `bounds`.
+fn rim_ascent(
+    s: &Surface,
+    c: &Cutter,
+    ax: Axis,
+    start: (f64, f64),
+    bounds: UvBox,
+) -> Option<(f64, f64)> {
+    let rad = c.radius();
+    let (mut u, mut v) = onto_rim(s, ax, rad, start, bounds)?;
+    let mut z = s.eval(u, v).z();
+    for _ in 0..30 {
+        let d = s.derivs(u, v);
+        let w = [d.p.x() - ax.x, d.p.y() - ax.y];
+        let dist = libm::hypot(w[0], w[1]);
+        let xy = |a: Vec3, b: Vec3| a.x() * b.x() + a.y() * b.y();
+        let wd = |a: Vec3| w[0] * a.x() + w[1] * a.y();
+        let (du, dv) = (wd(d.su) / dist, wd(d.sv) / dist);
+        let gn = libm::hypot(du, dv);
+        if gn < 1e-300 || !gn.is_finite() {
+            return None;
+        }
+        // Unit tangent of the curve in (u, v), and z along it.
+        let t = [-dv / gn, du / gn];
+        let zt = d.su.z() * t[0] + d.sv.z() * t[1];
+        let lambda = (d.su.z() * du + d.sv.z() * dv) / (gn * gn);
+        // Second derivatives of d: (w_i·w_j + w·w_ij − d_i d_j) / d.
+        let duu = (xy(d.su, d.su) + wd(d.suu) - du * du) / dist;
+        let duv = (xy(d.su, d.sv) + wd(d.suv) - du * dv) / dist;
+        let dvv = (xy(d.sv, d.sv) + wd(d.svv) - dv * dv) / dist;
+        let ltt = (d.suu.z() - lambda * duu) * t[0] * t[0]
+            + 2.0 * (d.suv.z() - lambda * duv) * t[0] * t[1]
+            + (d.svv.z() - lambda * dvv) * t[1] * t[1];
+        // A step of a tenth of the radius along the surface at most.
+        let speed = (d.su * t[0] + d.sv * t[1]).length().max(1e-300);
+        let trust = 0.1 * rad / speed;
+        let mut step = if ltt < 0.0 {
+            (-zt / ltt).clamp(-trust, trust)
+        } else {
+            trust.copysign(zt)
+        };
+        // The rise the quadratic model predicts: below rounding, done.
+        if (step * speed).abs() < 1e-10 || (ltt < 0.0 && zt * zt / (-2.0 * ltt) < GAIN_MIN) {
+            return Some((u, v));
+        }
+        let mut moved = false;
+        for _ in 0..12 {
+            let raw = (u + step * t[0], v + step * t[1]);
+            let trial = bounds.clamp(raw.0, raw.1);
+            if !same_point(raw, trial) {
+                // Off the face: the rim leaves it there (the boundary is
+                // the edges' part); shorter steps only.
+                step *= 0.5;
+                if (step * speed).abs() < 1e-10 {
+                    break;
+                }
+                continue;
+            }
+            if let Some((nu, nv)) = onto_rim(s, ax, rad, trial, bounds) {
+                let nz = s.eval(nu, nv).z();
+                if nz > z {
+                    // A rise below rounding (creeping along the box): done.
+                    if nz - z < GAIN_MIN {
+                        return Some((nu, nv));
+                    }
+                    (u, v, z) = (nu, nv, nz);
+                    moved = true;
+                    break;
+                }
+            }
+            step *= 0.5;
+            if (step * speed).abs() < 1e-10 {
+                break;
+            }
+        }
+        if !moved {
+            // No step raises z: a maximum on the curve, to rounding.
+            return Some((u, v));
+        }
+    }
+    Some((u, v))
+}
+
+/// A bull-nose tool on a face: a local maximum of `φ = z − h(d)` (the tip
+/// height that touches the point) climbing from `start`, by Newton on
+/// `∇φ = 0` in `(u, v)` with a line search on `φ`. `φ` is smooth across
+/// the edge of the flat bottom (`h″` jumps there, `h′` does not), so where
+/// the face is nearly level at a contact on the corner just outside the
+/// flat (a bump whose top is beside the flat's edge) its Hessian stays
+/// well conditioned, while the contact map's `(R − r)·n̂_xy` term turns as
+/// fast as `κ / |∇z|`. Steps are at most a tenth of the radius along the
+/// surface; where `φ`'s Hessian is not negative definite the step follows
+/// the gradient. Every point it returns is in the footprint inside
+/// `bounds`.
+fn tip_ascent(
+    s: &Surface,
+    c: &Cutter,
+    ax: Axis,
+    start: (f64, f64),
+    bounds: UvBox,
+) -> Option<(f64, f64)> {
+    let rad = c.radius();
+    let rf = c.flat_radius();
+    let phi = |u: f64, v: f64| ax.tau(c, s.eval(u, v)).filter(|t| t.is_finite());
+    // A start outside the footprint is pulled onto its rim.
+    let (mut u, mut v) = match phi(start.0, start.1) {
+        Some(_) => start,
+        None => onto_rim(s, ax, rad * (1.0 - 1e-9), start, bounds)?,
+    };
+    let mut f = phi(u, v)?;
+    for _ in 0..40 {
+        let d = s.derivs(u, v);
+        let w = [d.p.x() - ax.x, d.p.y() - ax.y];
+        let dist = libm::hypot(w[0], w[1]);
+        let xy = |a: Vec3, b: Vec3| a.x() * b.x() + a.y() * b.y();
+        let wd = |a: Vec3| w[0] * a.x() + w[1] * a.y();
+        let mut g = [d.su.z(), d.sv.z()];
+        let mut h = [[d.suu.z(), d.suv.z()], [d.suv.z(), d.svv.z()]];
+        if dist > rf && dist > 1e-12 {
+            let (h1, h2) = (c.dh(dist), c.ddh(dist));
+            if !h1.is_finite() || !h2.is_finite() {
+                return Some((u, v));
+            }
+            let (du, dv) = (wd(d.su) / dist, wd(d.sv) / dist);
+            let duu = (xy(d.su, d.su) + wd(d.suu) - du * du) / dist;
+            let duv = (xy(d.su, d.sv) + wd(d.suv) - du * dv) / dist;
+            let dvv = (xy(d.sv, d.sv) + wd(d.svv) - dv * dv) / dist;
+            g[0] -= h1 * du;
+            g[1] -= h1 * dv;
+            h[0][0] -= h1 * duu + h2 * du * du;
+            h[0][1] -= h1 * duv + h2 * du * dv;
+            h[1][0] = h[0][1];
+            h[1][1] -= h1 * dvv + h2 * dv * dv;
+        }
+        // Newton where the Hessian is negative definite, else the gradient.
+        let det = h[0][0] * h[1][1] - h[0][1] * h[1][0];
+        let newton = (h[0][0] < 0.0 && det > 0.0)
+            .then(|| solve2(h, [-g[0], -g[1]]))
+            .flatten();
+        if let Some(st) = newton
+            && 0.5 * (g[0] * st[0] + g[1] * st[1]) < GAIN_MIN
+        {
+            return Some((u, v));
+        }
+        let mut step = newton.unwrap_or(g);
+        let len = (d.su * step[0] + d.sv * step[1]).length();
+        if !len.is_finite() {
+            return Some((u, v));
+        }
+        if len > 0.1 * rad {
+            let k = 0.1 * rad / len;
+            step = [step[0] * k, step[1] * k];
+        }
+        let mut len = len.min(0.1 * rad);
+        if len < 1e-10 {
+            return Some((u, v));
+        }
+        let mut moved = false;
+        for _ in 0..12 {
+            let raw = (u + step[0], v + step[1]);
+            let (nu, nv) = bounds.clamp(raw.0, raw.1);
+            if !same_point(raw, (nu, nv)) {
+                // Off the face (the boundary is the edges' part).
+                step = [step[0] * 0.5, step[1] * 0.5];
+                len *= 0.5;
+                if len < 1e-10 {
+                    break;
+                }
+                continue;
+            }
+            if let Some(nf) = phi(nu, nv)
+                && nf > f
+            {
+                if nf - f < GAIN_MIN {
+                    return Some((nu, nv));
+                }
+                (u, v, f) = (nu, nv, nf);
+                moved = true;
+                break;
+            }
+            step = [step[0] * 0.5, step[1] * 0.5];
+            len *= 0.5;
+            if len < 1e-10 {
+                break;
+            }
+        }
+        if !moved {
+            return Some((u, v));
+        }
+    }
+    Some((u, v))
+}
+
+/// As [`face_from`], climbing from `starts` along a flat tool's rim
+/// ([`rim_ascent`]) or a bull-nose tool's tip height ([`tip_ascent`]).
+pub fn face_climb_from(
+    g: &QueryGeometry,
+    face: u32,
+    ax: Axis,
+    c: &Cutter,
+    starts: &[(f64, f64)],
+    stats: &mut SolveStats,
+) -> (Option<Contact>, f64) {
+    let mut trimmed = f64::NEG_INFINITY;
+    let Some(q) = g.faces[face as usize].as_ref() else {
+        return (None, trimmed);
+    };
+    let s = &g.body.surfaces[g.body.faces[face as usize].surface as usize];
+    let mut best: Option<Contact> = None;
+    for &start in starts {
+        stats.climbs += 1;
+        let Some((u, v)) = climb(s, c, ax, start, q.uv) else {
+            continue;
+        };
+        let p = s.eval(u, v);
+        let d = ax.lateral(p);
+        if d > c.radius() + 1e-9 {
+            continue;
+        }
+        let tau = p.z() - c.h(d.min(c.radius()));
+        if best.is_some_and(|b| b.tau >= tau) {
+            continue;
+        }
+        if !q.trim.contains(u, v) {
+            trimmed = trimmed.max(tau);
+            continue;
+        }
+        best = Some(Contact {
+            tau,
+            point: p,
+            on: ContactOn::Face { face, u, v },
+        });
+    }
+    (best, trimmed)
+}
+
 /// Whether two parameter pairs are the same bits (a solver step is a
 /// function of the point's bits).
 fn same_point(a: (f64, f64), b: (f64, f64)) -> bool {
@@ -925,7 +1221,7 @@ fn refine(
 ) -> Option<Contact> {
     let tol = 1e-8;
     let mut best: Option<Contact> = None;
-    let mut consider = |u: f64, v: f64, flat: bool| {
+    let consider = |best: &mut Option<Contact>, trimmed: &mut f64, u: f64, v: f64, flat: bool| {
         let p = s.eval(u, v);
         let d = ax.lateral(p);
         let limit = if flat { c.flat_radius() } else { c.radius() };
@@ -940,27 +1236,64 @@ fn refine(
             *trimmed = trimmed.max(tau);
             return;
         }
-        best = Some(Contact {
+        *best = Some(Contact {
             tau,
             point: p,
             on: ContactOn::Face { face, u, v },
         });
     };
+    let climbs = c.flat_radius() > 0.0 && matches!(s, Surface::BSpline(_));
     for (u, v) in starts {
         stats.newton_runs += 1;
         if let Some((u, v)) = newton_contact(s, c, ax, (u, v), q.uv, tol) {
             stats.newton_converged += 1;
-            consider(u, v, false);
+            consider(&mut best, trimmed, u, v, false);
         }
+        // A stationary point outside the flat bottom (a bump's top beside
+        // its edge, for a bull-nose under its corner): the highest point
+        // on a flat tool's rim, or on a bull-nose's corner, is near, and
+        // the contact map from the start may have missed it (see
+        // `rim_ascent`, `tip_ascent`). The climb stays on that bump, below
+        // its top: not worth it if the patch already has a contact as high.
+        let mut flat_out = None;
         if c.flat_radius() > 0.0 {
             stats.newton_runs += 1;
             if let Some((u, v)) = newton_flat(s, c, ax, (u, v), q.uv, tol) {
                 stats.newton_converged += 1;
-                consider(u, v, true);
+                consider(&mut best, trimmed, u, v, true);
+                let p = s.eval(u, v);
+                let d = ax.lateral(p);
+                if d > c.flat_radius() + 1e-9 && (c.corner() == 0.0 || d <= c.radius()) {
+                    flat_out = Some((u, v, p.z()));
+                }
+            }
+        }
+        if climbs
+            && let Some((u, v, top)) = flat_out
+            && best.is_none_or(|b| b.tau < top)
+        {
+            stats.climbs += 1;
+            if let Some((u, v)) = climb(s, c, ax, (u, v), q.uv) {
+                consider(&mut best, trimmed, u, v, false);
             }
         }
     }
     best
+}
+
+/// [`rim_ascent`] for a flat tool, [`tip_ascent`] for a bull-nose.
+fn climb(
+    s: &Surface,
+    c: &Cutter,
+    ax: Axis,
+    start: (f64, f64),
+    bounds: UvBox,
+) -> Option<(f64, f64)> {
+    if c.corner() == 0.0 {
+        rim_ascent(s, c, ax, start, bounds)
+    } else {
+        tip_ascent(s, c, ax, start, bounds)
+    }
 }
 
 /// As [`face_trimmed`] for a numeric face, with Newton started from
