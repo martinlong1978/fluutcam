@@ -10,7 +10,7 @@ Tests of the Linux Flatpak bundle. Part of the [user acceptance tests](UAT). You
   1. Run `flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo`.
   2. Run `flatpak install --user fluutcam-<version>-linux-x86_64.flatpak` and answer Yes.
   3. Run `flatpak info --user io.github.martinlong1978.FluutCAM`.
-- **Expected:** The install fetches the runtime (freedesktop 24.08) if you do not have it and ends without an error. `flatpak info` shows FluutCAM with the version you are testing. FluutCAM appears in the application menu with its icon (log out and in if the menu does not show it).
+- **Expected:** The install fetches the runtime (freedesktop 26.08) if you do not have it and ends without an error. `flatpak info` shows FluutCAM with the version you are testing. FluutCAM appears in the application menu with its icon (log out and in if the menu does not show it).
 - [ ] Pass
 
 ### UAT-INS-02 Run it and check the permissions

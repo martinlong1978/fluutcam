@@ -10,7 +10,7 @@ design D14 section 5.2 and D17 section 3.5.
 
 | File | Use |
 |---|---|
-| `io.github.martinlong1978.FluutCAM.flathub.yml` | The **Flathub** manifest: builds from source, offline, on `org.freedesktop.Sdk.Extension.rust-stable` (runtime 24.08) |
+| `io.github.martinlong1978.FluutCAM.flathub.yml` | The **Flathub** manifest: builds from source, offline, on `org.freedesktop.Sdk.Extension.rust-stable` (runtime 26.08) |
 | `cargo-sources.json` | The vendored crates for it, made from `Cargo.lock` |
 | `update-cargo-sources.sh` | Regenerates `cargo-sources.json`; `--check` fails if it is out of date (CI: job `flatpak-sources` in `ci.yml`, and `flathub-source` in `packaging.yml`) |
 | `stage-source-build.sh` | Makes the dry-run copy of the manifest for CI, with the `git` source replaced by the checkout |

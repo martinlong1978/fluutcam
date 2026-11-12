@@ -103,7 +103,7 @@ jobs:
     needs: flatpak-input
     runs-on: ubuntu-22.04
     container:
-      image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-24.08
+      image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-26.08
       # flatpak-builder needs bubblewrap, which needs these.
       options: --privileged
     env:
@@ -156,7 +156,7 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 150
     container:
-      image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-24.08
+      image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-26.08
       # flatpak-builder needs bubblewrap, which needs these.
       options: --privileged
     env:

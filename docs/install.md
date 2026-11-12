@@ -49,7 +49,7 @@ The AppImage does not update itself; download a newer one.
 
 **Flatpak.** Download `fluutcam-<version>-linux-x86_64.flatpak` and install it for your user
 (this needs [Flatpak](https://flatpak.org/setup/) and the Flathub remote, which supplies the
-freedesktop 24.08 runtime):
+freedesktop 26.08 runtime):
 
 ```
 flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo

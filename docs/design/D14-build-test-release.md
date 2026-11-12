@@ -80,7 +80,7 @@ workspace version differ.
 |---|---|---|
 | Windows | MSI + portable zip | WiX v5 (`wix` .NET tool, hand-written source); Authenticode signing through SignPath |
 | macOS | universal DMG | `lipo`; ad-hoc `codesign` |
-| Linux | tarball, AppImage, Flatpak | `appimagetool` (pinned by version and SHA-256); `flatpak-builder` in the `flathub-infra/flatpak-github-actions` container (freedesktop 24.08), a second, from-source manifest for Flathub. AppImages are not GPG-signed; the minisign, checksum and attestation steps cover them |
+| Linux | tarball, AppImage, Flatpak | `appimagetool` (pinned by version and SHA-256); `flatpak-builder` in the `flathub-infra/flatpak-github-actions` container (freedesktop 26.08), a second, from-source manifest for Flathub. AppImages are not GPG-signed; the minisign, checksum and attestation steps cover them |
 
 Built so far (`.github/workflows/release.yml`, `cargo xtask package`):
 

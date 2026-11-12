@@ -379,7 +379,7 @@ jobs:
           if-no-files-found: error
 
   # The Flatpak is made from the Linux tarball, in the flatpak-builder
-  # container, with the freedesktop 24.08 runtime (packaging/flatpak). It packs
+  # container, with the freedesktop 26.08 runtime (packaging/flatpak). It packs
   # the prebuilt binaries; Flathub's build from source is a follow-up (plan
   # docs/plan/2026-11-11-flatpak.md). The bundle is a single file, unsigned
   # (the minisign, checksum and attestation steps of `release` cover it).
@@ -387,7 +387,7 @@ jobs:
     needs: [check, package-portable]
     runs-on: ubuntu-22.04
     container:
-      image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-24.08
+      image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-26.08
       options: --privileged
     env:
       VERSION: ${{ needs.check.outputs.version }}
