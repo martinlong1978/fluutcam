@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use super::*;
+use crate::mesh::MeshTiles;
 use crate::mesh::{GOUGE, REST, WITHIN, tag_class, tag_toolpath};
 use crate::run::tests::{block, feed, path, program, settings, xyz};
 use crate::run::{Quiet, Settings, Simulation, Step};
 use crate::tool::Tool;
-use crate::verify::Part;
+use crate::verify::{Part, PartHeights};
 use fluut_path::{Pass, PassKind, ToolpathResult};
 use glam::DVec3;
 
@@ -632,4 +633,129 @@ fn steps_by_move_show_the_blocks_of_a_new_player() {
             assert!(**a == **b, "step {i}: blocks at {n}");
         }
     }
+}
+
+/// [`SimPaint::far_above`] before it looked only at the columns within the
+/// tolerance of the vertex: all 25 columns around it.
+fn far_above_all_columns(paint: &SimPaint, part: &PartHeights, p: DVec3) -> bool {
+    let d = paint.stock;
+    let g = &d.grids[2];
+    let res = d.res;
+    let (fx, fy) = ((p.x - d.origin.x) / res, (p.y - d.origin.y) / res);
+    let (ci, cj) = (fx.floor() as i64, fy.floor() as i64);
+    let mut near = REACH as f64 * res;
+    for j in (cj - REACH).max(0)..=(cj + REACH).min(g.nv as i64 - 1) {
+        let dy = ((j as f64 - fy).max(fy - (j + 1) as f64)).max(0.0) * res;
+        for i in (ci - REACH).max(0)..=(ci + REACH).min(g.nu as i64 - 1) {
+            let h = part.top[j as usize * g.nu + i as usize];
+            if h.is_nan() {
+                continue;
+            }
+            let dx = ((i as f64 - fx).max(fx - (i + 1) as f64)).max(0.0) * res;
+            let sideways = dx.max(dy);
+            near = near.min((p.z - f64::from(h)).max(sideways));
+            if near <= part.tol {
+                return false;
+            }
+        }
+    }
+    near > part.tol
+}
+
+/// The cheaper test of "far above the part" gives the answer of the full
+/// 5 x 5 window, for random heights (some missing), tolerances up to past
+/// the reach, and points inside and outside the grid.
+#[test]
+fn far_above_equals_the_full_window() {
+    let s = sim(None);
+    let d = s.stock_initial();
+    let g = &d.grids[2];
+    let mut state = 11;
+    let mut far = 0;
+    for round in 0..60 {
+        let top: Vec<f32> = (0..g.nu * g.nv)
+            .map(|_| match lcg(&mut state) % 9 {
+                0 => f32::NAN,
+                k => 4.0 + 0.1 * (k as f32) + 0.001 * (lcg(&mut state) % 400) as f32,
+            })
+            .collect();
+        let tol = [0.02, 0.05, 0.1, 0.2, 0.249, 0.25, 0.4, 0.6][round % 8];
+        let part = PartHeights {
+            tol,
+            top,
+            clearance: None,
+            cache: Default::default(),
+        };
+        let paint = SimPaint::new(&s, d, 0);
+        for _ in 0..400 {
+            let unit = |st: &mut u64| (lcg(st) % 100_000) as f64 / 100_000.0;
+            let p = DVec3::new(
+                d.origin.x + (unit(&mut state) * 1.1 - 0.05) * g.nu as f64 * d.res,
+                d.origin.y + (unit(&mut state) * 1.1 - 0.05) * g.nv as f64 * d.res,
+                d.origin.z + unit(&mut state) * 10.0,
+            );
+            let want = far_above_all_columns(&paint, &part, p);
+            assert_eq!(paint.far_above(&part, p), want, "tol {tol} at {p:?}");
+            far += usize::from(want);
+        }
+    }
+    assert!(far > 1000 && far < 23_000, "{far} of 24000 are far");
+}
+
+/// Like [`long_sim`], against the wall part with distance queries.
+fn walled_long_sim() -> Simulation {
+    let a = raster(40, 8.5);
+    let b = path(&[xyz(-3.0, 5.0, 6.0), xyz(23.0, 5.0, 6.0)]);
+    Simulation::run(
+        block(20.0, 90.0, 10.0),
+        &[
+            program("t1", &a, Tool::flat(1.0)),
+            program("t2", &b, Tool::flat(1.0)),
+        ],
+        &Settings {
+            tol: 0.2,
+            ..settings(0.5)
+        },
+        Some(&Wall { exact: true }),
+        &Quiet,
+    )
+    .unwrap()
+}
+
+/// After random steps forward and back, the blocks that were updated
+/// incrementally (their tags, so the rest classes and toolpaths) equal a
+/// mesh painted from scratch at the same place.
+#[test]
+fn incremental_paint_equals_a_full_repaint() {
+    let s = walled_long_sim();
+    let n = s.chords.len();
+    let tp = &s.toolpaths[0];
+    let mut t = 0.5 * (tp.start + tp.end);
+    let mut p = Player::with_limits(&s, s.chords_at(t), fixed(8));
+    let mut state = 21;
+    let mut classes = [false; 4];
+    for i in 0..30 {
+        if i % 6 == 5 {
+            // A jump to anywhere.
+            let k = lcg(&mut state) % (n + 1);
+            p.seek(&s, k);
+        } else {
+            let forward = (i / 4) % 2 == 0 || lcg(&mut state).is_multiple_of(5);
+            t = s.step(t, Step::Move, forward);
+            p.seek(&s, s.chords_at(t));
+        }
+        let at = p.chords();
+        let fresh = MeshTiles::new(p.stock(), &SimPaint::new(&s, p.stock(), at));
+        assert_eq!(p.mesh().blocks().len(), fresh.blocks().len());
+        for (b, (x, y)) in p.mesh().blocks().iter().zip(fresh.blocks()).enumerate() {
+            assert!(**x == **y, "step {i}: block {b} at {at}");
+            for &tag in &x.tags {
+                classes[tag_class(tag) as usize] = true;
+            }
+        }
+    }
+    assert!(
+        classes[REST as usize] && classes[WITHIN as usize],
+        "{classes:?}"
+    );
 }

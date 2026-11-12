@@ -31,6 +31,6 @@ Release, Windows, 12 threads, `cargo run -p fluut-core --example m7 --release --
 
 ## Limits
 
-- `plate2d` still takes 13 ms for a forward move: one long move dirties about 50 blocks, and the rest class (paint) of each vertex is a distance query against the part; that cost is unchanged. A full-stock jump on `plate2d` is not faster. Next steps would be a cheaper paint query or smaller blocks (which changes the mesh layout).
+- `plate2d` still takes 13 ms for a forward move: one long move dirties about 50 blocks, and the rest class (paint) of each vertex is a distance query against the part; that cost is unchanged. A full-stock jump on `plate2d` is not faster. Next steps would be a cheaper paint query or smaller blocks (which changes the mesh layout). (Profiled later in [sim-paint-speed](2026-11-11-sim-paint-speed.md): paint is about 2 % there; the cut and the block geometry are the cost.)
 - The machine is shared; timings move by 10-20 % between runs.
 - Snapshots stay within the 64 MiB budget, so a very large stock keeps fewer of them and a step back after a long jump can still cut from a checkpoint.
