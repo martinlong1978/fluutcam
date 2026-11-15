@@ -28,8 +28,8 @@ All earlier Global Constraints apply. In addition:
 
 ## Task 0: the contract (needs the owner)
 
-- [ ] **Step 1:** Decide, with the owner, whether to comment on RFC 0001 as a second CAM receiver. Posting is public and needs the owner's go-ahead.
-- [ ] **Step 2:** If yes, draft the comment for the owner to approve. Points to raise:
+- [x] **Step 1:** Decide, with the owner, whether to comment on RFC 0001 as a second CAM receiver. Posting is public and needs the owner's go-ahead.
+- [x] **Step 2:** Posted on 2026-11-15 as [tangency-labs/solidcraft#17233](https://github.com/tangency-labs/solidcraft/issues/17233). If yes, draft the comment for the owner to approve. Points to raise:
   - **Face index.** `faces.json` gives "each face's index", but the RFC does not say what the index counts. FluutCAM proposes the order of `ADVANCED_FACE` entities in `bodies/<n>.step`, and also writing the persistent name into each `ADVANCED_FACE` name in the STEP. Then the name survives even when the face table and the STEP are read apart.
   - **A point on each face.** `model.faces` already lists one. Carrying it (and the face's area) in `faces.json` lets a receiver check the face index by geometry.
   - **Edges.** State whether edges are listed in `faces.json` or derived from face names (`<face A>|<face B>`, `~k`).
