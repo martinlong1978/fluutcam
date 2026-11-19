@@ -12,6 +12,9 @@ use crate::cutter::trim::Trim;
 use fluut_geom::{Aabb3, Affine, Curve3, Interval, Point3, Surface, Tol, Vec3};
 use fluut_topo::{BrepBody, WireBody, WireCurve};
 
+// A Setup holds a few bodies for a long time, and the B-rep is read at every
+// face query: boxing it to even the variants out gains nothing.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 pub enum BodyGeom {
     Brep(BrepBody),

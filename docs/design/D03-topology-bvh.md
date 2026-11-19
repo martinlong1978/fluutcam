@@ -235,6 +235,33 @@ On re-import, old and new faces are matched in order: exact persistent id; equal
 then best overlap (shared area by sampling) above 90 %. Unmatched selected faces are reported
 [S 03 §3.5].
 
+**Names (as built, 2026-11-19).** Face and edge ids in projects are `f-<body>.<index>` and
+`e-<body>.<index>` (D06 §1.1): they name a place in the body, not the entity. What persists
+across revisions is the entity's *name*, when the source gives one:
+
+```rust
+pub struct Names {                       // BrepBody::names; empty for a body without names
+    pub faces: Vec<Option<EntityName>>,  // indexed like BrepBody::faces
+    pub edges: Vec<Option<EntityName>>,  // indexed like BrepBody::edges
+}
+pub struct EntityName {
+    pub name: String,                    // opaque, as the source gives it
+    pub aliases: Vec<String>,            // other names it answers to (after a merge)
+    pub exact: bool,                     // false: found by geometry only
+    pub piece_of: Option<String>,        // a piece of a split face: the face it was cut from
+    pub between: Option<(String, String)>, // an edge: the names of its two faces
+    pub derived: bool,                   // named by the reader from its two faces
+}
+```
+
+The STEP reader fills the table from `ADVANCED_FACE` and `EDGE_CURVE` names (D04 §5.2), the
+craft exchange reader from its face table (D04 §12). `fluut-topo` never parses a name: the
+readers that know a naming scheme fill `piece_of` and `between`. A name on more than one face
+is dropped, as it identifies nothing; derived edge names may repeat. `edge_faces` gives the
+faces of each edge. A pick stores the name beside its id (S 02 §2.1), and re-import finds a
+named pick by its name first (D06 §5.1), so the name plays the part of the persistent id
+above. A body without names keeps exactly the ids and matching it had before.
+
 ## 7. Display tessellation
 
 Display only; never used by CAM (DC-02).

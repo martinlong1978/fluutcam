@@ -1619,6 +1619,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "fluut-io-craftx"
+version = "0.1.0"
+dependencies = [
+ "crc32fast",
+ "flate2",
+ "fluut-geom",
+ "fluut-io-step",
+ "fluut-topo",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "fluut-io-mesh"
 version = "0.1.0"
 dependencies = [

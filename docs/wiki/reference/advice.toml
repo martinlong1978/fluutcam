@@ -196,6 +196,50 @@ match = "model.import.body_ids"
 text = "Two imported files use the same body id, which FluutCAM cannot tell apart yet (see Known limits). Import one of them in a separate project."
 
 [[advice]]
+match = "import.craftx.*"
+text = "A linked model file sent from SolidCraft (.craftx) could not be read as it is. The message names the part of the file. Send the design from SolidCraft again; if that does not help, report the file."
+
+[[advice]]
+match = "import.craftx.zip.*"
+text = "The file is not a sound ZIP archive, or it breaks a safety limit (too many entries, too large when unpacked, compressed suspiciously far, or an entry name that points outside the archive). FluutCAM refuses such files. Send the design again from SolidCraft."
+
+[[advice]]
+match = "import.craftx.format"
+text = "The file is a newer version of the exchange format than this FluutCAM reads. Update FluutCAM, or ask the sender for an older version."
+
+[[advice]]
+match = "import.craftx.requires"
+text = "The file says it can only be used with a part this FluutCAM cannot read. Update FluutCAM, or export from SolidCraft with STEP bodies."
+
+[[advice]]
+match = "import.craftx.part.hash"
+text = "A part of the file does not match the checksum in its manifest, so the file was damaged or changed after SolidCraft wrote it. Send the design again."
+
+[[advice]]
+match = "import.craftx.part.unknown"
+text = "The file has a part this FluutCAM does not know. It was skipped; the rest of the file was read."
+
+[[advice]]
+match = "import.craftx.part.unlisted"
+text = "The archive holds a file its manifest does not list. It was ignored."
+
+[[advice]]
+match = "import.craftx.faces.*"
+text = "A face name could not be confirmed. The model was read; the face concerned is matched by geometry on the next update, so check toolpaths that use it."
+
+[[advice]]
+match = "import.craftx.faces.invalid"
+text = "The face table could not be read, so picks on this model cannot follow face names. The model was read without names."
+
+[[advice]]
+match = "import.craftx.params.invalid"
+text = "The design parameters could not be read. They are only shown for information; nothing else is affected."
+
+[[advice]]
+match = "import.craftx.meta.invalid"
+text = "The design metadata (material, part number) could not be read. It is only shown for information; nothing else is affected."
+
+[[advice]]
 match = "model.geometry.changed"
 text = "The model file changed on disk after you imported it. Re-import it to bring the changes in."
 

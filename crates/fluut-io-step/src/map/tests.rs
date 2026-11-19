@@ -565,3 +565,52 @@ fn face_outer_bound_is_kept() {
     let mb = map_one(&cube_step(1.0).file(MM));
     assert_eq!(mb.outer, OuterStats::default());
 }
+
+/// Gives the `ADVANCED_FACE`s of `text`, in file order, the names `names`.
+fn name_faces(text: &str, names: &[&str]) -> String {
+    let mut out = String::new();
+    let mut rest = text;
+    let mut k = 0;
+    while let Some(i) = rest.find("ADVANCED_FACE('',") {
+        out.push_str(&rest[..i]);
+        out.push_str(&format!("ADVANCED_FACE('{}',", names[k]));
+        k += 1;
+        rest = &rest[i + "ADVANCED_FACE('',".len()..];
+    }
+    out.push_str(rest);
+    out
+}
+
+#[test]
+fn face_and_edge_names_are_kept() {
+    let text = cube_step(10.0).file(MM);
+    let text = name_faces(&text, &["F1:bottom", "F1:top", "", "side", "side", "F1:x"]);
+    let text = text.replacen("EDGE_CURVE(''", "EDGE_CURVE('F1:bottom|F1:front'", 1);
+    let b = map_one(&text);
+    let n = &b.body.names;
+    let name = |f: u32| n.face(f).map(|x| x.name.as_str());
+    assert_eq!(name(0), Some("F1:bottom"));
+    assert_eq!(name(1), Some("F1:top"));
+    // Empty names stay absent; a name on two faces names neither.
+    assert_eq!(name(2), None);
+    assert_eq!((name(3), name(4)), (None, None));
+    assert_eq!(b.repeated_names, ["side"]);
+    assert_eq!(name(5), Some("F1:x"));
+    assert!(n.face(5).unwrap().exact);
+    assert_eq!(
+        n.edge(0).map(|x| x.name.as_str()),
+        Some("F1:bottom|F1:front")
+    );
+    assert!(n.edge(1).is_none());
+    // STEP ids of every face and edge, by index.
+    assert_eq!(b.face_ids.len(), 6);
+    assert_eq!(b.edge_ids.len(), b.body.edges.len());
+    assert!(b.face_ids.windows(2).all(|w| w[0] < w[1]));
+}
+
+#[test]
+fn a_file_without_names_gives_an_empty_table() {
+    let b = map_one(&cube_step(10.0).file(MM));
+    assert!(b.body.names.is_empty());
+    assert!(b.repeated_names.is_empty());
+}

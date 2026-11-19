@@ -662,7 +662,11 @@ fn literals(src: &str) -> Vec<(usize, usize, String)> {
 fn is_code(s: &str) -> bool {
     let mut parts = s.split('.');
     let first = parts.next().unwrap_or("");
-    if !["param", "cam", "setup", "model", "sim", "post"].contains(&first) {
+    // `import.craftx.*`: the exchange file reader. The post and tool
+    // importers' `import.*` codes are not diagnostics of a project.
+    if !["param", "cam", "setup", "model", "sim", "post"].contains(&first)
+        && !s.starts_with("import.craftx.")
+    {
         return false;
     }
     s.contains('.')
@@ -892,6 +896,7 @@ fn diagnostics_page(cat: &BTreeMap<String, String>, tx: &Texts) -> String {
         ("model", "Project and model files (`model`)"),
         ("sim", "Simulation (`sim`)"),
         ("post", "Posting (`post`)"),
+        ("import", "Linked model files (`import`)"),
     ];
     for (g, title) in titles {
         let Some(items) = groups.get(g) else {
