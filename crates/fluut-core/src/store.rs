@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! The model store (D06 §5): geometry sources loaded once per session, with
-//! entity ids. STEP, STL, DXF and SVG give bodies.
+//! entity ids. STEP, craft exchange (`.craftx`), STL, DXF and SVG give
+//! bodies.
 
 use fluut_cam::geometry::{BodyGeom, SetupBody};
 use fluut_io_2d::Unit;
@@ -12,10 +13,45 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 /// The bodies of one geometry source and the hash of its file.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct LoadedSource {
     pub hash: String,
     pub bodies: Vec<SetupBody>,
+    /// For a linked model (`craftx`): what the file says about the design.
+    pub link: Option<LinkInfo>,
+}
+
+/// The design behind a linked model, as its exchange file gives it
+/// (spec 02 §2.6.4), for the Model panel and the update report.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct LinkInfo {
+    pub source_id: String,
+    pub revision: String,
+    /// The app (and its version) that wrote the file.
+    pub app: Option<String>,
+    pub app_version: Option<String>,
+    /// The manifest's content hash, as given.
+    pub content_hash: Option<String>,
+    /// Display unit of the design.
+    pub units: Option<String>,
+    /// Exposed design parameters, read only.
+    pub params: Vec<fluut_io_craftx::Param>,
+    pub material: Option<String>,
+    pub part_number: Option<String>,
+}
+
+/// Id of body `k` of part `bodies/<n>.step` of the design `source_id`:
+/// `b-x<8 hex digits of the id's SHA-256>-<n>`, then `-<k>` after the
+/// first body of a part. Stable across revisions of one design, and apart
+/// from another design's.
+pub fn craftx_body_id(source_id: &str, n: u32, k: usize) -> String {
+    let h = sha256_hex(source_id.as_bytes());
+    let h = h.strip_prefix("sha256:").unwrap_or(&h);
+    let mut id = format!("b-x{}-{n}", &h[..8.min(h.len())]);
+    if k > 0 {
+        id.push_str(&format!("-{k}"));
+    }
+    id
 }
 
 #[derive(Debug, Clone, Default)]
@@ -79,8 +115,13 @@ impl ModelStore {
                 ),
             ));
         }
+        let mut link = None;
         let bodies = match g.kind {
             SourceKind::Step => load_step(g, &bytes, &mut out),
+            SourceKind::Craftx => load_craftx(g, &bytes, &mut out).map(|(b, l)| {
+                link = Some(l);
+                b
+            }),
             SourceKind::Dxf | SourceKind::Svg => load_2d(g, &bytes, &mut out),
             SourceKind::Stl => load_stl(g, &bytes, &mut out),
             SourceKind::Bitmap => {
@@ -110,7 +151,7 @@ impl ModelStore {
             }
         }
         self.sources
-            .insert(g.id.clone(), LoadedSource { hash, bodies });
+            .insert(g.id.clone(), LoadedSource { hash, bodies, link });
         out
     }
 }
@@ -137,17 +178,7 @@ fn load_step(
     for b in fluut_io_step::map_bodies(&model) {
         match b {
             Ok(b) => {
-                if !b.skipped.is_empty() {
-                    out.push(Diagnostic::warning(
-                        "model.geometry.faces_skipped",
-                        format!(
-                            "geometry `{}`: body #{} lost {} faces it could not read",
-                            g.id,
-                            b.id,
-                            b.skipped.len()
-                        ),
-                    ));
-                }
+                faces_skipped(g, &b, out);
                 bodies.push(SetupBody {
                     id: format!("b-{}", b.id),
                     geom: BodyGeom::Brep(b.body),
@@ -160,6 +191,80 @@ fn load_step(
         }
     }
     Some(bodies)
+}
+
+fn faces_skipped(g: &GeometrySource, b: &fluut_io_step::MappedBody, out: &mut Vec<Diagnostic>) {
+    if !b.skipped.is_empty() {
+        out.push(Diagnostic::warning(
+            "model.geometry.faces_skipped",
+            format!(
+                "geometry `{}`: body #{} lost {} faces it could not read",
+                g.id,
+                b.id,
+                b.skipped.len()
+            ),
+        ));
+    }
+}
+
+/// A craft exchange file (spec 02 §2.6.4): its STEP bodies with their face
+/// names, and what it says about the design. Reader findings keep their
+/// `import.craftx.*` codes.
+fn load_craftx(
+    g: &GeometrySource,
+    bytes: &[u8],
+    out: &mut Vec<Diagnostic>,
+) -> Option<(Vec<SetupBody>, LinkInfo)> {
+    let diag = |f: &fluut_io_craftx::Finding| {
+        let m = format!("geometry `{}` ({}): {}", g.id, g.path, f.message);
+        match f.severity {
+            fluut_io_craftx::Severity::Error => Diagnostic::error(f.code, m),
+            fluut_io_craftx::Severity::Warning => Diagnostic::warning(f.code, m),
+        }
+    };
+    let x = match fluut_io_craftx::read(bytes, &fluut_io_craftx::Options::default()) {
+        Ok(x) => x,
+        Err(fs) => {
+            out.extend(fs.iter().map(diag));
+            return None;
+        }
+    };
+    out.extend(x.warnings.iter().map(diag));
+    if let Some(l) = &g.link
+        && l.source_id != x.source_id
+    {
+        out.push(Diagnostic::warning(
+            "model.link.source_id",
+            format!(
+                "geometry `{}`: {} now holds design `{}`, not the linked design `{}`; its faces may not match the picks",
+                g.id, g.path, x.source_id, l.source_id
+            ),
+        ));
+    }
+    let mut bodies: Vec<SetupBody> = Vec::new();
+    let mut last = None;
+    let mut k = 0;
+    for b in x.bodies {
+        k = if last == Some(b.index) { k + 1 } else { 0 };
+        last = Some(b.index);
+        faces_skipped(g, &b.step, out);
+        bodies.push(SetupBody {
+            id: craftx_body_id(&x.source_id, b.index, k),
+            geom: BodyGeom::Brep(b.step.body),
+        });
+    }
+    let link = LinkInfo {
+        source_id: x.source_id,
+        revision: x.revision,
+        app: x.source.app,
+        app_version: x.source.version,
+        content_hash: x.content_hash,
+        units: x.units,
+        params: x.params,
+        material: x.meta.material,
+        part_number: x.meta.part_number,
+    };
+    Some((bodies, link))
 }
 
 /// Modelling tolerance of imported 2-D and mesh bodies, in mm.

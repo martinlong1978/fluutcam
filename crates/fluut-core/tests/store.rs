@@ -24,6 +24,7 @@ fn source(path: &str, kind: SourceKind, unit: Option<&str>) -> GeometrySource {
         hash: None,
         unit: unit.map(str::to_owned),
         bodies: Vec::new(),
+        link: None,
     }
 }
 

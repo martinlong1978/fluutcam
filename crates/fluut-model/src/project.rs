@@ -28,12 +28,13 @@ use std::fmt;
 use std::sync::Arc;
 
 /// File format id and version (D06 §7.2). The writer writes
-/// `fluut.project/1`, or `fluut.project/1.1` when the project lists tool
-/// libraries (D06 §7.2.1); the reader accepts minors up to
+/// `fluut.project/1`, `fluut.project/1.1` when the project lists tool
+/// libraries (D06 §7.2.1), or `fluut.project/1.2` when it has a linked
+/// model or named picks (spec 02 §2.1); the reader accepts minors up to
 /// [`PROJECT_MINOR`] and runs the migrations of older minors.
 pub const PROJECT_FORMAT: &str = "fluut.project";
 pub const PROJECT_MAJOR: u32 = 1;
-pub const PROJECT_MINOR: u32 = 1;
+pub const PROJECT_MINOR: u32 = 2;
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct Project {
@@ -165,6 +166,8 @@ pub fn length_entry(text: &str, unit: DisplayUnit) -> Option<f64> {
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum SourceKind {
     Step,
+    /// A craft exchange file: a linked model (spec 02 §2.6.4).
+    Craftx,
     Stl,
     Dxf,
     Svg,
@@ -172,8 +175,9 @@ pub enum SourceKind {
 }
 
 impl SourceKind {
-    pub const ALL: [SourceKind; 5] = [
+    pub const ALL: [SourceKind; 6] = [
         SourceKind::Step,
+        SourceKind::Craftx,
         SourceKind::Stl,
         SourceKind::Dxf,
         SourceKind::Svg,
@@ -183,6 +187,7 @@ impl SourceKind {
     pub fn as_str(self) -> &'static str {
         match self {
             SourceKind::Step => "step",
+            SourceKind::Craftx => "craftx",
             SourceKind::Stl => "stl",
             SourceKind::Dxf => "dxf",
             SourceKind::Svg => "svg",
@@ -202,6 +207,17 @@ pub struct GeometrySource {
     /// Required for stl and dxf.
     pub unit: Option<String>,
     pub bodies: Vec<BodyEntry>,
+    /// For a linked model (`craftx`): the design and revision the source
+    /// holds (spec 02 §2.6.4).
+    pub link: Option<Link>,
+}
+
+/// The link of a linked model: the design's permanent id and the revision
+/// last taken from it.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Link {
+    pub source_id: String,
+    pub revision: String,
 }
 
 #[derive(Clone, PartialEq, Debug)]

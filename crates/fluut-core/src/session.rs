@@ -6,9 +6,10 @@
 use crate::cache::DiskCache;
 use crate::frame::SetupFrame;
 use crate::graph::{Graph, NodeId};
+use crate::names::Outcome as PickOutcome;
 use crate::reimport::{ReimportReport, Unmatched, belongs, match_bodies, references};
 use crate::sim::{DropPart, SimResult, SimSettings, assembly, diagnostic, feeds, kinematics};
-use crate::store::ModelStore;
+use crate::store::{LoadedSource, ModelStore};
 use fluut_cam::geometry::SetupBody;
 use fluut_cam::stock::{LayeredStock, StockFrame, Sweep};
 use fluut_cam::{RotaryAxisInfo, RotaryInfo, StrategyInput};
@@ -17,7 +18,7 @@ use fluut_model::edit::{Edit, EditError};
 use fluut_model::journal::{Journal, file_hash, journal_path, recover};
 use fluut_model::library::{DefKind, LayerKind, Library};
 use fluut_model::machine::{BUILTIN_MACHINES, Machine};
-use fluut_model::project::{BodyEntry, Project, SetupKind, StockSpec, read};
+use fluut_model::project::{BodyEntry, Link, Project, SetupKind, StockSpec, read};
 use fluut_model::resolve::{Coolant, DrillCycle, resolve};
 use fluut_model::setup::{ResolvedSetup, resolve_all};
 use fluut_model::tools::{BUILTIN_TOOLS, ToolLibrary, ToolStore};
@@ -48,6 +49,9 @@ pub enum JobState {
     Failed,
     /// Disabled toolpath.
     Skipped,
+    /// A named pick is no longer in the model (spec 03 §3.5 item 4): the
+    /// toolpath is refused until it is picked again.
+    Broken,
 }
 
 /// The outcome of one calculation job.
@@ -141,6 +145,14 @@ pub struct Session {
     next_job: u64,
     /// The last simulation of each Setup, with the key it was made for.
     sims: BTreeMap<String, (String, Arc<SimResult>)>,
+    /// The last result of each toolpath, kept for viewing once it is stale
+    /// or broken.
+    pub(crate) last: BTreeMap<String, Arc<ToolpathResult>>,
+    /// Where each pick lost by a re-import was, by pick id.
+    pub(crate) places: BTreeMap<String, [f64; 3]>,
+    /// Model versions replaced by re-imports, `(source id, version)`, for
+    /// undo and redo.
+    pub(crate) history: Vec<(String, LoadedSource)>,
 }
 
 impl Session {
@@ -162,6 +174,9 @@ impl Session {
             cache: BTreeMap::new(),
             next_job: 1,
             sims: BTreeMap::new(),
+            last: BTreeMap::new(),
+            places: BTreeMap::new(),
+            history: Vec::new(),
         }
     }
 
@@ -274,7 +289,15 @@ impl Session {
     /// Applies an edit: one undo step, journalled when the journal is on
     /// (D01 §5: every mutation goes through here). Results whose inputs
     /// changed become stale through their hashes.
+    /// Face and edge picks on a named model get their names in the same
+    /// step (spec 02 §2.1).
     pub fn apply(&mut self, edit: Edit) -> Result<Outcome, EditError> {
+        let edit = self.with_pick_names(edit);
+        self.apply_as_is(edit)
+    }
+
+    /// [`Session::apply`] without naming picks.
+    fn apply_as_is(&mut self, edit: Edit) -> Result<Outcome, EditError> {
         self.sync_doc();
         let out = self.doc.apply(edit)?;
         self.project = self.doc.project().clone();
@@ -356,6 +379,7 @@ impl Session {
         self.sync_doc();
         let out = self.doc.undo()?;
         self.project = self.doc.project().clone();
+        self.restore_versions();
         self.sync_store();
         self.sync_tool_libraries();
         Some(out)
@@ -365,6 +389,7 @@ impl Session {
         self.sync_doc();
         let out = self.doc.redo()?;
         self.project = self.doc.project().clone();
+        self.restore_versions();
         self.sync_store();
         self.sync_tool_libraries();
         Some(out)
@@ -443,10 +468,12 @@ impl Session {
     }
 
     /// Re-reads geometry source `id` from its file and matches its
-    /// entities to the ones loaded before (spec 03 §3.5). Matched
-    /// selections are rewritten and the source's hash and body list
+    /// entities to the ones loaded before (spec 03 §3.5). Named picks are
+    /// found by name first, with an outcome each (`ReimportReport::picks`,
+    /// D06 §5.1); a missing one leaves its toolpath broken. Matched
+    /// selections are rewritten and the source's hash, link and body list
     /// updated, as one undo step. Unmatched selections are kept and
-    /// reported.
+    /// reported. This is the update of a linked model.
     pub fn reimport(&mut self, id: &str) -> Result<ReimportReport, Vec<Diagnostic>> {
         let g = self.project.source(id).cloned().ok_or_else(|| {
             vec![Diagnostic::error(
@@ -454,9 +481,9 @@ impl Session {
                 format!("geometry `{id}` is not in the project"),
             )]
         })?;
-        let old = self
-            .store
-            .source(id)
+        let old_src = self.store.source(id).cloned();
+        let old = old_src
+            .as_ref()
             .map(|s| s.bodies.clone())
             .unwrap_or_default();
         let mut fresh = ModelStore::new();
@@ -471,10 +498,19 @@ impl Session {
             return Err(diagnostics);
         };
         let matching = match_bodies(&old, &new.bodies);
+        let (picks, pick_edits, by_name) = self.named_picks(&old, &new.bodies, &matching);
         let unmatched: Vec<Unmatched> = references(&self.project)
             .into_iter()
             .filter(|r| belongs(&r.id, &old) && matching.new_id(&r.id).is_none())
+            .filter(|r| !by_name.contains(&(r.owner.clone(), r.field.clone(), r.id.clone())))
             .collect();
+        for p in &picks {
+            let tp_name = self
+                .project
+                .toolpath(&p.owner)
+                .map_or("", |(_, t)| t.name.as_str());
+            diagnostics.extend(crate::linked::pick_diagnostic(p, tp_name));
+        }
         for u in &unmatched {
             let d = Diagnostic::warning(
                 "model.reimport.unmatched",
@@ -489,6 +525,12 @@ impl Session {
         }
         let mut ng = g.clone();
         ng.hash = Some(new.hash.clone());
+        if let Some(l) = &new.link {
+            ng.link = Some(Link {
+                source_id: l.source_id.clone(),
+                revision: l.revision.clone(),
+            });
+        }
         ng.bodies = new
             .bodies
             .iter()
@@ -512,26 +554,39 @@ impl Session {
                 }
             })
             .collect();
+        let mut edits = vec![
+            Edit::set_geometry(&ng),
+            Edit::RemapIds {
+                map: matching.renames(),
+            },
+        ];
+        // After the remap: these set the final picks of their fields.
+        edits.extend(pick_edits);
         let edit = Edit::Group {
             label: format!("Re-import {}", g.path),
-            edits: vec![
-                Edit::set_geometry(&ng),
-                Edit::RemapIds {
-                    map: matching.renames(),
-                },
-            ],
+            edits,
         };
-        self.apply(edit).map_err(|e| {
+        // Picks were named above from the new model; nothing more to name.
+        self.apply_as_is(edit).map_err(|e| {
             vec![Diagnostic::error(
                 "model.reimport.apply",
                 format!("geometry `{id}`: {e}"),
             )]
         })?;
+        if let Some(o) = old_src {
+            self.keep_version(id, o);
+        }
         self.store.insert(id, new);
+        for p in picks.iter().filter(|p| p.outcome == PickOutcome::Missing) {
+            if let Some(at) = p.at {
+                self.places.insert(p.id.clone(), at);
+            }
+        }
         Ok(ReimportReport {
             source: id.to_owned(),
             matching,
             unmatched,
+            picks,
             diagnostics,
         })
     }
@@ -936,6 +991,14 @@ impl Session {
                     reports.push(report(JobState::Skipped, Vec::new(), None));
                     continue;
                 }
+                // A named pick lost by an update: refused, by name (spec 03
+                // §3.5 item 4). The last result stays for viewing.
+                let broken = self.broken_picks(&t.id);
+                if !broken.is_empty() {
+                    let d = broken.iter().map(|b| b.diagnostic(&t.name)).collect();
+                    reports.push(report(JobState::Broken, d, None));
+                    continue;
+                }
                 let hash = graph
                     .hash(&NodeId::Result(t.id.clone()))
                     .unwrap_or_default()
@@ -953,6 +1016,7 @@ impl Session {
                     );
                 }
                 if let Some(c) = self.cache.get(&hash) {
+                    self.last.insert(t.id.clone(), c.result.clone());
                     if feeds_stock
                         && let (Some(st), Some(tool), Ok(rs)) =
                             (stock.as_mut(), self.tools.get(t.tool_ref()), &rs)
@@ -980,10 +1044,12 @@ impl Session {
                         Ok(g) => {
                             self.calculated += 1;
                             let st = *g.result.stats();
+                            let result = Arc::new(g.result);
+                            self.last.insert(t.id.clone(), result.clone());
                             self.cache.insert(
                                 hash,
                                 Cached {
-                                    result: Arc::new(g.result),
+                                    result,
                                     diagnostics: g.diagnostics.clone(),
                                 },
                             );
@@ -1048,10 +1114,12 @@ impl Session {
                             let _ = d.put(&hash, &g.result, &g.diagnostics);
                         }
                         let st = *g.result.stats();
+                        let result = Arc::new(g.result);
+                        self.last.insert(t.id.clone(), result.clone());
                         self.cache.insert(
                             hash,
                             Cached {
-                                result: Arc::new(g.result),
+                                result,
                                 diagnostics: g.diagnostics.clone(),
                             },
                         );

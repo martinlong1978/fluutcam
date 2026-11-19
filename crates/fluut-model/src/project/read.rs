@@ -342,7 +342,19 @@ impl<'a> Cx<'a> {
     }
 
     pub(crate) fn source(&mut self, t: &Table) -> R<GeometrySource> {
-        self.unknown(t, &["id", "path", "kind", "hash", "unit", "body"]);
+        self.unknown(
+            t,
+            &[
+                "id",
+                "path",
+                "kind",
+                "hash",
+                "unit",
+                "body",
+                "source_id",
+                "revision",
+            ],
+        );
         let kind = self.req_str(t, "kind")?;
         let bodies = self
             .tables(t, "body")?
@@ -362,6 +374,13 @@ impl<'a> Cx<'a> {
             hash: self.opt_str(t, "hash")?,
             unit: self.opt_str(t, "unit")?,
             bodies,
+            link: match self.opt_str(t, "source_id")? {
+                None => None,
+                Some(source_id) => Some(Link {
+                    source_id,
+                    revision: self.opt_str(t, "revision")?.unwrap_or_default(),
+                }),
+            },
         })
     }
 

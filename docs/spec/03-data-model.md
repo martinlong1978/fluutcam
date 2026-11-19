@@ -205,6 +205,22 @@ STEP files change during design iteration. On re-import:
    curves (`{ edge = id }`, 02 §2.1) get persistent ids by the same scheme and are matched the
    same way.
 3. Unmatched selected faces MUST be reported to the user. They MUST NOT be silently dropped.
+4. **Named models (linked `.craftx` files, and STEP files whose faces carry names).** A pick
+   stores the face or edge name beside its id (02 §2.1). Re-import finds a named pick by its
+   name first, then by the matching above, with one of these outcomes (SolidCraft RFC 0001 §4):
+
+   | Outcome | Meaning | FluutCAM does |
+   |---|---|---|
+   | exact | a face has the name | keeps the pick on it |
+   | merged | another face answers to the name as an alias | keeps the pick on that face, notes it |
+   | split | several pieces carry the name | picks all the pieces, warns (the meaning may change) |
+   | by geometry | the name is only on a face marked `exact: false` | keeps the pick, flags "check this" |
+   | missing | no face answers to the name | the toolpath is **broken** |
+
+   An edge pick is the edge between its two named faces, so it survives a split of one of them.
+   For linked models "reported" is strengthened: a broken toolpath keeps its last result for
+   viewing, but calculation and posting MUST refuse it, naming the face, where it was and the
+   toolpath, until the face is picked again. The pick is never dropped.
 
 ## 3.6 Scriptable object model
 

@@ -196,6 +196,26 @@ match = "model.import.body_ids"
 text = "Two imported files use the same body id, which FluutCAM cannot tell apart yet (see Known limits). Import one of them in a separate project."
 
 [[advice]]
+match = "model.pick.missing"
+text = "The toolpath uses a face or edge that the new revision of the linked model no longer has, so it is broken: its last result is still shown, but it will not calculate or post. Select the face or edge again (remove the old pick first)."
+
+[[advice]]
+match = "model.pick.split"
+text = "A face the toolpath uses was cut into pieces in the new revision, and the toolpath now uses all of them. Check that this is still what you want to machine."
+
+[[advice]]
+match = "model.pick.merged"
+text = "A face the toolpath uses was merged with another in the new revision; the toolpath follows the merged face. Check the result."
+
+[[advice]]
+match = "model.pick.by_geometry"
+text = "The design tool could only find this face by its shape, not by its history. Check that the toolpath still works on the face you meant."
+
+[[advice]]
+match = "model.link.source_id"
+text = "The linked file now holds a different design than the one the project was made with. Check the file, or import the design as a new model."
+
+[[advice]]
 match = "import.craftx.*"
 text = "A linked model file sent from SolidCraft (.craftx) could not be read as it is. The message names the part of the file. Send the design from SolidCraft again; if that does not help, report the file."
 

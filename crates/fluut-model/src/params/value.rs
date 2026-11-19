@@ -3,6 +3,7 @@
 //! Parameter values as stored in the document (D15 §1.3–§1.4).
 
 use super::meta::{FieldKind, FieldMeta};
+use std::collections::BTreeMap;
 use std::fmt::Write;
 
 /// A number as written in the file. `int` remembers the TOML integer form,
@@ -222,11 +223,17 @@ impl ParamMap {
         format!("{{ {} }}", parts.join(", "))
     }
 
-    /// `key = value` lines with aligned `=`.
-    pub(crate) fn write_lines(&self, out: &mut String, indent: &str) {
+    /// `key = value` lines with aligned `=`; picks carry their names
+    /// from `names`.
+    pub(crate) fn write_lines(
+        &self,
+        out: &mut String,
+        indent: &str,
+        names: &BTreeMap<String, String>,
+    ) {
         let w = self.entries.iter().map(|(k, _)| k.len()).max().unwrap_or(0);
         for (k, v) in &self.entries {
-            let _ = writeln!(out, "{indent}{k:<w$} = {}", write_value(v));
+            let _ = writeln!(out, "{indent}{k:<w$} = {}", write_value_named(v, names));
         }
     }
 }
@@ -315,11 +322,21 @@ fn selection(v: &toml::Value) -> Result<Vec<Sel>, String> {
     items
         .iter()
         .map(|it| {
-            let t = it
-                .as_table()
-                .filter(|t| t.len() == 1)
-                .ok_or("each item must be { body | face | edge = id }")?;
-            let (k, id) = t.iter().next().ok_or("empty item")?;
+            const SHAPE: &str = "each item must be { body | face | edge = id [, name = \"…\"] }";
+            let t = it.as_table().ok_or(SHAPE)?;
+            // A face or edge may carry its name (spec 02 §2.1).
+            let name = match t.get("name") {
+                None => None,
+                Some(toml::Value::String(s)) => Some(s),
+                Some(_) => return Err("a pick's `name` is a string".into()),
+            };
+            let mut keys = t.iter().filter(|(k, _)| *k != "name");
+            let (Some((k, id)), None) = (keys.next(), keys.next()) else {
+                return Err(SHAPE.into());
+            };
+            if name.is_some() && k == "body" {
+                return Err("a body pick has no `name`".into());
+            }
             let id = id.as_str().ok_or("ids are strings")?.to_owned();
             match k.as_str() {
                 "body" => Ok(Sel::Body(id)),
@@ -335,6 +352,52 @@ fn point(v: &toml::Value) -> Result<[Num; 3], String> {
     match v.as_array().map(Vec::as_slice) {
         Some([x, y, z]) => Ok([Num::from_toml(x)?, Num::from_toml(y)?, Num::from_toml(z)?]),
         _ => Err("expected a point [x, y, z]".into()),
+    }
+}
+
+/// `(id, name)` of each face or edge pick with a name in a selection's
+/// file form.
+pub(crate) fn selection_names(v: &toml::Value) -> Vec<(String, String)> {
+    let Some(items) = v.as_array() else {
+        return Vec::new();
+    };
+    items
+        .iter()
+        .filter_map(|it| {
+            let t = it.as_table()?;
+            let name = t.get("name")?.as_str()?;
+            let id = t.get("face").or_else(|| t.get("edge"))?.as_str()?;
+            Some((id.to_owned(), name.to_owned()))
+        })
+        .collect()
+}
+
+/// A selection in file form, each pick with its name when it has one:
+/// `[{ face = "f-0.3", name = "F2:top" }, …]`.
+pub fn selection_toml(items: &[(Sel, Option<String>)]) -> String {
+    let parts: Vec<String> = items
+        .iter()
+        .map(|(s, n)| match n {
+            Some(n) if !matches!(s, Sel::Body(_)) => {
+                format!("{{ {} = {}, name = {} }}", s.key(), quote(s.id()), quote(n))
+            }
+            _ => format!("{{ {} = {} }}", s.key(), quote(s.id())),
+        })
+        .collect();
+    format!("[{}]", parts.join(", "))
+}
+
+/// [`write_value`], with the names of picks in `names` (id → name).
+pub(crate) fn write_value_named(v: &PValue, names: &BTreeMap<String, String>) -> String {
+    match v {
+        PValue::Selection(items) if !names.is_empty() => {
+            let named: Vec<(Sel, Option<String>)> = items
+                .iter()
+                .map(|s| (s.clone(), names.get(s.id()).cloned()))
+                .collect();
+            selection_toml(&named)
+        }
+        _ => write_value(v),
     }
 }
 

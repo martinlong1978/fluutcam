@@ -344,6 +344,7 @@ fn report(s: &Session, r: &JobReport) {
         JobState::Done { cached: false } => "calculated",
         JobState::Done { cached: true } => "up to date",
         JobState::Failed => "failed",
+        JobState::Broken => "broken",
         JobState::Skipped => "disabled",
     };
     let time = s

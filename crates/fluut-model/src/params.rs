@@ -16,8 +16,9 @@ mod tests;
 
 pub use meta::{Class, ConstVal, DefaultRule, FieldKind, FieldMeta, Group, ToolpathTypeId};
 pub use tables::{FEED_REFS, HEIGHT_REFS, X_REFS};
-pub use value::{HeightSpec, Num, PValue, ParamMap, Sel};
+pub use value::{HeightSpec, Num, PValue, ParamMap, Sel, selection_toml};
 
+use std::collections::BTreeMap;
 use std::fmt::Write;
 use value::Unknown;
 
@@ -26,6 +27,9 @@ use value::Unknown;
 pub struct Params {
     kind: ToolpathTypeId,
     groups: [ParamMap; 5],
+    /// Face and edge names of the picks, by entity id (spec 02 §2.1).
+    /// Only ids some selection holds are kept.
+    names: BTreeMap<String, String>,
 }
 
 impl Params {
@@ -34,6 +38,7 @@ impl Params {
         Params {
             kind,
             groups: Default::default(),
+            names: BTreeMap::new(),
         }
     }
 
@@ -109,6 +114,12 @@ impl Params {
     /// Sets (`Some`) or clears (`None`) a local value. The value must fit
     /// the field kind; ranges are checked by validation, not here.
     pub fn set(&mut self, path: &str, value: Option<PValue>) -> Result<(), String> {
+        self.set_value(path, value)?;
+        self.prune_names();
+        Ok(())
+    }
+
+    fn set_value(&mut self, path: &str, value: Option<PValue>) -> Result<(), String> {
         let meta = Params::meta(self.kind, path)
             .ok_or_else(|| format!("`{path}` is not a field of {}", self.kind))?;
         if let Some(v) = &value
@@ -155,18 +166,67 @@ impl Params {
                 )
             }
         };
-        self.set(path, v)
+        self.set_value(path, v)?;
+        // Names given with the picks replace the ones stored; picks given
+        // without a name keep theirs.
+        if meta.kind == FieldKind::Selection
+            && let Some(v) = value
+        {
+            self.names.extend(value::selection_names(v));
+        }
+        self.prune_names();
+        Ok(())
     }
 
-    /// Calls `f` on every selected entity; `f` may change its id.
+    /// Calls `f` on every selected entity; `f` may change its id. A pick's
+    /// name follows it to its new id.
     pub fn map_selections(&mut self, f: &mut dyn FnMut(&mut Sel)) {
+        let old = std::mem::take(&mut self.names);
+        let mut names = BTreeMap::new();
         for g in &mut self.groups {
             g.visit_mut(&mut |v| {
                 if let PValue::Selection(items) = v {
-                    items.iter_mut().for_each(&mut *f);
+                    for s in items.iter_mut() {
+                        let name = old.get(s.id()).cloned();
+                        f(s);
+                        if let Some(n) = name {
+                            names.insert(s.id().to_owned(), n);
+                        }
+                    }
                 }
             });
         }
+        self.names = names;
+    }
+
+    /// The name stored for the pick of entity `id`.
+    pub fn pick_name(&self, id: &str) -> Option<&str> {
+        self.names.get(id).map(String::as_str)
+    }
+
+    /// Whether any pick stores a name.
+    pub fn has_pick_names(&self) -> bool {
+        !self.names.is_empty()
+    }
+
+    /// The local value at `path` in file syntax, picks with their names,
+    /// as an edit carries it.
+    pub fn field_toml(&self, path: &str) -> Option<String> {
+        self.get(path)
+            .map(|v| value::write_value_named(v, &self.names))
+    }
+
+    /// Drops names of ids no selection holds.
+    fn prune_names(&mut self) {
+        if self.names.is_empty() {
+            return;
+        }
+        let held: std::collections::BTreeSet<String> = self
+            .selections()
+            .into_iter()
+            .map(|(_, s)| s.id().to_owned())
+            .collect();
+        self.names.retain(|id, _| held.contains(id));
     }
 
     /// Every selected entity, in field order.
@@ -207,6 +267,18 @@ impl Params {
                 warnings,
             )?;
         }
+        for (path, _) in Params::leaf_fields(kind) {
+            if Params::meta(kind, &path).is_some_and(|m| m.kind == FieldKind::Selection) {
+                let mut v = Some(&toml::Value::Table(tp.clone()));
+                for k in path.split('.') {
+                    v = v.and_then(|x| x.get(k));
+                }
+                if let Some(v) = v {
+                    p.names.extend(value::selection_names(v));
+                }
+            }
+        }
+        p.prune_names();
         Ok(p)
     }
 
@@ -218,7 +290,7 @@ impl Params {
                 continue;
             }
             let _ = writeln!(out, "\n{indent}[setup.toolpath.{}]", g.key());
-            m.write_lines(out, indent);
+            m.write_lines(out, indent, &self.names);
         }
     }
 
