@@ -40,39 +40,47 @@ All earlier Global Constraints apply. In addition:
 
 ## Task 1: fixtures and the reader's model of the format
 
-- [ ] **Step 1:** Write `craftx` fixtures by a test helper, not by hand-zipped files. The helper takes one of our STEP fixtures, a face-name table and a revision, and writes the ZIP with manifest, `bodies/0.step`, `faces.json` and `params.json`. Fixtures:
+- [x] **Step 1:** Write `craftx` fixtures by a test helper, not by hand-zipped files. The helper takes one of our STEP fixtures, a face-name table and a revision, and writes the ZIP with manifest, `bodies/0.step`, `faces.json` and `params.json`. Fixtures:
   - a block with a pocket (revision 1);
   - the same block with a hole added: names keep their faces, the face count changes and faces move in the file;
   - a fillet added on one edge: an edge pick is lost, a `blend` face appears;
   - the pocket face split in two by a rib (`#[…]` pieces);
   - two faces merged (an alias);
   - a face marked `exact: false`.
-- [ ] **Step 2:** One module (`fluut_io_craftx::format`) holds every field name and version rule of `craft-exchange/1`. The reader accepts any minor version, refuses an unknown major, warns on unknown parts, and refuses a file whose `requires` lists a part it cannot read.
+- [x] **Step 2:** One module (`fluut_io_craftx::format`) holds every field name and version rule of `craft-exchange/1`. The reader accepts any minor version, refuses an unknown major, warns on unknown parts, and refuses a file whose `requires` lists a part it cannot read.
+
+**As built (2026-11-19).** `crates/fluut-io-craftx/tests/support/craftx.rs` writes the archive (stored or deflated) and the six revisions of one block from the shared STEP writer; nothing binary is checked in. `format.rs` holds part paths, keys, the version and capability rules, the face-index reading and the name syntax (`piece_of`, `edge_faces`). The manifest shape it reads (`source.app`, `parts: [{path, sha256}]`, `requires`) is our reading of the draft, marked **Reading** in the module.
 
 ## Task 2: reader
 
-- [ ] **Step 1:** Choose the ZIP reader (`zip` without default features, or `flate2` with our own reader); run `cargo deny check`.
-- [ ] **Step 2:** Archive safety: at most 1,000 entries, 1 GiB unpacked, a compression ratio cap, entry names without `..`, absolute paths or drive letters, and each part's SHA-256 checked against the manifest. Errors and warnings are `import.craftx.*` diagnostics (`advice.toml`, so the wiki reference is generated).
-- [ ] **Step 3:** Read the manifest, the bodies (through `fluut-io-step`), the face table and the parameters. Attach names to faces by the face index of Task 0; check each face against its point (when given) within the modelling tolerance, and mark a face whose point misses as `exact: false` with a warning.
-- [ ] **Step 4:** Unit tests: each fixture; every refusal; a tampered part hash; a ZIP slip entry; an oversized entry.
+- [x] **Step 1:** Choose the ZIP reader (`zip` without default features, or `flate2` with our own reader); run `cargo deny check`.
+- [x] **Step 2:** Archive safety: at most 1,000 entries, 1 GiB unpacked, a compression ratio cap, entry names without `..`, absolute paths or drive letters, and each part's SHA-256 checked against the manifest. Errors and warnings are `import.craftx.*` diagnostics (`advice.toml`, so the wiki reference is generated).
+- [x] **Step 3:** Read the manifest, the bodies (through `fluut-io-step`), the face table and the parameters. Attach names to faces by the face index of Task 0; check each face against its point (when given) within the modelling tolerance, and mark a face whose point misses as `exact: false` with a warning.
+- [x] **Step 4:** Unit tests: each fixture; every refusal; a tampered part hash; a ZIP slip entry; an oversized entry.
+
+**As built (2026-11-19).** Own ZIP reader over `flate2` (no `zip` crate): stored and deflated entries, no ZIP64 or encryption; CRC-32 and size checked per entry; ratio cap 200:1 above 1 MiB. `cargo deny check` passes. 16 integration tests cover every fixture and refusal (format major, `requires`, tampered hash, ZIP slip, size, entry count, ratio, CRC, truncation at every 97th byte). Codes and rules are in D04 §12; the crate is layer 3 in `xtask/layers.toml` (it reads through `fluut-io-step`, so it cannot share its number) and the layers above moved up by one.
 
 ## Task 3: names in the B-rep and in STEP
 
-- [ ] **Step 1:** `fluut-io-step` keeps `ADVANCED_FACE` and `EDGE_CURVE` names (empty names stay absent). D04 updated.
-- [ ] **Step 2:** `fluut-topo` name tables for faces and edges, with aliases and the `exact` flag; `PersistId` from the name when present (D03 §6 updated). Bodies without names keep today's ids, so existing projects open unchanged (a test opens every project fixture and compares ids).
-- [ ] **Step 3:** Picks store the name beside the id in the project file: `{ face = "f-12", name = "F2:top" }`, `{ edge = "e-3", name = "F2:top|F4:side:l4" }`. Older readers ignore the extra key (check S 02's rule for unknown keys, and add it if it is missing).
+- [x] **Step 1:** `fluut-io-step` keeps `ADVANCED_FACE` and `EDGE_CURVE` names (empty names stay absent). D04 updated.
+- [x] **Step 2:** `fluut-topo` name tables for faces and edges, with aliases and the `exact` flag; `PersistId` from the name when present (D03 §6 updated). Bodies without names keep today's ids, so existing projects open unchanged (a test opens every project fixture and compares ids).
+- [x] **Step 3:** Picks store the name beside the id in the project file: `{ face = "f-12", name = "F2:top" }`, `{ edge = "e-3", name = "F2:top|F4:side:l4" }`. Older readers ignore the extra key (check S 02's rule for unknown keys, and add it if it is missing).
+
+**As built (2026-11-19).** Deviation: face and edge ids stay `f-<body>.<index>`; no name-hashed `PersistId`, since every consumer reads the index from the id. The name is the persistent key instead: picks store it (`{ face = …, name = … }`, format `fluut.project/1.2`, because pre-1.2 readers refuse the extra key), the face and edge matching of re-import pairs equal names first (`MatchedBy::Name`), and `Session::apply` names picks on named bodies in the same undo step. Names live in `Params` by id, so `RemapIds` carries them and the app's selection edits keep them. `projects_without_names_keep_their_ids` re-imports every CLI test project and checks that each selection maps to itself. Setup orientation picks (`AxisPick`) do not store names yet; they follow names through the matching only within a session.
 
 ## Task 4: re-resolution with named outcomes
 
-- [ ] **Step 1:** Extend `Session::reimport` (D06 §5.1): for named picks, the name first, then today's signature matching. Outcomes, as RFC 0001 §4 states them:
+- [x] **Step 1:** Extend `Session::reimport` (D06 §5.1): for named picks, the name first, then today's signature matching. Outcomes, as RFC 0001 §4 states them:
   - `exact`: the name is there; the pick is kept.
   - `merged`: another face answers to the name as an alias; the pick is kept and a note given.
   - `split`: several pieces carry the name; the pick becomes all the pieces, with a warning, because for a pocket floor or a contour that can change the meaning.
   - `by_geometry`: the name matched only a face marked `exact: false`; the pick is kept and the toolpath flagged "check this".
   - `missing`: the toolpath becomes `broken`.
-- [ ] **Step 2:** A `broken` toolpath keeps its last result for viewing. Calculation and posting refuse it, naming the face, its last place and the toolpath. Re-picking clears it. S 03 §3.5 is strengthened from "reported" to "reported and blocks posting" for linked models.
-- [ ] **Step 3:** Edge picks resolve as the edge between their two named faces, so an edge survives a split of one of its faces.
-- [ ] **Step 4:** Tests: one per outcome, on the Task 1 fixtures; a project round trip; undo of an update as one edit group.
+- [x] **Step 2:** A `broken` toolpath keeps its last result for viewing. Calculation and posting refuse it, naming the face, its last place and the toolpath. Re-picking clears it. S 03 §3.5 is strengthened from "reported" to "reported and blocks posting" for linked models.
+- [x] **Step 3:** Edge picks resolve as the edge between their two named faces, so an edge survives a split of one of its faces.
+- [x] **Step 4:** Tests: one per outcome, on the Task 1 fixtures; a project round trip; undo of an update as one edit group.
+
+**As built (2026-11-19).** `Session::reimport` returns `ReimportReport::picks` (`PickReport`: toolpath, field, old id, name, `names::Outcome`, new ids, last place) and `broken()`. Missing picks keep id and name; `Session::broken_picks(tp)` is derived from the loaded bodies, so a project opened on a changed file shows them before any update. Calculation gives `JobState::Broken` with `model.pick.missing` (face, place, toolpath), posting refuses through it, `Session::last_result` keeps the last result. Re-picking means removing the pick and picking again (a pick given again under the same id keeps its stored name). Undo of an update is one group, and the session keeps replaced model versions so undo and redo reload the matching bodies. Tests: `crates/fluut-core/tests/linked.rs`, one per outcome on the fixtures, plus round trip, undo, stale-open and import.
 
 ## Task 5: change detection and Update
 
@@ -92,7 +100,7 @@ Until SolidCraft ships `bridge.export`, a local script can make a `.craftx` from
 
 ## Task 8: documentation and UAT
 
-- [ ] **Step 1:** Spec and design: S 02 §2.6 (the `craftx` source and the pick `name` key), S 03 §3.5, D03 §6, D04, D06 §5.1.
+- [x] **Step 1:** Spec and design: S 02 §2.6 (the `craftx` source and the pick `name` key), S 03 §3.5, D03 §6, D04, D06 §5.1.
 - [ ] **Step 2:** Wiki: a new `Linked-Models.md` (send from SolidCraft, update, what each outcome means, how to re-pick), `Import-a-Model.md`, `Known-Limits.md`, `Troubleshooting.md`.
 - [ ] **Step 3:** UAT: cases in `UAT-Import.md` for each fixture outcome, and one end-to-end case with a real SolidCraft design once Task 7 or SolidCraft's Phase 1 exists.
 
