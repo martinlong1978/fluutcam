@@ -7,6 +7,7 @@
 //! fluut sim <project> [--tools <file>]... [--error <mm>]
 //! fluut post <project> --post <id> -o <file> [--tools <file>]... [--date <d>] [--time <t>]
 //! fluut run <script> [<project>] [--tools <file>]... [--date <d>] [--time <t>] [-- <args>...]
+//! fluut model update <project> [--model <id>] [--tools <file>]...
 //! fluut tools import <file> -o <library.toml> [--id <id>] [--name <text>] [--force]
 //! fluut posts import <file.pp> -o <post.toml> [--id <id>] [--force]
 //! fluut update-check [--channel stable|beta]
@@ -21,6 +22,11 @@
 //! modules from the project's `scripts/`. Its exit status is
 //! `fluut.exit(n)`, 0, or 1 when it fails.
 //!
+//! `model update` re-reads a linked model's file, re-finds every named pick
+//! by its name, prints one line per pick with its outcome and saves the
+//! project; exit status 0 when every pick resolved, 1 when one is missing,
+//! 2 on an error (`model_cmd`).
+//!
 //! `update-check` asks for the signed release list once, because you typed
 //! it (spec 06 §6.4). Nothing runs it automatically, and it downloads and
 //! installs nothing. Exit status: 0 when up to date or an update exists, 1
@@ -31,6 +37,7 @@
 //! Exit status: 0 on success, 1 when a diagnostic is an error, 2 on bad
 //! arguments.
 
+mod model_cmd;
 mod posts_cmd;
 mod tools_cmd;
 
@@ -47,6 +54,7 @@ const USAGE: &str = "usage:
   fluut sim <project> [--tools <file>]... [--error <mm>]
   fluut post <project> --post <id> -o <file> [--tools <file>]... [--date <yyyy-mm-dd>] [--time <hh:mm:ss>]
   fluut run <script> [<project>] [--tools <file>]... [--date <yyyy-mm-dd>] [--time <hh:mm:ss>] [-- <args>...]
+  fluut model update <project> [--model <geometry id>] [--tools <file>]...
   fluut tools import <file> -o <library.toml> [--id <library id>] [--name <text>] [--force]
   fluut posts import <file.pp> -o <post.toml> [--id <post id>] [--force]
   fluut update-check [--channel stable|beta]";
@@ -153,6 +161,16 @@ fn main() -> ExitCode {
                     "fluut: {e}
 {USAGE}"
                 );
+                ExitCode::from(2)
+            }
+        };
+    }
+    if args.peek().map(String::as_str) == Some("model") {
+        args.next();
+        return match model_cmd::parse(args) {
+            Ok(m) => model_cmd::run(&m),
+            Err(e) => {
+                eprintln!("fluut: {e}\n{USAGE}");
                 ExitCode::from(2)
             }
         };

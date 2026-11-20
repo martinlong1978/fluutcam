@@ -21,8 +21,12 @@ fluut-script.workspace = true
 winresource = "0.1"
 
 [dev-dependencies]
+crc32fast.workspace = true
+flate2.workspace = true
 fluut-geom.workspace = true
 fluut-path.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
 
 [lints]
 workspace = true

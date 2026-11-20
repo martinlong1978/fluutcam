@@ -486,3 +486,71 @@ fn setup_fixtures_are_set_and_read_from_a_script() {
     let l: Vec<String> = c.lines().into_iter().map(|(_, l)| l).collect();
     assert_eq!(l, ["1", "chuck", "rejected", "1"]);
 }
+
+#[path = "../../fluut-io-craftx/tests/support/craftx.rs"]
+mod craftx;
+#[path = "../../fluut-cam/tests/support/step.rs"]
+mod step;
+
+/// `model.reimport` of a linked model gives each named pick's outcome,
+/// the broken toolpaths and the report text (spec 03 §3.5 item 4).
+#[test]
+fn reimport_of_a_linked_model_returns_the_outcomes() {
+    let d = tmp("linked_reimport");
+    std::fs::write(d.join("model.craftx"), craftx::rev1().bytes()).unwrap();
+    let mut s =
+        fluut_core::Session::new_project(&d.join("p.fluut"), fluut_model::project::DisplayUnit::Mm)
+            .unwrap();
+    s.import_model(&d.join("model.craftx")).unwrap();
+    let b = s.project.geometry[0].bodies[0].id.clone();
+    let st = b.strip_prefix("b-").unwrap().to_owned();
+    let setup = s
+        .add_setup(fluut_model::project::SetupKind::ThreeAxis, None, "Top")
+        .unwrap();
+    let tp = s
+        .add_toolpath(&setup, fluut_model::ToolpathTypeId::Pocket2d, "Pocket")
+        .unwrap();
+    s.apply(fluut_model::edit::Edit::set_toolpath_field(
+        &tp,
+        "geometry.drive_faces",
+        Some(&format!("[{{ face = \"f-{st}.10\" }}]")),
+    ))
+    .unwrap();
+    // The floor's feature is replaced: its name is gone.
+    let mut c = craftx::rev1();
+    c.revision = 7;
+    c.faces[10].name = "F9:floor".into();
+    std::fs::write(d.join("model.craftx"), c.bytes()).unwrap();
+    let perm = fluut_script::Permissions {
+        project_dir: Some(d.clone()),
+        ..Default::default()
+    };
+    let (o, c) = on(
+        r#"
+        let r = fluut.project.model.reimport("g1");
+        let p = r.picks[0];
+        print(p.outcome); print(p.toolpath_name); print(p.name); print(p.field);
+        print(r.broken.len); print(r.revision); print(r.unchanged);
+        print(p.text.contains("is not in the model any more"));
+        print(r.text.contains("1 toolpath broken"));
+        "#,
+        s,
+        perm,
+    );
+    ok(&o, &c);
+    let l: Vec<String> = c.lines().into_iter().map(|(_, l)| l).collect();
+    assert_eq!(
+        l,
+        [
+            "missing",
+            "Pocket",
+            "F2:floor",
+            "geometry.drive_faces",
+            "1",
+            "7",
+            "false",
+            "true",
+            "true"
+        ]
+    );
+}

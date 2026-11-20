@@ -1541,6 +1541,8 @@ dependencies = [
 name = "fluut-cli"
 version = "0.1.0"
 dependencies = [
+ "crc32fast",
+ "flate2",
  "fluut-core",
  "fluut-geom",
  "fluut-model",
@@ -1548,6 +1550,8 @@ dependencies = [
  "fluut-post",
  "fluut-post-import",
  "fluut-script",
+ "serde_json",
+ "sha2",
  "winresource",
 ]
 
@@ -1711,10 +1715,14 @@ dependencies = [
 name = "fluut-script"
 version = "0.1.0"
 dependencies = [
+ "crc32fast",
+ "flate2",
  "fluut-core",
  "fluut-model",
  "libm",
  "rhai",
+ "serde_json",
+ "sha2",
  "toml",
 ]
 
