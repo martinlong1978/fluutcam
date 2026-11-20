@@ -382,3 +382,28 @@ fn a_broken_face_table_refuses_when_required_and_warns_otherwise() {
     let x = read(&with_part(&c, "meta.json", b"{"), &Options::default()).unwrap();
     assert_eq!(codes(&x), ["import.craftx.meta.invalid"]);
 }
+
+/// Writes the six test revisions as files, for the user acceptance tests
+/// (`docs/wiki/UAT-Import.md`):
+///
+/// ```text
+/// FLUUT_CRAFTX_OUT=<folder> cargo test -p fluut-io-craftx --test read write_uat_fixtures -- --ignored
+/// ```
+#[test]
+#[ignore = "writes files for the UAT; run by hand"]
+fn write_uat_fixtures() {
+    let dir = std::path::PathBuf::from(
+        std::env::var_os("FLUUT_CRAFTX_OUT").expect("set FLUUT_CRAFTX_OUT to a folder"),
+    );
+    std::fs::create_dir_all(&dir).unwrap();
+    for (name, c) in [
+        ("1-block", craftx::rev1()),
+        ("2-hole", craftx::hole()),
+        ("3-fillet", craftx::fillet()),
+        ("4-split", craftx::split()),
+        ("5-merged", craftx::merged()),
+        ("6-inexact", craftx::inexact()),
+    ] {
+        std::fs::write(dir.join(format!("{name}.craftx")), c.bytes()).unwrap();
+    }
+}

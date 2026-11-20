@@ -162,6 +162,7 @@ pub fn picked(jobs: &mut Jobs, state: &mut UiState, p: Picked) {
         (_, Some(r)) if dirty => state.pending = Some(r),
         (_, Some(r)) => run(jobs, r),
         (K::SaveAs, None) => jobs.save_as(p.path),
+        (K::Import, None) if super::linked::is_linked_file(&p.path) => jobs.read_link(p.path),
         (K::Import, None) => jobs.import_model(p.path),
         (K::PostOutput, None) => {
             let mut output = p.path;

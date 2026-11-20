@@ -13,6 +13,7 @@ mod guide;
 mod handles;
 mod icons;
 mod inspector;
+mod linked;
 mod post_import;
 mod project;
 mod ribbon;
@@ -109,6 +110,18 @@ pub struct UiState {
     pub tool_lib_note: Option<String>,
     /// The "Getting started" card.
     pub guide: GuideState,
+    /// Change detection for the linked models (spec 02 §2.6.3).
+    pub links: crate::session::watch::LinkWatch,
+    /// The report of the last update, while it shows.
+    pub update_report: Option<crate::vm::link::ReportVm>,
+    /// "Update instead?" for a `.craftx` file the project links already.
+    pub link_offer: Option<linked::Offer>,
+    /// A `.craftx` file from the command line, until it is handled.
+    pub launching: Option<PathBuf>,
+    /// The launch file was sent to be read.
+    pub launch_sent: Option<PathBuf>,
+    /// A `.craftx` file waiting for its new project.
+    pub new_for_link: Option<linked::NewForLink>,
 }
 
 impl Default for UiState {
@@ -139,6 +152,12 @@ impl Default for UiState {
             add_tool_library: false,
             tool_lib_note: None,
             guide: GuideState::default(),
+            links: Default::default(),
+            update_report: None,
+            link_offer: None,
+            launching: None,
+            launch_sent: None,
+            new_for_link: None,
         }
     }
 }
@@ -223,6 +242,14 @@ impl FluutApp {
         self
     }
 
+    /// Opens the linked model `path` (`fluutcam <file.craftx>`): in a new
+    /// project, or, when the project opened with it links the same design,
+    /// with the offer to update that model instead (spec 02 §2.6.4).
+    pub fn open_linked(mut self, path: PathBuf) -> FluutApp {
+        self.ui.launching = Some(path);
+        self
+    }
+
     /// Brings a dock tab to the front (the screenshot tool uses it).
     pub fn show_tab(&mut self, tab: Tab) {
         if let Some(found) = self.dock.find_tab(&tab) {
@@ -298,6 +325,7 @@ impl FluutApp {
         if std::mem::take(&mut self.ui.add_tool_library) {
             tool_libs::ask(&self.jobs, &mut self.dialogs);
         }
+        linked::tick(ui.ctx(), &mut self.jobs, &mut self.ui, &mut self.dialogs);
         tool_import::tick(ui.ctx(), &mut self.ui, &self.dialogs);
         post_import::tick(ui.ctx(), &mut self.ui, &self.dialogs);
         if self.bench.timing_frames() && !self.bench_ready && !self.jobs.is_busy() {
@@ -380,6 +408,8 @@ impl FluutApp {
             });
         project::units_prompt(ui.ctx(), &mut self.jobs, &mut self.ui);
         project::discard_prompt(ui.ctx(), &mut self.jobs, &mut self.ui);
+        linked::offer(ui.ctx(), &mut self.jobs, &mut self.ui, &mut self.dialogs);
+        linked::report(ui.ctx(), &mut self.ui);
         tool_import::show(ui.ctx(), &mut self.jobs, &mut self.ui);
         post_import::show(ui.ctx(), &mut self.jobs, &mut self.ui);
         guide::show(
@@ -517,6 +547,7 @@ impl FluutApp {
             if updates::notice(ui, &self.updates) {
                 self.ui.show_settings = true;
             }
+            linked::notice(ui, &mut self.jobs, &mut self.ui);
             if vm.cancellable && ui.button(tr("ribbon-cancel")).clicked() {
                 self.jobs.cancel();
             }

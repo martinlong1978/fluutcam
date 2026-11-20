@@ -14,6 +14,7 @@ use std::time::Duration;
 mod editing;
 mod fixtures;
 mod guide;
+mod linked;
 mod post_import;
 mod setup_edit;
 mod tool_import;

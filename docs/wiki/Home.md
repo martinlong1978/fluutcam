@@ -17,6 +17,7 @@ This wiki is the user guide. It is written for a hobbyist or small-shop machinis
 ## How to
 
 - [Import a model](Import-a-Model)
+- [Linked models](Linked-Models) (a `.craftx` file from SolidCraft that you can update)
 - [Add a Setup](Add-a-Setup) (3-axis, rotary, indexed, or based on another)
 - [Add a toolpath](Add-a-Toolpath)
 - [Calculate and simulate](Calculate-and-Simulate)

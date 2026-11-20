@@ -457,3 +457,124 @@ fn projects_without_names_keep_their_ids() {
     }
     assert!(seen >= 10, "{seen}");
 }
+
+#[test]
+fn the_update_report_names_each_outcome_and_toolpath_in_plain_words() {
+    let (d, b) = workspace("linked-report", &craftx::rev1());
+    let mut s = open_with_picks(&d, &b, "F2:floor", Some("F1:side:l1|F1:side:l2"));
+    let r = update(&d, &mut s, &craftx::fillet());
+    assert_eq!(
+        (r.revision_before.as_deref(), r.revision.as_deref()),
+        (Some("1"), Some("3"))
+    );
+    assert!(!r.unchanged);
+    assert_eq!(r.picks[0].owner_name, "Pocket");
+    let text = r.text();
+    for part in [
+        "g1 model.craftx: revision 1 -> 3",
+        "exact       t1 \"Pocket\" (geometry.drive_faces): the face `F2:floor` was found by its name",
+        "missing     t2 \"Edge\" (geometry.drive_curves): the edge `F1:side:l1|F1:side:l2` is not in the model any more",
+        "the toolpath is broken until you pick it again",
+        "2 picks: 1 exact, 1 missing; 1 toolpath broken",
+    ] {
+        assert!(text.contains(part), "{part}\n{text}");
+    }
+    // Updating again from the same file changes nothing and says so.
+    let r = s.reimport("g1").unwrap();
+    assert!(r.unchanged);
+    assert!(
+        r.text().contains("the file has not changed"),
+        "{}",
+        r.text()
+    );
+}
+
+#[test]
+fn the_outcome_words_cover_split_merged_and_by_geometry() {
+    let (d, b) = workspace("linked-words", &craftx::rev1());
+    let mut s = open_with_picks(&d, &b, "F2:floor", None);
+    let r = update(&d, &mut s, &craftx::split());
+    assert!(
+        r.picks[0]
+            .text()
+            .contains("is now 2 pieces; the pick uses all of them"),
+        "{}",
+        r.picks[0].text()
+    );
+    let r = update(&d, &mut s, &craftx::inexact());
+    assert!(
+        r.picks[0].text().contains("found by its shape only"),
+        "{}",
+        r.picks[0].text()
+    );
+    let (d, b) = workspace("linked-words-merged", &craftx::split());
+    let mut s = open_with_picks(&d, &b, "F2:floor#[F6:side:l4]", None);
+    let r = update(&d, &mut s, &craftx::merged());
+    assert!(
+        r.picks[0].text().contains("merged into another face"),
+        "{}",
+        r.picks[0].text()
+    );
+    assert_eq!(
+        r.counts(),
+        [(Outcome::Merged, 1)],
+        "only outcomes that occurred are counted"
+    );
+}
+
+#[test]
+fn an_update_from_another_file_relinks_the_source_in_the_same_step() {
+    let (d, b) = workspace("linked-relink", &craftx::rev1());
+    let mut s = open_with_picks(&d, &b, "F2:floor", None);
+    std::fs::create_dir_all(d.join("sent")).unwrap();
+    std::fs::write(d.join("sent/block.craftx"), craftx::hole().bytes()).unwrap();
+    let before = s.project.clone();
+    let r = s
+        .reimport_from("g1", Some(&d.join("sent/block.craftx")))
+        .unwrap();
+    assert_eq!(r.picks[0].outcome, Outcome::Exact);
+    assert_eq!(s.project.source("g1").unwrap().path, "sent/block.craftx");
+    assert_eq!(r.path, "sent/block.craftx");
+    s.undo().unwrap();
+    assert_eq!(s.project, before);
+}
+
+#[test]
+fn a_linked_file_is_referenced_where_it_is_and_never_copied() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("linked-in-place");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("design")).unwrap();
+    std::fs::create_dir_all(root.join("cam")).unwrap();
+    std::fs::write(root.join("design/block.craftx"), craftx::rev1().bytes()).unwrap();
+    let mut s = Session::new_project(
+        &root.join("cam/p.fluut"),
+        fluut_model::project::DisplayUnit::Mm,
+    )
+    .unwrap();
+    let r = s.import_model(&root.join("design/block.craftx")).unwrap();
+    assert!(!r.copied);
+    assert_eq!(s.project.geometry[0].path, "../design/block.craftx");
+    assert!(!root.join("cam/block.craftx").exists());
+    // Save as elsewhere: the link still names the design's file.
+    s.save_as(&root.join("cam/sub/q.fluut")).unwrap();
+    assert_eq!(s.project.geometry[0].path, "../../design/block.craftx");
+    assert!(!root.join("cam/sub/block.craftx").exists());
+    // Change detection sees the design's next save.
+    let mut stamps = fluut_core::watch::Stamps::new();
+    let files = s.linked_files();
+    assert!(
+        stamps
+            .check(&files, fluut_core::watch::Due::Focus)
+            .is_empty()
+    );
+    std::fs::write(root.join("design/block.craftx"), craftx::hole().bytes()).unwrap();
+    let changed = stamps.check(&files, fluut_core::watch::Due::Interval);
+    assert_eq!(changed.len(), 1);
+    assert_eq!(changed[0].source, "g1");
+    // The file tells which design it holds, and the project links it.
+    let link = fluut_core::store::read_link(&root.join("design/block.craftx")).unwrap();
+    assert_eq!(s.linked_source(&link.source_id), Some("g1"));
+    assert_eq!(s.linked_source("another"), None);
+    // The time the design was saved is known for the Model panel.
+    assert!(s.store.source("g1").unwrap().modified.is_some());
+}

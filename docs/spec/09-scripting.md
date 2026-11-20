@@ -46,7 +46,7 @@ File keys and scripting properties are one-to-one.
 |---|---|
 | `fluut` | `version`, `project` (current, in app), `open(path)`, `new_project(units)`, `log(msg)`, `args` (headless) |
 | `Project` | `model`, `setups`, `add_setup(map)`, `save`, `save_as(path)`, `calculate_all`, `post(setup_or_all, path)` |
-| `Model` | `import(path, unit?)`, `reimport(source)`, `bodies`, `body(name)` |
+| `Model` | `import(path, unit?)`, `reimport(source)` (with each named pick's outcome for a linked model, 03 §3.5), `bodies`, `body(name)` |
 | `Body`, `Face` | `name`, `faces`, `kind` (`"plane"`, `"cylinder"`, …), `params` (radius, axis, normal…), `bounds` — read-only geometry queries (03 §3.2) |
 | `Setup` | all Setup keys as properties (`kind`, `index_angle`, `stock`, `zero`, …); `based_on`; `toolpaths`; `add_toolpath(type, map)`; `apply_template(name)`; `is_inherited(key)` / `reset(key)` (03 §3.9.4) |
 | `Toolpath` | `type` (read-only), parameter groups as maps (`passes`, `heights`, `linking`, …); `calculate`; `state` (not calculated / done / stale / error); `result_summary` (time estimate, length, min/max Z) |

@@ -475,12 +475,29 @@ impl Session {
     /// updated, as one undo step. Unmatched selections are kept and
     /// reported. This is the update of a linked model.
     pub fn reimport(&mut self, id: &str) -> Result<ReimportReport, Vec<Diagnostic>> {
-        let g = self.project.source(id).cloned().ok_or_else(|| {
+        self.reimport_from(id, None)
+    }
+
+    /// As [`Session::reimport`], reading `file` instead of the source's own
+    /// file when given: the source then refers to `file` (relative to the
+    /// project folder where they share one), in the same undo step. This is
+    /// the update of a linked model from a file sent to another place.
+    pub fn reimport_from(
+        &mut self,
+        id: &str,
+        file: Option<&Path>,
+    ) -> Result<ReimportReport, Vec<Diagnostic>> {
+        let mut g = self.project.source(id).cloned().ok_or_else(|| {
             vec![Diagnostic::error(
                 "model.geometry.missing",
                 format!("geometry `{id}` is not in the project"),
             )]
         })?;
+        let before = g.link.as_ref().map(|l| l.revision.clone());
+        let old_hash = g.hash.clone();
+        if let Some(f) = file {
+            g.path = fluut_model::library::tool_ref_for(&self.dir, f);
+        }
         let old_src = self.store.source(id).cloned();
         let old = old_src
             .as_ref()
@@ -582,8 +599,18 @@ impl Session {
                 self.places.insert(p.id.clone(), at);
             }
         }
+        let after = self
+            .project
+            .source(id)
+            .and_then(|g| g.link.as_ref())
+            .map(|l| l.revision.clone());
+        let unchanged = old_hash.as_deref() == self.store.source(id).map(|s| s.hash.as_str());
         Ok(ReimportReport {
             source: id.to_owned(),
+            path: g.path.clone(),
+            revision_before: before,
+            revision: after,
+            unchanged,
             matching,
             unmatched,
             picks,

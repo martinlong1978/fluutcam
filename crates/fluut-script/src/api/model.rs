@@ -185,6 +185,53 @@ impl ModelH {
                 .into(),
         );
         m.insert("diagnostics".into(), diag_array(&r.diagnostics).into());
+        let picks: Array = r
+            .picks
+            .iter()
+            .map(|p| {
+                let mut x = Map::new();
+                x.insert("toolpath".into(), p.owner.clone().into());
+                x.insert("toolpath_name".into(), p.owner_name.clone().into());
+                x.insert("field".into(), p.field.clone().into());
+                x.insert("id".into(), p.id.clone().into());
+                x.insert("name".into(), p.name.clone().into());
+                x.insert("outcome".into(), p.outcome.as_str().into());
+                x.insert(
+                    "ids".into(),
+                    p.ids
+                        .iter()
+                        .map(|i| Dynamic::from(i.clone()))
+                        .collect::<Array>()
+                        .into(),
+                );
+                x.insert(
+                    "at".into(),
+                    p.at.map_or(Dynamic::UNIT, |a| {
+                        a.iter()
+                            .map(|v| Dynamic::from(*v as FLOAT))
+                            .collect::<Array>()
+                            .into()
+                    }),
+                );
+                x.insert("text".into(), p.text().into());
+                Dynamic::from_map(x)
+            })
+            .collect();
+        m.insert("picks".into(), picks.into());
+        m.insert(
+            "broken".into(),
+            r.broken()
+                .iter()
+                .map(|t| Dynamic::from(t.to_string()))
+                .collect::<Array>()
+                .into(),
+        );
+        m.insert(
+            "revision".into(),
+            r.revision.clone().map_or(Dynamic::UNIT, Into::into),
+        );
+        m.insert("unchanged".into(), r.unchanged.into());
+        m.insert("text".into(), r.text().into());
         Ok(m)
     }
 

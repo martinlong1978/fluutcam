@@ -7,6 +7,7 @@ fluut calc <project> [--tools <file>]...
 fluut sim <project> [--tools <file>]... [--error <mm>]
 fluut post <project> --post <id> -o <file> [--tools <file>]... [--date <yyyy-mm-dd>] [--time <hh:mm:ss>]
 fluut run <script> [<project>] [--tools <file>]... [--date <yyyy-mm-dd>] [--time <hh:mm:ss>] [-- <args>...]
+fluut model update <project> [--model <geometry id>] [--tools <file>]...
 fluut tools import <file> -o <library.toml> [--id <library id>] [--name <text>] [--force]
 fluut posts import <file.pp> -o <post.toml> [--id <post id>] [--force]
 fluut update-check [--channel stable|beta]
@@ -24,6 +25,8 @@ fluut --help
 | 1 | An error: the project would not open, a toolpath could not be calculated, the simulation found an error, the post failed |
 | 2 | The command line was wrong |
 | 3 | `update-check` only: this build has no update key |
+
+`fluut model update` has its own codes: 0 when every pick was found, 1 when a pick is missing, 2 on any error (see below).
 
 A script (`fluut run`) sets its own status with `fluut.exit(n)`.
 
@@ -81,6 +84,22 @@ fluut run job.rhai block.fluut -- out.ngc
 ```
 
 The script can read and write the project's folder and the paths you list after `--`, and can load modules from the project's `scripts/` folder. Arguments after `--` reach the script as `fluut.args`. The project can also be given as `--project <file>`. See [Scripting](Scripting).
+
+## Update a linked model
+
+`fluut model update <project>` reads every [linked model](Linked-Models) of the project again, finds every picked face and edge by its name, prints the update report and saves the project. `--model g2` updates only the model with that id (the `id` of its `[[geometry]]` in the project file). The report has a heading per model, one line per pick, and a summary:
+
+```
+g1 ../design/block.craftx: revision 1 -> 3
+  exact       t1 "Pocket" (geometry.drive_faces): the face `F2:floor` was found by its name
+  missing     t2 "Edge" (geometry.drive_curves): the edge `F1:side:l1|F1:side:l2` is not in the model any more, last at (80.0, 0.0, 10.0) mm; the toolpath is broken until you pick it again
+  2 picks: 1 exact, 1 missing; 1 toolpath broken
+saved p.fluut
+```
+
+The first word of a pick's line is its outcome: `exact`, `merged`, `split`, `by_geometry` or `missing`; [Linked models](Linked-Models#the-update-report) says what each means. When the file has not changed, the report says "the file has not changed". Other findings print on the error stream as usual.
+
+Exit status: **0** when every pick was found (also `merged`, `split` and `by_geometry`, which only ask you to check), **1** when a pick is missing and its toolpath is broken (the project is still saved, with the pick kept), **2** on an error: a wrong command line, a project or model file that cannot be read, an unknown `--model`, a project with no linked model (`model.link.none`), or a project that cannot be saved. A broken toolpath then fails `fluut calc` and `fluut post` with `model.pick.missing` until it is picked again in the window.
 
 ## `--tools <file>`
 

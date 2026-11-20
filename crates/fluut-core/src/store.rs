@@ -19,6 +19,9 @@ pub struct LoadedSource {
     pub bodies: Vec<SetupBody>,
     /// For a linked model (`craftx`): what the file says about the design.
     pub link: Option<LinkInfo>,
+    /// When the file was last written, as the file system says; the Model
+    /// panel shows it as the time the design was saved.
+    pub modified: Option<std::time::SystemTime>,
 }
 
 /// The design behind a linked model, as its exchange file gives it
@@ -104,6 +107,7 @@ impl ModelStore {
             }
         };
         let hash = sha256_hex(&bytes);
+        let modified = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
         if let Some(h) = &g.hash
             && *h != hash
         {
@@ -150,8 +154,15 @@ impl ModelStore {
                 ));
             }
         }
-        self.sources
-            .insert(g.id.clone(), LoadedSource { hash, bodies, link });
+        self.sources.insert(
+            g.id.clone(),
+            LoadedSource {
+                hash,
+                bodies,
+                link,
+                modified,
+            },
+        );
         out
     }
 }
@@ -222,7 +233,7 @@ fn load_craftx(
             fluut_io_craftx::Severity::Warning => Diagnostic::warning(f.code, m),
         }
     };
-    let x = match fluut_io_craftx::read(bytes, &fluut_io_craftx::Options::default()) {
+    let mut x = match fluut_io_craftx::read(bytes, &fluut_io_craftx::Options::default()) {
         Ok(x) => x,
         Err(fs) => {
             out.extend(fs.iter().map(diag));
@@ -244,7 +255,8 @@ fn load_craftx(
     let mut bodies: Vec<SetupBody> = Vec::new();
     let mut last = None;
     let mut k = 0;
-    for b in x.bodies {
+    let parts = std::mem::take(&mut x.bodies);
+    for b in parts {
         k = if last == Some(b.index) { k + 1 } else { 0 };
         last = Some(b.index);
         faces_skipped(g, &b.step, out);
@@ -253,7 +265,11 @@ fn load_craftx(
             geom: BodyGeom::Brep(b.step.body),
         });
     }
-    let link = LinkInfo {
+    Some((bodies, link_info(x)))
+}
+
+fn link_info(x: fluut_io_craftx::Exchange) -> LinkInfo {
+    LinkInfo {
         source_id: x.source_id,
         revision: x.revision,
         app: x.source.app,
@@ -263,8 +279,26 @@ fn load_craftx(
         params: x.params,
         material: x.meta.material,
         part_number: x.meta.part_number,
-    };
-    Some((bodies, link))
+    }
+}
+
+/// What the craft exchange file `path` says about its design, without
+/// adding it anywhere: to tell whether a project already links it.
+pub fn read_link(path: &Path) -> Result<LinkInfo, Vec<Diagnostic>> {
+    let bytes = std::fs::read(path).map_err(|e| {
+        vec![Diagnostic::error(
+            "model.import.read",
+            format!("cannot read {}: {e}", path.display()),
+        )]
+    })?;
+    fluut_io_craftx::read(&bytes, &fluut_io_craftx::Options::default())
+        .map(link_info)
+        .map_err(|fs| {
+            fs.iter()
+                .filter(|f| f.severity == fluut_io_craftx::Severity::Error)
+                .map(|f| Diagnostic::error(f.code, format!("{}: {}", path.display(), f.message)))
+                .collect()
+        })
 }
 
 /// Modelling tolerance of imported 2-D and mesh bodies, in mm.

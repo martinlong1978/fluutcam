@@ -43,7 +43,11 @@ pub struct Picked {
 }
 
 /// Model file extensions the import dialog offers.
-pub const MODEL_EXTENSIONS: [&str; 5] = ["step", "stp", "stl", "dxf", "svg"];
+pub const MODEL_EXTENSIONS: [&str; 6] = ["step", "stp", "craftx", "stl", "dxf", "svg"];
+
+/// The linked model files (SolidCraft's exchange format), a filter of its
+/// own in the import dialog.
+pub const LINKED_EXTENSIONS: [&str; 1] = ["craftx"];
 
 /// A dialog that was asked for: what tests look at when dialogs are
 /// scripted.
@@ -179,7 +183,8 @@ impl Dialogs {
                 .add_filter(tr("dialog-filter-project"), &["fluut"]),
             DialogKind::Import => d
                 .set_title(tr("dialog-import-title"))
-                .add_filter(tr("dialog-filter-model"), &MODEL_EXTENSIONS),
+                .add_filter(tr("dialog-filter-model"), &MODEL_EXTENSIONS)
+                .add_filter(tr("dialog-filter-linked"), &LINKED_EXTENSIONS),
             DialogKind::PostOutput => d.set_title(tr("dialog-post-title")),
             DialogKind::ImportToolsSource => d
                 .set_title(tr("dialog-tools-source-title"))
@@ -278,7 +283,7 @@ mod tests {
 
     #[test]
     fn model_filter_covers_the_importers() {
-        for e in ["step", "stp", "stl", "dxf", "svg"] {
+        for e in ["step", "stp", "craftx", "stl", "dxf", "svg"] {
             assert!(MODEL_EXTENSIONS.contains(&e));
         }
     }

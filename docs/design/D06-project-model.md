@@ -290,8 +290,23 @@ The update is one edit group: the source (hash, link, bodies), `RemapIds`, and o
 hash it loaded, so undo and redo bring the matching model back. A pick made in the session
 on a named body gets its name in the same undo step (`Session::apply`).
 
+**Change detection and Update (2026-11-20).** `fluut_core::watch` holds the rule of S 02 §2.6.3:
+`Schedule::tick(focused, now)` is due on gaining focus and every `INTERVAL` (2 s) with focus;
+`Stamps::check` hashes a linked file only when its size or modification time moved, or on focus.
+The app runs the check on a thread of its own (`session::watch::LinkWatch`, so hashing never waits
+behind a calculation), also at once when the list of linked files changes (a project opened, an
+update stored a new hash), and keeps "Later" per `(source, hash)`. The Update command is
+`Session::reimport_from(id, file)`: `reimport` with an optional other file, which the source then
+refers to, in the same undo group. `ReimportReport` carries the path, the revision before and
+after and `unchanged`; `PickReport` carries the toolpath name and `text()` (the outcome in plain
+words); `ReimportReport::text()` is the report `fluut model update` prints and the script's
+`model.reimport` returns, and the app shows the same words from its catalog. `store::read_link`
+reads a file's `source_id` without importing it, and `Session::linked_source` finds the source that
+links it. A `.craftx` import is referenced in place and Save As rebases it, never copies it.
+
 | Code | Sev | Rule |
 |---|---|---|
+| `model.link.none` | E | `fluut model update`: the project has no linked model and no `--model` was given |
 | `model.pick.missing` | E | a named pick no longer answers to its name: the toolpath is broken |
 | `model.pick.split` | W | the named face is now several pieces; the pick uses all of them |
 | `model.pick.merged` | W | the named face merged into another; the pick follows it |

@@ -222,6 +222,12 @@ STEP files change during design iteration. On re-import:
    viewing, but calculation and posting MUST refuse it, naming the face, where it was and the
    toolpath, until the face is picked again. The pick is never dropped.
 
+   **Update** (the window's notice and Model panel, `fluut model update`, the script's
+   `model.reimport`) gives one report: every named pick with its outcome, its toolpath's name and
+   what the outcome means in plain words. Toolpaths whose inputs changed are stale; a broken one
+   shows its own state in the browser (08 §8.6), and the inspector offers to pick it again.
+   `fluut model update` exits 0 when every pick resolved, 1 when one is missing, 2 on an error.
+
 ## 3.6 Scriptable object model
 
 Defined in [09 §9.4](09-scripting.md): `Project`, `Model`, `Body`,

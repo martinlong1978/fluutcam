@@ -26,6 +26,8 @@ impl StatusVm {
                 JobKind::Save => tr_args("job-saving", &[("file", &r.subject)]),
                 JobKind::Import => tr_args("job-importing", &[("file", &r.subject)]),
                 JobKind::Reimport => tr("job-reimporting"),
+                JobKind::Update => tr("job-updating"),
+                JobKind::ReadLink => tr_args("job-reading-link", &[("file", &r.subject)]),
                 JobKind::AddSetup => tr("job-adding-setup"),
                 JobKind::AddToolpath => tr("job-adding-toolpath"),
                 JobKind::Duplicate => tr("job-duplicating"),
@@ -103,6 +105,28 @@ impl StatusVm {
                     ),
                     false,
                 ),
+                Outcome::Updated { reports } => {
+                    let mut broken: Vec<&str> = reports.iter().flat_map(|r| r.broken()).collect();
+                    broken.sort_unstable();
+                    broken.dedup();
+                    (
+                        tr_args(
+                            "job-updated",
+                            &[
+                                ("count", &reports.len().to_string()),
+                                ("broken", &broken.len().to_string()),
+                            ],
+                        ),
+                        !broken.is_empty(),
+                    )
+                }
+                Outcome::LinkRead(l) => {
+                    let file = l
+                        .path
+                        .file_name()
+                        .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+                    (tr_args("job-reading-link", &[("file", &file)]), false)
+                }
                 Outcome::Undone { label } => (tr_args("job-undone", &[("label", label)]), false),
                 Outcome::Redone { label } => (tr_args("job-redone", &[("label", label)]), false),
                 Outcome::Calculated { count } => (

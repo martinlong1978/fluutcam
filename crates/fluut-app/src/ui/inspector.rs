@@ -239,6 +239,7 @@ fn entry(
 fn toolpath(ui: &mut egui::Ui, jobs: &mut Jobs, state: &mut UiState, t: &ToolpathVm, p: &Palette) {
     ui.heading(&t.title);
     ui.label(egui::RichText::new(&t.subtitle).color(c(p.weak_text)));
+    super::linked::broken_banner(ui, jobs, state, &t.id);
     for d in &t.general {
         diag(ui, d);
     }

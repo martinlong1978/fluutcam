@@ -1,6 +1,6 @@
 # UAT: Import
 
-Tests of importing model files, the copy rules, units and bad files. Part of the [user acceptance tests](UAT). Test files: `crates/fluut-cli/tests/projects/block/block.step`, `plate/plate.dxf`, `vcarve/vcarve.dxf`, `fuzz/seeds/stl/tetra.stl`, `fuzz/seeds/stl/open_binary.stl`, and four files you make yourself (below). Each test starts from a new project, `my-part`, in the work folder, as in [UAT-PRJ-02](UAT-Project-Files), unless it says otherwise.
+Tests of importing model files, the copy rules, units, bad files and linked models. Part of the [user acceptance tests](UAT). Test files: `crates/fluut-cli/tests/projects/block/block.step`, `plate/plate.dxf`, `vcarve/vcarve.dxf`, `fuzz/seeds/stl/tetra.stl`, `fuzz/seeds/stl/open_binary.stl`, and four files you make yourself (below). Each test starts from a new project, `my-part`, in the work folder, as in [UAT-PRJ-02](UAT-Project-Files), unless it says otherwise.
 
 **Files to make:**
 
@@ -213,4 +213,108 @@ Tests of importing model files, the copy rules, units and bad files. Part of the
   1. Click **Re-import** in the Model stage.
   2. Select the toolpath and look at its Geometry tab.
 - **Expected:** The status bar says "Re-imported 1 models, 0 selections not found". The same face is still picked, with the same id, and the toolpath shows no `param.geometry.selection.missing` message. The Browser still lists `b-1` and `b-2`.
+- [ ] Pass
+
+## Linked models
+
+Tests of [linked models](Linked-Models): `.craftx` files, change detection, Update, the report and re-picking. SolidCraft does not write `.craftx` files yet, so the test files come from the test helper. Make them once, from the source folder:
+
+```
+FLUUT_CRAFTX_OUT=<folder> cargo test -p fluut-io-craftx --test read write_uat_fixtures -- --ignored
+```
+
+This writes six revisions of one design, an 80 × 60 × 20 mm block with a 40 × 30 mm pocket (floor at Z 12): `1-block.craftx`, `2-hole.craftx` (a Ø8 hole added; every face moves in the file), `3-fillet.craftx` (the vertical edge at the front right corner, X 80 Y 0, rounded), `4-split.craftx` (a rib splits the pocket in two), `5-merged.craftx` (the rib removed again) and `6-inexact.craftx` (as revision 1, but the floor's name is marked as found by shape only).
+
+The design lives in a folder of its own, `design/`, beside the work folder. To "save a new revision" in a test, copy one of the files over `design/block.craftx`. Each test starts with `1-block.craftx` copied to `design/block.craftx` and a new project in the work folder, unless it says otherwise.
+
+### UAT-IMP-24 Import a linked model
+
+- **Preconditions:** A new project; `design/block.craftx` at revision 1.
+- **Steps:**
+  1. Click **Import model**. In the dialog, choose the filter **SolidCraft linked models** and pick `design/block.craftx`.
+  2. Look under **Model** in the Browser, and in the work folder.
+- **Expected:** The status bar says "Imported block.craftx (1 bodies)". The Browser shows **Linked model block.craftx**, **From SolidCraft 0.12.0**, **Revision 1** and **Saved** with a date and time. **Design parameters (read only)** opens to show `wall` with its value. There is an **Update** button. **No** copy of `block.craftx` is in the work folder; the project file names `../design/block.craftx`.
+- [ ] Pass
+
+### UAT-IMP-25 A changed design raises a notice and nothing else
+
+- **Preconditions:** UAT-IMP-24 done; a 3-axis Setup and a **2D pocket** toolpath with the pocket floor picked, calculated.
+- **Steps:**
+  1. Copy `2-hole.craftx` over `design/block.craftx`.
+  2. Click into the FluutCAM window and wait 2 seconds.
+  3. Click **Later**. Then copy `4-split.craftx` over `design/block.craftx` and click into the window again.
+- **Expected:** After step 2 the status bar shows **Linked model changed: block.craftx** with **Update** and **Later**, and the Model panel says "The file has changed since the project took it." The model in the viewport and the toolpath have not changed; nothing calculates. After **Later** the notice goes; after step 3 it comes back.
+- [ ] Pass
+
+### UAT-IMP-26 Update: found (exact)
+
+- **Preconditions:** UAT-IMP-24 done; a 3-axis Setup and a 2D pocket toolpath named `Pocket` with the pocket floor picked, calculated.
+- **Steps:**
+  1. Copy `2-hole.craftx` over `design/block.craftx`.
+  2. Click **Update** (in the status bar or the Model panel).
+  3. Click **Calculate all**.
+- **Expected:** The **Model updated** window shows "block.craftx: revision 1 → 2", and one line: **Found**, **Pocket**, "The face F2:floor was found by its name." The summary says "1 picks; 0 toolpaths broken". The viewport shows the block with the new hole. The toolpath was marked stale and calculates again on the floor. **Undo** brings revision 1 back.
+- [ ] Pass
+
+### UAT-IMP-27 Update: split
+
+- **Preconditions:** As UAT-IMP-26.
+- **Steps:**
+  1. Copy `4-split.craftx` over `design/block.craftx` and click **Update**.
+  2. Select the toolpath and look at its Geometry tab.
+- **Expected:** The report line is **Split**, **Pocket**, "The face F2:floor is now 2 pieces; the pick uses all of them. Check what the toolpath cuts." The toolpath now picks two faces, the floors on both sides of the rib. It is not broken.
+- [ ] Pass
+
+### UAT-IMP-28 Update: merged
+
+- **Preconditions:** A project whose design is at `4-split.craftx`, with a 2D pocket toolpath `Pocket` that picks **one** floor piece only (left of the rib).
+- **Steps:**
+  1. Copy `5-merged.craftx` over `design/block.craftx` and click **Update**.
+- **Expected:** The report line is **Merged**, **Pocket**, "The face F2:floor#[F6:side:l4] merged into another face; the pick follows it." The toolpath picks the whole floor and is not broken.
+- [ ] Pass
+
+### UAT-IMP-29 Update: check (by geometry)
+
+- **Preconditions:** As UAT-IMP-26.
+- **Steps:**
+  1. Copy `6-inexact.craftx` over `design/block.craftx` and click **Update**.
+- **Expected:** The report line is **Check**, **Pocket**, "The face F2:floor was found by its shape only. Check this toolpath." The Messages tab has the warning `model.pick.by_geometry` for the toolpath. The toolpath is not broken and calculates.
+- [ ] Pass
+
+### UAT-IMP-30 Update: missing, then pick again
+
+- **Preconditions:** UAT-IMP-24 done; a 3-axis Setup and a **2D contour** toolpath named `Edge` with the vertical edge at the block's front right corner (X 80, Y 0) picked, calculated.
+- **Steps:**
+  1. Copy `3-fillet.craftx` over `design/block.craftx` and click **Update**.
+  2. Click **Show** on the report line, then **Close**.
+  3. Click **Calculate all**, then try **Post**.
+  4. In the inspector, click **Pick again**, click an edge of the model, then **Done**.
+- **Expected:** Step 1: the report line is **Missing**, **Edge**, "The edge F1:side:l1|F1:side:l2 is not in the model any more. The toolpath is broken until you pick it again." and the summary says "1 toolpaths broken". The Browser shows the toolpath with a red broken ring (tooltip "Broken: a picked face or edge is not in the model any more"); its old path still shows. Step 2 selects it; the inspector shows the red box **This toolpath is broken**. Step 3: the toolpath is refused with `model.pick.missing`, naming the edge, where it was and the toolpath; Post fails with the same error. Step 4: the box goes, the new edge is picked, and the toolpath calculates.
+- [ ] Pass
+
+### UAT-IMP-31 A project opened on a changed design
+
+- **Preconditions:** UAT-IMP-30's project before its step 1, saved and closed.
+- **Steps:**
+  1. Copy `3-fillet.craftx` over `design/block.craftx`.
+  2. Open the project.
+- **Expected:** The toolpath `Edge` shows as broken at once, before any update, and the notice **Linked model changed** shows. Update gives the same report as UAT-IMP-30.
+- [ ] Pass
+
+### UAT-IMP-32 Open a `.craftx` file from the command line
+
+- **Steps:**
+  1. Run `fluutcam design/block.craftx` (or `fluutcam --open design/block.craftx`).
+  2. In the save dialog, keep the offered name `block.fluut` beside the file, and choose **Millimetres**.
+- **Expected:** The save dialog opens in the `design` folder with the name `block.fluut`. After the unit, the project is created and the linked model imported: the Browser shows **Linked model block.craftx**. Cancelling the dialog instead leaves the window with no project.
+- [ ] Pass
+
+### UAT-IMP-33 Opening a design the project already links
+
+- **Preconditions:** UAT-IMP-24 done and saved as `my-part.fluut`; `2-hole.craftx` copied to `sent.craftx` in the work folder.
+- **Steps:**
+  1. Click **Import model** and pick `sent.craftx`.
+  2. Click **Update from this file**.
+  3. Close FluutCAM and run `fluutcam my-part.fluut sent.craftx`.
+- **Expected:** Step 1 does not import a second model; a window says "This project already links the design in sent.craftx. Update it from this file instead?" with **Update from this file** and **Cancel**. Step 2 shows the report (revision 1 → 2); the Model panel now names `sent.craftx`. Step 3 opens the project and asks the same, now also with **Open in a new project**.
 - [ ] Pass

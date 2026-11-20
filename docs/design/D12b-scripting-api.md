@@ -166,7 +166,7 @@ Spec 09 §9.4 names the import `Model.import`; `import` is a Rhai keyword, so th
 | Member | Type | Notes |
 |---|---|---|
 | `model.import_file(path)`, `model.import_file(path, unit)` | `array` of `Body` | *R*, *E* (`AddGeometry`). Kind from the extension (`step`/`stp`, `stl`, `dxf`, `svg`). `unit` is needed for STL and DXF (spec 02 §2.1). † The project must have a folder (opened or saved): source paths are stored relative to it |
-| `model.reimport(source_id)` | `map` | *R*, *E* (`SetGeometry` and `RemapIds`). `#{ matched: n, unmatched: [ids], diagnostics: [...] }` (spec 03 §3.5) |
+| `model.reimport(source_id)` | `map` | *R*, *E* (`SetGeometry` and `RemapIds`). `#{ matched: n, unmatched: [ids], diagnostics: [...], picks: [...], broken: [toolpath ids], revision, unchanged, text }` (spec 03 §3.5). Each pick: `#{ toolpath, toolpath_name, field, id, name, outcome, ids, at, text }`, `outcome` one of `exact`, `merged`, `split`, `by_geometry`, `missing`; `text` is the update report `fluut model update` prints |
 | `model.sources` | `array` of `map` | `id`, `path`, `kind`, `unit` |
 | `model.bodies` | `array` of `Body` | every body of every source |
 | `model.body(name_or_id)` | `Body` | |

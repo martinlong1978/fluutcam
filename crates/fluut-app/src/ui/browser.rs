@@ -19,7 +19,7 @@ fn colour(st: RowStatus) -> egui::Color32 {
         RowStatus::NotCalculated | RowStatus::Disabled => brand::STOCK_GREY,
         RowStatus::Calculating(_) | RowStatus::Done => brand::GREEN,
         RowStatus::Stale | RowStatus::Warning => brand::AMBER,
-        RowStatus::Error => brand::RED,
+        RowStatus::Error | RowStatus::Broken => brand::RED,
     })
 }
 
@@ -210,6 +210,20 @@ fn status_icon(ui: &mut egui::Ui, st: RowStatus, text: &str) {
                 .collect();
             p.add(Shape::line(pts, Stroke::new(2.0, col)));
         }
+        RowStatus::Broken => {
+            // A broken ring: the pick that held the toolpath is gone.
+            let s = Stroke::new(1.5, col);
+            for (a, b) in [(0.35_f32, 2.8_f32), (3.5, 5.95)] {
+                let pts: Vec<Pos2> = (0..=8)
+                    .map(|i| {
+                        let t = a + (b - a) * i as f32 / 8.0;
+                        o + 5.0 * Vec2::new(t.cos(), t.sin())
+                    })
+                    .collect();
+                p.add(Shape::line(pts, s));
+            }
+            p.line_segment([o + Vec2::new(-2.5, -2.5), o + Vec2::new(2.5, 2.5)], s);
+        }
         RowStatus::Warning | RowStatus::Error => {
             let pts = vec![
                 o + Vec2::new(0.0, -6.0),
@@ -268,6 +282,7 @@ pub fn show(ui: &mut egui::Ui, jobs: &mut Jobs, state: &mut UiState) {
                 for b in &vm.bodies {
                     ui.label(b);
                 }
+                super::linked::model_panel(ui, jobs, state, p);
             });
         tool_libraries(ui, jobs, state, &vm.tool_libraries, p);
     });

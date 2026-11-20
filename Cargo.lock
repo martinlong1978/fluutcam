@@ -1499,9 +1499,11 @@ name = "fluut-app"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
+ "crc32fast",
  "eframe",
  "egui_dock",
  "egui_kittest",
+ "flate2",
  "fluut-cam",
  "fluut-core",
  "fluut-geom",
@@ -1517,6 +1519,8 @@ dependencies = [
  "pollster 0.4.0",
  "resvg",
  "rfd",
+ "serde_json",
+ "sha2",
  "wgpu",
  "winresource",
 ]
@@ -1541,6 +1545,8 @@ dependencies = [
 name = "fluut-cli"
 version = "0.1.0"
 dependencies = [
+ "crc32fast",
+ "flate2",
  "fluut-core",
  "fluut-geom",
  "fluut-model",
@@ -1548,6 +1554,8 @@ dependencies = [
  "fluut-post",
  "fluut-post-import",
  "fluut-script",
+ "serde_json",
+ "sha2",
  "winresource",
 ]
 
@@ -1711,10 +1719,14 @@ dependencies = [
 name = "fluut-script"
 version = "0.1.0"
 dependencies = [
+ "crc32fast",
+ "flate2",
  "fluut-core",
  "fluut-model",
  "libm",
  "rhai",
+ "serde_json",
+ "sha2",
  "toml",
 ]
 

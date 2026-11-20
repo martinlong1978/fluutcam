@@ -132,6 +132,21 @@ pub(crate) fn pick_diagnostic(p: &PickReport, tp_name: &str) -> Option<Diagnosti
 }
 
 impl Session {
+    /// The linked models' files and the hashes the project holds, for
+    /// change detection ([`crate::watch`]).
+    pub fn linked_files(&self) -> Vec<crate::watch::LinkedFile> {
+        crate::watch::linked_files(&self.project, &self.dir)
+    }
+
+    /// The geometry source that links the design `source_id`, if any.
+    pub fn linked_source(&self, source_id: &str) -> Option<&str> {
+        self.project
+            .geometry
+            .iter()
+            .find(|g| g.link.as_ref().is_some_and(|l| l.source_id == source_id))
+            .map(|g| g.id.as_str())
+    }
+
     /// The named picks of toolpath `id` that no longer answer to their
     /// names in the loaded model. Not empty: the toolpath is broken, and
     /// calculation and posting refuse it.
@@ -303,6 +318,7 @@ impl Session {
                     );
                     reports.push(PickReport {
                         owner: t.id.clone(),
+                        owner_name: t.name.clone(),
                         field: path.clone(),
                         id: id.to_owned(),
                         name,

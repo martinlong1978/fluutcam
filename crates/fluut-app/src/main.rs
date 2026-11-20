@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! `fluutcam [project.fluut]`: the FluutCAM desktop application.
+//! `fluutcam [project.fluut] [file.craftx | --open file.craftx]`: the
+//! FluutCAM desktop application. A `.craftx` file is a linked model; it
+//! opens in a new project (`fluut_app::launch`).
 //!
 //! `FLUUT_BENCH=<frames>` and `FLUUT_STARTUP=1` measure frame time and
 //! startup (see `fluut_app::bench`); `FLUUT_BENCH_SIM=1` simulates the first
@@ -9,13 +11,12 @@
 use eframe::egui;
 use fluut_app::updates::Updates;
 use fluut_app::{FluutApp, brand, text};
-use std::path::PathBuf;
 use std::time::Instant;
 
 fn main() -> eframe::Result {
     let t0 = Instant::now();
     crash_reports();
-    let open = std::env::args_os().nth(1).map(PathBuf::from);
+    let launch = fluut_app::launch::parse(std::env::args_os().skip(1));
     let mut options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title(text::tr("app-title"))
@@ -33,7 +34,15 @@ fn main() -> eframe::Result {
         Box::new(move |cc| {
             let wake = cc.egui_ctx.clone();
             let updates = Updates::load(move || wake.request_repaint());
-            let app = FluutApp::new(&cc.egui_ctx, cc.wgpu_render_state.clone(), open, t0);
+            let mut app = FluutApp::new(
+                &cc.egui_ctx,
+                cc.wgpu_render_state.clone(),
+                launch.project,
+                t0,
+            );
+            if let Some(f) = launch.linked {
+                app = app.open_linked(f);
+            }
             Ok(Box::new(app.with_updates(updates)))
         }),
     )

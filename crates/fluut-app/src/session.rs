@@ -51,6 +51,30 @@ pub enum ToolpathStatus {
     /// Cannot be calculated: a validation or calculation error.
     Error,
     Disabled,
+    /// A named pick is no longer in the model (spec 03 §3.5 item 4):
+    /// calculation and posting refuse it until it is picked again.
+    Broken,
+}
+
+/// A linked model as the Model panel shows it (spec 02 §2.6.4).
+#[derive(Clone, PartialEq, Debug)]
+pub struct LinkView {
+    /// The geometry source id.
+    pub source: String,
+    /// The file, as the project names it.
+    pub path: String,
+    pub source_id: String,
+    /// The revision the project holds.
+    pub revision: String,
+    /// The app that wrote the file, and its version.
+    pub app: Option<String>,
+    pub app_version: Option<String>,
+    /// When the file was written.
+    pub saved: Option<std::time::SystemTime>,
+    /// The design's parameters: name, value and unit, read only.
+    pub params: Vec<(String, String, Option<String>)>,
+    pub material: Option<String>,
+    pub part_number: Option<String>,
 }
 
 /// The document and its results as of one moment. Immutable; the worker
@@ -92,6 +116,13 @@ pub struct Snapshot {
     pub can_redo: bool,
     /// The label of the edit that undo would undo.
     pub undo_label: Option<String>,
+    /// The linked models, for the Model panel.
+    pub links: Vec<LinkView>,
+    /// The linked models' files and the hashes the project holds, for
+    /// change detection.
+    pub linked_files: Vec<fluut_core::watch::LinkedFile>,
+    /// Per toolpath: its named picks that are no longer in the model.
+    pub broken: BTreeMap<String, Vec<fluut_core::BrokenPick>>,
 }
 
 /// The model points of a Setup's frame the work zero snaps to, with their
@@ -373,6 +404,14 @@ impl Worker {
                 let outcome = self.reimport();
                 self.finish(&cx, outcome);
             }
+            Request::Update { cx, sources, from } => {
+                let outcome = self.update(&sources, from.as_deref());
+                self.finish(&cx, outcome);
+            }
+            Request::ReadLink(cx, path) => {
+                let outcome = self.read_link(path);
+                self.finish(&cx, outcome);
+            }
             Request::AddSetup {
                 cx,
                 kind,
@@ -615,6 +654,57 @@ impl Worker {
         st.edit_error = None;
         self.snapshot();
         Outcome::Reimported { sources, unmatched }
+    }
+
+    /// Updates linked models (spec 03 §3.5 item 4): re-reads each file and
+    /// re-finds every named pick by its name. `from` is a file to read
+    /// instead of the source's own, when one source is updated. The first
+    /// failure stops it; the sources done stay updated.
+    fn update(&mut self, sources: &[String], from: Option<&Path>) -> Outcome {
+        let Some(st) = self.state.as_mut() else {
+            return Outcome::Failed(vec![no_project()]);
+        };
+        let mut reports = Vec::new();
+        for id in sources {
+            let from = from.filter(|_| sources.len() == 1);
+            match st.session.reimport_from(id, from) {
+                Ok(r) => {
+                    // The report shows the picks; the rest goes to Messages.
+                    for d in r.other_diagnostics() {
+                        push_unique(&mut st.session.warnings, d);
+                    }
+                    reports.push(r);
+                }
+                Err(d) => {
+                    self.snapshot();
+                    return Outcome::Failed(d);
+                }
+            }
+        }
+        st.edit_error = None;
+        self.snapshot();
+        Outcome::Updated { reports }
+    }
+
+    /// Reads which design a `.craftx` file holds, and which source of the
+    /// open project links it.
+    fn read_link(&mut self, path: PathBuf) -> Outcome {
+        match fluut_core::store::read_link(&path) {
+            Ok(l) => {
+                let linked = self
+                    .state
+                    .as_ref()
+                    .and_then(|st| st.session.linked_source(&l.source_id))
+                    .map(str::to_owned);
+                Outcome::LinkRead(crate::jobs::LinkRead {
+                    path,
+                    source_id: l.source_id,
+                    revision: l.revision,
+                    linked,
+                })
+            }
+            Err(d) => Outcome::Failed(d),
+        }
     }
 
     /// Runs a session change and sends a snapshot; a refusal is a failed
@@ -921,6 +1011,7 @@ impl State {
         let mut diagnostics = BTreeMap::new();
         let mut stats = BTreeMap::new();
         let mut paths = BTreeMap::new();
+        let mut broken = BTreeMap::new();
         for s in &project.setups {
             for t in &s.toolpaths {
                 let tool = self.session.tools.get(&t.tool);
@@ -943,11 +1034,17 @@ impl State {
                         push_unique(&mut diags, d.clone());
                     }
                 }
+                let broken_picks = self.session.broken_picks(&t.id);
+                for b in &broken_picks {
+                    push_unique(&mut diags, b.diagnostic(&t.name));
+                }
                 let result = self.session.result(&t.id);
                 let has_error = diags.iter().any(|d| d.severity == Severity::Error)
                     || report.is_some_and(|r| r.state == JobState::Failed);
                 let st = if !t.is_enabled() {
                     ToolpathStatus::Disabled
+                } else if !broken_picks.is_empty() {
+                    ToolpathStatus::Broken
                 } else if let Some(res) = &result {
                     stats.insert(t.id.clone(), *res.stats());
                     let lines = match self.lines.get(&t.id) {
@@ -973,6 +1070,9 @@ impl State {
                 };
                 status.insert(t.id.clone(), st);
                 diagnostics.insert(t.id.clone(), diags);
+                if !broken_picks.is_empty() {
+                    broken.insert(t.id.clone(), broken_picks);
+                }
             }
         }
         let mut times = BTreeMap::new();
@@ -1020,7 +1120,41 @@ impl State {
             can_undo: self.session.can_undo(),
             can_redo: self.session.can_redo(),
             undo_label: self.session.undo_label(),
+            links: self.links(),
+            linked_files: self.session.linked_files(),
+            broken,
         }
+    }
+
+    /// The linked models of the project, with what their files say.
+    fn links(&self) -> Vec<LinkView> {
+        self.session
+            .project
+            .geometry
+            .iter()
+            .filter_map(|g| {
+                let link = g.link.as_ref()?;
+                let loaded = self.session.store.source(&g.id);
+                let info = loaded.and_then(|s| s.link.as_ref());
+                Some(LinkView {
+                    source: g.id.clone(),
+                    path: g.path.clone(),
+                    source_id: link.source_id.clone(),
+                    revision: link.revision.clone(),
+                    app: info.and_then(|i| i.app.clone()),
+                    app_version: info.and_then(|i| i.app_version.clone()),
+                    saved: loaded.and_then(|s| s.modified),
+                    params: info.map_or_else(Vec::new, |i| {
+                        i.params
+                            .iter()
+                            .map(|p| (p.name.clone(), p.value.clone(), p.unit.clone()))
+                            .collect()
+                    }),
+                    material: info.and_then(|i| i.material.clone()),
+                    part_number: info.and_then(|i| i.part_number.clone()),
+                })
+            })
+            .collect()
     }
 }
 
@@ -1046,6 +1180,8 @@ pub fn now_utc() -> (String, String) {
         format!("{:02}:{:02}:{:02}", rem / 3600, rem / 60 % 60, rem % 60),
     )
 }
+
+pub mod watch;
 
 #[cfg(test)]
 pub(crate) mod tests;

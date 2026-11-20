@@ -214,7 +214,8 @@ impl Session {
     /// folder, the geometry files and the project-layer definition folders
     /// are copied there first, so paths stay as they are; a geometry path
     /// that leaves the project folder is changed to a copy beside the new
-    /// file (which restarts the undo history). The undo history is kept
+    /// file (which restarts the undo history). A linked model is not
+    /// copied: its path is rewritten to name the same file. The undo history is kept
     /// otherwise.
     pub fn save_as(&mut self, path: &Path) -> Result<(), Diagnostic> {
         let mut path = path.to_path_buf();
@@ -260,6 +261,13 @@ impl Session {
             let g = &self.project.geometry[i];
             let rel = PathBuf::from(&g.path);
             let from = self.dir.join(&rel);
+            if g.kind == SourceKind::Craftx {
+                // A linked model stays where its design writes it: the new
+                // project refers to the same file.
+                let to = tool_ref_for(new_dir, &from);
+                self.project.geometry[i].path = to;
+                continue;
+            }
             let escapes =
                 rel.is_absolute() || rel.components().any(|c| matches!(c, Component::ParentDir));
             let dest_rel = if escapes {
@@ -296,11 +304,12 @@ impl Session {
         self.import_model_unit(file, None)
     }
 
-    /// Adds the geometry file `file` (STEP, STL, DXF or SVG by extension)
-    /// as a new source, one undo step. The file is read first; nothing
-    /// changes unless it gives bodies. A file inside the project folder is
-    /// referenced where it is, any other is copied into the folder (plan
-    /// decision 1). `unit` (`mm`, `in`, …) is the unit of an STL or DXF
+    /// Adds the geometry file `file` (STEP, craft exchange, STL, DXF or SVG
+    /// by extension) as a new source, one undo step. The file is read
+    /// first; nothing changes unless it gives bodies. A file inside the
+    /// project folder is referenced where it is, any other is copied into
+    /// the folder (plan decision 1), except a linked model (`.craftx`),
+    /// which is always referenced where it is. `unit` (`mm`, `in`, …) is the unit of an STL or DXF
     /// file; `None` assumes the project's.
     pub fn import_model_unit(
         &mut self,
@@ -409,9 +418,12 @@ impl Session {
             }
         }
         // Place the file: referenced inside the project folder, else copied.
+        // A linked model is always referenced where it is, so its design's
+        // next save is seen (spec 02 §2.6.4).
         let dir_real = real(&self.dir);
         let (rel, copied) = match real(&file).strip_prefix(&dir_real) {
             Ok(r) => (slashed(r), false),
+            Err(_) if kind == SourceKind::Craftx => (tool_ref_for(&self.dir, &file), false),
             Err(_) => {
                 let (name, existed) = copy_name(&self.dir, &file, &bytes);
                 if !existed {

@@ -355,6 +355,12 @@ the user and MUST NOT assume.
 On project load, each geometry file is hashed and compared with its stored `hash`. If it
 differs, the user is offered a re-import, which follows the identity rules in 03 §3.5.
 
+Linked models (§2.6.4) are also checked while the window is open: when the window gains focus,
+and every 2 s while it has focus, each linked file's hash is compared with the project's. A file
+is hashed again only when its size or modification time moved (or on gaining focus). A change
+raises a non-blocking notice, "Linked model changed: Update"; nothing is re-read or recalculated
+until the user chooses Update (03 §3.5 item 4). No file-system watcher is used.
+
 ### 2.6.4 Craft exchange files (linked models)
 
 A `.craftx` file is SolidCraft's exchange format `craft-exchange/1` ([SolidCraft RFC 0001](https://github.com/tangency-labs/solidcraft/blob/main/docs/rfcs/0001-craft-bridge.md),
@@ -375,6 +381,14 @@ face names; FluutCAM holds a read-only copy and picks by name.
   itself wins over the table, and a table point that is not on its face marks the name as
   found by geometry (`exact: false`).
 - Geometry is in mm in the design's world frame; the manifest's unit is the display unit only.
+- A linked file is never copied into the project folder (unlike other geometry files): the
+  source's `path` names the file where the design writes it, relative to the project file when
+  they share a folder, else absolute. Save As rewrites the path to name the same file.
+- `fluutcam <file.craftx>` and `fluutcam --open <file.craftx>` open the file in a new project
+  (the save dialog offers `<stem>.fluut` beside it). When the open project already links the
+  file's `source_id`, opening it (from the command line or Import model) offers to update that
+  source from the file instead, which then refers to that file. A running window does not take a
+  file over yet; each launch is a window of its own.
 
 Design: D04 §12 (reader), D06 §5.1 (re-import by name).
 
