@@ -117,7 +117,14 @@ The inspector shows the selected item's parameters, never a modal dialog.
 | Calculating | progress ring with % | pass preview grows as passes complete |
 | Done | filled circle (toolpath colour) | toolpath shown |
 | Stale (inputs changed) | amber dot | toolpath dimmed |
+| Broken (a named pick of a linked model is missing, 03 §3.5) | red broken ring | last result shown; the inspector names the missing face and offers **Pick again** |
 | Error / warning | red / amber triangle | marker at the problem location (e.g. unreachable region, non-converged sample, 04 §4.2.4) |
+
+A linked model (02 §2.6.4) shows its link under **Model** in the browser: source app and version,
+revision, the time the file was saved, the design's parameters (read only) and **Update**. A change
+of a linked file shows as a notice in the status bar ("Linked model changed: <file>", **Update**,
+**Later**); Update shows one report window with every pick's outcome. Opening a `.craftx` file
+uses the Import model dialog (a filter of its own), never a path box.
 
 Each calculation can be cancelled from its icon. Notifications for finished long jobs appear as
 toasts and in a notification list. No modal progress dialogs.

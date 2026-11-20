@@ -84,15 +84,19 @@ All earlier Global Constraints apply. In addition:
 
 ## Task 5: change detection and Update
 
-- [ ] **Step 1:** `fluut-core` checks a linked file's hash when the window gains focus and every 2 seconds while it has focus (no file-watcher crate). A new hash raises "Linked model changed: Update". Nothing recalculates on its own.
-- [ ] **Step 2:** Update re-reads the file, re-resolves the picks (Task 4), marks affected toolpaths stale and shows the outcomes in one report.
-- [ ] **Step 3:** `fluut model update <project> [--model <id>]` prints the same report; exit 0 when every pick resolved, 1 when any is broken, 2 on error. The script function `model.reimport` returns the same outcomes.
-- [ ] **Step 4:** The Model panel shows the link: source app, revision, saved time, `params.json` values (read only), and Update. Known-Limits' "re-import is a script function" is removed once the window command exists.
+- [x] **Step 1:** `fluut-core` checks a linked file's hash when the window gains focus and every 2 seconds while it has focus (no file-watcher crate). A new hash raises "Linked model changed: Update". Nothing recalculates on its own.
+- [x] **Step 2:** Update re-reads the file, re-resolves the picks (Task 4), marks affected toolpaths stale and shows the outcomes in one report.
+- [x] **Step 3:** `fluut model update <project> [--model <id>]` prints the same report; exit 0 when every pick resolved, 1 when any is broken, 2 on error. The script function `model.reimport` returns the same outcomes.
+- [x] **Step 4:** The Model panel shows the link: source app, revision, saved time, `params.json` values (read only), and Update. Known-Limits' "re-import is a script function" is removed once the window command exists.
+
+**As built (2026-11-20).** `fluut_core::watch`: `Schedule` (due on gaining focus, then every 2 s with focus) and `Stamps` (a file is hashed again only when its size or time moved, or on focus); `Session::linked_files`. The app runs the check on its own thread (`session::watch::LinkWatch`), also at once when the linked file list changes, and shows "Linked model changed: <file>" with **Update** and **Later** in the status bar. Update is `Session::reimport_from(id, file)` (an optional other file, which the source then refers to, in the same undo group); results go stale through the graph hash, nothing recalculates. `ReimportReport` gained `path`, `revision_before`, `revision`, `unchanged`, `counts`, `text` and `other_diagnostics`; `PickReport` gained `owner_name`, `text` and `line`. The window's report (`vm::link::ReportVm`) has one row per pick (Found, Merged, Split, Check, Missing; toolpath name; plain words from the catalog) and **Show** to select the toolpath. `fluut model update <project> [--model <id>] [--tools <file>]` prints `ReimportReport::text`, saves, and exits 0/1/2 (`model.link.none` without a linked model); `model.reimport` returns `picks`, `broken`, `revision`, `unchanged` and `text`. The Model panel shows source app and version, revision, saved time (the file's modification time, UTC; the draft manifest has no time), the parameters read only and **Update**. A broken toolpath has its own status (`ToolpathStatus::Broken`, a red broken ring), its `model.pick.missing` error before any calculation, and an inspector box with **Pick again** (removes the lost pick and starts picking that field). Deviation: a `.craftx` import is referenced where it is and Save As rebases its path, never copies it (the copy rule of plan 2026-11-04 decision 1 would hide every later save of the design). The ribbon's **Re-import** is unchanged and shows no report; Update lives in the notice and the Model panel.
 
 ## Task 6: launching from SolidCraft
 
-- [ ] **Step 1:** `fluutcam <file.craftx>` and `fluutcam --open <file.craftx>` open the file in a new project, or offer to update the matching linked model when a project already links that `source_id`.
+- [x] **Step 1:** `fluutcam <file.craftx>` and `fluutcam --open <file.craftx>` open the file in a new project, or offer to update the matching linked model when a project already links that `source_id`.
 - [ ] **Step 2:** A running window takes the file over instead of starting a second one. This is deferred if it needs more than a lock file and a loopback hand-off already in the tree.
+
+**As built (2026-11-20).** `fluut_app::launch::parse` reads `fluutcam [project.fluut] [file.craftx | --open file.craftx]`. The window reads the file's design (`store::read_link`); with no matching source it asks, with the native New project dialog, for a project beside the file (`<stem>.fluut`), then the unit, then imports the file. When the project opened with it (or the open project, for Import model, which has a SolidCraft filter) already links the `source_id`, it offers **Update from this file** (and, from the command line, **Open in a new project**). **Step 2 deferred:** the tree has no project lock file (D06 §7.4 is not built) and no loopback hand-off, so each launch is its own window; Known-Limits says so.
 
 ## Task 7: optional interim exporter (local only, needs the owner)
 
@@ -101,8 +105,10 @@ Until SolidCraft ships `bridge.export`, a local script can make a `.craftx` from
 ## Task 8: documentation and UAT
 
 - [x] **Step 1:** Spec and design: S 02 §2.6 (the `craftx` source and the pick `name` key), S 03 §3.5, D03 §6, D04, D06 §5.1.
-- [ ] **Step 2:** Wiki: a new `Linked-Models.md` (send from SolidCraft, update, what each outcome means, how to re-pick), `Import-a-Model.md`, `Known-Limits.md`, `Troubleshooting.md`.
+- [x] **Step 2:** Wiki: a new `Linked-Models.md` (send from SolidCraft, update, what each outcome means, how to re-pick), `Import-a-Model.md`, `Known-Limits.md`, `Troubleshooting.md`.
 - [ ] **Step 3:** UAT: cases in `UAT-Import.md` for each fixture outcome, and one end-to-end case with a real SolidCraft design once Task 7 or SolidCraft's Phase 1 exists.
+
+**As built (2026-11-20).** Spec and design: S 02 §2.6.3 (polling while focused) and §2.6.4 (linked files referenced in place; launching), S 03 §3.5 (Update and its report), S 08 §8.6 (broken state, the link and the notice), S 09, D06 §5.1 (change detection and Update), D12b (`model.reimport`'s return). Wiki: `Linked-Models.md` (in the sidebar and Home), `Import-a-Model.md`, `Troubleshooting.md`, `Known-Limits.md` (the script-only line removed; a running window does not take a file over), `Command-Line.md`, `Scripting.md`. UAT: UAT-IMP-24 to 33 (import, notice, each outcome, missing and Pick again, a project opened on a changed design, the command line, a design already linked) on files the ignored test `write_uat_fixtures` writes (`FLUUT_CRAFTX_OUT=<folder> cargo test -p fluut-io-craftx --test read write_uat_fixtures -- --ignored`), and UAT-CLI-21 to 22 for `fluut model update`. Step 3 stays open for the end-to-end case with a real SolidCraft design.
 
 ## Open questions
 
