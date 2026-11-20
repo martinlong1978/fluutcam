@@ -8,6 +8,7 @@
 
 **How to**
 - [Import a model](Import-a-Model)
+- [Linked models](Linked-Models)
 - [Add a Setup](Add-a-Setup)
 - [Add a toolpath](Add-a-Toolpath)
 - [Calculate and simulate](Calculate-and-Simulate)

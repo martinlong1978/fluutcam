@@ -116,7 +116,7 @@ The five groups `tool_params`, `geometry`, `heights`, `passes`, `linking` are ob
 
 ### Model, bodies and faces
 
-`project.model` has `import_file(path)` (and `import_file(path, unit)`; STL and DXF need the unit), `reimport(source_id)`, `sources`, `bodies` and `body(name)`. A body has `id`, `name`, `kind` (`"solid"` or `"wire"`), `faces`, `bounds`. A face has `id`, `kind` (`"plane"`, `"cylinder"`, `"cone"`, `"sphere"`, ...), `params` (for a plane: `normal`, `origin`; for a cylinder: `axis`, `radius`, `diameter`, `inside`, ...) and `bounds`. These are for looking at the model, for example to pick all the holes of one diameter; they never change it.
+`project.model` has `import_file(path)` (and `import_file(path, unit)`; STL and DXF need the unit), `reimport(source_id)`, `sources`, `bodies` and `body(name)`. `reimport` returns a map with `matched`, `unmatched`, `diagnostics` and, for a [linked model](Linked-Models), `picks` (one map per named pick: `toolpath`, `toolpath_name`, `field`, `name`, `outcome` (`exact`, `merged`, `split`, `by_geometry` or `missing`), `ids`, `at` and `text`), `broken` (the broken toolpath ids), `revision`, `unchanged` and `text`, the report `fluut model update` prints. A body has `id`, `name`, `kind` (`"solid"` or `"wire"`), `faces`, `bounds`. A face has `id`, `kind` (`"plane"`, `"cylinder"`, `"cone"`, `"sphere"`, ...), `params` (for a plane: `normal`, `origin`; for a cylinder: `axis`, `radius`, `diameter`, `inside`, ...) and `bounds`. These are for looking at the model, for example to pick all the holes of one diameter; they never change it.
 
 ### Library
 

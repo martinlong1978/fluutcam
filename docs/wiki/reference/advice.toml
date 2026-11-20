@@ -197,7 +197,7 @@ text = "Two imported files use the same body id, which FluutCAM cannot tell apar
 
 [[advice]]
 match = "model.pick.missing"
-text = "The toolpath uses a face or edge that the new revision of the linked model no longer has, so it is broken: its last result is still shown, but it will not calculate or post. Select the face or edge again (remove the old pick first)."
+text = "The toolpath uses a face or edge that the new revision of the linked model no longer has, so it is broken: its last result is still shown, but it will not calculate or post. Select the toolpath and click Pick again in the inspector, then click the face or edge it should use now (see Linked models)."
 
 [[advice]]
 match = "model.pick.split"
@@ -214,6 +214,10 @@ text = "The design tool could only find this face by its shape, not by its histo
 [[advice]]
 match = "model.link.source_id"
 text = "The linked file now holds a different design than the one the project was made with. Check the file, or import the design as a new model."
+
+[[advice]]
+match = "model.link.none"
+text = "`fluut model update` found no linked model in the project. Give the model to update with `--model <id>`, or import the design as a `.craftx` file first."
 
 [[advice]]
 match = "import.craftx.*"

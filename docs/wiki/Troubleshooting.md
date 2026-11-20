@@ -26,6 +26,20 @@ Find your problem in the list. [Diagnostics](Diagnostics) has the full list of m
 
 **The model is tiny or huge.** A DXF, SVG or STL file has no unit, so FluutCAM assumed the project's unit. Undo the import, start a project in the other unit, and import again.
 
+## Linked models
+
+**"Linked model changed" does not show after I saved the design.** FluutCAM checks when its window gains focus and every 2 seconds while it has focus. Click into the window. The project must refer to the file SolidCraft wrote: the Model panel names it. A file that was copied by hand into another folder is not the linked file.
+
+**A toolpath has a red broken ring.** It is broken: a face or edge it uses is not in the new revision of the design (`model.pick.missing`). Select it and click **Pick again** in the inspector, then click the face or edge it should use now. See [Linked models](Linked-Models#a-broken-toolpath-and-how-to-re-pick).
+
+**The update report says Split or Check.** The pick was kept, but the toolpath may cut something else than before: all the pieces of a split face, or a face found by its shape only. Look at the toolpath and fix the pick if needed.
+
+**"This project already links the design".** The file you opened holds the same design as a model in the project. Choose **Update from this file** to update that model from it. Importing the same design twice in one project is not supported.
+
+**`model.link.source_id` when opening the project.** The linked file now holds another design. Put the right file back, or import the new design in its own project.
+
+**An `import.craftx...` error.** The `.craftx` file is damaged or not in a form FluutCAM can read. Send the design from SolidCraft again.
+
 ## Toolpaths
 
 **A toolpath shows a red triangle.** Select it and read the message under the setting it names, or in the Messages tab. The most common ones:

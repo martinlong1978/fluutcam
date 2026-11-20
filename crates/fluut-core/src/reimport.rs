@@ -558,6 +558,16 @@ impl ReimportReport {
         v
     }
 
+    /// The findings the report's own lines do not say: not about a named
+    /// pick and not an unmatched selection.
+    pub fn other_diagnostics(&self) -> Vec<fluut_model::Diagnostic> {
+        self.diagnostics
+            .iter()
+            .filter(|d| d.code.split('.').nth(1) != Some("pick") && !d.code.ends_with(".unmatched"))
+            .cloned()
+            .collect()
+    }
+
     /// How many picks had each outcome, in outcome order, leaving out the
     /// outcomes no pick had.
     pub fn counts(&self) -> Vec<(crate::names::Outcome, usize)> {

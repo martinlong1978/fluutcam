@@ -670,10 +670,8 @@ impl Worker {
             match st.session.reimport_from(id, from) {
                 Ok(r) => {
                     // The report shows the picks; the rest goes to Messages.
-                    for d in r.diagnostics.iter().filter(|d| {
-                        !d.code.starts_with("model.pick.") && d.code != "model.reimport.unmatched"
-                    }) {
-                        push_unique(&mut st.session.warnings, d.clone());
+                    for d in r.other_diagnostics() {
+                        push_unique(&mut st.session.warnings, d);
                     }
                     reports.push(r);
                 }

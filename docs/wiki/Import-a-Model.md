@@ -7,6 +7,7 @@ A project holds one or more model files: the parts you want to machine. This pag
 | File | Extension | What you get |
 |---|---|---|
 | STEP | `.step`, `.stp` | Solid bodies with exact faces. This is the format to use. 3-D toolpaths work on it. |
+| SolidCraft | `.craftx` | A [linked model](Linked-Models): solid bodies whose faces carry names from the design, so an update keeps your picks. |
 | DXF | `.dxf` | Flat curves (wire bodies), for 2-D work. |
 | SVG | `.svg` | Flat curves, for 2-D work. |
 | STL | `.stl` | A triangle mesh. Each separate piece (shell) of the mesh becomes one body, and each triangle is a flat face. 3-D toolpaths can machine it. See [Import an STL file](#import-an-stl-file). |
@@ -17,7 +18,7 @@ A project holds one or more model files: the parts you want to machine. This pag
 
 1. Open a project, or start one with **New project** in the Model stage. **Import model** is greyed out until there is a project.
 2. Click **Import model** in the **Model** stage of the ribbon (or press **Ctrl+I**).
-3. Pick the file. The dialog offers STEP, STL, DXF and SVG files.
+3. Pick the file. The dialog offers STEP, SolidCraft (`.craftx`), STL, DXF and SVG files, and a filter for SolidCraft linked models only.
 
 The status bar says "Imported block.step (1 bodies)". The bodies are listed under **Model** in the Browser, and the model is drawn in the viewport even before the project has a Setup.
 
@@ -52,8 +53,11 @@ A project folder is meant to be self-contained, so you can move or zip it as a w
 
 - A file that is already inside the project folder stays where it is. The project refers to it by a path relative to the project file.
 - A file from anywhere else is **copied** into the project folder, after FluutCAM has checked that it loads and has bodies. If the folder already has a different file with that name, the copy is named `name-2.step`, `name-3.step` and so on. If it has an identical file, FluutCAM uses that one.
+- A **linked model** (`.craftx`) is never copied: the project refers to it where it is, so FluutCAM sees when the design is saved again. See [Linked models](Linked-Models).
 
 Change the original and the copy does not change. When you open the project again, FluutCAM tells you if a model file has changed on disk since it was imported (`model.geometry.changed`). To read the files again, click **Re-import** in the Model stage. It re-imports every model file of the project (one undo step for each). **Your picks stay.** Faces and curves are stored by their ids, and FluutCAM maps them to the new model. A pick it cannot find again is dropped and counted in the status bar, and its toolpath reports `param.geometry.selection.missing` until you pick it again and the status bar says how many it read and how many selections it could not find again. There is no choice of a single file yet. The [scripting](Scripting) function `model.reimport` does the same for one file.
+
+A linked model (`.craftx`) is better: FluutCAM notices a new save of the design by itself and offers **Update**, which finds every pick by its name and shows a report of what it found. See [Linked models](Linked-Models).
 
 ## Units
 

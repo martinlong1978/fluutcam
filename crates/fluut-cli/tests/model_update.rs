@@ -160,10 +160,8 @@ fn errors_exit_2() {
     // An unknown source.
     let (code, _, err) = fluut(&["model", "update", &p(&d), "--model", "g9"]);
     assert_eq!(code, 2);
-    assert!(
-        err.contains("`g9` is not in the project (it has: g1)"),
-        "{err}"
-    );
+    assert!(err.contains("`g9` is not in the project"), "{err}");
+    assert!(err.contains("the project's models are: g1"), "{err}");
     // A damaged file.
     let mut c = craftx::rev1();
     c.format = "craft-exchange/2".into();

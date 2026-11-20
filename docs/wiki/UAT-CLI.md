@@ -159,3 +159,23 @@ Tests of the `fluut` program. Part of the [user acceptance tests](UAT). Test fil
   3. Run `fluut update-check --channel beta`.
 - **Expected:** Steps 1 and 2: `fluut: --channel needs stable or beta` followed by the usage lines, exit status 2, and no network use. Step 3: as UAT-CLI-18 (in a build with no update key: `fluut: no update key in this build`, status 3; with a key, the answer for the beta list or a failure message with status 1 if no beta release exists yet).
 - [ ] Pass
+
+### UAT-CLI-21 Update a linked model
+
+- **Preconditions:** The linked-model test files and project of [UAT-IMP-26](UAT-Import#linked-models), saved as `my-part.fluut` with the design at `1-block.craftx` and a `Pocket` toolpath on the floor.
+- **Steps:**
+  1. Copy `2-hole.craftx` over `design/block.craftx`. Run `fluut model update my-part.fluut` and look at the exit status.
+  2. Run it again.
+  3. Run `fluut model update my-part.fluut --model g9`.
+- **Expected:** Step 1 prints `g1 ../design/block.craftx: revision 1 -> 2`, a line that starts with `exact` and says `t1 "Pocket" (geometry.drive_faces): the face` `F2:floor` `was found by its name`, then `1 picks: 1 exact; 0 toolpaths broken` and `saved my-part.fluut`; exit status 0. The project file now says `revision = "2"`. Step 2 also prints "the file has not changed", status 0. Step 3: an error that `g9` is not in the project, and "the project's models are: g1", status 2.
+- [ ] Pass
+
+### UAT-CLI-22 A linked model update with a missing pick
+
+- **Preconditions:** The project of [UAT-IMP-30](UAT-Import#linked-models) before its step 1, saved as `my-part.fluut` (a contour `Edge` on the corner edge).
+- **Steps:**
+  1. Copy `3-fillet.craftx` over `design/block.craftx`. Run `fluut model update my-part.fluut`.
+  2. Run `fluut calc my-part.fluut`.
+  3. Run `fluut model update` on a project with no `.craftx` model.
+- **Expected:** Step 1 prints a line starting with `missing` that names the toolpath `Edge`, the edge `F1:side:l1|F1:side:l2`, where it was, and "the toolpath is broken until you pick it again", then `1 toolpath broken`; exit status 1, and the project is saved with the pick kept. Step 2 shows the toolpath as broken with `model.pick.missing`, status 1. Step 3: `model.link.none`, status 2.
+- [ ] Pass

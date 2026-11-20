@@ -13,7 +13,7 @@
 //! that cannot be read, a project that cannot be saved).
 
 use fluut_core::Session;
-use fluut_model::{Diagnostic, Severity};
+use fluut_model::Diagnostic;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -54,14 +54,6 @@ fn print(d: &[Diagnostic]) {
     }
 }
 
-/// The findings that are not about a pick: the report already says those.
-fn others(d: &[Diagnostic]) -> Vec<Diagnostic> {
-    d.iter()
-        .filter(|x| !x.code.starts_with("model.pick.") && x.code != "model.reimport.unmatched")
-        .cloned()
-        .collect()
-}
-
 pub fn run(a: &UpdateArgs) -> ExitCode {
     let mut s = match Session::open(&a.project, &a.tools) {
         Ok(s) => s,
@@ -70,30 +62,23 @@ pub fn run(a: &UpdateArgs) -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    // Load findings about the linked files are what this command fixes;
-    // the others still matter.
-    print(
-        &s.warnings
-            .iter()
-            .filter(|w| w.severity == Severity::Error || w.code != "model.geometry.changed")
-            .cloned()
-            .collect::<Vec<_>>(),
-    );
+    // Load findings, such as "the file changed since it was imported",
+    // say what this command is about to fix; they are printed as usual.
+    print(&s.warnings);
     let ids: Vec<String> = match &a.model {
         Some(id) => {
             if s.project.source(id).is_none() {
                 let known: Vec<&str> = s.project.geometry.iter().map(|g| g.id.as_str()).collect();
                 print(&[Diagnostic::error(
                     "model.geometry.missing",
-                    format!(
-                        "geometry `{id}` is not in the project (it has: {})",
-                        if known.is_empty() {
-                            "none".to_owned()
-                        } else {
-                            known.join(", ")
-                        }
-                    ),
+                    format!("geometry `{id}` is not in the project"),
                 )]);
+                let known = if known.is_empty() {
+                    "none".to_owned()
+                } else {
+                    known.join(", ")
+                };
+                eprintln!("fluut: the project's models are: {known}");
                 return ExitCode::from(2);
             }
             vec![id.clone()]
@@ -112,7 +97,7 @@ pub fn run(a: &UpdateArgs) -> ExitCode {
         match s.reimport(id) {
             Ok(r) => {
                 print!("{}", r.text());
-                print(&others(&r.diagnostics));
+                print(&r.other_diagnostics());
                 missing |= !r.broken().is_empty();
             }
             Err(d) => {

@@ -36,12 +36,12 @@ The tests use the ribbon: click the stage tab (Model, Setup, Toolpaths, Simulate
 |---|---|---|
 | [Getting started card](UAT-Guide) | UAT-GDE | The first-project card: its seven steps, ticks that follow the project, type and tool choice, closing and reopening |
 | [Project files](UAT-Project-Files) | UAT-PRJ | New (with the unit question), open, save, save as, unsaved changes, undo and redo, the unit badge, bad project files, tool library references (UAT-PRJ-19 and 20) |
-| [Import](UAT-Import) | UAT-IMP | STEP, DXF, SVG and STL files, copying, units, bad files, no project |
+| [Import](UAT-Import) | UAT-IMP | STEP, DXF, SVG and STL files, copying, units, bad files, no project; linked `.craftx` models (UAT-IMP-24 to 33): change notice, Update and each outcome, broken toolpaths and Pick again, opening from the command line |
 | [Setups](UAT-Setups) | UAT-SET | 3-axis, rotary, indexed, based on another, editing, inherited values, kind, bodies, body stock, orientation, scale and mirror, handles and snapping, fixtures, the index angle dial, failures |
 | [Toolpaths](UAT-Toolpaths) | UAT-TP | Adding, editing, tool and heights, picking on the model, Browser actions, defaults, out-of-date marks, errors and warnings, cancel |
 | [Simulation](UAT-Simulation) | UAT-SIM | Simulate, playback, colours, findings, failures |
 | [Post](UAT-Post) | UAT-PST | The three posts, the output file, the G-code, failures |
-| [Command line](UAT-CLI) | UAT-CLI | `fluut calc`, `sim`, `post`, `run`, exit codes, errors |
+| [Command line](UAT-CLI) | UAT-CLI | `fluut calc`, `sim`, `post`, `run`, `model update`, exit codes, errors |
 | [Settings and updates](UAT-Settings) | UAT-STG | The Settings window: release channel, update check, saved choices |
 | [Import posts](UAT-Posts-Import) | UAT-PPI | `fluut posts import` of a Vectric post (UAT-PPI-01 to 10): result, posting with it, refusals, base posts, overwrite, ids, wrapped rotary output, a real Vectric post; **Import post…** in the window (UAT-PPI-11 to 16): result, using the post in a project, a post outside `posts`, cancel and overwrite, refusals, base posts |
 | [Import tools](UAT-Tools) | UAT-TLS | Import of a Fusion tool library, in the window (UAT-TLS-09 to 16, including using a library in a project) and with `fluut tools import` (UAT-TLS-01 to 08), and a project's library references on the command line (UAT-TLS-17): result, overwrite, ids, bad files, bad arguments |
