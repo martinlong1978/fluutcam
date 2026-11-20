@@ -8,6 +8,7 @@ pub mod entry;
 pub mod guide;
 pub mod handles;
 pub mod inspector;
+pub mod link;
 pub mod pick;
 pub mod playback;
 pub mod post_import;

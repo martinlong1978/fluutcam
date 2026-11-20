@@ -108,6 +108,17 @@ pub enum Edit {
     ReloadDefinitions,
 }
 
+/// What a `.craftx` file says about its design, and whether the open
+/// project links it already.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LinkRead {
+    pub path: PathBuf,
+    pub source_id: String,
+    pub revision: String,
+    /// The source of the open project that links the design.
+    pub linked: Option<String>,
+}
+
 /// What to post and where.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PostRequest {
@@ -130,6 +141,16 @@ pub enum Request {
     Import(JobCx, PathBuf, Option<String>),
     /// Re-reads every geometry source from its file.
     Reimport(JobCx),
+    /// Updates linked models: re-reads their files and re-finds every
+    /// named pick by name. `from` is a file to read instead of the
+    /// source's own (one source only).
+    Update {
+        cx: JobCx,
+        sources: Vec<String>,
+        from: Option<PathBuf>,
+    },
+    /// Reads which design a `.craftx` file holds.
+    ReadLink(JobCx, PathBuf),
     AddSetup {
         cx: JobCx,
         kind: SetupKind,
@@ -170,6 +191,8 @@ pub enum JobKind {
     Save,
     Import,
     Reimport,
+    Update,
+    ReadLink,
     AddSetup,
     AddToolpath,
     Duplicate,
@@ -201,6 +224,12 @@ pub enum Outcome {
         /// Selections that no entity of the new file matches.
         unmatched: usize,
     },
+    /// Linked models updated, one report each.
+    Updated {
+        reports: Vec<fluut_core::reimport::ReimportReport>,
+    },
+    /// The design a `.craftx` file holds.
+    LinkRead(LinkRead),
     SetupAdded {
         id: String,
         name: String,
@@ -274,6 +303,12 @@ pub struct Jobs {
     /// What the last finished add operation made, until the UI takes it to
     /// select it.
     pub created: Option<Created>,
+    /// The reports of the last update, until the UI takes them to show.
+    pub updated: Option<Vec<fluut_core::reimport::ReimportReport>>,
+    /// The last `.craftx` file read, until the UI takes it.
+    pub link_read: Option<LinkRead>,
+    /// Jobs finished so far.
+    pub finished: u64,
 }
 
 /// An entity an operation added.
@@ -298,6 +333,9 @@ impl Jobs {
             frame: None,
             scrubbing: 0,
             created: None,
+            updated: None,
+            link_read: None,
+            finished: 0,
         }
     }
 
@@ -397,6 +435,30 @@ impl Jobs {
             return;
         }
         self.start_job(JobKind::Reimport, String::new(), Request::Reimport);
+    }
+
+    /// Updates the linked models `sources` from their files (or from
+    /// `from`, for one source). Ignored while a job runs or with no project.
+    pub fn update(&mut self, sources: Vec<String>, from: Option<PathBuf>) {
+        if self.is_busy() || self.snapshot.is_none() || sources.is_empty() {
+            return;
+        }
+        let name = from.as_deref().map_or_else(String::new, file_label);
+        self.start_job(JobKind::Update, name, |cx| Request::Update {
+            cx,
+            sources,
+            from,
+        });
+    }
+
+    /// Reads which design the `.craftx` file `path` holds. Ignored while a
+    /// job runs.
+    pub fn read_link(&mut self, path: PathBuf) {
+        if self.is_busy() {
+            return;
+        }
+        let name = file_label(&path);
+        self.start_job(JobKind::ReadLink, name, |cx| Request::ReadLink(cx, path));
     }
 
     /// Adds a Setup of `kind`, optionally based on Setup `based_on`, named
@@ -576,8 +638,11 @@ impl Jobs {
                     Outcome::ToolpathAdded { id, .. } => {
                         self.created = Some(Created::Toolpath(id.clone()));
                     }
+                    Outcome::Updated { reports } => self.updated = Some(reports.clone()),
+                    Outcome::LinkRead(l) => self.link_read = Some(l.clone()),
                     _ => {}
                 }
+                self.finished += 1;
                 if let Some(r) = self.running.take_if(|r| r.cx.id == job) {
                     self.last = Some((r.kind, outcome));
                 }

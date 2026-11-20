@@ -17,6 +17,7 @@ pub mod brand;
 pub mod dialogs;
 pub mod icons;
 pub mod jobs;
+pub mod launch;
 pub mod posts;
 pub mod scene;
 pub mod session;
@@ -27,3 +28,12 @@ pub mod viewport;
 pub mod vm;
 
 pub use ui::FluutApp;
+
+// Test parts: the STEP writer and the craft exchange writer shared with
+// the other crates' tests.
+#[cfg(test)]
+#[path = "../../fluut-io-craftx/tests/support/craftx.rs"]
+pub(crate) mod craftx;
+#[cfg(test)]
+#[path = "../../fluut-cam/tests/support/step.rs"]
+mod step;

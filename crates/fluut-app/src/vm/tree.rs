@@ -24,6 +24,8 @@ pub enum RowStatus {
     Warning,
     Error,
     Disabled,
+    /// A named pick is no longer in the model (spec 03 §3.5 item 4).
+    Broken,
 }
 
 impl RowStatus {
@@ -38,6 +40,7 @@ impl RowStatus {
             RowStatus::Warning => tr("status-warning"),
             RowStatus::Error => tr("status-error"),
             RowStatus::Disabled => tr("status-disabled"),
+            RowStatus::Broken => tr("status-broken"),
         }
     }
 }
@@ -111,6 +114,7 @@ impl TreeVm {
                                 ToolpathStatus::Stale => RowStatus::Stale,
                                 ToolpathStatus::Error => RowStatus::Error,
                                 ToolpathStatus::Disabled => RowStatus::Disabled,
+                                ToolpathStatus::Broken => RowStatus::Broken,
                             },
                         };
                         ToolpathRow {

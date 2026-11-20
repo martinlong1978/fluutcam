@@ -556,3 +556,118 @@ fn rotary_toolpaths_in_a_rotary_setup_have_no_kind_error() {
         );
     }
 }
+
+/// A new project in `<tmp>/cam` that links `<tmp>/design/block.craftx`
+/// (revision 1), with a pocket toolpath `t1` on the floor (`F2:floor`).
+pub(crate) fn linked(name: &str) -> (Jobs, PathBuf) {
+    let d = temp(name);
+    std::fs::create_dir_all(d.join("design")).unwrap();
+    std::fs::create_dir_all(d.join("cam")).unwrap();
+    std::fs::write(d.join("design/block.craftx"), crate::craftx::rev1().bytes()).unwrap();
+    let mut j = Jobs::start(|| {});
+    j.new_project(d.join("cam/p"), DisplayUnit::Mm);
+    assert!(matches!(j.wait(), Some(Outcome::Created { .. })));
+    j.import_model(d.join("design/block.craftx"));
+    assert!(
+        matches!(j.wait(), Some(Outcome::Imported { .. })),
+        "{:?}",
+        j.last
+    );
+    j.add_setup(SetupKind::ThreeAxis, None);
+    j.wait();
+    j.add_toolpath("s1", ToolpathTypeId::Pocket2d);
+    j.wait();
+    let s = j.snapshot.clone().unwrap();
+    let body = s.project.geometry[0].bodies[0].id.clone();
+    let stem = body.strip_prefix("b-").unwrap().to_owned();
+    j.edit(Edit::Model(fluut_model::edit::Edit::set_toolpath_field(
+        "t1",
+        "geometry.drive_faces",
+        Some(&format!("[{{ face = \"f-{stem}.10\" }}]")),
+    )));
+    j.wait_snapshot();
+    (j, d)
+}
+
+/// Revision 7 of the block: the floor's feature was replaced, so its name
+/// is gone.
+pub(crate) fn floor_gone() -> crate::craftx::Craftx {
+    let mut c = crate::craftx::rev1();
+    c.revision = 7;
+    c.faces[10].name = "F9:floor".into();
+    c
+}
+
+#[test]
+fn a_linked_model_is_shown_with_its_link_and_updated_with_a_report() {
+    let (mut j, d) = linked("linked-update");
+    let s = j.snapshot.clone().unwrap();
+    assert_eq!(s.project.geometry[0].path, "../design/block.craftx");
+    let l = &s.links[0];
+    assert_eq!((l.source.as_str(), l.revision.as_str()), ("g1", "1"));
+    assert_eq!(l.params[0].0, "wall");
+    assert!(l.saved.is_some());
+    assert_eq!(s.linked_files.len(), 1);
+    assert!(s.broken.is_empty());
+    // The design changes: the update finds the floor by name.
+    std::fs::write(d.join("design/block.craftx"), crate::craftx::hole().bytes()).unwrap();
+    j.update(vec!["g1".into()], None);
+    let Some(Outcome::Updated { reports }) = j.wait() else {
+        panic!("{:?}", j.last);
+    };
+    assert_eq!(
+        reports[0].picks[0].outcome,
+        fluut_core::names::Outcome::Exact
+    );
+    assert_eq!(j.updated.take().unwrap(), reports);
+    assert_eq!(j.snapshot.as_ref().unwrap().links[0].revision, "2");
+    // Then it loses the floor: the toolpath is broken, with its error.
+    std::fs::write(d.join("design/block.craftx"), floor_gone().bytes()).unwrap();
+    j.update(vec!["g1".into()], None);
+    let Some(Outcome::Updated { reports }) = j.wait() else {
+        panic!("{:?}", j.last);
+    };
+    assert_eq!(reports[0].broken(), ["t1"]);
+    let s = j.snapshot.clone().unwrap();
+    assert_eq!(s.status("t1"), ToolpathStatus::Broken);
+    assert_eq!(s.broken["t1"][0].name, "F2:floor");
+    assert!(
+        s.diagnostics("t1")
+            .iter()
+            .any(|x| x.code == "model.pick.missing" && x.is_error())
+    );
+    // Calculating refuses it.
+    j.calculate(CalcTargets::All);
+    assert_eq!(j.wait(), Some(Outcome::Calculated { count: 0 }));
+    assert_eq!(
+        j.snapshot.as_ref().unwrap().status("t1"),
+        ToolpathStatus::Broken
+    );
+}
+
+#[test]
+fn reading_a_linked_file_tells_which_source_links_its_design() {
+    let (mut j, d) = linked("linked-read");
+    std::fs::write(d.join("sent.craftx"), crate::craftx::hole().bytes()).unwrap();
+    j.read_link(d.join("sent.craftx"));
+    let Some(Outcome::LinkRead(l)) = j.wait() else {
+        panic!("{:?}", j.last);
+    };
+    assert_eq!(l.linked.as_deref(), Some("g1"));
+    assert_eq!(l.revision, "2");
+    assert_eq!(j.link_read.take(), Some(l));
+    // Updating from that file relinks the source to it.
+    j.update(vec!["g1".into()], Some(d.join("sent.craftx")));
+    assert!(matches!(j.wait(), Some(Outcome::Updated { .. })));
+    assert_eq!(
+        j.snapshot.as_ref().unwrap().project.geometry[0].path,
+        "../sent.craftx"
+    );
+    // A file that is not a craft exchange file fails, by name.
+    std::fs::write(d.join("bad.craftx"), b"not a zip").unwrap();
+    j.read_link(d.join("bad.craftx"));
+    let Some(Outcome::Failed(e)) = j.wait() else {
+        panic!("{:?}", j.last);
+    };
+    assert!(e[0].code.starts_with("import.craftx."), "{e:?}");
+}

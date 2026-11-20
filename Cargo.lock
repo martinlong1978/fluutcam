@@ -1499,9 +1499,11 @@ name = "fluut-app"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
+ "crc32fast",
  "eframe",
  "egui_dock",
  "egui_kittest",
+ "flate2",
  "fluut-cam",
  "fluut-core",
  "fluut-geom",
@@ -1517,6 +1519,8 @@ dependencies = [
  "pollster 0.4.0",
  "resvg",
  "rfd",
+ "serde_json",
+ "sha2",
  "wgpu",
  "winresource",
 ]
