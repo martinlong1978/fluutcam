@@ -82,10 +82,15 @@ fn source_kind(path: &str) -> Res<SourceKind> {
         .unwrap_or_default();
     Ok(match ext.as_str() {
         "step" | "stp" => SourceKind::Step,
+        "craftx" => SourceKind::Craftx,
         "stl" => SourceKind::Stl,
         "dxf" => SourceKind::Dxf,
         "svg" => SourceKind::Svg,
-        _ => return fail(format!("`{path}`: not a STEP, STL, DXF or SVG file")),
+        _ => {
+            return fail(format!(
+                "`{path}`: not a STEP, craft exchange, STL, DXF or SVG file"
+            ));
+        }
     })
 }
 
@@ -119,6 +124,7 @@ impl ModelH {
             hash: None,
             unit,
             bodies: Vec::new(),
+            link: None,
         };
         let s = g.session_mut()?;
         let dir = s.dir.clone();
@@ -133,6 +139,10 @@ impl ModelH {
             return fail(format!("import failed: `{path}` gave no geometry"));
         };
         src.hash = Some(loaded.hash.clone());
+        src.link = loaded.link.as_ref().map(|l| fluut_model::project::Link {
+            source_id: l.source_id.clone(),
+            revision: l.revision.clone(),
+        });
         src.bodies = bodies(&s.store)
             .into_iter()
             .filter(|b| b.source == src.id)

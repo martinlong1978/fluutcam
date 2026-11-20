@@ -1558,9 +1558,11 @@ dependencies = [
  "base64",
  "blake2",
  "crc32fast",
+ "flate2",
  "fluut-cam",
  "fluut-geom",
  "fluut-io-2d",
+ "fluut-io-craftx",
  "fluut-io-mesh",
  "fluut-io-step",
  "fluut-model",
@@ -1616,6 +1618,19 @@ dependencies = [
  "libm",
  "roxmltree",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "fluut-io-craftx"
+version = "0.1.0"
+dependencies = [
+ "crc32fast",
+ "flate2",
+ "fluut-geom",
+ "fluut-io-step",
+ "fluut-topo",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]

@@ -52,6 +52,7 @@ pub(crate) fn report_map(r: &JobReport) -> Map {
         JobState::Done { cached: false } => "calculated",
         JobState::Done { cached: true } => "up_to_date",
         JobState::Failed => "failed",
+        JobState::Broken => "broken",
         JobState::Skipped => "disabled",
     };
     m.insert("state".into(), state.into());

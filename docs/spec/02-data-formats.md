@@ -38,10 +38,12 @@ units  = "mm"                                  # display/entry units; internal i
 [[geometry]]                                   # Model: one per imported file  
 id   = "g1"
 path = "parts/shaft.step"                      # relative to project file
-kind = "step"                                  # step | stl | dxf | svg | bitmap
+kind = "step"                                  # step | craftx | stl | dxf | svg | bitmap
 hash = "sha256:…"                              # change detection (§2.6.3)
 unit = "mm"                                    # REQUIRED for stl, dxf (no unit in file)
                                                # no placement: positioning is per Setup
+# source_id = "3f6c…"                          # craftx only: the link (§2.6.4)
+# revision  = "7"
   [[geometry.body]]
   id   = "b-7f3a…"                             # stable body id (03 §3.5)
   name = "Shaft"
@@ -122,6 +124,11 @@ stock       = { kind = "from_previous" }
 [[view]]                                       # saved camera views
 ```
 
+**Format minor 2.** A project with a `craftx` source, a `source_id`/`revision` link or a pick
+`name` is written as `fluut.project/1.2`; other projects keep the version they had. Readers
+before minor 2 refuse a selection item with a `name` key and the `craftx` kind, so the
+version tells them why. Unknown keys elsewhere stay warnings (§2.0).
+
 **Tool library references.** `tool_libraries` (optional) lists tool library files outside the project's `tools/` folder, one path each: relative to the project file (written with `/`) or absolute. They load after `tools/` and before `--tools` files; a library with the same id and version as an earlier one replaces it. A missing file is a warning, not an error. URLs and network paths are not accepted. The writer writes `fluut.project/1.1` only when the list is not empty. Design: D06 §7.2.1.
 
 A three-axis Setup uses `orientation = { tool_axis = …, x_axis = … }`, a `block` stock, and any
@@ -147,7 +154,11 @@ Toolpath keys:
 - Geometry-group keys not shown above: `drive_faces`, `drive_curves`, `check_faces`,
   `excluded_faces`, `boundary`, `rest_from` (03 §3.10.5). A selection is an array of
   `{ body = id }`, `{ face = id }` or `{ edge = id }` tables; `edge` names a B-rep edge or a
-  WireBody curve (03 §3.5).
+  WireBody curve (03 §3.5). A face or edge of a model whose file names its faces also carries
+  that **name**: `{ face = "f-0.12", name = "F2:top" }`,
+  `{ edge = "e-0.3", name = "F2:top|F4:side:l4" }`. The id says where the entity is in the
+  loaded body; the name says which entity was meant, and re-import finds it by name first
+  (03 §3.5). The application writes names; a hand-written selection may leave them out.
 - `material` on a Setup selects the `[[tool.preset]]` with the same `material` (2.4). A child
   Setup inherits it.
 - Full per-type key lists: [D15](../design/D15-toolpath-parameters.md) for the common
@@ -297,6 +308,7 @@ files the user supplies. It MUST NOT ship third-party post files unless their li
 | Format | Ext | Body kinds produced | Status |
 |---|---|---|---|
 | STEP | `.step`, `.stp`, `.stpz` (gzip) | SolidBody, SheetBody, WireBody | **primary** 3D input |
+| Craft exchange | `.craftx` | SolidBody, SheetBody | linked model from SolidCraft (§2.6.4) |
 | STL | `.stl` (ASCII + binary) | MeshBody | supported |
 | DXF | `.dxf` | WireBody | 2D/3D curves; arcs kept as circles |
 | SVG | `.svg` | WireBody | 2D curves; replaces EPS (no EPS in v1, decided 2026-10-31) |
@@ -342,6 +354,29 @@ the user and MUST NOT assume.
 
 On project load, each geometry file is hashed and compared with its stored `hash`. If it
 differs, the user is offered a re-import, which follows the identity rules in 03 §3.5.
+
+### 2.6.4 Craft exchange files (linked models)
+
+A `.craftx` file is SolidCraft's exchange format `craft-exchange/1` ([SolidCraft RFC 0001](https://github.com/tangency-labs/solidcraft/blob/main/docs/rfcs/0001-craft-bridge.md),
+a draft): a ZIP archive with `manifest.json`, one STEP part per body (`bodies/<n>.step`), the
+face table `faces.json` and the read-only `params.json` and `meta.json`. FluutCAM imports it
+as a **linked** model: kind `craftx`, with the link `{ source_id, revision }` and the file
+`hash` stored on the geometry source. The design behind the file owns the geometry and the
+face names; FluutCAM holds a read-only copy and picks by name.
+
+- The reader MUST accept any minor version of major 1 and refuse other majors; refuse a file
+  whose `requires` lists a capability it cannot read; warn about parts it does not know and
+  skip them; check every part it reads against its SHA-256 in the manifest.
+- The archive is untrusted input: at most 1 000 entries, 1 GiB unpacked, a cap on the
+  compression ratio, and no entry name that could leave the archive (`..`, absolute paths,
+  drive letters). Problems are `import.craftx.*` diagnostics.
+- Face names are opaque strings. The face table's index counts the `ADVANCED_FACE` entities of
+  the body's STEP part in file order (the RFC leaves this open); a name in the STEP face
+  itself wins over the table, and a table point that is not on its face marks the name as
+  found by geometry (`exact: false`).
+- Geometry is in mm in the design's world frame; the manifest's unit is the display unit only.
+
+Design: D04 §12 (reader), D06 §5.1 (re-import by name).
 
 ## 2.7 Output format
 

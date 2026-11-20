@@ -658,3 +658,104 @@ fn old_adaptive_type_ids_are_unknown() {
     assert!(ToolpathTypeId::parse("adaptive_3d").is_none());
     assert!(ToolpathTypeId::parse("optimised_load_2d").is_some());
 }
+
+const LINKED: &str = r#"format = "fluut.project/1.2"
+name   = "Linked"
+units  = "mm"
+
+[[geometry]]
+id        = "g1"
+path      = "block.craftx"
+kind      = "craftx"
+hash      = "sha256:00"
+source_id = "3f6c0d4e"
+revision  = "7"
+
+  [[geometry.body]]
+  id = "b-x1-0"
+
+[[setup]]
+id   = "s1"
+name = "Top"
+kind = "three_axis"
+
+  [[setup.toolpath]]
+  id   = "t1"
+  name = "Pocket"
+  type = "pocket_2d"
+  tool = "shop#flat-6"
+
+    [setup.toolpath.geometry]
+    drive_faces = [{ face = "f-x1-0.10", name = "F2:floor" }, { face = "f-x1-0.3" }]
+"#;
+
+#[test]
+fn linked_sources_and_named_picks_round_trip() {
+    let l = read(LINKED).unwrap();
+    assert!(l.warnings.is_empty(), "{:?}", l.warnings);
+    let p = &l.project;
+    let g = &p.geometry[0];
+    assert_eq!(g.kind, SourceKind::Craftx);
+    assert_eq!(
+        g.link,
+        Some(Link {
+            source_id: "3f6c0d4e".into(),
+            revision: "7".into()
+        })
+    );
+    let (_, t) = p.toolpath("t1").unwrap();
+    assert_eq!(t.params.pick_name("f-x1-0.10"), Some("F2:floor"));
+    assert_eq!(t.params.pick_name("f-x1-0.3"), None);
+    assert_eq!(write(p), LINKED);
+    // A named pick alone also needs minor 2; without names or links the
+    // file stays at minor 0.
+    let mut q = p.clone();
+    q.geometry[0].kind = SourceKind::Step;
+    q.geometry[0].link = None;
+    assert!(write(&q).starts_with("format = \"fluut.project/1.2\""));
+    let t = q.toolpath_mut("t1").unwrap();
+    let v: toml::Value = toml::from_str::<toml::Table>("v = [{ face = \"f-x1-0.10\" }]")
+        .unwrap()
+        .remove("v")
+        .unwrap();
+    // Given without a name, a pick keeps the name stored for its id.
+    t.params.set_toml("geometry.drive_faces", Some(&v)).unwrap();
+    assert_eq!(t.params.pick_name("f-x1-0.10"), Some("F2:floor"));
+    // Cleared, the name goes with it.
+    t.params.set_toml("geometry.drive_faces", None).unwrap();
+    assert!(!t.params.has_pick_names());
+    assert!(write(&q).starts_with("format = \"fluut.project/1\"\n"));
+}
+
+#[test]
+fn pick_names_follow_remapped_ids_and_bad_names_are_refused() {
+    let mut p = read(LINKED).unwrap().project;
+    let (q, _) = crate::edit::apply(
+        &p,
+        &crate::edit::Edit::RemapIds {
+            map: vec![("f-x1-0.10".into(), "f-x1-0.12".into())],
+        },
+    )
+    .unwrap();
+    let (_, t) = q.toolpath("t1").unwrap();
+    assert_eq!(t.params.pick_name("f-x1-0.12"), Some("F2:floor"));
+    assert_eq!(t.params.pick_name("f-x1-0.10"), None);
+    assert_eq!(
+        t.params.field_toml("geometry.drive_faces").as_deref(),
+        Some("[{ face = \"f-x1-0.12\", name = \"F2:floor\" }, { face = \"f-x1-0.3\" }]")
+    );
+    for bad in [
+        "drive_faces = [{ face = \"f-1\", name = 3 }]",
+        "drive_faces = [{ body = \"b-1\", name = \"x\" }]",
+        "drive_faces = [{ face = \"f-1\", edge = \"e-1\" }]",
+        "drive_faces = [{ name = \"x\" }]",
+    ] {
+        let text = LINKED.replace(
+            "drive_faces = [{ face = \"f-x1-0.10\", name = \"F2:floor\" }, { face = \"f-x1-0.3\" }]",
+            bad,
+        );
+        assert!(read(&text).is_err(), "{bad}");
+    }
+    p.geometry.clear();
+    assert!(write(&p).starts_with("format = \"fluut.project/1.2\""));
+}

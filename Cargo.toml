@@ -20,6 +20,7 @@ fluut-path = { path = "crates/fluut-path", version = "0.1.0" }
 fluut-i18n = { path = "crates/fluut-i18n", version = "0.1.0" }
 fluut-topo = { path = "crates/fluut-topo", version = "0.1.0" }
 fluut-io-step = { path = "crates/fluut-io-step", version = "0.1.0" }
+fluut-io-craftx = { path = "crates/fluut-io-craftx", version = "0.1.0" }
 fluut-io-2d = { path = "crates/fluut-io-2d", version = "0.1.0" }
 fluut-io-mesh = { path = "crates/fluut-io-mesh", version = "0.1.0" }
 fluut-model = { path = "crates/fluut-model", version = "0.1.0" }
@@ -44,6 +45,7 @@ toml = "1"
 sha2 = "0.11"
 postcard = { version = "1", default-features = false, features = ["alloc"] }
 crc32fast = "1"
+flate2 = "1"
 proptest = "1"
 approx = "0.5"
 criterion = "0.8"

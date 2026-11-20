@@ -13,7 +13,7 @@ use fluut_geom::{
 };
 use fluut_topo::pcurve::{self, Stats};
 use fluut_topo::trim::{self, Outer};
-use fluut_topo::{BrepBody, Coedge, Edge, Face, Loop, Shell, Vertex};
+use fluut_topo::{BrepBody, Coedge, Edge, EntityName, Face, Loop, Shell, Vertex};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -48,6 +48,13 @@ pub struct MappedBody {
     pub pcurves_rejected: usize,
     /// Outer loops of faces bounded only by `FACE_BOUND`.
     pub outer: OuterStats,
+    /// STEP id of each face, indexed like `body.faces`.
+    pub face_ids: Vec<u64>,
+    /// STEP id of each edge, indexed like `body.edges`.
+    pub edge_ids: Vec<u64>,
+    /// `ADVANCED_FACE` or `EDGE_CURVE` names carried by more than one
+    /// entity of the body; they are left out of `body.names`.
+    pub repeated_names: Vec<String>,
 }
 
 /// How the outer loops of faces with no `FACE_OUTER_BOUND` (allowed in
@@ -109,6 +116,7 @@ pub fn map_bodies(m: &RawModel) -> Vec<R<MappedBody>> {
             let given: Vec<bool> = mp.b.pcurves.iter().map(Option::is_some).collect();
             let pcurves = pcurve::compute(&mut mp.b);
             let outer = mp.choose_outer(&given);
+            let repeated_names = mp.b.names.drop_repeated();
             MappedBody {
                 id,
                 kind: kind.to_owned(),
@@ -118,6 +126,9 @@ pub fn map_bodies(m: &RawModel) -> Vec<R<MappedBody>> {
                 pcurves,
                 pcurves_rejected: mp.pcurves_rejected,
                 outer,
+                face_ids: mp.face_ids,
+                edge_ids: mp.edge_ids,
+                repeated_names,
             }
         }));
     }
@@ -143,6 +154,15 @@ fn body_contexts(m: &RawModel) -> BTreeMap<u64, u64> {
         }
     }
     out
+}
+
+/// The `name` attribute (the first one) of a representation item, unless
+/// it is empty (D04 §5.2).
+fn entity_name(p: &[Param]) -> Option<&str> {
+    match p.first() {
+        Some(Param::Str(s)) if !s.trim().is_empty() => Some(s),
+        _ => None,
+    }
 }
 
 fn real(id: u64, p: Option<&Param>) -> R<f64> {
@@ -226,6 +246,9 @@ struct Mapper<'a> {
     pcurves_rejected: usize,
     /// Faces with no `FACE_OUTER_BOUND`, with their STEP ids.
     no_outer: Vec<(u32, u64)>,
+    /// STEP id of each face and edge added, by index.
+    face_ids: Vec<u64>,
+    edge_ids: Vec<u64>,
 }
 
 impl<'a> Mapper<'a> {
@@ -250,6 +273,8 @@ impl<'a> Mapper<'a> {
             file_pcurves: BTreeMap::new(),
             pcurves_rejected: 0,
             no_outer: Vec::new(),
+            face_ids: Vec::new(),
+            edge_ids: Vec::new(),
         }
     }
 
@@ -899,6 +924,10 @@ impl<'a> Mapper<'a> {
         });
         let i = self.b.edges.len() as u32 - 1;
         self.edges.insert(id, i);
+        self.edge_ids.push(id);
+        if let Some(n) = entity_name(p) {
+            self.b.names.set_edge(i, Some(EntityName::new(n)));
+        }
         self.record_pcurves(i, cref);
         Ok(i)
     }
@@ -1019,6 +1048,10 @@ impl<'a> Mapper<'a> {
             loops: lids,
         });
         let fi = self.b.faces.len() as u32 - 1;
+        self.face_ids.push(id);
+        if let Some(n) = entity_name(p) {
+            self.b.names.set_face(fi, Some(EntityName::new(n)));
+        }
         if no_outer {
             self.no_outer.push((fi, id));
         }

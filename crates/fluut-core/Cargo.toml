@@ -11,6 +11,7 @@ crc32fast.workspace = true
 fluut-cam.workspace = true
 fluut-geom.workspace = true
 fluut-io-2d.workspace = true
+fluut-io-craftx.workspace = true
 fluut-io-mesh.workspace = true
 fluut-io-step.workspace = true
 fluut-model.workspace = true
@@ -34,6 +35,7 @@ ureq = { version = "3.5.1", default-features = false, features = ["rustls-no-pro
 [dev-dependencies]
 base64 = "0.23"
 blake2 = "0.11.0"
+flate2.workspace = true
 rayon.workspace = true
 ring = "0.17"
 

@@ -254,16 +254,49 @@ cache yet; bodies are imported on every open.)
 `Session::reimport(source)` loads the file again and matches old to new:
 
 - bodies by id, then by a unique STEP name, then by the most faces and edges in common;
-- faces and edges by persistent id with an equal signature, then by signature (kind,
-  parameters and bounds within the modelling tolerance), then by a unique surface (or curve)
-  match. The STEP reader gives no AP242 persistent ids or face names yet, so the persistent id
-  is the id above.
+- faces and edges by name where both files name them (below), then by persistent id with an
+  equal signature, then by signature (kind, parameters and bounds within the modelling
+  tolerance), then by a unique surface (or curve) match. The STEP reader gives no AP242
+  persistent ids, so the persistent id is the id above.
 
 Signatures: plane normal (with face sense) and offset; cylinder and torus axis line and radii;
 cone axis, origin, radius and angle; sphere centre and radius; line and conic curves by their
 axis and size; bounds from the loop edges. Matched ids are rewritten (`RemapIds`) with the new
 hash and body list in one edit group. Selections of unmatched entities stay in the project and
 are reported (`model.reimport.unmatched`).
+
+**Names first (2026-11-19).** Bodies whose file names their faces (a linked `.craftx` model,
+or a STEP file with `ADVANCED_FACE` names; D03 §6) are matched by name before anything else:
+
+- the face and edge lists match an old entity to the new one with the same name (`MatchedBy::Name`),
+  before the id and signature passes, so Setup picks and unnamed selections follow names too;
+- every toolpath pick that stores a name (S 02 §2.1), or whose old face has one, is looked up
+  by that name in the new body (`names::find_face`, `names::find_edge`), with RFC 0001's
+  outcomes: `exact`; `merged` (an alias answers, or the pieces merged back into their face);
+  `split` (several pieces: the pick becomes all of them, `model.pick.split`); `by_geometry`
+  (only an `exact: false` face answers, `model.pick.by_geometry`); `missing`
+  (`model.pick.missing`). An edge is the edge between the faces of its two names, so it
+  survives a split of one of them; where several edges lie between them, the signature match
+  chooses. The pick keeps the name it was made with;
+- a missing pick keeps its id and name, and the toolpath is **broken**: `Session::broken_picks`
+  is derived from the loaded bodies (a named pick whose entity no longer answers to its name),
+  so it also shows after opening a project whose file changed. Calculation reports
+  `JobState::Broken` with `model.pick.missing` naming the face, where it was (from the update)
+  and the toolpath; posting refuses it with the same error; `Session::last_result` keeps the
+  last result for viewing. Picking again clears it.
+
+The update is one edit group: the source (hash, link, bodies), `RemapIds`, and one
+`SetToolpathField` per selection with named picks. The session keeps the bodies of each
+hash it loaded, so undo and redo bring the matching model back. A pick made in the session
+on a named body gets its name in the same undo step (`Session::apply`).
+
+| Code | Sev | Rule |
+|---|---|---|
+| `model.pick.missing` | E | a named pick no longer answers to its name: the toolpath is broken |
+| `model.pick.split` | W | the named face is now several pieces; the pick uses all of them |
+| `model.pick.merged` | W | the named face merged into another; the pick follows it |
+| `model.pick.by_geometry` | W | the name matched only a face found by geometry: check the toolpath |
+| `model.link.source_id` | W | the linked file now holds another design than the link names |
 
 ## 6. Edits and undo
 

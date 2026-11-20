@@ -13,6 +13,8 @@ pub mod entities;
 pub mod fixture;
 pub mod frame;
 pub mod graph;
+mod linked;
+pub mod names;
 pub mod ops;
 pub mod reimport;
 pub mod session;
@@ -25,11 +27,12 @@ pub use fluut_sim;
 
 pub use frame::SetupFrame;
 pub use graph::{Graph, NodeId};
+pub use linked::BrokenPick;
 pub use session::{
     JobReport, JobState, OpenOptions, PostOptions, Session, Targets, builtin_library,
 };
 pub use sim::{SimResult, SimSettings};
-pub use store::{LoadedSource, ModelStore};
+pub use store::{LinkInfo, LoadedSource, ModelStore};
 
 /// Version of the calculation code, part of every result hash (D01 §4).
 pub const ALGORITHM_VERSION: &str = concat!("fluut-cam ", env!("CARGO_PKG_VERSION"), " m3");

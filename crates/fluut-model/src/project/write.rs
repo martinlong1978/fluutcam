@@ -234,13 +234,26 @@ pub(crate) fn setup_value(s: &Setup, k: &str) -> Option<String> {
     }
 }
 
+/// A linked model or a named pick (spec 02 §2.1, minor 2).
+fn uses_minor_2(p: &Project) -> bool {
+    p.geometry
+        .iter()
+        .any(|g| g.kind == SourceKind::Craftx || g.link.is_some())
+        || p.setups
+            .iter()
+            .flat_map(|s| s.toolpaths.iter())
+            .any(|t| t.params.has_pick_names())
+}
+
 /// The project file text.
 pub fn write(p: &Project) -> String {
     let mut out = String::new();
     let mut b = Block::new();
-    // Minor 1 only when a minor-1 key is used, so other files stay as an
-    // older build wrote them (D06 §7.2.1).
-    let version = if p.tool_libraries.is_empty() {
+    // A minor only when a key of that minor is used, so other files stay
+    // as an older build wrote them (D06 §7.2.1).
+    let version = if uses_minor_2(p) {
+        format!("{PROJECT_MAJOR}.2")
+    } else if p.tool_libraries.is_empty() {
         format!("{PROJECT_MAJOR}")
     } else {
         format!("{PROJECT_MAJOR}.1")
@@ -278,6 +291,10 @@ pub(crate) fn source(out: &mut String, g: &GeometrySource) {
     b.put("kind", quote(g.kind.as_str()));
     b.opt("hash", g.hash.as_deref().map(quote));
     b.opt("unit", g.unit.as_deref().map(quote));
+    if let Some(l) = &g.link {
+        b.put("source_id", quote(&l.source_id));
+        b.put("revision", quote(&l.revision));
+    }
     b.write(out, "");
     for body in &g.bodies {
         out.push_str("\n  [[geometry.body]]\n");

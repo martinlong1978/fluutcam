@@ -5,16 +5,19 @@
 //! When a geometry file changes, its bodies, faces and edges are matched to
 //! the ones loaded before:
 //!
+//! 0. by name, where both files name the entity (a linked `.craftx`
+//!    model, or STEP face names; D06 §5.1);
 //! 1. by persistent id: the same id (D06 §1.1) with an equal signature;
 //! 2. by signature: surface kind, parameters and bounds within the
 //!    modelling tolerance;
 //! 3. by surface alone, when exactly one candidate is left (a face whose
 //!    neighbours moved keeps its surface but not its bounds).
 //!
-//! The STEP reader gives no AP242 persistent ids or face names yet, so the
-//! D06 id serves as the persistent id. Selections of matched entities are
-//! rewritten; selections of unmatched ones are kept and reported, never
-//! dropped.
+//! The STEP reader gives no AP242 persistent ids, so the D06 id serves as
+//! the persistent id. Selections of matched entities are rewritten;
+//! selections of unmatched ones are kept and reported, never dropped.
+//! Toolpath picks that store a name are re-found by that name with RFC
+//! 0001's outcomes ([`PickReport`], [`crate::names`]).
 
 use fluut_cam::geometry::{BodyGeom, SetupBody, edge_id, face_id};
 use fluut_geom::{Curve3, Interval, Point3, Surface};
@@ -235,6 +238,9 @@ fn curve_sig(c: Option<&Curve3>, r: Interval, ends: (Point3, Point3)) -> Sig {
 struct BodySigs {
     faces: Vec<Sig>,
     edges: Vec<Sig>,
+    /// Names the file gives (not derived ones), by index.
+    face_names: Vec<Option<String>>,
+    edge_names: Vec<Option<String>>,
     name: String,
     tol: f64,
 }
@@ -251,10 +257,23 @@ fn sigs(b: &SetupBody) -> BodySigs {
                     curve_sig(e.curve.map(|c| &x.curves[c as usize]), e.range, ends)
                 })
                 .collect(),
+            face_names: (0..x.faces.len() as u32)
+                .map(|f| x.names.face(f).map(|n| n.name.clone()))
+                .collect(),
+            edge_names: (0..x.edges.len() as u32)
+                .map(|e| {
+                    x.names
+                        .edge(e)
+                        .filter(|n| !n.derived)
+                        .map(|n| n.name.clone())
+                })
+                .collect(),
             name: x.name.clone(),
             tol: x.tol_model.max(1e-6),
         },
         BodyGeom::Wire(w) => BodySigs {
+            face_names: Vec::new(),
+            edge_names: Vec::new(),
             faces: Vec::new(),
             edges: w
                 .curves
@@ -270,18 +289,31 @@ fn sigs(b: &SetupBody) -> BodySigs {
     }
 }
 
-/// Matches entities of one list: `old[i]` → `new[j]`, three passes.
+/// Matches entities of one list: `old[i]` → `new[j]`, by name (where
+/// both name the entity; names are unique in a body), then three passes.
 fn match_list(
     old: &[Sig],
     new: &[Sig],
+    names: (&[Option<String>], &[Option<String>]),
     same_ids: bool,
     tol: f64,
 ) -> Vec<Option<(usize, MatchedBy)>> {
     let mut out = vec![None; old.len()];
     let mut taken = vec![false; new.len()];
+    for (i, n) in names.0.iter().enumerate().take(old.len()) {
+        let Some(n) = n else { continue };
+        if let Some(j) = (0..new.len())
+            .find(|&j| !taken[j] && names.1.get(j).and_then(Option::as_ref) == Some(n))
+        {
+            out[i] = Some((j, MatchedBy::Name));
+            taken[j] = true;
+        }
+    }
     if same_ids {
         for (i, s) in old.iter().enumerate() {
-            if let Some(n) = new.get(i)
+            if out[i].is_none()
+                && let Some(n) = new.get(i)
+                && !taken[i]
                 && s.same(n, tol)
             {
                 out[i] = Some((i, MatchedBy::Id));
@@ -385,7 +417,8 @@ pub fn match_bodies(old: &[SetupBody], new: &[SetupBody]) -> Matching {
         m.ids.insert(ob.id.clone(), (nb.id.clone(), by));
         let tol = old_s[i].tol.max(new_s[j].tol);
         let same = ob.id == nb.id;
-        for (k, r) in match_list(&old_s[i].faces, &new_s[j].faces, same, tol)
+        let names = (&old_s[i].face_names[..], &new_s[j].face_names[..]);
+        for (k, r) in match_list(&old_s[i].faces, &new_s[j].faces, names, same, tol)
             .into_iter()
             .enumerate()
         {
@@ -394,7 +427,8 @@ pub fn match_bodies(old: &[SetupBody], new: &[SetupBody]) -> Matching {
                     .insert(face_id(&ob.id, k as u32), (face_id(&nb.id, l as u32), by));
             }
         }
-        for (k, r) in match_list(&old_s[i].edges, &new_s[j].edges, same, tol)
+        let names = (&old_s[i].edge_names[..], &new_s[j].edge_names[..]);
+        for (k, r) in match_list(&old_s[i].edges, &new_s[j].edges, names, same, tol)
             .into_iter()
             .enumerate()
         {
@@ -417,6 +451,26 @@ pub struct Unmatched {
     pub id: String,
 }
 
+/// How one named toolpath pick was found in the new file (spec 03 §3.5
+/// item 4).
+#[derive(Clone, PartialEq, Debug)]
+pub struct PickReport {
+    /// The toolpath.
+    pub owner: String,
+    /// The selection field, `geometry.drive_faces`, …
+    pub field: String,
+    /// The pick's id before the update.
+    pub id: String,
+    /// The name it is found by.
+    pub name: String,
+    pub outcome: crate::names::Outcome,
+    /// Its ids after the update: one, several for a split, the old id
+    /// for a missing pick.
+    pub ids: Vec<String>,
+    /// Where the entity was (middle of its box), for a missing pick.
+    pub at: Option<[f64; 3]>,
+}
+
 /// The outcome of a re-import.
 #[derive(Clone, PartialEq, Debug)]
 pub struct ReimportReport {
@@ -424,9 +478,25 @@ pub struct ReimportReport {
     pub matching: Matching,
     /// Kept in the project and reported (spec 03 §3.5).
     pub unmatched: Vec<Unmatched>,
+    /// Every named toolpath pick of the source, with its outcome.
+    pub picks: Vec<PickReport>,
     /// Import findings for the new file and one warning per unmatched
     /// selection.
     pub diagnostics: Vec<fluut_model::Diagnostic>,
+}
+
+impl ReimportReport {
+    /// Toolpaths left broken: a named pick is missing.
+    pub fn broken(&self) -> Vec<&str> {
+        let mut v: Vec<&str> = self
+            .picks
+            .iter()
+            .filter(|p| p.outcome == crate::names::Outcome::Missing)
+            .map(|p| p.owner.as_str())
+            .collect();
+        v.dedup();
+        v
+    }
 }
 
 /// Every entity id the project refers to, with its owner and field.

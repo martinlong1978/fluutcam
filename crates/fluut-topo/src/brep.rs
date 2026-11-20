@@ -5,6 +5,7 @@
 //! Bodies are immutable after import, so plain vectors indexed by `u32`
 //! replace the slot maps of D03 §1; trim caches come later.
 
+use crate::names::Names;
 use fluut_geom::{Aabb3, Curve2, Curve3, Interval, Point3, Surface};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -70,6 +71,9 @@ pub struct BrepBody {
     /// Built from a triangle mesh: every face is one planar triangle, so
     /// views draw only the sharp edges.
     pub from_mesh: bool,
+    /// Persistent face and edge names from the source file (D03 §6);
+    /// empty when the file gives none.
+    pub names: Names,
 }
 
 impl BrepBody {

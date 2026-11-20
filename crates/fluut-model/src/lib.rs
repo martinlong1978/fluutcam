@@ -41,5 +41,5 @@ pub use defs::{
 pub use diag::{Diagnostic, Severity};
 pub use params::{
     Class, FieldKind, FieldMeta, Group, HeightSpec, Num, PValue, ParamMap, Params, Sel,
-    ToolpathTypeId,
+    ToolpathTypeId, selection_toml,
 };

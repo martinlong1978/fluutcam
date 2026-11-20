@@ -17,7 +17,7 @@ use fluut_model::library::{DefKind, LayerKind, check_tool_ref, resolve_tool_ref,
 use fluut_model::params::{Num, ToolpathTypeId};
 use fluut_model::persist;
 use fluut_model::project::{
-    AxisX, BodyEntry, ClearanceSpec, DisplayUnit, GeometrySource, Project, Setup, SetupKind,
+    AxisX, BodyEntry, ClearanceSpec, DisplayUnit, GeometrySource, Link, Project, Setup, SetupKind,
     SourceKind, StockSpec, Toolpath, ZeroSpec,
 };
 use fluut_model::setup::resolve_setup;
@@ -120,6 +120,7 @@ pub fn source_kind(path: &Path) -> Option<SourceKind> {
     let ext = path.extension()?.to_string_lossy().to_ascii_lowercase();
     Some(match ext.as_str() {
         "step" | "stp" => SourceKind::Step,
+        "craftx" => SourceKind::Craftx,
         "stl" => SourceKind::Stl,
         "dxf" => SourceKind::Dxf,
         "svg" => SourceKind::Svg,
@@ -315,7 +316,10 @@ impl Session {
         let Some(kind) = source_kind(file) else {
             return fail(
                 "model.import.kind",
-                format!("{}: not a STEP, STL, DXF or SVG file", file.display()),
+                format!(
+                    "{}: not a STEP, craft exchange, STL, DXF or SVG file",
+                    file.display()
+                ),
             );
         };
         let file = abs(file);
@@ -356,6 +360,7 @@ impl Session {
             hash: None,
             unit,
             bodies: Vec::new(),
+            link: None,
         };
         let mut fresh = ModelStore::new();
         let diags = fresh.load(&src, &self.dir);
@@ -423,6 +428,10 @@ impl Session {
         };
         src.path = rel.clone();
         src.hash = Some(loaded.hash.clone());
+        src.link = loaded.link.as_ref().map(|l| Link {
+            source_id: l.source_id.clone(),
+            revision: l.revision.clone(),
+        });
         src.bodies = loaded
             .bodies
             .iter()

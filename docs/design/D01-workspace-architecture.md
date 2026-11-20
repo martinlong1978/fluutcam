@@ -18,7 +18,7 @@ Without it, `fluut-post` and `fluut-sim` would depend on the whole of `fluut-cam
          └──┬───────┬──┘ └──┬───┬───┘  └─────┬──────┘
    ┌────────▼──┐ ┌──▼──────────┐ │            │
    │fluut-io-  │ │fluut-io-mesh│ │            │
-   │step       │ │fluut-io-2d  │ │            │
+   │step,craftx│ │fluut-io-2d  │ │            │
    └────────┬──┘ └──┬──────────┘ │            │
             └───┬───┘            │            │
           ┌─────▼────────────────▼──┐         │
@@ -56,6 +56,7 @@ Rules:
 | `fluut-topo` | B-rep arena, mesh bodies, adjacency, BVH, tessellation for display (D03) |
 | `fluut-path` | `ToolpathResult`, `Pass`, `Segment` variants, linearize/split helpers (D08 §2) |
 | `fluut-io-step` | Part 21 parser, entity mapping, assemblies, validation, sewing (D04) |
+| `fluut-io-craftx` | Craft exchange (`.craftx`) reader: ZIP container with limits, manifest and part hashes, STEP bodies through `fluut-io-step`, face and edge names (S 02 §2.6.4, D04 §12) |
 | `fluut-io-mesh` | STL read/write, mesh welding (D05) |
 | `fluut-io-2d` | DXF, SVG, bitmap relief (D05) |
 | `fluut-i18n` | Fluent bundles, unit parsing/formatting, locale number formats |

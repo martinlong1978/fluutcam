@@ -60,7 +60,7 @@ fn the_key_is_read_from_a_file_that_says_minor_zero() {
 
 #[test]
 fn a_newer_minor_still_warns() {
-    let l = read("format = \"fluut.project/1.2\"\nname = \"P\"\n").unwrap();
+    let l = read("format = \"fluut.project/1.3\"\nname = \"P\"\n").unwrap();
     assert_eq!(l.warnings.len(), 1);
 }
 

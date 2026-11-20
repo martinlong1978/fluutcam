@@ -134,6 +134,14 @@ Anything else inside a shape representation is counted and reported by name [S 0
   `Coedge.forward`.
 - Vertex positions vs curve ends: if a curve end differs from its vertex by more than tol_model,
   the edge range is adjusted to the closest parameter and the gap is reported.
+- **Names (2026-11-19).** The `name` of each `ADVANCED_FACE` and `EDGE_CURVE` goes into the
+  body's name table (`BrepBody::names`, D03 §6). An empty or blank name stays absent, and a
+  name carried by more than one face (or more than one edge) of a body is left out, because it
+  identifies nothing (`MappedBody::repeated_names` lists them). The names are opaque strings.
+  `MappedBody::face_ids` and `edge_ids` give the STEP id of each face and edge, so a reader
+  that numbers faces by their place in the file (the craft exchange reader, §12) can find
+  them. A STEP file that carries names is matched by name on re-import, whatever CAD system
+  wrote it (D06 §5.1).
 
 ## 6. Validation and sewing (OQ-04)
 
@@ -208,7 +216,70 @@ gaps in files that declare more than 0.01 mm (report §6).
 - Sewing: synthetic bodies with gaps of 0.5 × and 2 × tol_model.
 - Fuzzing (`cargo-fuzz`) on the lexer, parser and mapper; no panics, bounded memory.
 
-## 11. Challenges
+## 12. Craft exchange files (`fluut-io-craftx`, 2026-11-19)
+
+A `.craftx` file (`craft-exchange/1`, SolidCraft RFC 0001, a draft) is a ZIP archive holding a
+manifest, one STEP part per body (`bodies/<n>.step`), a face table (`faces.json`) and display
+data (`params.json`, `meta.json`). The reader lives in its own crate beside this one and reads
+each body through this crate's parser and mapper. Every detail of the format, including the
+choices the draft leaves open, is in `fluut_io_craftx::format`, so a change to the RFC
+touches one module. Spec: S 02 §2.6.4.
+
+- **Container.** A small reader of its own over `flate2` (stored and deflated entries only;
+  no ZIP64, encryption or multi-disk archives). Limits: 1 000 entries, 1 GiB unpacked, a 200:1
+  compression ratio for entries over 1 MiB; an entry name with `..`, `.` or empty segments,
+  a leading `/`, a drive letter, a backslash or a control character refuses the file. Every
+  entry is checked against its declared size and CRC-32.
+- **Manifest.** `format` must be `craft-exchange/1` (any minor); `source_id` and `revision`
+  are required; a capability in `requires` the reader cannot use refuses the file. Every
+  part read must match its SHA-256 in the manifest. Parts the reader does not know are
+  warned about and skipped; archive entries the manifest does not list are ignored with a
+  warning.
+- **Face index.** The RFC does not define what a face table index counts. The reader takes
+  the order of `ADVANCED_FACE` entities in the body's STEP part, in file order (edges:
+  `EDGE_CURVE`). A face whose STEP name equals the entry's name is taken instead of the
+  index; a STEP name that differs from the entry's wins, with a warning. A point given for a
+  face must lie on it within the modelling tolerance plus 0.1 µm, and a surface type must
+  match; otherwise the name is kept and marked `exact: false`, with a warning.
+- **Pieces and edges.** A name `<name>#[…]` is a piece of a split face (`piece_of`); an edge
+  name `<face A>|<face B>[~k]` gives its two faces (`between`). Separators inside brackets
+  do not count, since names nest. An unnamed edge between two named faces gets the derived
+  name `<face A>|<face B>`.
+- **Findings.** `import.craftx.*` codes; errors refuse the file, warnings let it load.
+
+| Code | Sev | Rule |
+|---|---|---|
+| `import.craftx.zip.invalid` | E | not a readable ZIP archive |
+| `import.craftx.zip.unsupported` | E | ZIP64, encryption, several disks or another compression method |
+| `import.craftx.zip.entries` | E | more than 1 000 entries |
+| `import.craftx.zip.size` | E | more than 1 GiB unpacked |
+| `import.craftx.zip.ratio` | E | an entry over 1 MiB compressed more than 200:1 |
+| `import.craftx.zip.name` | E | an entry name that could leave the archive |
+| `import.craftx.zip.duplicate` | E | an entry name used twice |
+| `import.craftx.zip.crc` | E | an entry does not unpack to its declared size and CRC-32 |
+| `import.craftx.manifest.missing` | E | no `manifest.json` |
+| `import.craftx.manifest.invalid` | E | the manifest is not JSON, or lacks `source_id`, `revision` or `parts` |
+| `import.craftx.format` | E | not `craft-exchange/1` |
+| `import.craftx.requires` | E | `requires` names a capability the reader cannot use |
+| `import.craftx.part.missing` | E | a listed part is not in the archive |
+| `import.craftx.part.unhashed` | E | a part read has no SHA-256 in the manifest |
+| `import.craftx.part.hash` | E | a part does not match its SHA-256 |
+| `import.craftx.part.unknown` | W | a listed part the reader does not know |
+| `import.craftx.part.unlisted` | W | an archive entry the manifest does not list |
+| `import.craftx.body.none` | E | no STEP body could be read |
+| `import.craftx.body.step` | E | a STEP part is not valid STEP |
+| `import.craftx.body.skipped` | W | an entity of a STEP part could not be mapped |
+| `import.craftx.body.count` | W | a STEP part holds several bodies; its face names are not used |
+| `import.craftx.faces.invalid` | W | the face table cannot be read (an error when `requires` lists `faces.names`) |
+| `import.craftx.faces.index` | W | an entry names a face the STEP part does not have |
+| `import.craftx.faces.name_mismatch` | W | the STEP face name differs from the table's |
+| `import.craftx.faces.point` | W | the face's point is not on the face |
+| `import.craftx.faces.surface` | W | the face's surface type differs from the table's |
+| `import.craftx.faces.repeated` | W | a name given to more than one face or edge |
+| `import.craftx.params.invalid` | W | `params.json` cannot be read |
+| `import.craftx.meta.invalid` | W | `meta.json` cannot be read |
+
+## 13. Challenges
 
 - CH-07 Reference results for STEP corpus without a C++ kernel (deferred).
 - CH-08 P-curve computation on B-spline faces near seams and singularities (resolved 2026-11-01: [report](../plan/spikes/step-pcurves-fuzz.md)).
