@@ -22,6 +22,7 @@ pub mod settings;
 pub mod sim;
 pub mod store;
 pub mod update;
+pub mod watch;
 
 pub use fluut_sim;
 

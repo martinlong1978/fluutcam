@@ -461,6 +461,8 @@ pub struct PickReport {
     pub field: String,
     /// The pick's id before the update.
     pub id: String,
+    /// The toolpath's name, for the report.
+    pub owner_name: String,
     /// The name it is found by.
     pub name: String,
     pub outcome: crate::names::Outcome,
@@ -471,10 +473,68 @@ pub struct PickReport {
     pub at: Option<[f64; 3]>,
 }
 
+impl PickReport {
+    /// `face` or `edge`.
+    pub fn what(&self) -> &'static str {
+        if self.id.starts_with("e-") {
+            "edge"
+        } else {
+            "face"
+        }
+    }
+
+    /// The outcome in plain words, as the update report shows it (the
+    /// window has the same words in its message catalog).
+    pub fn text(&self) -> String {
+        use crate::names::Outcome as O;
+        let (w, n) = (self.what(), &self.name);
+        match self.outcome {
+            O::Exact => format!("the {w} `{n}` was found by its name"),
+            O::Merged => {
+                format!("the {w} `{n}` merged into another {w}; the pick follows it")
+            }
+            O::Split => format!(
+                "the {w} `{n}` is now {} pieces; the pick uses all of them, check what the toolpath cuts",
+                self.ids.len()
+            ),
+            O::ByGeometry => {
+                format!("the {w} `{n}` was found by its shape only; check this toolpath")
+            }
+            O::Missing => {
+                let place = self.at.map_or_else(String::new, |p| {
+                    format!(", last at ({:.1}, {:.1}, {:.1}) mm", p[0], p[1], p[2])
+                });
+                format!(
+                    "the {w} `{n}` is not in the model any more{place}; the toolpath is broken until you pick it again"
+                )
+            }
+        }
+    }
+
+    /// One line of the update report: outcome, toolpath, field and words.
+    pub fn line(&self) -> String {
+        format!(
+            "{:<11} {} \"{}\" ({}): {}",
+            self.outcome.as_str(),
+            self.owner,
+            self.owner_name,
+            self.field,
+            self.text()
+        )
+    }
+}
+
 /// The outcome of a re-import.
 #[derive(Clone, PartialEq, Debug)]
 pub struct ReimportReport {
     pub source: String,
+    /// The source's file, as the project names it.
+    pub path: String,
+    /// The linked design's revision before and after, for a linked model.
+    pub revision_before: Option<String>,
+    pub revision: Option<String>,
+    /// The file's hash did not change.
+    pub unchanged: bool,
     pub matching: Matching,
     /// Kept in the project and reported (spec 03 §3.5).
     pub unmatched: Vec<Unmatched>,
@@ -496,6 +556,60 @@ impl ReimportReport {
             .collect();
         v.dedup();
         v
+    }
+
+    /// How many picks had each outcome, in outcome order, leaving out the
+    /// outcomes no pick had.
+    pub fn counts(&self) -> Vec<(crate::names::Outcome, usize)> {
+        use crate::names::Outcome as O;
+        [O::Exact, O::Merged, O::Split, O::ByGeometry, O::Missing]
+            .into_iter()
+            .map(|o| (o, self.picks.iter().filter(|p| p.outcome == o).count()))
+            .filter(|(_, n)| *n > 0)
+            .collect()
+    }
+
+    /// The update report as text: a heading, one line per named pick and
+    /// a summary (`fluut model update`, the script's `text`).
+    pub fn text(&self) -> String {
+        let mut out: Vec<String> = Vec::new();
+        out.push(match (&self.revision_before, &self.revision) {
+            (Some(a), Some(b)) if a != b => {
+                format!("{} {}: revision {a} -> {b}", self.source, self.path)
+            }
+            (_, Some(b)) => format!("{} {}: revision {b}", self.source, self.path),
+            _ => format!("{} {}", self.source, self.path),
+        });
+        if self.unchanged {
+            out.push("  the file has not changed".into());
+        }
+        out.extend(self.picks.iter().map(|p| format!("  {}", p.line())));
+        out.extend(self.unmatched.iter().map(|u| {
+            format!(
+                "  unmatched   {} ({}): `{}` is not in the new file; the selection is kept",
+                u.owner, u.field, u.id
+            )
+        }));
+        if self.picks.is_empty() {
+            out.push("  no named picks".into());
+        } else {
+            let counts: Vec<String> = self
+                .counts()
+                .iter()
+                .map(|(o, n)| format!("{n} {}", o.as_str()))
+                .collect();
+            let broken = self.broken().len();
+            out.push(format!(
+                "  {} picks: {}; {} toolpath{} broken",
+                self.picks.len(),
+                counts.join(", "),
+                broken,
+                if broken == 1 { "" } else { "s" }
+            ));
+        }
+        let mut text = out.join("\n");
+        text.push('\n');
+        text
     }
 }
 
